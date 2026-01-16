@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import contextlib
 from typing import Any, Dict, Optional
 
@@ -10,7 +9,6 @@ from mmcv.transforms import Compose
 
 from hmlib.aspen.plugins.base import Plugin
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
-from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
@@ -35,16 +33,22 @@ class ApplyCameraPlugin(Plugin):
       - data.dataset_results: optional far-end frames for EndZones
       - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
-      - shared.cam_args: argparse.Namespace (optional; derived from game_config otherwise)
+      - shared.game_config: full game config dict
 
     Params:
       - video_out_pipeline: dict/list pipeline; applied via mmcv.Compose
+      - crop_play_box: bool; crop output to play-box region when available
+      - crop_output_image: bool; enforce 16:9 crop/output sizing
+      - end_zones: bool; enable end-zone camera overlays
     """
 
     def __init__(
         self,
         enabled: bool = True,
         video_out_pipeline: Optional[Dict[str, Any]] = None,
+        crop_play_box: bool = False,
+        crop_output_image: bool = True,
+        end_zones: bool = False,
     ) -> None:
         super().__init__(enabled=enabled)
         self._pipeline_cfg = video_out_pipeline or {}
@@ -55,32 +59,15 @@ class ApplyCameraPlugin(Plugin):
         self._game_config: Optional[Dict[str, Any]] = None
         self._iter_num: int = 0
         self._initialized: bool = False
+        self._crop_play_box = bool(crop_play_box)
+        self._crop_output_image = bool(crop_output_image)
+        self._use_end_zones = bool(end_zones)
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
         if self._initialized:
             return
         shared = context.get("shared", {}) if isinstance(context, dict) else {}
         self._game_config = shared.get("game_config") or {}
-
-        cam_args = shared.get("cam_args")
-        if cam_args is None:
-            cfg = self._game_config
-            init_args = cfg.get("initial_args") or {}
-            try:
-                cam_args = argparse.Namespace(**init_args)  # type: ignore[name-defined]
-            except Exception:
-                cam_args = argparse.Namespace()  # type: ignore[name-defined]
-            cam_args.game_config = cfg
-            if not hasattr(cam_args, "cam_ignore_largest"):
-                cam_args.cam_ignore_largest = get_nested_value(
-                    cfg, "rink.tracking.cam_ignore_largest", default_value=False
-                )
-            if not hasattr(cam_args, "crop_play_box"):
-                cam_args.crop_play_box = bool(getattr(cam_args, "crop_play_box", False))
-            if not hasattr(cam_args, "crop_output_image"):
-                no_crop = bool(getattr(cam_args, "no_crop", False))
-                cam_args.crop_output_image = not no_crop
-            shared["cam_args"] = cam_args
 
         img = context.get("img")
         if img is None:
@@ -94,8 +81,8 @@ class ApplyCameraPlugin(Plugin):
         ar = 16.0 / 9.0
         play_box = context.get("play_box")
 
-        if getattr(cam_args, "crop_play_box", False):
-            if getattr(cam_args, "crop_output_image", True):
+        if self._crop_play_box:
+            if self._crop_output_image:
                 final_h = H if play_box is None else int((play_box[3] - play_box[1]))
                 final_w = int(final_h * ar)
                 if final_w > MAX_NEVC_VIDEO_WIDTH:
@@ -105,7 +92,7 @@ class ApplyCameraPlugin(Plugin):
                 final_h = H if play_box is None else int((play_box[3] - play_box[1]))
                 final_w = W if play_box is None else int((play_box[2] - play_box[0]))
         else:
-            if getattr(cam_args, "crop_output_image", True):
+            if self._crop_output_image:
                 final_h = H
                 final_w = int(final_h * ar)
                 if final_w > MAX_NEVC_VIDEO_WIDTH:
@@ -128,7 +115,7 @@ class ApplyCameraPlugin(Plugin):
             "output_frame_width": final_w,
             "output_frame_height": final_h,
             "output_aspect_ratio": float(final_w) / float(final_h),
-            "no_crop": not bool(getattr(cam_args, "crop_output_image", True)),
+            "no_crop": not self._crop_output_image,
         }
 
         if self._pipeline_cfg:
@@ -139,7 +126,7 @@ class ApplyCameraPlugin(Plugin):
                     self.add_module(name, mod)
             self._pipeline = pipeline
 
-        enable_end_zones = bool(getattr(cam_args, "end_zones", False))
+        enable_end_zones = self._use_end_zones
         if enable_end_zones and self._game_config:
             lines = load_lines_from_config(self._game_config)
             if lines:
@@ -201,6 +188,7 @@ class ApplyCameraPlugin(Plugin):
         results: Dict[str, Any] = {}
         pano_size_wh = [image_width(img), image_height(img)]
         results["pano_size_wh"] = pano_size_wh
+        pipeline_outputs: Dict[str, Any] = {}
 
         if current_boxes is None:
             # Fallback: cover the entire frame

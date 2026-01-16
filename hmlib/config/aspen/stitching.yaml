@@ -9,7 +9,7 @@ aspen:
   video_out_pipeline:
     - type: HmImageColorAdjust
       # No-op by default; runtime camera color tweaks can still be wired in
-      # later via shared.cam_args or game_config if desired.
+      # later via game_config if desired.
     - type: HmMakeVisibleImage
 
   plugins:
@@ -43,6 +43,10 @@ aspen:
         video_out_pipeline:
           - type: HmImageColorAdjust
           - type: HmMakeVisibleImage
+        # For stitching we always keep the full panorama.
+        crop_output_image: false
+        crop_play_box: false
+        end_zones: false
 
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
@@ -53,3 +57,6 @@ aspen:
         # in programmatically from the CLI (stitch.py) before AspenNet
         # is constructed.
         cache_size: 2
+        bit_rate: GLOBAL.aspen.video_out.bit_rate
+        show_image: GLOBAL.aspen.video_out.show_image
+        show_scaled: GLOBAL.aspen.video_out.show_scaled

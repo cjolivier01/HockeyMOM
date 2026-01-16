@@ -250,9 +250,11 @@ aspen:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
       depends: [play_tracker, load_camera]
       enabled: true
-      params: {
-        video_out_pipeline: GLOBAL.aspen.video_out_pipeline,
-      }
+      params:
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline
+        crop_play_box: GLOBAL.aspen.apply_camera.crop_play_box
+        crop_output_image: GLOBAL.aspen.apply_camera.crop_output_image
+        end_zones: GLOBAL.aspen.apply_camera.end_zones
 
     rgb_stats_check:
       class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
@@ -271,3 +273,9 @@ aspen:
         # Allow GLOBAL.aspen.video_out.skip_final_save (default from baseline.yaml)
         # to be overridden by CLI --skip-final-video-save before GLOBAL resolution.
         skip_final_save: GLOBAL.aspen.video_out.skip_final_save
+        encoder_backend: GLOBAL.aspen.video_out.encoder_backend
+        output_width: GLOBAL.aspen.video_out.output_width
+        bit_rate: GLOBAL.aspen.video_out.bit_rate
+        show_image: GLOBAL.aspen.video_out.show_image
+        show_scaled: GLOBAL.aspen.video_out.show_scaled
+        output_video_path: GLOBAL.aspen.video_out.output_video_path

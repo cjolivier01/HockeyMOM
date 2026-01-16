@@ -25,7 +25,7 @@ class PlayTrackerPlugin(Plugin):
       - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
       - shared.device: torch.device
-      - shared.cam_args: Namespace (optional; created if missing)
+      - shared.game_config: full game config dict
       - arena: optional TLBR arena/play region tensor (from CamTrackPostProcessor)
 
     Produces:
