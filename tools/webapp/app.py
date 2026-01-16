@@ -7328,7 +7328,11 @@ def summarize_event_sources(
 
     def _canon(s: str) -> str:
         sl = s.strip().casefold()
-        if sl in {"timetoscore", "t2s", "tts"} or sl.startswith("t2s") or sl.startswith("timetoscore"):
+        if (
+            sl in {"timetoscore", "t2s", "tts"}
+            or sl.startswith("t2s")
+            or sl.startswith("timetoscore")
+        ):
             return "TimeToScore"
         if sl == "long":
             return "Long"
@@ -9541,6 +9545,7 @@ def _build_game_player_stats_table_from_imported_csv(
     )
     jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}
     name_to_player_ids: dict[tuple[int, str], list[int]] = {}
+    name_to_player_ids_no_middle: dict[tuple[int, str], list[int]] = {}
     for p in players or []:
         try:
             pid = int(p.get("id"))
@@ -9553,8 +9558,13 @@ def _build_game_player_stats_table_from_imported_csv(
         name_norm = normalize_player_name(str(p.get("name") or ""))
         if name_norm:
             name_to_player_ids.setdefault((tid, name_norm), []).append(pid)
+        name_norm_no_middle = normalize_player_name_no_middle(str(p.get("name") or ""))
+        if name_norm_no_middle:
+            name_to_player_ids_no_middle.setdefault((tid, name_norm_no_middle), []).append(pid)
 
-    def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+    def _resolve_player_id(
+        jersey_norm: Optional[str], name_norm: str, name_norm_no_middle: str
+    ) -> Optional[int]:
         candidates: list[int] = []
         for tid in team_ids:
             if jersey_norm:
@@ -9566,6 +9576,12 @@ def _build_game_player_stats_table_from_imported_csv(
             candidates.extend(name_to_player_ids.get((tid, name_norm), []))
         if len(set(candidates)) == 1:
             return int(list(set(candidates))[0])
+        if name_norm_no_middle and name_norm_no_middle != name_norm:
+            candidates = []
+            for tid in team_ids:
+                candidates.extend(name_to_player_ids_no_middle.get((tid, name_norm_no_middle), []))
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
         return None
 
     def _first_non_empty(d: dict[str, str], keys: tuple[str, ...]) -> str:
@@ -9596,7 +9612,7 @@ def _build_game_player_stats_table_from_imported_csv(
                 name_part = m.group(2).strip()
         name_norm = normalize_player_name(name_part)
         name_norm_no_middle = normalize_player_name_no_middle(name_part)
-        pid = _resolve_player_id(jersey_norm, name_norm)
+        pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
         if pid is None:
             continue
         imported_row_by_pid[int(pid)] = dict(r)
@@ -9728,7 +9744,9 @@ def _rate_or_none(numer: float, denom: float) -> Optional[float]:
         return None
 
 
-def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
+def compute_player_display_stats(
+    sums: dict[str, Any], *, per_game_denoms: Optional[dict[str, int]] = None
+) -> dict[str, Any]:
     gp = _int0(sums.get("gp"))
     goals = _int0(sums.get("goals"))
     assists = _int0(sums.get("assists"))
@@ -9759,6 +9777,15 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     goalie_saves = _int0(sums.get("goalie_saves"))
     goalie_sa = _int0(sums.get("goalie_sa"))
 
+    def _denom_for(key: str) -> int:
+        if per_game_denoms is not None and str(key) in per_game_denoms:
+            try:
+                v = int(per_game_denoms.get(str(key)) or 0)
+            except Exception:
+                v = 0
+            return max(0, int(v))
+        return int(gp)
+
     out: dict[str, Any] = dict(sums)
     # Stat implications for display/aggregation:
     #   Goals ⊆ xG ⊆ SOG ⊆ Shots
@@ -9770,29 +9797,46 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     out["shots"] = shots
     out["gp"] = gp
     out["points"] = points
-    out["ppg"] = _rate_or_none(points, gp)
+    out["ppg"] = _rate_or_none(points, _denom_for("ppg"))
 
     # Per-game rates.
-    out["toi_seconds_per_game"] = int(round(float(toi_seconds) / float(gp))) if gp > 0 else None
-    out["shifts_per_game"] = _rate_or_none(shifts, gp)
-    out["shots_per_game"] = _rate_or_none(shots, gp)
-    out["sog_per_game"] = _rate_or_none(sog, gp)
-    out["expected_goals_per_game"] = _rate_or_none(xg, gp)
-    out["plus_minus_per_game"] = _rate_or_none(plus_minus, gp)
-    out["gf_per_game"] = _rate_or_none(gf, gp)
-    out["ga_per_game"] = _rate_or_none(ga, gp)
-    out["giveaways_per_game"] = _rate_or_none(giveaways, gp)
-    out["takeaways_per_game"] = _rate_or_none(takeaways, gp)
-    out["completed_passes_per_game"] = _rate_or_none(completed_passes, gp)
-    out["turnovers_forced_per_game"] = _rate_or_none(turnovers_forced, gp)
-    out["created_turnovers_per_game"] = _rate_or_none(created_turnovers, gp)
-    out["controlled_entry_for_per_game"] = _rate_or_none(ce_for, gp)
-    out["controlled_entry_against_per_game"] = _rate_or_none(ce_against, gp)
-    out["controlled_exit_for_per_game"] = _rate_or_none(cx_for, gp)
-    out["controlled_exit_against_per_game"] = _rate_or_none(cx_against, gp)
-    out["pim_per_game"] = _rate_or_none(pim, gp)
-    out["hits_per_game"] = _rate_or_none(_int0(sums.get("hits")), gp)
-    out["blocks_per_game"] = _rate_or_none(_int0(sums.get("blocks")), gp)
+    toi_gp = _denom_for("toi_seconds_per_game")
+    out["toi_seconds_per_game"] = (
+        int(round(float(toi_seconds) / float(toi_gp))) if toi_gp > 0 else None
+    )
+    out["shifts_per_game"] = _rate_or_none(shifts, _denom_for("shifts_per_game"))
+    out["shots_per_game"] = _rate_or_none(shots, _denom_for("shots_per_game"))
+    out["sog_per_game"] = _rate_or_none(sog, _denom_for("sog_per_game"))
+    out["expected_goals_per_game"] = _rate_or_none(xg, _denom_for("expected_goals_per_game"))
+    out["plus_minus_per_game"] = _rate_or_none(plus_minus, _denom_for("plus_minus_per_game"))
+    out["gf_per_game"] = _rate_or_none(gf, _denom_for("gf_per_game"))
+    out["ga_per_game"] = _rate_or_none(ga, _denom_for("ga_per_game"))
+    out["giveaways_per_game"] = _rate_or_none(giveaways, _denom_for("giveaways_per_game"))
+    out["takeaways_per_game"] = _rate_or_none(takeaways, _denom_for("takeaways_per_game"))
+    out["completed_passes_per_game"] = _rate_or_none(
+        completed_passes, _denom_for("completed_passes_per_game")
+    )
+    out["turnovers_forced_per_game"] = _rate_or_none(
+        turnovers_forced, _denom_for("turnovers_forced_per_game")
+    )
+    out["created_turnovers_per_game"] = _rate_or_none(
+        created_turnovers, _denom_for("created_turnovers_per_game")
+    )
+    out["controlled_entry_for_per_game"] = _rate_or_none(
+        ce_for, _denom_for("controlled_entry_for_per_game")
+    )
+    out["controlled_entry_against_per_game"] = _rate_or_none(
+        ce_against, _denom_for("controlled_entry_against_per_game")
+    )
+    out["controlled_exit_for_per_game"] = _rate_or_none(
+        cx_for, _denom_for("controlled_exit_for_per_game")
+    )
+    out["controlled_exit_against_per_game"] = _rate_or_none(
+        cx_against, _denom_for("controlled_exit_against_per_game")
+    )
+    out["pim_per_game"] = _rate_or_none(pim, _denom_for("pim_per_game"))
+    out["hits_per_game"] = _rate_or_none(_int0(sums.get("hits")), _denom_for("hits_per_game"))
+    out["blocks_per_game"] = _rate_or_none(_int0(sums.get("blocks")), _denom_for("blocks_per_game"))
 
     out["expected_goals_per_sog"] = _rate_or_none(xg, sog)
     out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
@@ -10281,9 +10325,50 @@ def compute_recent_player_totals_from_rows(
         items.sort(key=lambda t: t[0], reverse=True)
         chosen = items[:n_i]
         sums: dict[str, Any] = {"player_id": int(pid), "gp": len(chosen)}
+        present: dict[str, int] = {}
+        ppg_games = 0
         for k in PLAYER_STATS_SUM_KEYS:
-            sums[k] = sum(_int0(rr.get(k)) for _idx, rr in chosen)
-        out[int(pid)] = compute_player_display_stats(sums)
+            total = 0
+            n_present = 0
+            for _idx, rr in chosen:
+                if rr.get(k) is not None:
+                    n_present += 1
+                total += _int0(rr.get(k))
+            sums[k] = total
+            present[k] = int(n_present)
+        for _idx, rr in chosen:
+            if rr.get("goals") is not None and rr.get("assists") is not None:
+                ppg_games += 1
+        gp_i = int(sums.get("gp") or 0)
+        denoms = {
+            "ppg": int(ppg_games),
+            "toi_seconds_per_game": int(present.get("toi_seconds", 0) or 0),
+            "shifts_per_game": int(present.get("shifts", 0) or 0),
+            "shots_per_game": int(present.get("shots", 0) or 0),
+            "sog_per_game": int(present.get("sog", 0) or 0),
+            "expected_goals_per_game": int(present.get("expected_goals", 0) or 0),
+            "plus_minus_per_game": int(present.get("plus_minus", 0) or 0),
+            "gf_per_game": int(present.get("gf_counted", 0) or 0),
+            "ga_per_game": int(present.get("ga_counted", 0) or 0),
+            "giveaways_per_game": int(present.get("giveaways", 0) or 0),
+            "takeaways_per_game": int(present.get("takeaways", 0) or 0),
+            "completed_passes_per_game": int(present.get("completed_passes", 0) or 0),
+            "turnovers_forced_per_game": int(present.get("turnovers_forced", 0) or 0),
+            "created_turnovers_per_game": int(present.get("created_turnovers", 0) or 0),
+            "controlled_entry_for_per_game": int(present.get("controlled_entry_for", 0) or 0),
+            "controlled_entry_against_per_game": int(
+                present.get("controlled_entry_against", 0) or 0
+            ),
+            "controlled_exit_for_per_game": int(present.get("controlled_exit_for", 0) or 0),
+            "controlled_exit_against_per_game": int(present.get("controlled_exit_against", 0) or 0),
+            "pim_per_game": int(present.get("pim", 0) or 0),
+            "hits_per_game": int(present.get("hits", 0) or 0),
+            "blocks_per_game": int(present.get("blocks", 0) or 0),
+        }
+        for dk in list(denoms.keys()):
+            if int(denoms.get(dk) or 0) <= 0:
+                denoms[dk] = int(gp_i)
+        out[int(pid)] = compute_player_display_stats(sums, per_game_denoms=denoms)
     return out
 
 
@@ -10360,6 +10445,8 @@ def _aggregate_player_totals_from_rows(
 ) -> dict[int, dict[str, Any]]:
     sums_by_pid: dict[int, dict[str, Any]] = {}
     gp_by_pid: dict[int, int] = {}
+    present_counts_by_pid: dict[int, dict[str, int]] = {}
+    ppg_games_by_pid: dict[int, int] = {}
     for r in player_stats_rows or []:
         if not isinstance(r, dict):
             continue
@@ -10371,13 +10458,50 @@ def _aggregate_player_totals_from_rows(
         if gid not in allowed_game_ids:
             continue
         gp_by_pid[pid] = gp_by_pid.get(pid, 0) + 1
+        if r.get("goals") is not None and r.get("assists") is not None:
+            ppg_games_by_pid[pid] = ppg_games_by_pid.get(pid, 0) + 1
         acc = sums_by_pid.setdefault(pid, {"player_id": int(pid)})
         for k in PLAYER_STATS_SUM_KEYS:
+            if r.get(k) is not None:
+                per = present_counts_by_pid.setdefault(pid, {})
+                per[k] = per.get(k, 0) + 1
             acc[k] = _int0(acc.get(k)) + _int0(r.get(k))
     out: dict[int, dict[str, Any]] = {}
     for pid, base in sums_by_pid.items():
         base["gp"] = int(gp_by_pid.get(pid, 0))
-        out[int(pid)] = compute_player_display_stats(dict(base))
+        gp_i = int(base.get("gp") or 0)
+        present = present_counts_by_pid.get(int(pid)) or {}
+        denoms = {
+            "ppg": int(ppg_games_by_pid.get(int(pid), 0) or 0),
+            "toi_seconds_per_game": int(present.get("toi_seconds", 0) or 0),
+            "shifts_per_game": int(present.get("shifts", 0) or 0),
+            "shots_per_game": int(present.get("shots", 0) or 0),
+            "sog_per_game": int(present.get("sog", 0) or 0),
+            "expected_goals_per_game": int(present.get("expected_goals", 0) or 0),
+            "plus_minus_per_game": int(present.get("plus_minus", 0) or 0),
+            "gf_per_game": int(present.get("gf_counted", 0) or 0),
+            "ga_per_game": int(present.get("ga_counted", 0) or 0),
+            "giveaways_per_game": int(present.get("giveaways", 0) or 0),
+            "takeaways_per_game": int(present.get("takeaways", 0) or 0),
+            "completed_passes_per_game": int(present.get("completed_passes", 0) or 0),
+            "turnovers_forced_per_game": int(present.get("turnovers_forced", 0) or 0),
+            "created_turnovers_per_game": int(present.get("created_turnovers", 0) or 0),
+            "controlled_entry_for_per_game": int(present.get("controlled_entry_for", 0) or 0),
+            "controlled_entry_against_per_game": int(
+                present.get("controlled_entry_against", 0) or 0
+            ),
+            "controlled_exit_for_per_game": int(present.get("controlled_exit_for", 0) or 0),
+            "controlled_exit_against_per_game": int(present.get("controlled_exit_against", 0) or 0),
+            "pim_per_game": int(present.get("pim", 0) or 0),
+            "hits_per_game": int(present.get("hits", 0) or 0),
+            "blocks_per_game": int(present.get("blocks", 0) or 0),
+        }
+        # If a denom is missing (0), fall back to GP for backward-compatible display.
+        for dk in list(denoms.keys()):
+            if int(denoms.get(dk) or 0) <= 0:
+                denoms[dk] = int(gp_i)
+
+        out[int(pid)] = compute_player_display_stats(dict(base), per_game_denoms=denoms)
     return out
 
 
@@ -10385,6 +10509,10 @@ def _player_stats_required_sum_keys_for_display_key(col_key: str) -> tuple[str, 
     k = str(col_key or "").strip()
     if not k:
         return tuple()
+    if k == "gf_per_game":
+        return ("gf_counted",)
+    if k == "ga_per_game":
+        return ("ga_counted",)
     if k in set(PLAYER_STATS_SUM_KEYS):
         return (k,)
     if k == "gp":
