@@ -123,6 +123,13 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
         {"key": "assists", "label": "Assists", "n_games": 0, "total_games": 0, "show_count": False},
         {"key": "points", "label": "Points", "n_games": 0, "total_games": 0, "show_count": False},
         {"key": "ppg", "label": "PPG", "n_games": 0, "total_games": 0, "show_count": False},
+        {
+            "key": "shots_per_game",
+            "label": "Shots/Game",
+            "n_games": 5,
+            "total_games": 6,
+            "show_count": True,
+        },
     ]
     row = {
         "player_id": 501,
@@ -134,6 +141,8 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
         "assists": 1,
         "points": 2,
         "ppg": 1.0,
+        "shots_per_game": 2.0,
+        "_per_game_denoms": {"shots_per_game": 3},
     }
 
     rf = RequestFactory()
@@ -162,6 +171,7 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
     assert 'data-freeze-cols="2"' in html
     assert "table-nowrap" in html
     assert "<select" in html and "recent_n" in html
+    assert html.count("(3 games)") == 2
 
 
 def should_split_coaches_out_of_player_lists():

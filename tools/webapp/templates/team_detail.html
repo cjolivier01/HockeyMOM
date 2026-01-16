@@ -328,11 +328,27 @@
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
+              {% with denom=r|get_item:"_per_game_denoms"|get_item:col.key %}
+                {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_toi }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% else %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_stat }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% endif %}
+              {% endwith %}
             {% endfor %}
           </tr>
         {% empty %}
@@ -411,11 +427,27 @@
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
+              {% with denom=r|get_item:"_per_game_denoms"|get_item:col.key %}
+                {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_toi }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% else %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_stat }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% endif %}
+              {% endwith %}
             {% endfor %}
           </tr>
         {% empty %}

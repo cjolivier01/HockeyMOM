@@ -9847,6 +9847,8 @@ def compute_player_display_stats(
     out["expected_goals_per_sog"] = _rate_or_none(xg, sog)
     out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
     out["goalie_sv_pct"] = _rate_or_none(goalie_saves, goalie_sa)
+    if per_game_denoms is not None:
+        out["_per_game_denoms"] = {str(k): int(v) for k, v in dict(per_game_denoms).items()}
     return out
 
 
@@ -10293,6 +10295,9 @@ def build_player_stats_table_rows(
         }
         for k, _label in PLAYER_STATS_DISPLAY_COLUMNS:
             row[k] = s.get(k)
+        denoms = s.get("_per_game_denoms")
+        if isinstance(denoms, dict):
+            row["_per_game_denoms"] = denoms
         rows.append(row)
     return rows
 
