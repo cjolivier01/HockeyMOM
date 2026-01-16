@@ -833,12 +833,32 @@
       return svg;
     }
 
-    function makeEventsHeading(tagName, label, styleText) {
+    function _uniqueGamesCount(rows) {
+      var seen = {};
+      var n = 0;
+      (rows || []).forEach(function (r) {
+        if (!r) return;
+        var gid = (r.game_id !== undefined && r.game_id !== null) ? String(r.game_id) : "";
+        if (!gid) return;
+        if (!seen[gid]) {
+          seen[gid] = true;
+          n += 1;
+        }
+      });
+      return n;
+    }
+
+    function makeEventsHeading(tagName, label, styleText, gamesCount) {
       var h = document.createElement(tagName || "h5");
       if (styleText) h.setAttribute("style", styleText);
       var wrap = el("span", { className: "event-type-cell" });
       wrap.appendChild(makeHeadingIcon(label));
       wrap.appendChild(document.createTextNode(String(label || "")));
+      var n = null;
+      try { n = (gamesCount === undefined || gamesCount === null) ? null : parseInt(String(gamesCount), 10); } catch (e) { n = null; }
+      if (n !== null && isFinite(n) && n > 0) {
+        wrap.appendChild(el("span", { className: "muted-strong", style: "font-size:.9em;font-weight:600;" }, " (" + String(n) + " " + (n === 1 ? "game" : "games") + ")"));
+      }
       h.appendChild(wrap);
       return h;
     }
@@ -1184,7 +1204,7 @@
                 var label = pair[0];
                 var rows = pair[1] || [];
                 if (!rows.length) return;
-                bodyEl.appendChild(makeEventsHeading("h5", label, "margin:.75rem 0 .35rem 0;"));
+                bodyEl.appendChild(makeEventsHeading("h5", label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(rows)));
                 renderEventsTable(bodyEl, rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                   rowCells: function (r, ctx) {
@@ -1211,7 +1231,7 @@
                 var eg = groupRows(remaining, function (r) { return r.event_type; });
                 eg.order.forEach(function (k) {
                   var g = eg.groups[k];
-                  bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;"));
+                  bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(g.rows)));
                   renderEventsTable(bodyEl, g.rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                     rowCells: function (r, ctx) {
@@ -1242,7 +1262,7 @@
             });
             og.order.forEach(function (k) {
               var g = og.groups[k];
-              bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;"));
+              bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(g.rows)));
               renderEventsTable(bodyEl, g.rows, {
                 headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
