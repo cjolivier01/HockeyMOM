@@ -357,6 +357,17 @@
       </tbody>
     </table>
   </div>
+  {% if has_pair_on_ice_all %}
+    <div style="margin-top:.75rem;">
+      <button
+        type="button"
+        class="btn secondary player-pairings-link"
+        data-scope="all"
+        data-scope-label="{{ game_type_filter_label|default:'All' }}"
+        title="Show pair on-ice overlap and goal-based pairing stats"
+      >Associated Player Pairing</button>
+    </div>
+  {% endif %}
 </div>
 
 <h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
@@ -446,6 +457,18 @@
       </tbody>
     </table>
   </div>
+  {% if has_pair_on_ice_recent %}
+    <div style="margin-top:.75rem;">
+      <button
+        type="button"
+        class="btn secondary player-pairings-link"
+        data-scope="recent"
+        data-recent-n="{{ recent_n|default:'5' }}"
+        data-scope-label="Last {{ recent_n|default:'5' }} Games"
+        title="Show pair on-ice overlap and goal-based pairing stats"
+      >Associated Player Pairing</button>
+    </div>
+  {% endif %}
 </div>
 
 {% if recent_goalie_stats_has_sog %}
@@ -613,9 +636,26 @@
   <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 
+<dialog id="team-player-pairings-modal" style="max-width:1100px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+	    <div>
+	      <div id="team-player-pairings-title" style="font-weight:700;"></div>
+	      <div id="team-player-pairings-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-player-pairings-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-player-pairings-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+
 <style>
   #team-player-events-body table.team-player-events-table th,
   #team-player-events-body table.team-player-events-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+
+  #team-player-pairings-body table.team-player-pairings-table th,
+  #team-player-pairings-body table.team-player-pairings-table td {
     padding: .45rem .65rem;
     font-size: .88rem;
   }
@@ -1293,6 +1333,157 @@
         var pid = a.getAttribute("data-player-id");
         if (!pid) return;
         loadPlayer(pid, {
+          recentN: a.getAttribute("data-recent-n"),
+          scopeLabel: a.getAttribute("data-scope-label"),
+          scope: a.getAttribute("data-scope"),
+        });
+      });
+    });
+
+    // ----------------------------
+    // Pair on-ice (player pairing) modal
+    // ----------------------------
+    var pairDlg = document.getElementById("team-player-pairings-modal");
+    var pairTitleEl = document.getElementById("team-player-pairings-title");
+    var pairSubtitleEl = document.getElementById("team-player-pairings-subtitle");
+    var pairBodyEl = document.getElementById("team-player-pairings-body");
+    var pairCloseBtn = document.getElementById("team-player-pairings-close");
+
+    function closePairModal() {
+      if (!pairDlg) return;
+      if (pairBodyEl) pairBodyEl.innerHTML = "";
+      try { pairDlg.close(); } catch (e) { pairDlg.open = false; }
+    }
+    function showPairModal() {
+      if (!pairDlg) return;
+      try { pairDlg.showModal(); } catch (e) { pairDlg.open = true; }
+    }
+    if (pairCloseBtn) pairCloseBtn.addEventListener("click", closePairModal);
+
+    function buildPairingsApiUrl(opts) {
+      opts = opts || {};
+      var api = new URL("/api/hky/teams/" + String(teamId) + "/pair_on_ice", window.location.origin);
+      var cur = new URL(window.location.href);
+      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      var rn = null;
+      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+      if (rn !== null && isFinite(rn) && rn > 0) {
+        rn = Math.max(1, Math.min(10, rn));
+        api.searchParams.set("recent_n", String(rn));
+      }
+      if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      return api;
+    }
+
+    function blankIfZero(v) {
+      if (v === null || v === undefined) return "";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v);
+      if (n === 0) return "";
+      if (Math.floor(n) === n) return String(n);
+      return String(v);
+    }
+
+    function fmtPct(v) {
+      if (v === null || v === undefined) return "0.0";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v || "");
+      return n.toFixed(1);
+    }
+
+    function loadPairings(opts) {
+      opts = opts || {};
+      if (!pairDlg || !pairTitleEl || !pairSubtitleEl || !pairBodyEl) return;
+      var scopeLabel = normScopeLabel(opts.scopeLabel);
+      pairTitleEl.textContent = "Associated Player Pairing — " + scopeLabel;
+      pairSubtitleEl.textContent = "";
+      pairBodyEl.innerHTML = "<p class=\"muted\">Loading…</p>";
+      showPairModal();
+
+      var api = buildPairingsApiUrl(opts);
+      fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
+        return resp.json().then(function (data) {
+          if (!resp.ok || !data || !data.ok) {
+            var err = (data && data.error) ? String(data.error) : ("HTTP " + String(resp.status || ""));
+            pairBodyEl.innerHTML = "";
+            pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + err + ")."));
+            return;
+          }
+          var eligible = Number(data.eligible_games || 0);
+          var shiftGames = Number(data.shift_games || 0);
+          pairSubtitleEl.textContent = "Eligible games: " + String(eligible) + " • Games with shift data: " + String(shiftGames);
+          pairBodyEl.innerHTML = "";
+
+          var rows = Array.isArray(data.rows) ? data.rows : [];
+          if (!rows.length) {
+            pairBodyEl.appendChild(el("p", { className: "muted" }, "No pairing data for the selected games."));
+            return;
+          }
+
+          var wrap = document.createElement("div");
+          wrap.className = "table-scroll";
+          var table = document.createElement("table");
+          table.className = "table-nowrap table-grid team-player-pairings-table";
+          var thead = document.createElement("thead");
+          var trh = document.createElement("tr");
+          [
+            "Player #",
+            "Player",
+            "Teammate #",
+            "Teammate",
+            "Games with Data",
+            "Overlap %",
+            "GF Together",
+            "GA Together",
+            "Player Goals (On Ice Together)",
+            "Player Assists (On Ice Together)",
+            "Goals Collaborated",
+            "Assists Collaborated",
+            "+/- Together",
+            "Player Total +/-",
+            "Teammate Total +/-",
+          ].forEach(function (h) { trh.appendChild(el("th", null, h)); });
+          thead.appendChild(trh);
+          table.appendChild(thead);
+          var tbody = document.createElement("tbody");
+          rows.forEach(function (r) {
+            var tr = document.createElement("tr");
+            function td(txt) { tr.appendChild(el("td", null, txt)); }
+            td(String(r.player_jersey || ""));
+            td(String(r.player_name || ""));
+            td(String(r.teammate_jersey || ""));
+            td(String(r.teammate_name || ""));
+            td(String(r.shift_games || 0));
+            td(fmtPct(r.overlap_pct));
+            td(String(r.gf_together || 0));
+            td(String(r.ga_together || 0));
+            td(blankIfZero(r.player_goals_on_ice_together));
+            td(blankIfZero(r.player_assists_on_ice_together));
+            td(blankIfZero(r.goals_collab_with_teammate));
+            td(blankIfZero(r.assists_collab_with_teammate));
+            td(String(r.plus_minus_together || 0));
+            td(String(r.player_total_plus_minus || 0));
+            td(String(r.teammate_total_plus_minus || 0));
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          wrap.appendChild(table);
+          pairBodyEl.appendChild(wrap);
+        }).catch(function (e) {
+          pairBodyEl.innerHTML = "";
+          pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
+        });
+      }).catch(function (e) {
+        pairBodyEl.innerHTML = "";
+        pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
+      });
+    }
+
+    document.querySelectorAll(".player-pairings-link").forEach(function (a) {
+      a.style.cursor = "pointer";
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        loadPairings({
           recentN: a.getAttribute("data-recent-n"),
           scopeLabel: a.getAttribute("data-scope-label"),
           scope: a.getAttribute("data-scope"),
