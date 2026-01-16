@@ -5272,13 +5272,13 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     has_pair_on_ice_all = False
     has_pair_on_ice_recent = False
     try:
-        if show_shift_data and eligible_game_ids_in_order:
+        if eligible_game_ids_in_order:
             has_pair_on_ice_all = bool(
                 m.HkyGameShiftRow.objects.filter(
                     game_id__in=list(eligible_game_ids_in_order), team_id=int(team_id)
                 ).exists()
             )
-        if show_shift_data and recent_scope_ids:
+        if recent_scope_ids:
             has_pair_on_ice_recent = bool(
                 m.HkyGameShiftRow.objects.filter(
                     game_id__in=list(recent_scope_ids), team_id=int(team_id)
@@ -7556,13 +7556,13 @@ def public_league_team_detail(
     has_pair_on_ice_all = False
     has_pair_on_ice_recent = False
     try:
-        if show_shift_data and eligible_game_ids_in_order:
+        if eligible_game_ids_in_order:
             has_pair_on_ice_all = bool(
                 m.HkyGameShiftRow.objects.filter(
                     game_id__in=list(eligible_game_ids_in_order), team_id=int(team_id)
                 ).exists()
             )
-        if show_shift_data and recent_scope_ids:
+        if recent_scope_ids:
             has_pair_on_ice_recent = bool(
                 m.HkyGameShiftRow.objects.filter(
                     game_id__in=list(recent_scope_ids), team_id=int(team_id)
