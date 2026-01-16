@@ -1446,25 +1446,39 @@
           thead.appendChild(trh);
           table.appendChild(thead);
           var tbody = document.createElement("tbody");
+          // Group rows by player and use rowspan to avoid repeating player/name for each teammate.
+          var byPid = {};
+          var pidOrder = [];
           rows.forEach(function (r) {
-            var tr = document.createElement("tr");
-            function td(txt) { tr.appendChild(el("td", null, txt)); }
-            td(String(r.player_jersey || ""));
-            td(String(r.player_name || ""));
-            td(String(r.teammate_jersey || ""));
-            td(String(r.teammate_name || ""));
-            td(String(r.shift_games || 0));
-            td(fmtPct(r.overlap_pct));
-            td(String(r.gf_together || 0));
-            td(String(r.ga_together || 0));
-            td(blankIfZero(r.player_goals_on_ice_together));
-            td(blankIfZero(r.player_assists_on_ice_together));
-            td(blankIfZero(r.goals_collab_with_teammate));
-            td(blankIfZero(r.assists_collab_with_teammate));
-            td(String(r.plus_minus_together || 0));
-            td(String(r.player_total_plus_minus || 0));
-            td(String(r.teammate_total_plus_minus || 0));
-            tbody.appendChild(tr);
+            var pidKey = String((r && r.player_id) || "");
+            if (!pidKey) pidKey = String(r.player_name || "") + "|" + String(r.player_jersey || "");
+            if (!byPid[pidKey]) { byPid[pidKey] = []; pidOrder.push(pidKey); }
+            byPid[pidKey].push(r);
+          });
+          pidOrder.forEach(function (pidKey) {
+            var group = byPid[pidKey] || [];
+            group.forEach(function (r, idx) {
+              var tr = document.createElement("tr");
+              function td(txt, attrs) { tr.appendChild(el("td", attrs || null, txt)); }
+              if (idx === 0) {
+                td(String(r.player_jersey || ""), { rowspan: String(group.length), style: "vertical-align: middle;" });
+                td(String(r.player_name || ""), { rowspan: String(group.length), style: "vertical-align: middle;" });
+              }
+              td(String(r.teammate_jersey || ""));
+              td(String(r.teammate_name || ""));
+              td(String(r.shift_games || 0));
+              td(fmtPct(r.overlap_pct));
+              td(String(r.gf_together || 0));
+              td(String(r.ga_together || 0));
+              td(blankIfZero(r.player_goals_on_ice_together));
+              td(blankIfZero(r.player_assists_on_ice_together));
+              td(blankIfZero(r.goals_collab_with_teammate));
+              td(blankIfZero(r.assists_collab_with_teammate));
+              td(String(r.plus_minus_together || 0));
+              td(String(r.player_total_plus_minus || 0));
+              td(String(r.teammate_total_plus_minus || 0));
+              tbody.appendChild(tr);
+            });
           });
           table.appendChild(tbody);
           wrap.appendChild(table);
