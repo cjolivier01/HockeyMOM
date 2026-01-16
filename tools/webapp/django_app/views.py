@@ -1871,6 +1871,41 @@ def _mask_shift_stats_in_player_stat_rows(player_stats_rows: list[dict[str, Any]
                 r[k] = None
 
 
+def _overlay_timetoscore_zero_stats_into_player_stat_rows(
+    *,
+    game_ids: list[int],
+    player_stats_rows: list[dict[str, Any]],
+) -> None:
+    """
+    TimeToScore-linked games have explicit scoring/penalty records. For those games, missing values
+    should be treated as 0 (not "unknown") so per-game denominators are stable for players who had
+    zero goals/assists/PIM.
+    """
+    if not game_ids or not player_stats_rows:
+        return
+    _django_orm, m = _orm_modules()
+    t2s_game_ids = set(
+        m.HkyGame.objects.filter(
+            id__in=[int(x) for x in game_ids], timetoscore_game_id__isnull=False
+        ).values_list("id", flat=True)
+    )
+    if not t2s_game_ids:
+        return
+    keys = ("goals", "assists", "pim")
+    for r in player_stats_rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        if gid <= 0 or gid not in t2s_game_ids:
+            continue
+        for k in keys:
+            if r.get(k) is None:
+                r[k] = 0
+
+
 def _compute_player_has_events_by_pid_for_game(
     *,
     events_rows: list[dict[str, Any]],
@@ -4224,6 +4259,9 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        _overlay_timetoscore_zero_stats_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
         if not show_shift_data:
             _mask_shift_stats_in_player_stat_rows(ps_rows)
         if show_shift_data:
@@ -4322,6 +4360,9 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             m.PlayerStat.objects.filter(team_id=int(team_id), game_id__in=schedule_game_ids).values(
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
+        )
+        _overlay_timetoscore_zero_stats_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
         )
         if not show_shift_data:
             _mask_shift_stats_in_player_stat_rows(ps_rows)
@@ -6612,6 +6653,9 @@ def public_league_team_detail(
             "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
         )
     )
+    _overlay_timetoscore_zero_stats_into_player_stat_rows(
+        game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+    )
     if not show_shift_data:
         _mask_shift_stats_in_player_stat_rows(ps_rows)
     if show_shift_data:
@@ -8592,6 +8636,21 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                     )
             if to_create:
                 m2.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+            # For TimeToScore-linked games, core player stats should be treated as known "0" when absent.
+            # This keeps per-game denominators stable even when a player has 0 PIM/goals/assists.
+            if tts_game_id is not None:
+                for tid, pids in roster_player_ids_by_team.items():
+                    if not pids:
+                        continue
+                    qs = m2.PlayerStat.objects.filter(
+                        game_id=int(gid), team_id=int(tid), player_id__in=list(pids)
+                    )
+                    if replace:
+                        qs.update(goals=0, assists=0, pim=0)
+                    else:
+                        qs.filter(goals__isnull=True).update(goals=0)
+                        qs.filter(assists__isnull=True).update(assists=0)
+                        qs.filter(pim__isnull=True).update(pim=0)
 
         if isinstance(stats_rows, list):
             for srow in stats_rows:
@@ -8602,6 +8661,7 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                     continue
                 goals = srow.get("goals")
                 assists = srow.get("assists")
+                pim = srow.get("pim")
                 try:
                     gval = int(goals) if goals is not None else 0
                 except Exception:
@@ -8610,6 +8670,10 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                     aval = int(assists) if assists is not None else 0
                 except Exception:
                     aval = 0
+                try:
+                    pim_val = int(pim) if pim is not None and str(pim).strip() != "" else None
+                except Exception:
+                    pim_val = None
 
                 team_ref = team1_id
                 pid = _player_id_by_name(team1_id, pname)
@@ -8628,15 +8692,21 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
                         "team_id": int(team_ref),
                         "goals": gval,
                         "assists": aval,
+                        "pim": pim_val,
                     },
                 )
                 if replace or force_tts_scoring:
-                    m2.PlayerStat.objects.filter(id=ps.id).update(goals=gval, assists=aval)
+                    updates = {"goals": gval, "assists": aval}
+                    if pim_val is not None:
+                        updates["pim"] = pim_val
+                    m2.PlayerStat.objects.filter(id=ps.id).update(**updates)
                 else:
                     m2.PlayerStat.objects.filter(id=ps.id, goals__isnull=True).update(goals=gval)
                     m2.PlayerStat.objects.filter(id=ps.id, assists__isnull=True).update(
                         assists=aval
                     )
+                    if pim_val is not None:
+                        m2.PlayerStat.objects.filter(id=ps.id, pim__isnull=True).update(pim=pim_val)
 
     return JsonResponse(
         {
@@ -8965,6 +9035,21 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                         )
                 if to_create:
                     m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+                # For TimeToScore-linked games, core player stats should be treated as known "0" when absent.
+                # This keeps per-game denominators stable even when a player has 0 PIM/goals/assists.
+                if tts_game_id is not None:
+                    for tid, pids in roster_player_ids_by_team.items():
+                        if not pids:
+                            continue
+                        qs = m.PlayerStat.objects.filter(
+                            game_id=int(gid), team_id=int(tid), player_id__in=list(pids)
+                        )
+                        if game_replace:
+                            qs.update(goals=0, assists=0, pim=0)
+                        else:
+                            qs.filter(goals__isnull=True).update(goals=0)
+                            qs.filter(assists__isnull=True).update(assists=0)
+                            qs.filter(pim__isnull=True).update(pim=0)
 
             if isinstance(stats_rows, list):
                 for srow in stats_rows:
