@@ -67,10 +67,11 @@ dialog::backdrop {
 .hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
 .hero p { color: var(--muted); margin: 0 0 1rem; }
 
-.btn { display: inline-block; background: #1f2430; color: var(--text); border: 1px solid var(--border); padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; }
-.btn:hover { filter: brightness(1.1); }
+.btn { display: inline-block; background: #2a3345; color: var(--text); border: 1px solid #3a455c; padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 1px 2px rgba(0, 0, 0, 0.35); }
+.btn:hover { filter: brightness(1.08); }
+.btn:focus-visible { outline: 2px solid rgba(255, 106, 19, 0.6); outline-offset: 2px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #101114; }
-.btn.secondary { background: #1c212c; }
+.btn.secondary { background: #242d3f; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #101114; }
 
 /* In tables (white background), render "secondary" buttons as slightly darker than the row background. */
@@ -78,6 +79,7 @@ table a.btn.secondary, table button.btn.secondary {
   background: rgba(0, 0, 0, 0.06);
   border-color: rgba(0, 0, 0, 0.14);
   color: var(--table-text);
+  box-shadow: none;
 }
 table a.btn.secondary:hover, table button.btn.secondary:hover {
   background: rgba(0, 0, 0, 0.09);
