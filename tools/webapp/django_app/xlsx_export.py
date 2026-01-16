@@ -208,6 +208,7 @@ def build_table_xlsx_bytes(
         last_col = get_column_letter(ncols)
         ws.auto_filter.ref = f"A{header_row}:{last_col}{last_row}"
     except Exception:
+        # Best-effort: some openpyxl versions/edge cases can fail to apply filters; avoid failing export.
         pass
 
     # Right-align time/duration-like columns.
@@ -224,6 +225,7 @@ def build_table_xlsx_bytes(
                     horizontal="right", vertical=cell.alignment.vertical or "center"
                 )
     except Exception:
+        # Best-effort: alignment failures should not prevent exporting a usable spreadsheet.
         pass
 
     # Freeze title+header rows and optionally N left columns.

@@ -5285,8 +5285,8 @@ def _write_team_stats_from_long_shift_team(
                 video_pairs_by_player=video_pairs_by_player,
                 source="shift_spreadsheet",
             )
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: failed to write shift_rows.csv: {exc!r}", file=sys.stderr)
     if include_shifts_in_stats:
         _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
@@ -11196,8 +11196,8 @@ def process_sheet(
                 video_pairs_by_player=video_pairs_by_player,
                 source="shift_spreadsheet",
             )
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: failed to write shift_rows.csv: {exc!r}", file=sys.stderr)
     if include_shifts_in_stats:
         _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
@@ -12275,7 +12275,7 @@ def _upload_shift_package_to_webapp(
             return text
 
         def _norm(s: str) -> str:
-            return re.sub(r"\\s+", " ", str(s or "").strip()).casefold()
+            return re.sub(r"\s+", " ", str(s or "").strip()).casefold()
 
         drop_exact = {
             "shifts",
@@ -12293,7 +12293,7 @@ def _upload_shift_package_to_webapp(
             n = _norm(fn)
             if n in drop_exact:
                 continue
-            if re.match(r"^period\\s+\\d+\\s+(toi|shifts)$", n):
+            if re.match(r"^period\s+\d+\s+(toi|shifts)$", n):
                 continue
             keep_fields.append(fn)
 
