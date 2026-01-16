@@ -992,7 +992,8 @@
               bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
               var filtered = attributed.filter(function (r) {
                 var k = normTypeKey(r.event_type_key || r.event_type);
-                return k !== "penaltyexpired";
+                // Completed Passes are per-game shift-sheet events; don't include them in multi-game views.
+                return k !== "penaltyexpired" && k !== "completedpass";
               });
 
               var goals = [];
@@ -1009,7 +1010,7 @@
                   shot.push(withDetailsTag(r, "Goal"));
                 } else if (k === "assist") {
                   assists.push(r);
-                } else if (k === "expectedgoal") {
+                } else if (k === "xg" || k === "expectedgoal") {
                   xg.push(withDetailsTag(r, "xG"));
                   sog.push(withDetailsTag(r, "xG"));
                   shot.push(withDetailsTag(r, "xG"));
@@ -1023,10 +1024,10 @@
 
               [
                 ["Goals", goals],
-                ["Assists", assists],
                 ["xG (Expected Goal)", xg],
                 ["SOG", sog],
                 ["Shot", shot],
+                ["Assists", assists],
               ].forEach(function (pair) {
                 var label = pair[0];
                 var rows = pair[1] || [];
@@ -1049,7 +1050,7 @@
                 });
               });
 
-              var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
+              var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
               var remaining = filtered.filter(function (r) {
                 var k = normTypeKey(r.event_type_key || r.event_type);
                 return !chainKeys[k];

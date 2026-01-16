@@ -50,6 +50,7 @@ SPREADSHEETS_ONLY=0
 T2S_SCRAPE=0
 IGNORE_PRIMARY=0
 IGNORE_LONG=0
+VERBOSE=0
 
 require_cmd() {
   local name="$1"
@@ -87,6 +88,7 @@ Options:
   --shifts                Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
   --ignore-primary        Prefer '*-long*' spreadsheets when both exist (falls back to primary-only)
   --ignore-long           Prefer primary spreadsheets when both exist (falls back to '*-long*' only)
+  --verbose               Verbose spreadsheet parsing output (prints spreadsheet event mapping summary)
 EOF
 }
 
@@ -120,6 +122,7 @@ while [[ $# -gt 0 ]]; do
     --shifts) INCLUDE_SHIFTS=1; shift ;;
     --ignore-primary) IGNORE_PRIMARY=1; shift ;;
     --ignore-long) IGNORE_LONG=1; shift ;;
+    --verbose|-v) VERBOSE=1; shift ;;
     --t2s-league=*)
       T2S_LEAGUE_RAW="${1#*=}"
       shift
@@ -432,6 +435,9 @@ if [[ "${IGNORE_PRIMARY}" == "1" ]]; then
 fi
 if [[ "${IGNORE_LONG}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--ignore-long" )
+fi
+if [[ "${VERBOSE}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--verbose" )
 fi
 ./p scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \

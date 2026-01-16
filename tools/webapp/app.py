@@ -2812,7 +2812,10 @@ def create_app():
         team_side = str(payload.get("team_side") or "").strip().lower() or None
         if team_side not in {None, "", "home", "away"}:
             return jsonify({"ok": False, "error": "team_side must be 'home' or 'away'"}), 400
-        create_missing_players = bool(payload.get("create_missing_players", False))
+        if "create_missing_players" in payload:
+            create_missing_players = bool(payload.get("create_missing_players"))
+        else:
+            create_missing_players = True
         owner_email = str(payload.get("owner_email") or "").strip().lower() or None
         league_id_payload = payload.get("league_id")
         league_name = str(payload.get("league_name") or "").strip() or None
@@ -3111,7 +3114,7 @@ def create_app():
                     sort_order=sort_order,
                     commit=False,
                 )
-                create_missing_players = True
+                # Do not implicitly create players for external games; respect the payload flag.
 
         if resolved_game_id is None:
             return (

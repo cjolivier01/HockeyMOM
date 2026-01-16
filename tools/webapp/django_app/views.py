@@ -8196,7 +8196,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         return JsonResponse(
             {"ok": False, "error": "team_side must be 'home' or 'away'"}, status=400
         )
-    create_missing_players = bool(payload.get("create_missing_players", False))
+    if "create_missing_players" in payload:
+        create_missing_players = bool(payload.get("create_missing_players"))
+    else:
+        create_missing_players = True
     owner_email = str(payload.get("owner_email") or "").strip().lower() or None
     league_id_payload = payload.get("league_id")
     league_name = str(payload.get("league_name") or "").strip() or None
@@ -8468,7 +8471,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 sort_order=sort_order,
                 commit=False,
             )
-            create_missing_players = True
+            # Do not implicitly create players for external games; respect the payload flag.
 
     if resolved_game_id is None:
         return JsonResponse(

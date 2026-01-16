@@ -542,7 +542,7 @@
             if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
             if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
             if (sl === "completedpass" || sl === "completed pass" || sl === "completed passes") return "Completed Pass";
-            if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
+            if (sl.indexOf("rush") >= 0) return "Odd-Man Rushes";
             if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
             if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
             if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "Turnovers (forced)";
@@ -701,17 +701,27 @@
                   if (!gameVideoUrl || !videoPane || !videoIframe) return false;
                   var vs2 = parseVideoSecondsFromRow(row);
                   if (vs2 === null || !isFinite(vs2)) return false;
-                var totalClipS = (function () {
-                  var v = 30;
-                  try {
-                    if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
-                  } catch (e) {}
-                  if (!isFinite(v) || v <= 0) v = 30;
-                  if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
-                  return v;
-                })();
-                var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
-                var postS = Math.max(0, totalClipS - preS);
+                var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+                var totalClipS = 30;
+                var preS = 20;
+                var postS = 10;
+                if (etKey === "completedpass") {
+                  totalClipS = 10;
+                  preS = 5;
+                  postS = 5;
+                } else {
+                  totalClipS = (function () {
+                    var v = 30;
+                    try {
+                      if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
+                    } catch (e) {}
+                    if (!isFinite(v) || v <= 0) v = 30;
+                    if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+                    return v;
+                  })();
+                  preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+                  postS = Math.max(0, totalClipS - preS);
+                }
                 var start2 = Math.max(0, Math.floor(vs2 - preS));
                 var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
                 var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
@@ -2605,11 +2615,20 @@
         var v = parseInt(String(drilldownClipLenEl && drilldownClipLenEl.value || "").trim(), 10);
         if (isFinite(v) && v > 0) totalClipS = v;
       } catch (e) {}
-      if (totalClipS !== 15 && totalClipS !== 20 && totalClipS !== 30 && totalClipS !== 45 && totalClipS !== 60 && totalClipS !== 90) {
-        totalClipS = 30;
+      var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+      var preS = 20;
+      var postS = 10;
+      if (etKey === "completedpass") {
+        totalClipS = 10;
+        preS = 5;
+        postS = 5;
+      } else {
+        if (totalClipS !== 15 && totalClipS !== 20 && totalClipS !== 30 && totalClipS !== 45 && totalClipS !== 60 && totalClipS !== 90) {
+          totalClipS = 30;
+        }
+        preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+        postS = Math.max(0, totalClipS - preS);
       }
-      var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
-      var postS = Math.max(0, totalClipS - preS);
       var start2 = Math.max(0, Math.floor(vs2 - preS));
       var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
 
@@ -2666,16 +2685,16 @@
     var STAT_TO_EVENT_TYPE_KEYS = {
       goals: ["goal"],
       assists: ["assist"],
-      expected_goals: ["expectedgoal", "goal"],
-      sog: ["sog", "expectedgoal", "goal"],
-      shots: ["shot", "sog", "expectedgoal", "goal"],
+      expected_goals: ["xg", "expectedgoal", "goal"],
+      sog: ["sog", "xg", "expectedgoal", "goal"],
+      shots: ["shot", "sog", "xg", "expectedgoal", "goal"],
       pim: ["penalty"],
+      completed_passes: ["completedpass"],
       plus_minus: ["goal"],
       gf_counted: ["goal"],
       ga_counted: ["goal"],
     };
     var PLAYER_EVENT_TYPE_EXCLUDE = {
-      completedpass: true,
       controlledentry: true,
       controlledexit: true,
       oddmanrush: true,
@@ -2825,6 +2844,24 @@
         return { order: order, groups: groups };
       }
 
+      function moveGroupToEnd(grouped, labelLower) {
+        try {
+          if (!grouped || !grouped.order || !grouped.groups) return grouped;
+          var k = String(labelLower || "").trim().toLowerCase();
+          if (!k) return grouped;
+          if (!grouped.groups[k]) return grouped;
+          var out = [];
+          for (var i = 0; i < grouped.order.length; i++) {
+            if (grouped.order[i] !== k) out.push(grouped.order[i]);
+          }
+          out.push(k);
+          grouped.order = out;
+          return grouped;
+        } catch (e) {
+          return grouped;
+        }
+      }
+
       function withDetailsTag(row, tag) {
         var copy = Object.assign({}, row);
         var base = String(getValue(row, ["Details"]) || "").trim();
@@ -2849,7 +2886,7 @@
             shot.push(withDetailsTag(row, "Goal"));
           } else if (k === "assist") {
             assists.push(row);
-          } else if (k === "expectedgoal") {
+          } else if (k === "xg" || k === "expectedgoal") {
             xg.push(withDetailsTag(row, "xG"));
             sog.push(withDetailsTag(row, "xG"));
             shot.push(withDetailsTag(row, "xG"));
@@ -2907,6 +2944,11 @@
           }
           var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
           if (PLAYER_EVENT_TYPE_EXCLUDE[etKey]) return false;
+          // Only show Completed Passes from shift spreadsheets (not TimeToScore) on the per-game page.
+          if (etKey === "completedpass") {
+            var src = String(getValue(row, ["Source", "source"]) || "").trim().toLowerCase();
+            if (src && src.indexOf("shift") < 0 && src.indexOf("long") < 0) return false;
+          }
           if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
 
           var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
@@ -2978,10 +3020,10 @@
               var chain = buildShotChainTables(filtered);
               [
                 ["Goals", chain.goals],
-                ["Assists", chain.assists],
                 ["xG (Expected Goal)", chain.xg],
                 ["SOG", chain.sog],
                 ["Shot", chain.shot],
+                ["Assists", chain.assists],
               ].forEach(function (pair) {
                 var label = pair[0];
                 var rows = pair[1] || [];
@@ -2993,7 +3035,7 @@
                 buildEventsTable(bodyEl, rows);
               });
 
-              var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
+              var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
               var remaining = filtered.filter(function (row) {
                 return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
               });
@@ -3001,6 +3043,7 @@
                 var byType = groupRows(remaining, function (r) {
                   return getValue(r, ["Event Type", "Event"]);
                 });
+                byType = moveGroupToEnd(byType, "completed pass");
                 byType.order.forEach(function (k) {
                   var h = document.createElement("h4");
                   h.style.margin = "0.75rem 0 0.35rem 0";
@@ -3049,6 +3092,7 @@
               var byType = groupRows(filtered, function (r) {
                 return getValue(r, ["Event Type", "Event"]);
               });
+              byType = moveGroupToEnd(byType, "completed pass");
               byType.order.forEach(function (k) {
                 var h = document.createElement("h4");
                 h.style.margin = "0.75rem 0 0.35rem 0";

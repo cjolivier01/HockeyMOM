@@ -158,7 +158,11 @@ def parse_flex_time_to_seconds(s: str) -> int:
     Accepts H:MM:SS(.fff) or M:SS(.fff) or MM:SS(.fff).
     Returns total seconds (int), flooring fractional seconds.
     """
-    s = s.strip()
+    s = str(s).strip()
+    # Some spreadsheets occasionally contain malformed time strings like "10::52".
+    # Normalize repeated/trailing/leading separators so the parser is robust.
+    s = re.sub(r"\s+", "", s)
+    s = re.sub(r":{2,}", ":", s).strip(":")
     parts = s.split(":")
     if len(parts) == 3:
         h, m, sec = parts
@@ -291,11 +295,14 @@ def _t2s_team_logo_urls_for_game(
         if not allow_full_sync:
             _log_t2s_scrape(int(t2s_id), "team logos")
         with _working_directory(hockey_db_dir):
-            info = t2s_api.get_game_details(
-                int(t2s_id),
-                sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
-                fetch_stats_if_missing=bool(allow_remote),
-            )
+            try:
+                info = t2s_api.get_game_details(
+                    int(t2s_id),
+                    sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
+                    fetch_stats_if_missing=bool(allow_remote),
+                )
+            except TypeError:
+                info = t2s_api.get_game_details(int(t2s_id))
     except Exception:
         return None, None
     game = (info or {}).get("game") or {}
@@ -1373,7 +1380,7 @@ def _collect_sheet_jerseys(
             pass
     if not jerseys:
         try:
-            _events, _goal_rows, jerseys_by_team = _parse_long_left_event_table(df)
+            _events, _goal_rows, jerseys_by_team, _mapping = _parse_long_left_event_table_with_mapping(df)
             for nums in (jerseys_by_team or {}).values():
                 for n in nums or set():
                     norm = _normalize_jersey_number(n)
@@ -2467,11 +2474,15 @@ def goals_from_t2s(
 
     if allow_remote and not allow_full_sync:
         _log_t2s_scrape(int(game_id), "game details (scoring)")
-    info = t2s_api.get_game_details(
-        game_id,
-        sync_if_missing=bool(allow_full_sync) if allow_remote else False,
-        fetch_stats_if_missing=bool(allow_remote),
-    )
+    try:
+        info = t2s_api.get_game_details(
+            game_id,
+            sync_if_missing=bool(allow_full_sync) if allow_remote else False,
+            fetch_stats_if_missing=bool(allow_remote),
+        )
+    except TypeError:
+        # Tests may stub a minimal TimeToScore API that doesn't accept the optional kwargs.
+        info = t2s_api.get_game_details(game_id)
     if not isinstance(info, dict):
         raise RuntimeError(
             f"TimeToScore API returned invalid game details type for game {game_id}: {type(info)}"
@@ -2853,6 +2864,62 @@ class LongEvent:
     jerseys: Tuple[int, ...] = ()
 
 
+@dataclass
+class SpreadsheetEventMappingSummary:
+    """
+    Summary of how spreadsheet-specific event rows were mapped to output event types.
+    """
+
+    raw_row_counts: Dict[Tuple[str, str], int]
+    mapped_counts: Dict[Tuple[str, str], Dict[str, int]]
+    unmapped_row_counts: Dict[Tuple[str, str], int]
+
+    @classmethod
+    def empty(cls) -> "SpreadsheetEventMappingSummary":
+        return cls(raw_row_counts={}, mapped_counts={}, unmapped_row_counts={})
+
+    def merge(self, other: Optional["SpreadsheetEventMappingSummary"]) -> None:
+        if other is None:
+            return
+        for k, v in (other.raw_row_counts or {}).items():
+            self.raw_row_counts[k] = int(self.raw_row_counts.get(k, 0) or 0) + int(v or 0)
+        for k, v in (other.unmapped_row_counts or {}).items():
+            self.unmapped_row_counts[k] = int(self.unmapped_row_counts.get(k, 0) or 0) + int(v or 0)
+        for k, d in (other.mapped_counts or {}).items():
+            dest = self.mapped_counts.setdefault(k, {})
+            for et, cnt in (d or {}).items():
+                dest[et] = int(dest.get(et, 0) or 0) + int(cnt or 0)
+
+
+def _print_spreadsheet_event_mapping_summary(
+    *, label: str, summary: SpreadsheetEventMappingSummary
+) -> None:
+    if not summary or not (summary.raw_row_counts or {}):
+        return
+    print(f"[events] Spreadsheet event mapping summary: {label}")
+    items = list((summary.raw_row_counts or {}).items())
+    items.sort(key=lambda kv: (-int(kv[1] or 0), kv[0][0], kv[0][1]))
+    for (raw_label, raw_marker), nrows in items:
+        mapped = (summary.mapped_counts or {}).get((raw_label, raw_marker), {}) or {}
+        unmapped = int((summary.unmapped_row_counts or {}).get((raw_label, raw_marker), 0) or 0)
+        parts: List[str] = []
+        if raw_label:
+            parts.append(f"label={raw_label!r}")
+        if raw_marker:
+            parts.append(f"marker={raw_marker!r}")
+        parts_s = " ".join(parts) if parts else "label=<blank>"
+        mapped_s = ", ".join(
+            f"{et}={int(cnt or 0)}"
+            for et, cnt in sorted(mapped.items(), key=lambda x: (-int(x[1] or 0), x[0]))
+        )
+        if mapped_s:
+            mapped_s = f" -> {mapped_s}"
+        if unmapped:
+            print(f"  - {parts_s}: rows={int(nrows or 0)} UNMAPPED={unmapped}{mapped_s}")
+        else:
+            print(f"  - {parts_s}: rows={int(nrows or 0)}{mapped_s}")
+
+
 def _parse_long_mmss_time_to_seconds(cell: Any) -> Optional[int]:
     """
     Parse times as they appear in the '-long' sheets.
@@ -2965,6 +3032,15 @@ def _extract_jerseys_from_cell(cell: Any) -> List[int]:
 def _parse_long_left_event_table(
     df: pd.DataFrame,
 ) -> Tuple[List[LongEvent], List[Dict[str, Any]], Dict[str, set[int]]]:
+    events, goal_rows, jerseys_by_team, _mapping = _parse_long_left_event_table_with_mapping(df)
+    return events, goal_rows, jerseys_by_team
+
+
+def _parse_long_left_event_table_with_mapping(
+    df: pd.DataFrame,
+) -> Tuple[
+    List[LongEvent], List[Dict[str, Any]], Dict[str, set[int]], SpreadsheetEventMappingSummary
+]:
     """
     Parse the leftmost per-period event table found in '*-long*.xlsx' sheets.
 
@@ -2974,7 +3050,7 @@ def _parse_long_left_event_table(
       - observed jerseys by team color (Blue/White) for team inference
     """
     if df.empty or df.shape[1] < 6:
-        return [], [], {}
+        return [], [], {}, SpreadsheetEventMappingSummary.empty()
 
     # Identify period header rows in column 0 (e.g., '1st Period', '2nd Period', '3rd period').
     col0 = df.iloc[:, 0]
@@ -2985,7 +3061,7 @@ def _parse_long_left_event_table(
             period_rows.append((int(r), int(p)))
 
     if not period_rows:
-        return [], [], {}
+        return [], [], {}, SpreadsheetEventMappingSummary.empty()
 
     # Append sentinel end row.
     period_rows_sorted = sorted(period_rows, key=lambda x: x[0])
@@ -2994,6 +3070,7 @@ def _parse_long_left_event_table(
     events: List[LongEvent] = []
     goal_rows: List[Dict[str, Any]] = []
     jerseys_by_team: Dict[str, set[int]] = {"Blue": set(), "White": set()}
+    mapping_summary = SpreadsheetEventMappingSummary.empty()
 
     def _col_for(header_row: int, *candidates: str) -> Optional[int]:
         # Map normalized header names to column indices.
@@ -3030,7 +3107,18 @@ def _parse_long_left_event_table(
         team_col = _col_for(header_r, "Team")
         shots_col = _col_for(header_r, "Shots", "Shot")
         sog_col = _col_for(header_r, "Shots on Goal", "Shot on Goal", "SOG")
+        xg_col = _col_for(header_r, "Expected Goal", "Expected Goals", "xG", "XG")
         assist_col = _col_for(header_r, "Assist", "Assists")
+        if xg_col is None and sog_col is not None:
+            try:
+                cand = int(sog_col) + 1
+                if 0 <= cand < int(df.shape[1]):
+                    hdr = df.iat[header_r, cand]
+                    hdr_s = str(hdr).strip().lower() if isinstance(hdr, str) else ""
+                    if ("expected" in hdr_s) or (hdr_s in {"xg", "xg (expected goal)"}):
+                        xg_col = cand
+            except Exception:
+                pass
 
         for r in range(header_r + 1, end_r):
             team = _parse_long_team(df.iat[r, team_col] if team_col is not None else None)
@@ -3058,6 +3146,53 @@ def _parse_long_left_event_table(
             marker = df.iat[r, sog_col] if sog_col is not None else None
             marker_s = str(marker).strip() if isinstance(marker, str) else ""
             marker_l = marker_s.lower()
+            xg_cell = df.iat[r, xg_col] if xg_col is not None else None
+            try:
+                xg_s = str(xg_cell).strip()
+            except Exception:
+                xg_s = ""
+            xg_l = xg_s.lower()
+
+            raw_label_key = str(label_s or "").strip()
+            raw_marker_key = str(marker_s or "").strip()
+            map_key = (raw_label_key, raw_marker_key)
+            mapping_summary.raw_row_counts[map_key] = (
+                int(mapping_summary.raw_row_counts.get(map_key, 0) or 0) + 1
+            )
+            mapped_types_for_row: List[str] = []
+
+            def _add_event(
+                *,
+                event_type: str,
+                team: str,
+                period: int,
+                video_s: Optional[int],
+                game_s: Optional[int],
+                jerseys: Optional[Iterable[int]] = None,
+            ) -> None:
+                events.append(
+                    LongEvent(
+                        event_type=str(event_type),
+                        team=str(team),
+                        period=int(period),
+                        video_s=video_s,
+                        game_s=game_s,
+                        jerseys=tuple(int(x) for x in (list(jerseys or []) if jerseys else [])),
+                    )
+                )
+                mapped_types_for_row.append(str(event_type))
+
+            def _record_mapping_for_row() -> None:
+                if not mapped_types_for_row and (
+                    raw_label_key or raw_marker_key or shooter or assists
+                ):
+                    mapping_summary.unmapped_row_counts[map_key] = (
+                        int(mapping_summary.unmapped_row_counts.get(map_key, 0) or 0) + 1
+                    )
+                    return
+                dest = mapping_summary.mapped_counts.setdefault(map_key, {})
+                for et in mapped_types_for_row:
+                    dest[et] = int(dest.get(et, 0) or 0) + 1
 
             # Long sheets encode turnovers in a few different row labels over time:
             #  - "Turnover" / "Turnover (forced)"  -> forced turnover (lost puck)
@@ -3066,28 +3201,67 @@ def _parse_long_left_event_table(
             is_unforced_to = label_l.startswith(("unforced", "unfoced", "unforcd"))
             is_turnover = ("turnover" in label_l) and (not is_unforced_to)
             is_giveaway = ("giveaway" in label_l) and (not is_turnover) and (not is_unforced_to)
-            is_expected_goal = ("expected goal" in label_l) or ("expected goal" in marker_l)
+            # Some long sheets mark xG in a separate column (often immediately right of the SOG column).
+            # Treat any explicit 'expected goal'/'xg' marker there as xG.
+            xg_marked = False
+            if xg_l:
+                if ("expected" in xg_l and "goal" in xg_l) or ("xg" in xg_l):
+                    xg_marked = True
+                elif xg_l in {"1", "true", "yes", "y"}:
+                    xg_marked = True
+            else:
+                if isinstance(xg_cell, (int, float)) and not pd.isna(xg_cell):
+                    try:
+                        xg_marked = float(xg_cell) != 0.0
+                    except Exception:
+                        xg_marked = False
+            is_expected_goal = (
+                ("expected goal" in label_l) or ("expected goal" in marker_l) or xg_marked
+            )
             is_controlled_entry = bool(re.search(r"con?trolled", label_l)) and ("entr" in label_l)
             is_controlled_exit = ("controlled" in label_l) and ("exit" in label_l)
             is_rush = "rush" in label_l
             is_goal = (label_l == "goal") or (marker_l == "goal")
             is_sog = (label_l == "sog") or (marker_l in {"sog", "goal"})
             is_completed_pass = ("completed pass" in label_l) or ("complete pass" in label_l)
+            is_penalty = "penalty" in label_l
+            is_goalie_change = ("goalie" in label_l) and ("change" in label_l)
 
             if is_completed_pass:
                 if shooter:
-                    events.append(
-                        LongEvent(
-                            event_type="CompletedPass",
-                            team=team,
-                            period=period,
-                            video_s=vsec,
-                            game_s=gsec,
-                            jerseys=tuple(shooter),
-                        )
+                    _add_event(
+                        event_type="CompletedPass",
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=shooter,
                     )
                     for j in shooter:
                         jerseys_by_team.setdefault(team, set()).add(int(j))
+                _record_mapping_for_row()
+                continue
+
+            if is_penalty:
+                _add_event(
+                    event_type="Penalty",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                )
+                _record_mapping_for_row()
+                continue
+
+            if is_goalie_change:
+                _add_event(
+                    event_type="GoalieChange",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                )
+                _record_mapping_for_row()
                 continue
 
             if is_turnover or is_giveaway or is_unforced_to:
@@ -3169,76 +3343,65 @@ def _parse_long_left_event_table(
                     takeaway = combined[:1]
 
                 if giveaway:
-                    events.append(
-                        LongEvent(
-                            event_type=giving_event_type,
-                            team=team,
-                            period=period,
-                            video_s=vsec,
-                            game_s=gsec,
-                            jerseys=tuple(giveaway),
-                        )
+                    _add_event(
+                        event_type=giving_event_type,
+                        team=team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=giveaway,
                     )
                 if caused_by:
-                    events.append(
-                        LongEvent(
-                            event_type="CreatedTurnover",
-                            team=other_team,
-                            period=period,
-                            video_s=vsec,
-                            game_s=gsec,
-                            jerseys=tuple(caused_by),
-                        )
+                    _add_event(
+                        event_type="CreatedTurnover",
+                        team=other_team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=caused_by,
                     )
                 if takeaway:
-                    events.append(
-                        LongEvent(
-                            event_type="Takeaway",
-                            team=other_team,
-                            period=period,
-                            video_s=vsec,
-                            game_s=gsec,
-                            jerseys=tuple(takeaway),
-                        )
+                    _add_event(
+                        event_type="Takeaway",
+                        team=other_team,
+                        period=period,
+                        video_s=vsec,
+                        game_s=gsec,
+                        jerseys=takeaway,
                     )
                 for j in giveaway:
                     jerseys_by_team.setdefault(team, set()).add(int(j))
                 for j in caused_by + takeaway:
                     jerseys_by_team.setdefault(other_team, set()).add(int(j))
+                _record_mapping_for_row()
                 continue
 
             if shooter:
-                events.append(
-                    LongEvent(
-                        event_type="Shot",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                        jerseys=tuple(shooter),
-                    )
+                _add_event(
+                    event_type="Shot",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                    jerseys=shooter,
                 )
             if shooter and is_sog:
-                events.append(
-                    LongEvent(
-                        event_type="SOG",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                        jerseys=tuple(shooter),
-                    )
+                _add_event(
+                    event_type="SOG",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                    jerseys=shooter,
                 )
             if shooter and is_goal:
-                events.append(
-                    LongEvent(
-                        event_type="Goal",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                        jerseys=tuple(shooter),
-                    )
+                _add_event(
+                    event_type="Goal",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                    jerseys=shooter,
                 )
                 scorer = shooter[0] if shooter else None
                 goal_rows.append(
@@ -3251,65 +3414,56 @@ def _parse_long_left_event_table(
                     }
                 )
             if assists:
-                events.append(
-                    LongEvent(
-                        event_type="Assist",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                        jerseys=tuple(assists),
-                    )
+                _add_event(
+                    event_type="Assist",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                    jerseys=assists,
                 )
             # Expected goals (xG): count both explicit "Expected Goal" rows and all goals.
             if is_expected_goal or is_goal:
-                events.append(
-                    LongEvent(
-                        event_type="ExpectedGoal",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                        jerseys=tuple(shooter),
-                    )
+                _add_event(
+                    event_type="ExpectedGoal",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
+                    jerseys=shooter,
                 )
             if is_controlled_entry:
-                events.append(
-                    LongEvent(
-                        event_type="ControlledEntry",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                    )
+                _add_event(
+                    event_type="ControlledEntry",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
                 )
             if is_controlled_exit:
-                events.append(
-                    LongEvent(
-                        event_type="ControlledExit",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                    )
+                _add_event(
+                    event_type="ControlledExit",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
                 )
             if is_rush:
-                events.append(
-                    LongEvent(
-                        event_type="Rush",
-                        team=team,
-                        period=period,
-                        video_s=vsec,
-                        game_s=gsec,
-                    )
+                _add_event(
+                    event_type="Rush",
+                    team=team,
+                    period=period,
+                    video_s=vsec,
+                    game_s=gsec,
                 )
 
             for j in shooter + assists:
                 jerseys_by_team.setdefault(team, set()).add(int(j))
+            _record_mapping_for_row()
 
     # Remove empty defaults if nothing was seen.
     jerseys_by_team = {k: v for k, v in jerseys_by_team.items() if v}
-    return events, goal_rows, jerseys_by_team
+    return events, goal_rows, jerseys_by_team, mapping_summary
 
 
 def _parse_long_shift_tables(
@@ -4086,7 +4240,8 @@ def _print_game_inputs_rich_summary(results: List[Dict[str, Any]]) -> None:
                         continue
                     if v not in seen:
                         seen.append(v)
-                return ",".join(seen)
+                # One source per line keeps the cell readable even in narrow terminals.
+                return "\n".join(seen)
         except Exception:
             return ""
 
@@ -4119,7 +4274,8 @@ def _print_game_inputs_rich_summary(results: List[Dict[str, Any]]) -> None:
     table.add_column("Away Shifts", no_wrap=True)
     table.add_column("Home Players", justify="right", no_wrap=True)
     table.add_column("Away Players", justify="right", no_wrap=True)
-    table.add_column("Event Sources", overflow="fold")
+    # Wrap header at words (not per letter) and keep sources readable.
+    table.add_column("Event\nSources")
 
     for r in sorted(results, key=lambda x: int(x.get("order") or 0)):
         label = str(r.get("label") or "")
@@ -6532,6 +6688,7 @@ def _write_all_events_summary(
     t2s_game_id: Optional[int] = None,
     t2s_events: Optional[List[Dict[str, Any]]] = None,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
+    spreadsheet_event_mapping_summary: Optional[SpreadsheetEventMappingSummary] = None,
 ) -> None:
     """
     Write a single per-game table of all known events, including:
@@ -7105,24 +7262,108 @@ def _write_all_events_summary(
     ]
     df = pd.DataFrame([{c: r.get(c, "") for c in cols} for r in rows], columns=cols)
     df.to_csv(stats_dir / "all_events_summary.csv", index=False)
+    text_cols = [
+        "Event Type",
+        "Team Raw",
+        "Team Side",
+        "For/Against",
+        "Team Rel",
+        "Details",
+        "Attributed Players",
+        "Attributed Jerseys",
+        "On-Ice Players",
+        "On-Ice Players (Home)",
+        "On-Ice Players (Away)",
+    ]
+    xlsx_path = stats_dir / "all_events_summary.xlsx"
+
+    # If we have spreadsheet mapping info, include a mapping table as the first sheet for inspection.
+    if spreadsheet_event_mapping_summary and (
+        spreadsheet_event_mapping_summary.raw_row_counts or {}
+    ):
+        mapping_rows: List[Dict[str, Any]] = []
+        keys = sorted(
+            (spreadsheet_event_mapping_summary.raw_row_counts or {}).keys(),
+            key=lambda k: (
+                -int((spreadsheet_event_mapping_summary.raw_row_counts or {}).get(k, 0) or 0),
+                k[0],
+                k[1],
+            ),
+        )
+        for k in keys:
+            raw_label, raw_marker = k
+            nrows = int((spreadsheet_event_mapping_summary.raw_row_counts or {}).get(k, 0) or 0)
+            mapped = (spreadsheet_event_mapping_summary.mapped_counts or {}).get(k, {}) or {}
+            unmapped = int(
+                (spreadsheet_event_mapping_summary.unmapped_row_counts or {}).get(k, 0) or 0
+            )
+            mapped_types = sorted(mapped.keys())
+            mapping_rows.append(
+                {
+                    "Spreadsheet Label": raw_label,
+                    "Marker": raw_marker,
+                    "Rows": nrows,
+                    "Unmapped Rows": unmapped,
+                    "Mapped Event Types": ", ".join(mapped_types),
+                    "Mapped Display Types": ", ".join(
+                        _display_event_type(et) for et in mapped_types
+                    ),
+                    "Mapped Outputs": "; ".join(
+                        f"{et}={int(cnt or 0)}"
+                        for et, cnt in sorted(mapped.items(), key=lambda x: (-int(x[1] or 0), x[0]))
+                    ),
+                }
+            )
+        mapping_df = pd.DataFrame(mapping_rows)
+        with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+            # Mapping sheet (first).
+            mapping_df_excel = mapping_df.copy()
+            mapping_df_excel.columns = [
+                _wrap_header_after_words(str(c), words_per_line=2) for c in mapping_df_excel.columns
+            ]
+            mapping_df_excel.to_excel(writer, sheet_name="event_mapping", index=False, startrow=1)
+            _apply_excel_table_style(
+                writer, "event_mapping", title="Event Mapping", df=mapping_df_excel
+            )
+            _autosize_columns(writer, "event_mapping", mapping_df_excel)
+
+            # Main events table sheet.
+            df_excel = df.copy()
+            df_excel.columns = [
+                _wrap_header_after_words(str(c), words_per_line=2) for c in df_excel.columns
+            ]
+            df_excel.to_excel(writer, sheet_name="all_events", index=False, startrow=1)
+            _apply_excel_table_style(writer, "all_events", title="All Events", df=df_excel)
+            try:
+                ws = writer.sheets.get("all_events")
+                if ws is not None:
+                    header_row = 2
+                    data_start_row = 3
+                    nrows = int(getattr(df_excel, "shape", (0, 0))[0] or 0)
+                    if nrows > 0:
+                        header_cells = list(ws[header_row])
+                        col_idx_by_name: Dict[str, int] = {}
+                        for idx, cell in enumerate(header_cells, start=1):
+                            if cell.value is None:
+                                continue
+                            col_idx_by_name[str(cell.value).replace("\n", " ").strip()] = idx
+                        for col_name in text_cols or []:
+                            col_idx = col_idx_by_name.get(str(col_name).strip())
+                            if not col_idx:
+                                continue
+                            for rr in range(data_start_row, data_start_row + nrows):
+                                ws.cell(row=rr, column=col_idx).number_format = "@"
+            except Exception:
+                pass
+            _autosize_columns(writer, "all_events", df_excel)
+        return
+
     _write_styled_xlsx_table(
-        stats_dir / "all_events_summary.xlsx",
+        xlsx_path,
         df,
         sheet_name="all_events",
         title="All Events",
-        text_columns=[
-            "Event Type",
-            "Team Raw",
-            "Team Side",
-            "For/Against",
-            "Team Rel",
-            "Details",
-            "Attributed Players",
-            "Attributed Jerseys",
-            "On-Ice Players",
-            "On-Ice Players (Home)",
-            "On-Ice Players (Away)",
-        ],
+        text_columns=text_cols,
     )
 
 
@@ -7469,7 +7710,7 @@ def _display_event_type(event_type: str) -> str:
     if et == "ControlledExit":
         return "Controlled Exit"
     if et in {"Rush", "OddManRush"}:
-        return "Odd-Man Rush"
+        return "Odd-Man Rushes"
     return et
 
 
@@ -7633,8 +7874,8 @@ def _write_game_stats_files_t2s_only(
             "Controlled Entry Against": "",
             "Controlled Exit For": "",
             "Controlled Exit Against": "",
-            "Rush For": "",
-            "Rush Against": "",
+            "Odd-Man Rushes For": "",
+            "Odd-Man Rushes Against": "",
         }
     )
 
@@ -7768,8 +8009,8 @@ def _write_game_stats_files(
             "Controlled Entry Against": ce_against,
             "Controlled Exit For": cx_for,
             "Controlled Exit Against": cx_against,
-            "Rush For": rush_for,
-            "Rush Against": rush_against,
+            "Odd-Man Rushes For": rush_for,
+            "Odd-Man Rushes Against": rush_against,
         }
     )
 
@@ -8883,11 +9124,14 @@ def _infer_side_from_rosters(
         with _working_directory(hockey_db_dir):
             if allow_remote and not allow_full_sync:
                 _log_t2s_scrape(int(t2s_id), "game details (roster/side inference)")
-            info = t2s_api.get_game_details(
-                int(t2s_id),
-                sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
-                fetch_stats_if_missing=bool(allow_remote),
-            )
+            try:
+                info = t2s_api.get_game_details(
+                    int(t2s_id),
+                    sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
+                    fetch_stats_if_missing=bool(allow_remote),
+                )
+            except TypeError:
+                info = t2s_api.get_game_details(int(t2s_id))
     except Exception as e:
         if debug is not None:
             debug.clear()
@@ -9029,11 +9273,14 @@ def _get_t2s_team_roster(
         with _working_directory(hockey_db_dir):
             if allow_remote and not allow_full_sync:
                 _log_t2s_scrape(int(t2s_id), "game details (team roster)")
-            info = t2s_api.get_game_details(
-                int(t2s_id),
-                sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
-                fetch_stats_if_missing=bool(allow_remote),
-            )
+            try:
+                info = t2s_api.get_game_details(
+                    int(t2s_id),
+                    sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
+                    fetch_stats_if_missing=bool(allow_remote),
+                )
+            except TypeError:
+                info = t2s_api.get_game_details(int(t2s_id))
     except Exception as e:
         raise RuntimeError(f"TimeToScore API failed to load game {t2s_id} for roster: {e}") from e
 
@@ -9894,6 +10141,7 @@ def process_sheet(
     skip_validation: bool = False,
     create_scripts: bool = True,
     write_opponent_stats_from_long_shifts: bool = True,
+    verbose: bool = False,
 ) -> Tuple[
     Path,
     List[Dict[str, str]],
@@ -9990,6 +10238,7 @@ def process_sheet(
     long_events_all: List[LongEvent] = []
     long_goal_rows_all: List[Dict[str, Any]] = []
     jerseys_by_team_all: Dict[str, set[int]] = {}
+    spreadsheet_event_mapping_summary = SpreadsheetEventMappingSummary.empty()
     long_shift_tables_by_team: Dict[str, Dict[str, Dict[str, List[Tuple[Any, ...]]]]] = {}
     long_sheet_paths_used: List[Path] = []
     shift_cmp_summary: Dict[str, Any] = {}
@@ -10026,7 +10275,12 @@ def process_sheet(
                     for pk, lst in (src_map or {}).items():
                         dst_map.setdefault(pk, []).extend(list(lst or []))
 
-            long_events, long_goal_rows, jerseys_by_team = _parse_long_left_event_table(long_df)
+            (
+                long_events,
+                long_goal_rows,
+                jerseys_by_team,
+                long_mapping_summary,
+            ) = _parse_long_left_event_table_with_mapping(long_df)
             if not long_events and not long_goal_rows:
                 # Still keep long shift tables / rosters (useful for validation).
                 continue
@@ -10036,6 +10290,7 @@ def process_sheet(
             for team, nums in (jerseys_by_team or {}).items():
                 jerseys_by_team_all.setdefault(team, set()).update(nums or set())
             long_goal_rows_all.extend(long_goal_rows or [])
+            spreadsheet_event_mapping_summary.merge(long_mapping_summary)
 
             if focus_team is None:
                 our_jerseys: set[str] = set(jersey_to_players.keys())
@@ -10408,6 +10663,7 @@ def process_sheet(
             t2s_game_id=t2s_game_id,
             t2s_events=t2s_events,
             conv_segments_by_period=conv_segments_full,
+            spreadsheet_event_mapping_summary=spreadsheet_event_mapping_summary,
         )
 
     # Pre-group team-level events by period for on-ice for/against counts.
@@ -10883,6 +11139,20 @@ def process_sheet(
     if shift_cmp_summary:
         _print_shift_discrepancy_rich_summary(shift_cmp_summary)
 
+    if verbose:
+        _print_spreadsheet_event_mapping_summary(
+            label=str(xls_path.name), summary=spreadsheet_event_mapping_summary
+        )
+        if spreadsheet_event_mapping_summary.unmapped_row_counts:
+            unmapped_pretty = ", ".join(
+                f"(label={lbl!r} marker={mkr!r} rows={int(cnt or 0)})"
+                for (lbl, mkr), cnt in sorted(
+                    (spreadsheet_event_mapping_summary.unmapped_row_counts or {}).items(),
+                    key=lambda kv: (-int(kv[1] or 0), kv[0][0], kv[0][1]),
+                )
+            )
+            raise ValueError(f"Unmapped spreadsheet event rows: {unmapped_pretty}")
+
     return (
         outdir,
         stats_table_rows,
@@ -10907,6 +11177,7 @@ def process_long_only_sheets(
     create_scripts: bool = True,
     allow_remote: bool = True,
     allow_full_sync: bool = True,
+    verbose: bool = False,
 ) -> Tuple[
     Path,
     List[Dict[str, str]],
@@ -10937,6 +11208,7 @@ def process_long_only_sheets(
     long_events_all: List[LongEvent] = []
     long_goal_rows_all: List[Dict[str, Any]] = []
     jerseys_by_team_all: Dict[str, set[int]] = {}
+    spreadsheet_event_mapping_summary = SpreadsheetEventMappingSummary.empty()
     long_sheet_paths_used: List[Path] = []
     for lp in long_xls_paths or []:
         if lp is None:
@@ -10965,15 +11237,26 @@ def process_long_only_sheets(
                     dst_map.setdefault(pk, []).extend(list(lst or []))
 
         try:
-            long_events, long_goal_rows, jerseys_by_team = _parse_long_left_event_table(long_df)
+            (
+                long_events,
+                long_goal_rows,
+                jerseys_by_team,
+                long_mapping_summary,
+            ) = _parse_long_left_event_table_with_mapping(long_df)
         except Exception as e:  # noqa: BLE001
-            long_events, long_goal_rows, jerseys_by_team = [], [], {}
+            long_events, long_goal_rows, jerseys_by_team, long_mapping_summary = (
+                [],
+                [],
+                {},
+                SpreadsheetEventMappingSummary.empty(),
+            )
             print(f"[long] Failed to parse long left event table from {p}: {e}", file=sys.stderr)
 
         long_events_all.extend(list(long_events or []))
         long_goal_rows_all.extend(list(long_goal_rows or []))
         for team, nums in (jerseys_by_team or {}).items():
             jerseys_by_team_all.setdefault(str(team), set()).update(set(nums or set()))
+        spreadsheet_event_mapping_summary.merge(long_mapping_summary)
 
     if not long_shift_tables_by_team:
         raise ValueError("No embedded long-sheet shift tables were found; cannot compute shifts.")
@@ -11177,7 +11460,22 @@ def process_long_only_sheets(
             t2s_game_id=t2s_game_id,
             t2s_events=t2s_events,
             conv_segments_by_period=conv_segments_full,
+            spreadsheet_event_mapping_summary=spreadsheet_event_mapping_summary,
         )
+
+    if verbose:
+        _print_spreadsheet_event_mapping_summary(
+            label=str(outdir.name), summary=spreadsheet_event_mapping_summary
+        )
+        if spreadsheet_event_mapping_summary.unmapped_row_counts:
+            unmapped_pretty = ", ".join(
+                f"(label={lbl!r} marker={mkr!r} rows={int(cnt or 0)})"
+                for (lbl, mkr), cnt in sorted(
+                    (spreadsheet_event_mapping_summary.unmapped_row_counts or {}).items(),
+                    key=lambda kv: (-int(kv[1] or 0), kv[0][0], kv[0][1]),
+                )
+            )
+            raise ValueError(f"Unmapped spreadsheet event rows: {unmapped_pretty}")
 
     # Write opponent player stats (when another embedded shift table exists).
     try:
@@ -11510,6 +11808,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--verbose",
+        action="store_true",
+        help=(
+            "Verbose output. Prints a per-game summary of spreadsheet event labels and how they were mapped "
+            "to output event types (and fails the run if any event rows were not mapped)."
+        ),
+    )
+    p.add_argument(
         "--outdir", "-o", type=Path, default=Path("player_focus"), help="Output directory."
     )
     p.add_argument(
@@ -11670,6 +11976,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Division name to use for external games when uploading to the webapp (default: External).",
     )
+    p.add_argument(
+        "--webapp-create-missing-players",
+        action="store_true",
+        help=(
+            "When uploading to the webapp, allow creating missing player records from the uploaded CSVs. "
+            "Default is off; prefer providing rosters via TimeToScore/shift spreadsheets."
+        ),
+    )
     return p
 
 
@@ -11820,8 +12134,7 @@ def _upload_shift_package_to_webapp(
         payload["roster_home"] = roster_home
     if roster_away:
         payload["roster_away"] = roster_away
-    if create_missing_players:
-        payload["create_missing_players"] = True
+    payload["create_missing_players"] = bool(create_missing_players)
     if game_video_url:
         payload["game_video_url"] = str(game_video_url)
     headers: Dict[str, str] = {}
@@ -12636,6 +12949,7 @@ def main() -> None:
                     skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
                     write_opponent_stats_from_long_shifts=False,
+                    verbose=bool(args.verbose),
                 )
 
                 if rep is None or sheet_side == "home":
@@ -12940,8 +13254,8 @@ def main() -> None:
                         except Exception:
                             continue
                         try:
-                            _long_events, long_goal_rows, jerseys_by_team = (
-                                _parse_long_left_event_table(long_df)
+                            _long_events, long_goal_rows, jerseys_by_team, _mapping = (
+                                _parse_long_left_event_table_with_mapping(long_df)
                             )
                         except Exception:
                             continue
@@ -12984,6 +13298,7 @@ def main() -> None:
                         write_events_summary=write_events_summary,
                         create_scripts=create_scripts,
                         allow_remote=t2s_allow_remote,
+                        verbose=bool(args.verbose),
                     )
                 )
             else:
@@ -13011,6 +13326,7 @@ def main() -> None:
                     write_events_summary=write_events_summary,
                     skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
+                    verbose=bool(args.verbose),
                 )
         video_path = _find_tracking_output_video_for_sheet_path(in_path) if create_scripts else None
         results.append(
@@ -13317,7 +13633,9 @@ def main() -> None:
                             home_logo_url=upload_home_logo_url,
                             away_logo_url=upload_away_logo_url,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
-                            create_missing_players=True,
+                            create_missing_players=bool(
+                                getattr(args, "webapp_create_missing_players", False)
+                            ),
                             source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
@@ -13353,7 +13671,9 @@ def main() -> None:
                                 home_logo_url=upload_home_logo_url,
                                 away_logo_url=upload_away_logo_url,
                                 game_video_url=_meta("game_video", "game_video_url", "video_url"),
-                                create_missing_players=True,
+                                create_missing_players=bool(
+                                    getattr(args, "webapp_create_missing_players", False)
+                                ),
                                 include_game_stats=False,
                                 include_events=False,
                                 source_label_suffix=f":{other_side}",
