@@ -113,19 +113,6 @@ class VideoOutPlugin(Plugin):
             out_path = candidate
         self._out_path = out_path
 
-        # Configure NVENC / muxing backend via env var so PyNvVideoEncoder
-        # can honor baseline.yaml and CLI overrides.
-        backend = get_nested_value(cfg, "aspen.video_out.encoder_backend", default_value=None)
-        if backend == "pyav":
-            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "pyav"
-        elif backend == "ffmpeg":
-            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "ffmpeg"
-        elif backend == "raw":
-            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "raw"
-        elif backend == "auto":
-            # Defer to library defaults / auto-detect; clear explicit override.
-            os.environ.pop("HM_VIDEO_ENCODER_BACKEND", None)
-
         fps = None
         try:
             fps = float(context.get("data", {}).get("fps"))
