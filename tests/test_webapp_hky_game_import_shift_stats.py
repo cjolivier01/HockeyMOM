@@ -87,7 +87,7 @@ def should_import_shift_stats_player_csv_into_game(client_and_db):
 
     ps = (
         m.PlayerStat.objects.filter(game_id=1001, player_id=501)
-        .values("goals", "assists", "shots", "sog", "toi_seconds", "shifts", "video_toi_seconds")
+        .values("goals", "assists", "shots", "sog", "plus_minus")
         .first()
     )
     assert ps is not None
@@ -95,8 +95,6 @@ def should_import_shift_stats_player_csv_into_game(client_and_db):
     assert ps["assists"] == 0
     assert ps["shots"] == 2
     assert ps["sog"] == 1
-    assert ps["toi_seconds"] == 5 * 60
-    assert ps["shifts"] == 5
-    assert ps["video_toi_seconds"] == 5 * 60
+    assert ps["plus_minus"] == 1
 
     assert m.HkyGame.objects.filter(id=1001).exclude(stats_imported_at=None).exists()

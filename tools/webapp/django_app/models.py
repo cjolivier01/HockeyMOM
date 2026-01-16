@@ -206,14 +206,6 @@ class PlayerStat(models.Model):
     shots = models.IntegerField(null=True, blank=True)
     pim = models.IntegerField(null=True, blank=True)
     plus_minus = models.IntegerField(null=True, blank=True)
-    hits = models.IntegerField(null=True, blank=True)
-    blocks = models.IntegerField(null=True, blank=True)
-    toi_seconds = models.IntegerField(null=True, blank=True)
-    faceoff_wins = models.IntegerField(null=True, blank=True)
-    faceoff_attempts = models.IntegerField(null=True, blank=True)
-    goalie_saves = models.IntegerField(null=True, blank=True)
-    goalie_ga = models.IntegerField(null=True, blank=True)
-    goalie_sa = models.IntegerField(null=True, blank=True)
 
     sog = models.IntegerField(null=True, blank=True)
     expected_goals = models.IntegerField(null=True, blank=True)
@@ -230,14 +222,8 @@ class PlayerStat(models.Model):
     gw_goals = models.IntegerField(null=True, blank=True)
     ot_goals = models.IntegerField(null=True, blank=True)
     ot_assists = models.IntegerField(null=True, blank=True)
-    shifts = models.IntegerField(null=True, blank=True)
     gf_counted = models.IntegerField(null=True, blank=True)
     ga_counted = models.IntegerField(null=True, blank=True)
-    video_toi_seconds = models.IntegerField(null=True, blank=True)
-    sb_avg_shift_seconds = models.IntegerField(null=True, blank=True)
-    sb_median_shift_seconds = models.IntegerField(null=True, blank=True)
-    sb_longest_shift_seconds = models.IntegerField(null=True, blank=True)
-    sb_shortest_shift_seconds = models.IntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "player_stats"

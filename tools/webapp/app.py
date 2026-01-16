@@ -3414,16 +3414,6 @@ def create_app():
                 if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                     parsed_rows = parse_shift_stats_player_stats_csv(player_stats_csv)
                     if replace:
-                        # Ensure shift/time-derived stats are not stored when replacing.
-                        m.PlayerStat.objects.filter(game_id=int(resolved_game_id)).update(
-                            toi_seconds=None,
-                            shifts=None,
-                            video_toi_seconds=None,
-                            sb_avg_shift_seconds=None,
-                            sb_median_shift_seconds=None,
-                            sb_longest_shift_seconds=None,
-                            sb_shortest_shift_seconds=None,
-                        )
                         m.PlayerPeriodStat.objects.filter(game_id=int(resolved_game_id)).delete()
                     for row in parsed_rows:
                         jersey_norm = row.get("jersey_number")
@@ -3479,20 +3469,6 @@ def create_app():
                             "shots",
                             "pim",
                             "plus_minus",
-                            "hits",
-                            "blocks",
-                            "toi_seconds",
-                            "shifts",
-                            "video_toi_seconds",
-                            "sb_avg_shift_seconds",
-                            "sb_median_shift_seconds",
-                            "sb_longest_shift_seconds",
-                            "sb_shortest_shift_seconds",
-                            "faceoff_wins",
-                            "faceoff_attempts",
-                            "goalie_saves",
-                            "goalie_ga",
-                            "goalie_sa",
                             "sog",
                             "expected_goals",
                             "completed_passes",
@@ -4116,7 +4092,7 @@ def create_app():
         ]
         ps_rows = list(
             m.PlayerStat.objects.filter(team_id=int(team_id), game_id__in=schedule_game_ids).values(
-                "player_id", "game_id", *PLAYER_STATS_SUM_KEYS
+                "player_id", "game_id", *PLAYER_STATS_DB_KEYS
             )
         )
 
@@ -5079,7 +5055,7 @@ def create_app():
             ps_rows = list(
                 m.PlayerStat.objects.filter(
                     team_id=int(team_id), game_id__in=schedule_game_ids
-                ).values("player_id", "game_id", *PLAYER_STATS_SUM_KEYS)
+                ).values("player_id", "game_id", *PLAYER_STATS_DB_KEYS)
             )
         else:
             tstats = compute_team_stats(g.db, team_id, team_owner_id)
@@ -5153,7 +5129,7 @@ def create_app():
             ps_rows = list(
                 m.PlayerStat.objects.filter(
                     team_id=int(team_id), game_id__in=schedule_game_ids
-                ).values("player_id", "game_id", *PLAYER_STATS_SUM_KEYS)
+                ).values("player_id", "game_id", *PLAYER_STATS_DB_KEYS)
             )
 
         # Game type filter applies to player stats tables only.
@@ -5827,20 +5803,6 @@ def create_app():
             "shots",
             "pim",
             "plus_minus",
-            "hits",
-            "blocks",
-            "toi_seconds",
-            "shifts",
-            "video_toi_seconds",
-            "sb_avg_shift_seconds",
-            "sb_median_shift_seconds",
-            "sb_longest_shift_seconds",
-            "sb_shortest_shift_seconds",
-            "faceoff_wins",
-            "faceoff_attempts",
-            "goalie_saves",
-            "goalie_ga",
-            "goalie_sa",
             "sog",
             "expected_goals",
             "completed_passes",
@@ -6357,13 +6319,6 @@ def create_app():
                     "shots": _ival("shots"),
                     "pim": _ival("pim"),
                     "plus_minus": _ival("plusminus"),
-                    "hits": _ival("hits"),
-                    "blocks": _ival("blocks"),
-                    "faceoff_wins": _ival("fow"),
-                    "faceoff_attempts": _ival("foa"),
-                    "goalie_saves": _ival("saves"),
-                    "goalie_ga": _ival("ga"),
-                    "goalie_sa": _ival("sa"),
                 }
 
             cols = [
@@ -6372,13 +6327,6 @@ def create_app():
                 "shots",
                 "pim",
                 "plus_minus",
-                "hits",
-                "blocks",
-                "faceoff_wins",
-                "faceoff_attempts",
-                "goalie_saves",
-                "goalie_ga",
-                "goalie_sa",
             ]
             game_owner_user_id = int(game.get("user_id") or session_uid)
             with transaction.atomic():
@@ -9276,7 +9224,9 @@ def sort_key_team_standings(team_row: dict, stats: dict) -> tuple:
     return (-pts, -wins, -gd, -gf, ga, name.lower())
 
 
-PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
+# Stats persisted in `player_stats` DB rows. Derived shift/time stats (TOI/shifts) are computed
+# from `hky_game_shift_rows` at runtime and are intentionally excluded here.
+PLAYER_STATS_DB_KEYS: tuple[str, ...] = (
     "goals",
     "assists",
     "pim",
@@ -9299,15 +9249,13 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
     "gw_goals",
     "ot_goals",
     "ot_assists",
-    "hits",
-    "blocks",
+)
+
+# Keys used for aggregation/display. Some of these are derived (e.g. TOI/shifts) and are not
+# stored in the `player_stats` table.
+PLAYER_STATS_SUM_KEYS: tuple[str, ...] = PLAYER_STATS_DB_KEYS + (
     "toi_seconds",
     "shifts",
-    "faceoff_wins",
-    "faceoff_attempts",
-    "goalie_saves",
-    "goalie_ga",
-    "goalie_sa",
 )
 
 PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
@@ -10794,11 +10742,12 @@ def sort_players_table_default(rows: list[dict[str, Any]]) -> list[dict[str, Any
 def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
     del db_conn
     _django_orm, m = _orm_modules()
-    from django.db.models import Count, Sum
+    from django.db.models import Count, F, IntegerField, Sum
     from django.db.models.functions import Coalesce
+    from django.db.models.functions import Abs
 
     annotations: dict[str, Any] = {"gp": Count("id")}
-    for k in PLAYER_STATS_SUM_KEYS:
+    for k in PLAYER_STATS_DB_KEYS:
         annotations[str(k)] = Coalesce(Sum(str(k)), 0)
 
     rows = (
@@ -10806,18 +10755,54 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
         .values("player_id")
         .annotate(**annotations)
     )
-    out: dict[int, dict[str, Any]] = {}
+    base_by_pid: dict[int, dict[str, Any]] = {}
     for r in rows or []:
         pid = int(r.get("player_id") if isinstance(r, dict) else r["player_id"])
-        out[pid] = compute_player_display_stats(dict(r))
+        base_by_pid[pid] = dict(r)
+
+    if base_by_pid:
+        for r in base_by_pid.values():
+            r.setdefault("toi_seconds", 0)
+            r.setdefault("shifts", 0)
+
+        game_ids = set(
+            m.PlayerStat.objects.filter(team_id=int(team_id), user_id=int(user_id)).values_list(
+                "game_id", flat=True
+            )
+        )
+        if game_ids:
+            dur_expr = Abs(F("game_seconds_end") - F("game_seconds"))
+            for srow in (
+                m.HkyGameShiftRow.objects.filter(game_id__in=list(game_ids))
+                .filter(player__team_id=int(team_id))
+                .exclude(game_seconds__isnull=True)
+                .exclude(game_seconds_end__isnull=True)
+                .values("player_id")
+                .annotate(
+                    toi=Coalesce(Sum(dur_expr, output_field=IntegerField()), 0), n=Count("id")
+                )
+            ):
+                try:
+                    pid = int(srow.get("player_id") or 0)
+                except Exception:
+                    continue
+                if pid <= 0 or pid not in base_by_pid:
+                    continue
+                base_by_pid[pid]["toi_seconds"] = int(srow.get("toi") or 0)
+                base_by_pid[pid]["shifts"] = int(srow.get("n") or 0)
+
+    out: dict[int, dict[str, Any]] = {}
+    for pid, sums in base_by_pid.items():
+        out[int(pid)] = compute_player_display_stats(dict(sums))
     return out
 
 
 def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> dict:
     del db_conn
     _django_orm, m = _orm_modules()
-    from django.db.models import Count, Q, Sum
+    from django.db.models import Count, F, IntegerField, Q, Sum
     from django.db.models.functions import Coalesce
+    from django.db.models.functions import Abs
 
     league_team_div: dict[int, str] = {
         int(tid): str(dn or "").strip()
@@ -10847,7 +10832,7 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
         return {}
 
     annotations2: dict[str, Any] = {"gp": Count("id")}
-    for k in PLAYER_STATS_SUM_KEYS:
+    for k in PLAYER_STATS_DB_KEYS:
         annotations2[str(k)] = Coalesce(Sum(str(k)), 0)
 
     rows = (
@@ -10855,10 +10840,40 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
         .values("player_id")
         .annotate(**annotations2)
     )
-    out: dict[int, dict[str, Any]] = {}
+    base_by_pid: dict[int, dict[str, Any]] = {}
     for r in rows or []:
         pid = int(r.get("player_id") if isinstance(r, dict) else r["player_id"])
-        out[pid] = compute_player_display_stats(dict(r))
+        base_by_pid[pid] = dict(r)
+
+    if base_by_pid:
+        for r in base_by_pid.values():
+            r.setdefault("toi_seconds", 0)
+            r.setdefault("shifts", 0)
+
+        if eligible_game_ids:
+            dur_expr = Abs(F("game_seconds_end") - F("game_seconds"))
+            for srow in (
+                m.HkyGameShiftRow.objects.filter(game_id__in=[int(x) for x in eligible_game_ids])
+                .filter(player__team_id=int(team_id))
+                .exclude(game_seconds__isnull=True)
+                .exclude(game_seconds_end__isnull=True)
+                .values("player_id")
+                .annotate(
+                    toi=Coalesce(Sum(dur_expr, output_field=IntegerField()), 0), n=Count("id")
+                )
+            ):
+                try:
+                    pid = int(srow.get("player_id") or 0)
+                except Exception:
+                    continue
+                if pid <= 0 or pid not in base_by_pid:
+                    continue
+                base_by_pid[pid]["toi_seconds"] = int(srow.get("toi") or 0)
+                base_by_pid[pid]["shifts"] = int(srow.get("n") or 0)
+
+    out: dict[int, dict[str, Any]] = {}
+    for pid, sums in base_by_pid.items():
+        out[int(pid)] = compute_player_display_stats(dict(sums))
     return out
 
 
@@ -11026,6 +11041,9 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
             "goalie_sa": _int_or_none(row.get("SA") or row.get("Goalie SA")),
             "sog": _int_or_none(row.get("SOG")),
             "expected_goals": _int_or_none(row.get("xG")),
+            "completed_passes": _int_or_none(
+                row.get("Completed Passes") or row.get("Completed Pass")
+            ),
             "giveaways": _int_or_none(row.get("Giveaways")),
             "turnovers_forced": _int_or_none(row.get("Turnovers (forced)")),
             "created_turnovers": _int_or_none(row.get("Created Turnovers")),

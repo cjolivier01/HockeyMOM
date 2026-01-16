@@ -4256,7 +4256,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         ]
         ps_rows = list(
             m.PlayerStat.objects.filter(team_id=int(team_id), game_id__in=schedule_game_ids).values(
-                "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
+                "player_id", "game_id", *logic.PLAYER_STATS_DB_KEYS
             )
         )
         _overlay_timetoscore_zero_stats_into_player_stat_rows(
@@ -4358,7 +4358,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         ]
         ps_rows = list(
             m.PlayerStat.objects.filter(team_id=int(team_id), game_id__in=schedule_game_ids).values(
-                "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
+                "player_id", "game_id", *logic.PLAYER_STATS_DB_KEYS
             )
         )
         _overlay_timetoscore_zero_stats_into_player_stat_rows(
@@ -5553,13 +5553,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
                 "shots": _ival("shots"),
                 "pim": _ival("pim"),
                 "plus_minus": _ival("plusminus"),
-                "hits": _ival("hits"),
-                "blocks": _ival("blocks"),
-                "faceoff_wins": _ival("fow"),
-                "faceoff_attempts": _ival("foa"),
-                "goalie_saves": _ival("saves"),
-                "goalie_ga": _ival("ga"),
-                "goalie_sa": _ival("sa"),
             }
 
         cols = [
@@ -5568,13 +5561,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "shots",
             "pim",
             "plus_minus",
-            "hits",
-            "blocks",
-            "faceoff_wins",
-            "faceoff_attempts",
-            "goalie_saves",
-            "goalie_ga",
-            "goalie_sa",
         ]
         game_owner_user_id = int(game.get("user_id") or session_uid)
         with transaction.atomic():
@@ -5843,20 +5829,6 @@ def hky_game_import_shift_stats(
         "shots",
         "pim",
         "plus_minus",
-        "hits",
-        "blocks",
-        "toi_seconds",
-        "shifts",
-        "video_toi_seconds",
-        "sb_avg_shift_seconds",
-        "sb_median_shift_seconds",
-        "sb_longest_shift_seconds",
-        "sb_shortest_shift_seconds",
-        "faceoff_wins",
-        "faceoff_attempts",
-        "goalie_saves",
-        "goalie_ga",
-        "goalie_sa",
         "sog",
         "expected_goals",
         "completed_passes",
@@ -6650,7 +6622,7 @@ def public_league_team_detail(
     ]
     ps_rows = list(
         m.PlayerStat.objects.filter(team_id=int(team_id), game_id__in=schedule_game_ids).values(
-            "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
+            "player_id", "game_id", *logic.PLAYER_STATS_DB_KEYS
         )
     )
     _overlay_timetoscore_zero_stats_into_player_stat_rows(
@@ -9779,23 +9751,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
 
                 parsed_shift_rows = logic.parse_shift_rows_csv(str(shift_rows_csv))
 
-                # Clear legacy stored shift aggregates so TOI/shifts are derived at runtime.
-                try:
-                    m.PlayerStat.objects.filter(
-                        game_id=int(resolved_game_id),
-                        team_id=int(team_id_for_rows),
-                    ).update(
-                        toi_seconds=None,
-                        shifts=None,
-                        video_toi_seconds=None,
-                        sb_avg_shift_seconds=None,
-                        sb_median_shift_seconds=None,
-                        sb_longest_shift_seconds=None,
-                        sb_shortest_shift_seconds=None,
-                    )
-                except Exception:
-                    pass
-
                 if replace_shift_rows and side_label:
                     m.HkyGameShiftRow.objects.filter(
                         game_id=int(resolved_game_id),
@@ -9907,16 +9862,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
 
             if isinstance(player_stats_csv, str) and player_stats_csv.strip():
                 parsed_rows = logic.parse_shift_stats_player_stats_csv(player_stats_csv)
-                if replace:
-                    m.PlayerStat.objects.filter(game_id=int(resolved_game_id)).update(
-                        toi_seconds=None,
-                        shifts=None,
-                        video_toi_seconds=None,
-                        sb_avg_shift_seconds=None,
-                        sb_median_shift_seconds=None,
-                        sb_longest_shift_seconds=None,
-                        sb_shortest_shift_seconds=None,
-                    )
                 for row in parsed_rows:
                     jersey_norm = row.get("jersey_number")
                     name_norm = row.get("name_norm") or ""
@@ -9972,13 +9917,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         "shots",
                         "pim",
                         "plus_minus",
-                        "hits",
-                        "blocks",
-                        "faceoff_wins",
-                        "faceoff_attempts",
-                        "goalie_saves",
-                        "goalie_ga",
-                        "goalie_sa",
                         "sog",
                         "expected_goals",
                         "completed_passes",
