@@ -46,6 +46,8 @@ class VideoOutPlugin(Plugin):
         no_cuda_streams: bool = False,
         skip_final_save: bool = False,
         save_frame_dir: Optional[str] = None,
+        encoder_backend: Optional[str] = None,
+        output_width: Optional[str | int] = None,
     ) -> None:
         super().__init__(enabled=enabled)
         self._vo: Optional[VideoOutput] = None
@@ -56,6 +58,8 @@ class VideoOutPlugin(Plugin):
         self._no_cuda_streams = bool(no_cuda_streams)
         self._skip_final_save = bool(skip_final_save)
         self._save_dir = save_frame_dir
+        self._encoder_backend = encoder_backend
+        self._output_width = output_width
 
     def is_output(self) -> bool:
         """If enabled, this node is an output."""
@@ -109,19 +113,6 @@ class VideoOutPlugin(Plugin):
             out_path = candidate
         self._out_path = out_path
 
-        # Configure NVENC / muxing backend via env var so PyNvVideoEncoder
-        # can honor baseline.yaml and CLI overrides.
-        backend = get_nested_value(cfg, "aspen.video_out.encoder_backend", default_value=None)
-        if backend == "pyav":
-            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "pyav"
-        elif backend == "ffmpeg":
-            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "ffmpeg"
-        elif backend == "raw":
-            os.environ["HM_VIDEO_ENCODER_BACKEND"] = "raw"
-        elif backend == "auto":
-            # Defer to library defaults / auto-detect; clear explicit override.
-            os.environ.pop("HM_VIDEO_ENCODER_BACKEND", None)
-
         fps = None
         try:
             fps = float(context.get("data", {}).get("fps"))
@@ -142,11 +133,12 @@ class VideoOutPlugin(Plugin):
             skip_final_save=self._skip_final_save,
             cache_size=self._cache,
             device=vo_dev,
-            output_width=getattr(cam_args, "output_width", None),
+            output_width=self._output_width,
             show_image=bool(getattr(cam_args, "show_image", False)),
             show_scaled=getattr(cam_args, "show_scaled", None),
             profiler=getattr(cam_args, "profiler", None),
             enable_end_zones=False,
+            encoder_backend=self._encoder_backend,
         )
         self._vo = self._vo.to(device)
 
