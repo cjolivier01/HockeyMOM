@@ -1,0 +1,277 @@
+aspen:
+  minimal_context: true
+
+  # Move the original mmengine inference pipeline here so the CLI can use it
+  inference_pipeline:
+    - type: LoadImageFromFile
+    - type: HmCrop
+      keys: [img]
+    - type: HmImageToTensor
+      keys: [img]
+      # scale_factor: 255.0
+    - type: HmResize
+      # We will scale downm the image to fit within img_scale
+      # before HmPad maybe pads it to be this size
+      # vimg_scale: [1312, 480]
+      img_scale: [1632, 608]
+      # img_scale: [1952, 704]
+      # img_scale: [1984, 736]
+      keep_ratio: true
+      interpolation: area
+    - type: HmImageColorAdjust
+      # No-op by default; CLI/UI can set white_balance/brightness/contrast/gamma
+      # Example:
+      # white_balance: [1.05, 1.0, 0.95]
+      # or temperature in Kelvin (e.g., 3500k):
+      # white_balance_temp: 3500k
+      white_balance: GLOBAL.rink.camera.color.white_balance
+      brightness: GLOBAL.rink.camera.color.brightness
+      contrast: GLOBAL.rink.camera.color.contrast
+      gamma: GLOBAL.rink.camera.color.gamma
+    - type: HmPad
+      pad_val: 114.0
+      # size_divisor: 32
+      # size: [736, 1984]  # Actual size of tensor, which is H-W ordering
+      # size: [480, 1312]  # Actual size of tensor, which is H-W ordering
+      size: [608, 1632]  # Actual size of tensor, which is H-W ordering
+      # size: [480, 1312]
+    - type: mmdet.PackTrackInputs
+      meta_keys: [img_metas, hm_real_time_fps]
+    - type: HmRealTime
+      enabled: false
+      scale: 1.0
+
+  # Optional per-camera color pipelines for stitching inputs.
+  # These operate on the raw left/right camera frames *before* stitching and
+  # can be driven at runtime via the game.stitching.left/right.color blocks.
+  left_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      # Runtime values are pulled from args.game_config using these paths.
+      # If missing, the transform is a no-op.
+      config_paths:
+        - [game, stitching, left, color]
+        - [game, stitching, left]
+      refresh_from_config: true
+
+  right_stitch_pipeline:
+    - type: HmImageColorAdjust
+      keys: [img]
+      config_paths:
+        - [game, stitching, right, color]
+        - [game, stitching, right]
+      refresh_from_config: true
+
+  # Default camera post-processing pipeline (was in hm_end_to_end.py)
+  video_out_pipeline:
+    - type: HmImageColorAdjust
+      # Runtime-tunable via camera UI (PlayTracker) or CLI
+      # Defaults to no-op; UI writes values under rink.camera.color
+      # white_balance: GLOBAL.rink.camera.color.white_balance
+      # brightness: GLOBAL.rink.camera.color.brightness
+      # contrast: GLOBAL.rink.camera.color.contrast
+      # gamma: GLOBAL.rink.camera.color.gamma
+    - type: HmUnsharpMask
+      enabled: false
+      image_label: img
+    - type: HmConfigureScoreboard
+    - type: HmCaptureScoreboard
+    - type: HmPerspectiveRotation
+      pre_clip: GLOBAL.rink.camera.pre_clip
+      fixed_edge_rotation_angle: GLOBAL.rink.camera.fixed_edge_rotation_angle
+    - type: HmCropToVideoFrame
+      crop_image: GLOBAL.rink.camera.crop_image
+    - type: HmRenderScoreboard
+      image_labels: [img, end_zone_img]
+    - type: HmImageOverlays
+      watermark_config:
+        image: images/sports_ai_watermark.png
+    - type: HmMakeVisibleImage
+
+  plugins:
+    stitching:
+      class: hmlib.aspen.plugins.stitching_plugin.StitchingPlugin
+      depends: []
+      enabled: GLOBAL.aspen.stitching.enabled
+      params:
+        pto_project_file: GLOBAL.aspen.stitching.pto_project_file
+        dir_name: GLOBAL.aspen.stitching.dir_name
+        blend_mode: GLOBAL.aspen.stitching.blend_mode
+        max_blend_levels: GLOBAL.aspen.stitching.max_blend_levels
+        auto_adjust_exposure: GLOBAL.aspen.stitching.auto_adjust_exposure
+        python_blender: GLOBAL.aspen.stitching.python_blender
+        minimize_blend: GLOBAL.aspen.stitching.minimize_blend
+        dtype: GLOBAL.aspen.stitching.dtype
+        no_cuda_streams: GLOBAL.aspen.stitching.no_cuda_streams
+        post_stitch_rotate_degrees: GLOBAL.aspen.stitching.post_stitch_rotate_degrees
+        left_color_pipeline: GLOBAL.aspen.left_stitch_pipeline
+        right_color_pipeline: GLOBAL.aspen.right_stitch_pipeline
+        capture_rgb_stats: GLOBAL.aspen.stitching.capture_rgb_stats
+        max_output_width: GLOBAL.aspen.stitching.max_output_width
+
+    image_prep:
+      class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
+      depends: [stitching]
+      params: {}
+
+    detector_factory:
+      class: hmlib.aspen.plugins.detector_factory_plugin.DetectorFactoryPlugin
+      depends: []
+      enabled: true
+      params:
+        # detector_yaml: hmlib/config/aspen/models/bytetrack_yolox_s.detector.yaml
+        detector_yaml: hmlib/config/aspen/models/hm_crowdhuman_yolov8_m_1984_736.detector.yaml
+        data_preprocessor:
+          type: TrackDataPreprocessor
+          pad_size_divisor: 32
+          use_det_processor: true
+
+    pose_factory:
+      class: hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin
+      depends: [detector_factory]
+      params:
+        # HARPET
+        # pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-l_8xb64-10e_harpe-384x288.py
+        # pose_checkpoint: /mnt/data/pretrained/rtmpose_l_harpe_384x288/best_PCK_epoch_86.pth
+        # pose_config: /mnt/monster-data/colivier/src/hm/hmlib/config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-m_8xb64-crowdpose_harpe-256x192.py
+        pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-m_8xb64-crowdpose_harpe-256x192.py
+        # pose_checkpoint: /home/colivier/.cache/torch/hub/checkpoints/rtmpose-m_8xb64-crowdpose_harpe-256x192_best_PCK_epoch_1178.pth
+        pose_checkpoint: https://github.com/cjolivier01/HockeyMOM/releases/download/v0.0.1/rtmpose-m_8xb64-crowdpose_harpe-256x192_best_PCK_epoch_1178.pth
+        # pose_checkpoint: "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-crowdpose_pt-aic-coco_210e-256x192-e6192cac_20230224.pth"
+        # COCO
+        # pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
+        # pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
+        show_progress: false
+        disable_internal_detector: true
+
+    detector:
+      class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
+      depends: [image_prep, detector_factory]
+      params: {}
+
+    save_detections:
+      class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
+      depends: [detector]
+      enabled: true
+      params: {}
+
+    ice_config:
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
+      depends: [image_prep]
+      params: {}
+
+    ice_boundaries:
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
+      depends: [detector, ice_config]
+      params:
+        enabled: true
+        # Optional cap on detections that survive the rink mask.
+        # If set, only the top-K scores inside the mask are kept.
+        max_detections_in_mask: 50
+        plot_ice_mask: GLOBAL.plot.plot_ice_mask
+
+    tracker:
+      class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
+      depends: [detector, ice_boundaries]
+      params:
+        # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
+        # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
+        # tracker_class: hockeymom.core.HmDcfTrackerCudaStatic  # NvDCF-style CUDA tracker (static shape + ReID)
+        # tracker_class: hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic  # Static-shape CUDA tracker (Python)
+        # tracker_kwargs:
+        #   device: cuda:0
+        #   max_detections: 256
+        #   max_tracks: 50
+        #   reid_feature_dim: 256
+        #   reid_weight: 0.5
+
+    save_tracking:
+      class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
+      depends: [tracker]
+      enabled: true
+      params: {}
+
+    pose:
+      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
+      depends: [tracker, pose_factory]
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
+
+    save_pose:
+      class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
+      depends: [pose]
+      enabled: true
+      params: {}
+
+    jersey_numbers:
+      class: hmlib.aspen.plugins.jersey_pose_plugin.JerseyNumberFromPosePlugin
+      depends: [pose, tracker]
+
+    # Optional camera dataframe load/save for camera.csv
+    load_camera:
+      class: hmlib.aspen.plugins.load_plugins.LoadCameraPlugin
+      depends: []
+      enabled: false
+      params: {}
+
+    # Optional camera controller (rule-based by default). Enable transformer/GPT by
+    # setting controller: transformer|gpt and model_path to your checkpoint.
+    camera_controller:
+      class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
+      depends: [tracker, pose]
+      params:
+        controller: GLOBAL.rink.camera.controller
+        model_path: GLOBAL.rink.camera.camera_model
+        window: GLOBAL.rink.camera.camera_window
+
+    play_tracker:
+      class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
+      depends: [
+        tracker, 
+        camera_controller,
+        # pose,  # Uncomment to see pose drawn on the main image, but this has aperformance cost in that it can't run pose in parallel to play tracking
+      ]
+      enabled: true
+      params:
+        debug_play_tracker: GLOBAL.plot.debug_play_tracker
+        plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
+        plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        plot_speed: GLOBAL.plot.plot_speed
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_actions: GLOBAL.plot.plot_actions
+
+    save_camera:
+      class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
+      depends: [play_tracker]
+      enabled: true
+      params: {}
+
+    apply_camera:
+      class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
+      depends: [play_tracker, load_camera]
+      enabled: true
+      params: {
+        video_out_pipeline: GLOBAL.aspen.video_out_pipeline,
+      }
+
+    rgb_stats_check:
+      class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
+      depends: [play_tracker]
+      enabled: GLOBAL.debug.rgb_stats_check.enable
+      params:
+        source: stitch
+        stats_key: stitched
+        tensor_key: original_images
+
+    video_out:
+      class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
+      depends: [apply_camera, rgb_stats_check, pose]
+      enabled: true
+      params:
+        # Allow GLOBAL.aspen.video_out.skip_final_save (default from baseline.yaml)
+        # to be overridden by CLI --skip-final-video-save before GLOBAL resolution.
+        skip_final_save: GLOBAL.aspen.video_out.skip_final_save
