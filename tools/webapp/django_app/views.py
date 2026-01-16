@@ -1372,6 +1372,8 @@ def _overlay_game_player_stats_from_event_rows(
                     ga_by_pid[pid] = ga_by_pid.get(pid, 0) + 1
 
         # Only compute on-ice GF/GA when at least one goal has complete on-ice lists.
+        # Note: GF/GA are computed only from goals that have complete on-ice lists ("counted" goals).
+        # Plus/Minus is only meaningful when *all* goals have complete on-ice lists.
         if total_goals <= 0 or complete_goals <= 0:
             return
 
@@ -1381,10 +1383,13 @@ def _overlay_game_player_stats_from_event_rows(
             stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
             stats_by_pid[pid]["gf_counted"] = int(gf)
             stats_by_pid[pid]["ga_counted"] = int(ga)
-            stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
+            if complete_goals == total_goals:
+                stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
     except Exception:
         # Best-effort: this overlay is optional and should not break page rendering.
-        pass
+        logger.exception(
+            "Failed to overlay on-ice GF/GA into player stat rows (game_id=%s)", game_id
+        )
 
 
 def _overlay_completed_passes_into_player_stat_rows(
@@ -3728,7 +3733,10 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
             )
         except Exception:
-            pass
+            logger.exception(
+                "Failed to overlay completed passes into player stat rows for game_ids=%s",
+                schedule_game_ids,
+            )
     else:
         tstats = logic.compute_team_stats(None, int(team_id), team_owner_id)
         schedule_rows = list(
@@ -3812,7 +3820,10 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
             )
         except Exception:
-            pass
+            logger.exception(
+                "Failed to overlay completed passes into player stat rows for game_ids=%s",
+                schedule_game_ids,
+            )
 
     for g2 in schedule_games or []:
         try:
@@ -5973,7 +5984,10 @@ def public_league_team_detail(
             game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
         )
     except Exception:
-        pass
+        logger.exception(
+            "Failed to overlay completed passes into player stat rows for game_ids=%s",
+            schedule_game_ids,
+        )
 
     for g2 in schedule_games or []:
         try:
@@ -8764,7 +8778,9 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         commit=False,
                     )
         except Exception:
-            pass
+            logger.exception(
+                "Error while creating/importing roster players (game_id=%s)", resolved_game_id
+            )
 
     try:
         from django.db import transaction

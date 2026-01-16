@@ -263,7 +263,8 @@ def _t2s_team_names_for_game(
             away = ((info or {}).get("away") or {}).get("team") or {}
             home_name = str(home.get("name") or "").strip() or None
             away_name = str(away.get("name") or "").strip() or None
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            print(f"[t2s:{t2s_id}] Failed to resolve team names via API: {e}", file=sys.stderr)
             home_name = None
             away_name = None
     if (not home_name or not away_name) and allow_remote:
@@ -274,8 +275,11 @@ def _t2s_team_names_for_game(
             visitor, home = _t2s_team_names_from_scoresheet_html(html)
             away_name = str(visitor or "").strip() or away_name
             home_name = str(home or "").strip() or home_name
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"[t2s:{t2s_id}] Failed to fetch/parse scoresheet HTML for team names: {e}",
+                file=sys.stderr,
+            )
     return home_name, away_name
 
 
@@ -1138,11 +1142,14 @@ def _write_styled_xlsx_table(
 
                             for col_name in merge_columns:
                                 _merge_column(col_name)
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"[warning] Failed to apply Excel merge formatting to sheet '{sheet_name}': {e}",
+                    file=sys.stderr,
+                )
             _autosize_columns(writer, sheet_name, df_excel)
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[warning] Failed to apply Excel formatting: {e}", file=sys.stderr)
 
 
 def _apply_excel_header_wrap(
@@ -1258,7 +1265,8 @@ def _apply_excel_table_style(
 
             last_col = get_column_letter(ncols)
             ws.auto_filter.ref = f"A{header_row}:{last_col}{last_row}"
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Auto-filter support is optional; ignore failures (e.g., missing/old openpyxl).
             pass
 
         # Right-align duration/time-like columns (strings such as '54', '1:02', '2:10:03').
@@ -1380,7 +1388,9 @@ def _collect_sheet_jerseys(
             pass
     if not jerseys:
         try:
-            _events, _goal_rows, jerseys_by_team, _mapping = _parse_long_left_event_table_with_mapping(df)
+            _events, _goal_rows, jerseys_by_team, _mapping = (
+                _parse_long_left_event_table_with_mapping(df)
+            )
             for nums in (jerseys_by_team or {}).values():
                 for n in nums or set():
                     norm = _normalize_jersey_number(n)
@@ -3117,7 +3127,8 @@ def _parse_long_left_event_table_with_mapping(
                     hdr_s = str(hdr).strip().lower() if isinstance(hdr, str) else ""
                     if ("expected" in hdr_s) or (hdr_s in {"xg", "xg (expected goal)"}):
                         xg_col = cand
-            except Exception:
+            except Exception:  # noqa: BLE001
+                # Best-effort detection of a companion xG column to the right of SOG; ignore failures.
                 pass
 
         for r in range(header_r + 1, end_r):
@@ -3198,6 +3209,7 @@ def _parse_long_left_event_table_with_mapping(
             #  - "Turnover" / "Turnover (forced)"  -> forced turnover (lost puck)
             #  - "Unforced TO" (and occasional typos like "Unforced OT") -> unforced turnover (giveaway)
             #  - legacy: "Giveaway"
+            # Note: "unfoced"/"unforcd" below are intentional, capturing common typos in sheet labels.
             is_unforced_to = label_l.startswith(("unforced", "unfoced", "unforcd"))
             is_turnover = ("turnover" in label_l) and (not is_unforced_to)
             is_giveaway = ("giveaway" in label_l) and (not is_turnover) and (not is_unforced_to)
@@ -7353,8 +7365,11 @@ def _write_all_events_summary(
                                 continue
                             for rr in range(data_start_row, data_start_row + nrows):
                                 ws.cell(row=rr, column=col_idx).number_format = "@"
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"[warning] Failed to apply text formatting to 'all_events' sheet: {e}",
+                    file=sys.stderr,
+                )
             _autosize_columns(writer, "all_events", df_excel)
         return
 
@@ -10545,8 +10560,11 @@ def process_sheet(
                 txt = str(num_token).strip()
                 if txt:
                     candidates.add(txt)
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"[warning] Failed to parse jersey token {num_token!r}: {e}",
+                    file=sys.stderr,
+                )
         norm = _normalize_jersey_number(num_token)
         if norm:
             candidates.add(norm)
@@ -12474,8 +12492,8 @@ def main() -> None:
                     expanded_entries.append(
                         InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {}))
                     )
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                print(f"Error processing input path {pp}: {e}", file=sys.stderr)
     input_entries = expanded_entries
 
     base_outdir = args.outdir.expanduser()
@@ -13488,10 +13506,7 @@ def main() -> None:
                 upload_home_logo_url = home_logo_url or None
                 upload_away_logo_url = away_logo_url or None
 
-            try:
-                print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
-            except Exception:
-                pass
+            print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
 
             try:
                 # If both Home/Away outputs exist (e.g., when long-sheet shift tables were used to

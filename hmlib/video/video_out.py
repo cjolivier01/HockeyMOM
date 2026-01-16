@@ -39,20 +39,20 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
-def is_number(value) -> bool:
+def is_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
     if isinstance(value, (int, float)):
-        return not isinstance(value, bool)  # exclude True/False
-
+        return True
     if isinstance(value, str):
         s = value.strip()
         if not s:
             return False
         try:
             x = float(s)
-            return not (x != x or x in (float("inf"), float("-inf")))
         except ValueError:
             return False
-
+        return math.isfinite(x)
     return False
 
 
@@ -246,9 +246,9 @@ class VideoOutput(torch.nn.ModuleDict):
         assert self._dtype in _FP_TYPES
         # TODO(colivier) not yet implemented (is it worth it?)
         self._encoder_backend = (
-            None if not (encoder_backend or encoder_backend == "auto") else encoder_backend
+            None if (not encoder_backend or encoder_backend == "auto") else encoder_backend
         )
-        self._output_width = int(output_width) if output_width is not None else None
+        self._output_width = output_width
         self._output_resize_wh: Optional[Tuple[int, int]] = None
 
         if device is not None:
@@ -302,19 +302,20 @@ class VideoOutput(torch.nn.ModuleDict):
 
     def _get_output_resize_wh(self, width: int, height: int) -> Optional[Tuple[int, int]]:
         """Return (width, height) to resize output frames to, if configured."""
-        if self._output_width is None:
+        output_width = self._output_width
+        if output_width is None:
             return None
-        elif not is_number(self._output_width):
-            if self._output_width == "auto":
+        if not is_number(output_width):
+            if str(output_width).strip().lower() == "auto":
                 return width, height
-            elif self._output_width == "4k":
-                self._output_width = 4096
-            elif self._output_width == "8k":
-                self._output_width = 8192
+            if str(output_width).strip().lower() == "4k":
+                target_w = 4096
+            elif str(output_width).strip().lower() == "8k":
+                target_w = 8192
             else:
-                raise ValueError(f'Invalid output width: "{self._output_width}"')
-
-        target_w = int(self._output_width)
+                raise ValueError(f'Invalid output width: "{output_width}"')
+        else:
+            target_w = int(output_width)
         if target_w <= 0:
             raise ValueError(f"output_width must be positive; got {target_w}")
         if target_w == int(width):

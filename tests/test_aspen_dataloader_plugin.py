@@ -1,6 +1,6 @@
 import pytest
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 
 from hmlib.aspen import AspenNet
 

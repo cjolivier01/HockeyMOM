@@ -4,6 +4,7 @@ import datetime as dt
 from functools import lru_cache
 import io
 import json
+import logging
 import os
 import re
 import secrets
@@ -20,6 +21,8 @@ try:
     import pymysql  # type: ignore
 except Exception:  # pragma: no cover
     pymysql = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -3279,8 +3282,11 @@ def create_app():
                             pos,
                             commit=False,
                         )
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Error while creating/importing roster players (game_id=%s)",
+                    resolved_game_id,
+                )
 
         try:
             from django.db import transaction
@@ -7899,7 +7905,7 @@ def enrich_timetoscore_penalties_with_video_times(
                     # Fallback: interpolate from any available shift-synced mapping points.
                     interp = _interp_video_seconds(int(per), int(gs))
                     if interp is not None:
-                        vs2, (a, b) = interp
+                        vs2, _ = interp
                         rr["Video Seconds"] = str(int(vs2))
                         rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(int(vs2))
                         _add_source(rr, "shift_spreadsheet")
@@ -8990,7 +8996,7 @@ def get_user_video_clip_len_s(db_conn, user_id: Optional[int]) -> int:
         if iv in {15, 20, 30, 45, 60, 90}:
             return int(iv)
     except Exception:
-        pass
+        return 30
     return 30
 
 
