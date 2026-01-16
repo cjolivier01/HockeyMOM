@@ -48,6 +48,9 @@ DROP_DB=0
 DROP_DB_ONLY=0
 SPREADSHEETS_ONLY=0
 T2S_SCRAPE=0
+IGNORE_PRIMARY=0
+IGNORE_LONG=0
+VERBOSE=0
 
 require_cmd() {
   local name="$1"
@@ -59,7 +62,7 @@ require_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--shifts]
+Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--shifts] [--ignore-primary] [--ignore-long]
 
 Environment:
   WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
@@ -80,9 +83,12 @@ Options:
   --no-default-user       Skip auto-creating a default webapp user from git config (user.email/user.name)
   --t2s-league ID         Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
   --rebuild               Reset (delete) existing league hockey data before importing (destructive)
-  --spreadsheets-only     Seed only from shift spreadsheets (skip TimeToScore import; avoids T2S usage in parse_stats_inputs)
+  --spreadsheets-only     Seed only from shift spreadsheets (skip TimeToScore import; scrape only per-game T2S lookups)
   --scrape                Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
   --shifts                Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
+  --ignore-primary        Prefer '*-long*' spreadsheets when both exist (falls back to primary-only)
+  --ignore-long           Prefer primary spreadsheets when both exist (falls back to '*-long*' only)
+  --verbose               Verbose spreadsheet parsing output (prints spreadsheet event mapping summary)
 EOF
 }
 
@@ -114,6 +120,9 @@ while [[ $# -gt 0 ]]; do
     --no-default-user) NO_DEFAULT_USER=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --shifts) INCLUDE_SHIFTS=1; shift ;;
+    --ignore-primary) IGNORE_PRIMARY=1; shift ;;
+    --ignore-long) IGNORE_LONG=1; shift ;;
+    --verbose|-v) VERBOSE=1; shift ;;
     --t2s-league=*)
       T2S_LEAGUE_RAW="${1#*=}"
       shift
@@ -143,6 +152,10 @@ done
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
     exit 2
+fi
+if [[ "${IGNORE_PRIMARY}" == "1" && "${IGNORE_LONG}" == "1" ]]; then
+  echo "[!] --ignore-primary cannot be combined with --ignore-long" >&2
+  exit 2
 fi
 
 if [[ ! -x "./p" ]]; then
@@ -348,7 +361,7 @@ echo "[i] Ensuring league '${LEAGUE_NAME}' is owned by ${OWNER_EMAIL}"
 LEAGUE_OWNER_PAYLOAD="$(
   LEAGUE_NAME="${LEAGUE_NAME}" OWNER_EMAIL="${OWNER_EMAIL}" python3 - <<'PY'
 import json, os
-print(json.dumps({"league_name": os.environ["LEAGUE_NAME"], "owner_email": os.environ["OWNER_EMAIL"], "shared": True}))
+print(json.dumps({"league_name": os.environ["LEAGUE_NAME"], "owner_email": os.environ["OWNER_EMAIL"], "shared": True, "is_public": True}))
 PY
 )"
 AUTH_HEADER=()
@@ -412,10 +425,19 @@ if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
 fi
 SPREADSHEET_ARGS=()
 if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--no-time2score" )
+  SPREADSHEET_ARGS+=( "--t2s-scrape-only" )
 fi
 if [[ "${INCLUDE_SHIFTS}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--shifts" )
+fi
+if [[ "${IGNORE_PRIMARY}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--ignore-primary" )
+fi
+if [[ "${IGNORE_LONG}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--ignore-long" )
+fi
+if [[ "${VERBOSE}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--verbose" )
 fi
 ./p scripts/parse_stats_inputs.py \
   --file-list "${SHIFT_FILE_LIST}" \

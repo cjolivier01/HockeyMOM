@@ -64,6 +64,7 @@ aspen:
     #              and invoke ffmpeg once at close() to mux into the container
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
+    output_width: "auto"
   stitching:
     # Controlled by --aspen-stitching / --no-aspen-stitching.
     enabled: true

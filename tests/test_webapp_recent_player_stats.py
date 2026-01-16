@@ -26,7 +26,9 @@ def should_compute_recent_player_totals_per_player_by_schedule_order():
         {"player_id": 11, "game_id": 6, "goals": 0, "assists": 1, "shots": 2},
     ]
 
-    recent = mod.compute_recent_player_totals_from_rows(schedule_games=schedule_games, player_stats_rows=player_stats_rows, n=2)
+    recent = mod.compute_recent_player_totals_from_rows(
+        schedule_games=schedule_games, player_stats_rows=player_stats_rows, n=2
+    )
 
     # Player 10: last 2 games are game 6 and 4.
     p10 = recent[10]
@@ -47,8 +49,65 @@ def should_compute_recent_player_totals_per_player_by_schedule_order():
     assert p11["ppg"] == 1.0
 
 
-def should_render_recent_player_stats_section_in_team_template(webapp_test_config_path):
+def should_compute_per_game_rates_using_stat_coverage_denominators():
     mod = _load_app_module()
+
+    schedule_games = [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+    player_stats_rows = [
+        # Player 10 has shots missing for game 2 (coverage=3 games, but GP=4).
+        {"player_id": 10, "game_id": 1, "goals": 0, "assists": 0, "shots": 2},
+        {"player_id": 10, "game_id": 2, "goals": 0, "assists": 0, "shots": None},
+        {"player_id": 10, "game_id": 3, "goals": 0, "assists": 0, "shots": 4},
+        {"player_id": 10, "game_id": 4, "goals": 0, "assists": 0, "shots": 4},
+        # Player 11 has shots in all games (coverage=4 games).
+        {"player_id": 11, "game_id": 1, "goals": 0, "assists": 0, "shots": 1},
+        {"player_id": 11, "game_id": 2, "goals": 0, "assists": 0, "shots": 1},
+        {"player_id": 11, "game_id": 3, "goals": 0, "assists": 0, "shots": 1},
+        {"player_id": 11, "game_id": 4, "goals": 0, "assists": 0, "shots": 1},
+    ]
+
+    totals = mod._aggregate_player_totals_from_rows(
+        player_stats_rows=player_stats_rows, allowed_game_ids={1, 2, 3, 4}
+    )
+    p10 = totals[10]
+    assert p10["gp"] == 4
+    assert p10["shots"] == 10
+    assert abs(float(p10["shots_per_game"]) - (10.0 / 3.0)) < 1e-9
+
+    p11 = totals[11]
+    assert p11["gp"] == 4
+    assert p11["shots"] == 4
+    assert float(p11["shots_per_game"]) == 1.0
+
+    recent = mod.compute_recent_player_totals_from_rows(
+        schedule_games=schedule_games, player_stats_rows=player_stats_rows, n=4
+    )
+    r10 = recent[10]
+    assert r10["gp"] == 4
+    assert r10["shots"] == 10
+    assert abs(float(r10["shots_per_game"]) - (10.0 / 3.0)) < 1e-9
+
+
+def should_not_infer_shot_rates_from_goals_when_shots_missing():
+    mod = _load_app_module()
+
+    player_stats_rows = [
+        {"player_id": 10, "game_id": 1, "goals": 1, "assists": 0, "shots": None},
+        {"player_id": 10, "game_id": 2, "goals": 1, "assists": 0, "shots": None},
+        {"player_id": 10, "game_id": 3, "goals": 1, "assists": 0, "shots": None},
+    ]
+    totals = mod._aggregate_player_totals_from_rows(
+        player_stats_rows=player_stats_rows, allowed_game_ids={1, 2, 3}
+    )
+    p10 = totals[10]
+    assert p10["gp"] == 3
+    assert p10["goals"] == 3
+    assert p10["shots"] == 0
+    assert p10["shots_per_game"] is None
+
+
+def should_render_recent_player_stats_section_in_team_template(webapp_test_config_path):
+    _load_app_module()
     from tools.webapp import django_orm
 
     django_orm.setup_django(config_path=str(webapp_test_config_path))
@@ -64,6 +123,13 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
         {"key": "assists", "label": "Assists", "n_games": 0, "total_games": 0, "show_count": False},
         {"key": "points", "label": "Points", "n_games": 0, "total_games": 0, "show_count": False},
         {"key": "ppg", "label": "PPG", "n_games": 0, "total_games": 0, "show_count": False},
+        {
+            "key": "shots_per_game",
+            "label": "Shots/Game",
+            "n_games": 5,
+            "total_games": 6,
+            "show_count": True,
+        },
     ]
     row = {
         "player_id": 501,
@@ -75,6 +141,8 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
         "assists": 1,
         "points": 2,
         "ppg": 1.0,
+        "shots_per_game": 2.0,
+        "_per_game_denoms": {"shots_per_game": 3},
     }
 
     rf = RequestFactory()
@@ -100,9 +168,10 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
     )
 
     assert "Recent Player Stats  -- Are They On a Roll?" in html
-    assert "data-freeze-cols=\"2\"" in html
+    assert 'data-freeze-cols="2"' in html
     assert "table-nowrap" in html
     assert "<select" in html and "recent_n" in html
+    assert html.count("(3 games)") == 2
 
 
 def should_split_coaches_out_of_player_lists():

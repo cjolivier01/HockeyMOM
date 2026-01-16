@@ -4,6 +4,7 @@ import datetime as dt
 from functools import lru_cache
 import io
 import json
+import logging
 import os
 import re
 import secrets
@@ -20,6 +21,8 @@ try:
     import pymysql  # type: ignore
 except Exception:  # pragma: no cover
     pymysql = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1349,7 +1352,8 @@ def create_app():
         *,
         commit: bool = True,
     ) -> int:
-        nm = (name or "").strip()
+        raw_name = str(name or "").strip()
+        nm = strip_jersey_from_player_name(raw_name, jersey_number)
         if not nm:
             raise ValueError("player name is required")
         _django_orm, m = _orm_modules()
@@ -1358,6 +1362,19 @@ def create_app():
             .values_list("id", flat=True)
             .first()
         )
+        if existing is None and raw_name and raw_name != nm:
+            existing_raw = (
+                m.Player.objects.filter(
+                    user_id=int(owner_user_id), team_id=int(team_id), name=raw_name
+                )
+                .values_list("id", flat=True)
+                .first()
+            )
+            if existing_raw is not None:
+                m.Player.objects.filter(id=int(existing_raw)).update(
+                    name=nm, updated_at=dt.datetime.now()
+                )
+                existing = int(existing_raw)
         if existing is not None:
             pid = int(existing)
             if jersey_number or position:
@@ -2798,7 +2815,10 @@ def create_app():
         team_side = str(payload.get("team_side") or "").strip().lower() or None
         if team_side not in {None, "", "home", "away"}:
             return jsonify({"ok": False, "error": "team_side must be 'home' or 'away'"}), 400
-        create_missing_players = bool(payload.get("create_missing_players", False))
+        if "create_missing_players" in payload:
+            create_missing_players = bool(payload.get("create_missing_players"))
+        else:
+            create_missing_players = True
         owner_email = str(payload.get("owner_email") or "").strip().lower() or None
         league_id_payload = payload.get("league_id")
         league_name = str(payload.get("league_name") or "").strip() or None
@@ -3097,7 +3117,7 @@ def create_app():
                     sort_order=sort_order,
                     commit=False,
                 )
-                create_missing_players = True
+                # Do not implicitly create players for external games; respect the payload flag.
 
         if resolved_game_id is None:
             return (
@@ -3235,6 +3255,38 @@ def create_app():
 
         imported = 0
         unmatched: list[str] = []
+
+        # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
+        # This lets the webapp create missing roster players (including goalies) without contacting T2S.
+        roster_home = payload.get("roster_home") or []
+        roster_away = payload.get("roster_away") or []
+        if isinstance(roster_home, list) or isinstance(roster_away, list):
+            try:
+                for side, roster in (("home", roster_home), ("away", roster_away)):
+                    if not isinstance(roster, list):
+                        continue
+                    tid = team1_id if side == "home" else team2_id
+                    for rec in roster:
+                        if not isinstance(rec, dict):
+                            continue
+                        nm = str(rec.get("name") or "").strip()
+                        if not nm:
+                            continue
+                        jersey_norm = normalize_jersey_number(rec.get("jersey_number"))
+                        pos = str(rec.get("position") or "").strip() or None
+                        _ensure_player_for_import(
+                            int(owner_user_id),
+                            int(tid),
+                            nm,
+                            str(jersey_norm) if jersey_norm else None,
+                            pos,
+                            commit=False,
+                        )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Error while creating/importing roster players (game_id=%s)",
+                    resolved_game_id,
+                )
 
         try:
             from django.db import transaction
@@ -3443,6 +3495,7 @@ def create_app():
                             "goalie_sa",
                             "sog",
                             "expected_goals",
+                            "completed_passes",
                             "giveaways",
                             "turnovers_forced",
                             "created_turnovers",
@@ -3538,6 +3591,11 @@ def create_app():
         owner_email = str(payload.get("owner_email") or "").strip().lower()
         owner_name = str(payload.get("owner_name") or owner_email).strip() or owner_email
         is_shared = bool(payload["shared"]) if "shared" in payload else None
+        is_public = None
+        if "is_public" in payload:
+            is_public = bool(payload["is_public"])
+        elif "public" in payload:
+            is_public = bool(payload["public"])
         if not league_name or not owner_email:
             return jsonify({"ok": False, "error": "owner_email and league_name are required"}), 400
 
@@ -3553,15 +3611,19 @@ def create_app():
                 updates: dict[str, Any] = {"owner_user_id": int(owner_user_id), "updated_at": now}
                 if is_shared is not None:
                     updates["is_shared"] = bool(is_shared)
+                if is_public is not None:
+                    updates["is_public"] = bool(is_public)
                 m.League.objects.filter(id=league_id).update(**updates)
             else:
                 if is_shared is None:
                     is_shared = True
+                if is_public is None:
+                    is_public = False
                 league = m.League.objects.create(
                     name=league_name,
                     owner_user_id=int(owner_user_id),
                     is_shared=bool(is_shared),
-                    is_public=False,
+                    is_public=bool(is_public),
                     created_at=now,
                     updated_at=None,
                 )
@@ -5781,6 +5843,7 @@ def create_app():
             "goalie_sa",
             "sog",
             "expected_goals",
+            "completed_passes",
             "giveaways",
             "turnovers_forced",
             "created_turnovers",
@@ -7198,8 +7261,18 @@ def filter_events_rows_prefer_timetoscore_for_goal_assist(
         return [p for p in (pp.strip() for pp in parts) if p]
 
     def _is_tts_row(r: dict[str, str]) -> bool:
+        def _is_t2s_token(tok: str) -> bool:
+            t = _norm(tok)
+            if not t:
+                return False
+            # Common values seen in DB and CSV sources.
+            if t in {"timetoscore", "t2s", "tts"}:
+                return True
+            # Some sources are stamped like "t2s:54183" or "timetoscore:54183".
+            return t.startswith("t2s") or t.startswith("timetoscore")
+
         toks = _split_sources(r.get("Source") or "")
-        return any(_norm(t) == "timetoscore" for t in toks)
+        return any(_is_t2s_token(t) for t in toks)
 
     if not events_rows:
         return []
@@ -7208,7 +7281,8 @@ def filter_events_rows_prefer_timetoscore_for_goal_assist(
         for r in events_rows
         if isinstance(r, dict)
     )
-    if not has_tts and not tts_linked:
+    # If we don't actually have TimeToScore Goal/Assist rows, don't drop anything: keep whatever we have.
+    if not has_tts:
         return list(events_rows)
     return [
         r
@@ -7260,7 +7334,11 @@ def summarize_event_sources(
 
     def _canon(s: str) -> str:
         sl = s.strip().casefold()
-        if sl == "timetoscore":
+        if (
+            sl in {"timetoscore", "t2s", "tts"}
+            or sl.startswith("t2s")
+            or sl.startswith("timetoscore")
+        ):
             return "TimeToScore"
         if sl == "long":
             return "Long"
@@ -7730,7 +7808,7 @@ def enrich_timetoscore_penalties_with_video_times(
 
     # Build generic per-period mapping points from incoming rows with both game+video seconds.
     # These points already incorporate stoppages because they are derived from shift sync.
-    mapping_by_period: dict[int, list[tuple[int, int]]] = {}
+    mapping_by_period: dict[int, list[tuple[int, int, dict[str, str]]]] = {}
     for r in incoming_rows or []:
         if not isinstance(r, dict):
             continue
@@ -7739,30 +7817,37 @@ def enrich_timetoscore_penalties_with_video_times(
         vs = _video_seconds(r)
         if per is None or gs is None or vs is None:
             continue
-        mapping_by_period.setdefault(int(per), []).append((int(gs), int(vs)))
+        mapping_by_period.setdefault(int(per), []).append((int(gs), int(vs), r))
     for per, pts in list(mapping_by_period.items()):
         # Deduplicate by game seconds, keeping the earliest (minimum) video timestamp for that instant.
-        best_by_gs: dict[int, int] = {}
-        for gs, vs in pts:
+        best_by_gs: dict[int, tuple[int, dict[str, str]]] = {}
+        for gs, vs, rr in pts:
             prev = best_by_gs.get(int(gs))
-            if prev is None or int(vs) < int(prev):
-                best_by_gs[int(gs)] = int(vs)
-        mapping_by_period[per] = sorted(best_by_gs.items(), key=lambda x: x[0])
+            if prev is None or int(vs) < int(prev[0]):
+                best_by_gs[int(gs)] = (int(vs), dict(rr))
+        mapping_by_period[per] = sorted(
+            [(gs, vs, rr) for gs, (vs, rr) in best_by_gs.items()], key=lambda x: x[0]
+        )
 
-    def _interp_video_seconds(period: int, game_s: int) -> Optional[int]:
+    def _interp_video_seconds(
+        period: int, game_s: int
+    ) -> Optional[
+        tuple[int, tuple[tuple[int, int, dict[str, str]], tuple[int, int, dict[str, str]]]]
+    ]:
         pts = mapping_by_period.get(int(period)) or []
         if len(pts) < 2:
             return None
         for i in range(len(pts) - 1):
-            g0, v0 = pts[i]
-            g1, v1 = pts[i + 1]
+            g0, v0, r0 = pts[i]
+            g1, v1, r1 = pts[i + 1]
             lo, hi = (g0, g1) if g0 <= g1 else (g1, g0)
             if not (lo <= int(game_s) <= hi):
                 continue
             if g0 == g1:
                 continue
             # Linear interpolation (works for both increasing and decreasing mappings).
-            return int(round(v0 + (int(game_s) - g0) * (v1 - v0) / (g1 - g0)))
+            v = int(round(v0 + (int(game_s) - g0) * (v1 - v0) / (g1 - g0)))
+            return v, ((int(g0), int(v0), dict(r0)), (int(g1), int(v1), dict(r1)))
         return None
 
     # Build lookup from incoming penalty rows with video times.
@@ -7818,8 +7903,9 @@ def enrich_timetoscore_penalties_with_video_times(
                     _add_source(rr, "shift_spreadsheet")
                 else:
                     # Fallback: interpolate from any available shift-synced mapping points.
-                    vs2 = _interp_video_seconds(int(per), int(gs))
-                    if vs2 is not None:
+                    interp = _interp_video_seconds(int(per), int(gs))
+                    if interp is not None:
+                        vs2, _ = interp
                         rr["Video Seconds"] = str(int(vs2))
                         rr["Video Time"] = format_seconds_to_mmss_or_hhmmss(int(vs2))
                         _add_source(rr, "shift_spreadsheet")
@@ -8693,7 +8779,7 @@ def normalize_events_video_time_for_display(
         return ",".join(out)
 
     # Propagate missing clip/on-ice metadata across events at the same (period, game seconds).
-    best_video_seconds: dict[tuple[int, int], int] = {}
+    best_video_seconds: dict[tuple[int, int], dict[str, Any]] = {}
     best_on_ice_home: dict[tuple[int, int], str] = {}
     best_on_ice_away: dict[tuple[int, int], str] = {}
 
@@ -8713,8 +8799,16 @@ def normalize_events_video_time_for_display(
         )
         if vs0 is not None:
             prev = best_video_seconds.get(k)
-            if prev is None or int(vs0) < int(prev):
-                best_video_seconds[k] = int(vs0)
+            if prev is None or int(vs0) < int(prev.get("video_seconds") or 0):
+                best_video_seconds[k] = {
+                    "video_seconds": int(vs0),
+                    "video_time": str(vt0 or "").strip(),
+                    "period": int(k[0]),
+                    "game_seconds": int(k[1]),
+                    "game_time": str(
+                        rr.get("Game Time") or rr.get("GameTime") or rr.get("Time") or ""
+                    ).strip(),
+                }
 
         on_home = _normalize_on_ice_str(
             rr.get("On-Ice Players (Home)") or rr.get("OnIce Players (Home)") or ""
@@ -8748,8 +8842,11 @@ def normalize_events_video_time_for_display(
                 or rr.get("VideoS"),
             )
             if vs0 is None:
-                vs_best = best_video_seconds.get(k)
-                if vs_best is not None:
+                best = best_video_seconds.get(k)
+                if best is not None:
+                    vs_best = best.get("video_seconds")
+                    if vs_best is None:
+                        continue
                     vs_s = str(int(vs_best))
                     rr.setdefault("Video Seconds", vs_s)
                     if not str(rr.get("Video Seconds") or "").strip():
@@ -8899,7 +8996,7 @@ def get_user_video_clip_len_s(db_conn, user_id: Optional[int]) -> int:
         if iv in {15, 20, 30, 45, 60, 90}:
             return int(iv)
     except Exception:
-        pass
+        return 30
     return 30
 
 
@@ -9187,6 +9284,7 @@ PLAYER_STATS_SUM_KEYS: tuple[str, ...] = (
     "sog",
     "expected_goals",
     "plus_minus",
+    "completed_passes",
     "giveaways",
     "turnovers_forced",
     "created_turnovers",
@@ -9235,6 +9333,8 @@ PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("expected_goals", "xG"),
     ("expected_goals_per_game", "xG per Game"),
     ("expected_goals_per_sog", "xG per SOG"),
+    ("completed_passes", "Completed Passes"),
+    ("completed_passes_per_game", "Completed Passes per Game"),
     ("turnovers_forced", "Turnovers (forced)"),
     ("turnovers_forced_per_game", "Turnovers (forced) per Game"),
     ("created_turnovers", "Created Turnovers"),
@@ -9300,6 +9400,7 @@ GAME_PLAYER_STATS_DISPLAY_KEYS: tuple[str, ...] = (
     "plus_minus",
     "sog",
     "expected_goals",
+    "completed_passes",
     "controlled_entry_for",
     "controlled_entry_against",
     "controlled_exit_for",
@@ -9365,6 +9466,8 @@ _PLAYER_STATS_HEADER_TO_DB_KEY: dict[str, str] = {
     "goalie sa": "goalie_sa",
     "sog": "sog",
     "xg": "expected_goals",
+    "completed passes": "completed_passes",
+    "completed pass": "completed_passes",
     "giveaways": "giveaways",
     "turnovers (forced)": "turnovers_forced",
     "created turnovers": "created_turnovers",
@@ -9448,6 +9551,7 @@ def _build_game_player_stats_table_from_imported_csv(
     )
     jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}
     name_to_player_ids: dict[tuple[int, str], list[int]] = {}
+    name_to_player_ids_no_middle: dict[tuple[int, str], list[int]] = {}
     for p in players or []:
         try:
             pid = int(p.get("id"))
@@ -9460,8 +9564,13 @@ def _build_game_player_stats_table_from_imported_csv(
         name_norm = normalize_player_name(str(p.get("name") or ""))
         if name_norm:
             name_to_player_ids.setdefault((tid, name_norm), []).append(pid)
+        name_norm_no_middle = normalize_player_name_no_middle(str(p.get("name") or ""))
+        if name_norm_no_middle:
+            name_to_player_ids_no_middle.setdefault((tid, name_norm_no_middle), []).append(pid)
 
-    def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+    def _resolve_player_id(
+        jersey_norm: Optional[str], name_norm: str, name_norm_no_middle: str
+    ) -> Optional[int]:
         candidates: list[int] = []
         for tid in team_ids:
             if jersey_norm:
@@ -9473,6 +9582,12 @@ def _build_game_player_stats_table_from_imported_csv(
             candidates.extend(name_to_player_ids.get((tid, name_norm), []))
         if len(set(candidates)) == 1:
             return int(list(set(candidates))[0])
+        if name_norm_no_middle and name_norm_no_middle != name_norm:
+            candidates = []
+            for tid in team_ids:
+                candidates.extend(name_to_player_ids_no_middle.get((tid, name_norm_no_middle), []))
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
         return None
 
     def _first_non_empty(d: dict[str, str], keys: tuple[str, ...]) -> str:
@@ -9502,7 +9617,8 @@ def _build_game_player_stats_table_from_imported_csv(
                 jersey_norm = normalize_jersey_number(m.group(1))
                 name_part = m.group(2).strip()
         name_norm = normalize_player_name(name_part)
-        pid = _resolve_player_id(jersey_norm, name_norm)
+        name_norm_no_middle = normalize_player_name_no_middle(name_part)
+        pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
         if pid is None:
             continue
         imported_row_by_pid[int(pid)] = dict(r)
@@ -9634,7 +9750,9 @@ def _rate_or_none(numer: float, denom: float) -> Optional[float]:
         return None
 
 
-def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
+def compute_player_display_stats(
+    sums: dict[str, Any], *, per_game_denoms: Optional[dict[str, int]] = None
+) -> dict[str, Any]:
     gp = _int0(sums.get("gp"))
     goals = _int0(sums.get("goals"))
     assists = _int0(sums.get("assists"))
@@ -9652,6 +9770,7 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     ga = _int0(sums.get("ga_counted"))
     giveaways = _int0(sums.get("giveaways"))
     takeaways = _int0(sums.get("takeaways"))
+    completed_passes = _int0(sums.get("completed_passes"))
     turnovers_forced = _int0(sums.get("turnovers_forced"))
     created_turnovers = _int0(sums.get("created_turnovers"))
     ce_for = _int0(sums.get("controlled_entry_for"))
@@ -9664,43 +9783,78 @@ def compute_player_display_stats(sums: dict[str, Any]) -> dict[str, Any]:
     goalie_saves = _int0(sums.get("goalie_saves"))
     goalie_sa = _int0(sums.get("goalie_sa"))
 
+    def _denom_for(key: str) -> int:
+        if per_game_denoms is not None and str(key) in per_game_denoms:
+            try:
+                v = int(per_game_denoms.get(str(key)) or 0)
+            except Exception:
+                v = 0
+            return max(0, int(v))
+        return int(gp)
+
     out: dict[str, Any] = dict(sums)
     # Stat implications for display/aggregation:
     #   Goals ⊆ xG ⊆ SOG ⊆ Shots
-    xg = max(xg, goals)
-    sog = max(sog, xg)
-    shots = max(shots, sog)
+    #
+    # Important: for team-page aggregates we may be mixing games that have full shot-tracking
+    # (long spreadsheet) with games that only have goals. When `per_game_denoms` is provided,
+    # treat shots/SOG/xG as "measured" stats and do not infer them from goals, otherwise per-game
+    # rates become misleading.
+    if per_game_denoms is None:
+        xg = max(xg, goals)
+        sog = max(sog, xg)
+        shots = max(shots, sog)
     out["expected_goals"] = xg
     out["sog"] = sog
     out["shots"] = shots
     out["gp"] = gp
     out["points"] = points
-    out["ppg"] = _rate_or_none(points, gp)
+    out["ppg"] = _rate_or_none(points, _denom_for("ppg"))
 
     # Per-game rates.
-    out["toi_seconds_per_game"] = int(round(float(toi_seconds) / float(gp))) if gp > 0 else None
-    out["shifts_per_game"] = _rate_or_none(shifts, gp)
-    out["shots_per_game"] = _rate_or_none(shots, gp)
-    out["sog_per_game"] = _rate_or_none(sog, gp)
-    out["expected_goals_per_game"] = _rate_or_none(xg, gp)
-    out["plus_minus_per_game"] = _rate_or_none(plus_minus, gp)
-    out["gf_per_game"] = _rate_or_none(gf, gp)
-    out["ga_per_game"] = _rate_or_none(ga, gp)
-    out["giveaways_per_game"] = _rate_or_none(giveaways, gp)
-    out["takeaways_per_game"] = _rate_or_none(takeaways, gp)
-    out["turnovers_forced_per_game"] = _rate_or_none(turnovers_forced, gp)
-    out["created_turnovers_per_game"] = _rate_or_none(created_turnovers, gp)
-    out["controlled_entry_for_per_game"] = _rate_or_none(ce_for, gp)
-    out["controlled_entry_against_per_game"] = _rate_or_none(ce_against, gp)
-    out["controlled_exit_for_per_game"] = _rate_or_none(cx_for, gp)
-    out["controlled_exit_against_per_game"] = _rate_or_none(cx_against, gp)
-    out["pim_per_game"] = _rate_or_none(pim, gp)
-    out["hits_per_game"] = _rate_or_none(_int0(sums.get("hits")), gp)
-    out["blocks_per_game"] = _rate_or_none(_int0(sums.get("blocks")), gp)
+    toi_gp = _denom_for("toi_seconds_per_game")
+    out["toi_seconds_per_game"] = (
+        int(round(float(toi_seconds) / float(toi_gp))) if toi_gp > 0 else None
+    )
+    out["shifts_per_game"] = _rate_or_none(shifts, _denom_for("shifts_per_game"))
+    out["shots_per_game"] = _rate_or_none(shots, _denom_for("shots_per_game"))
+    out["sog_per_game"] = _rate_or_none(sog, _denom_for("sog_per_game"))
+    out["expected_goals_per_game"] = _rate_or_none(xg, _denom_for("expected_goals_per_game"))
+    out["plus_minus_per_game"] = _rate_or_none(plus_minus, _denom_for("plus_minus_per_game"))
+    out["gf_per_game"] = _rate_or_none(gf, _denom_for("gf_per_game"))
+    out["ga_per_game"] = _rate_or_none(ga, _denom_for("ga_per_game"))
+    out["giveaways_per_game"] = _rate_or_none(giveaways, _denom_for("giveaways_per_game"))
+    out["takeaways_per_game"] = _rate_or_none(takeaways, _denom_for("takeaways_per_game"))
+    out["completed_passes_per_game"] = _rate_or_none(
+        completed_passes, _denom_for("completed_passes_per_game")
+    )
+    out["turnovers_forced_per_game"] = _rate_or_none(
+        turnovers_forced, _denom_for("turnovers_forced_per_game")
+    )
+    out["created_turnovers_per_game"] = _rate_or_none(
+        created_turnovers, _denom_for("created_turnovers_per_game")
+    )
+    out["controlled_entry_for_per_game"] = _rate_or_none(
+        ce_for, _denom_for("controlled_entry_for_per_game")
+    )
+    out["controlled_entry_against_per_game"] = _rate_or_none(
+        ce_against, _denom_for("controlled_entry_against_per_game")
+    )
+    out["controlled_exit_for_per_game"] = _rate_or_none(
+        cx_for, _denom_for("controlled_exit_for_per_game")
+    )
+    out["controlled_exit_against_per_game"] = _rate_or_none(
+        cx_against, _denom_for("controlled_exit_against_per_game")
+    )
+    out["pim_per_game"] = _rate_or_none(pim, _denom_for("pim_per_game"))
+    out["hits_per_game"] = _rate_or_none(_int0(sums.get("hits")), _denom_for("hits_per_game"))
+    out["blocks_per_game"] = _rate_or_none(_int0(sums.get("blocks")), _denom_for("blocks_per_game"))
 
     out["expected_goals_per_sog"] = _rate_or_none(xg, sog)
     out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
     out["goalie_sv_pct"] = _rate_or_none(goalie_saves, goalie_sa)
+    if per_game_denoms is not None:
+        out["_per_game_denoms"] = {str(k): int(v) for k, v in dict(per_game_denoms).items()}
     return out
 
 
@@ -10147,6 +10301,9 @@ def build_player_stats_table_rows(
         }
         for k, _label in PLAYER_STATS_DISPLAY_COLUMNS:
             row[k] = s.get(k)
+        denoms = s.get("_per_game_denoms")
+        if isinstance(denoms, dict):
+            row["_per_game_denoms"] = denoms
         rows.append(row)
     return rows
 
@@ -10185,9 +10342,46 @@ def compute_recent_player_totals_from_rows(
         items.sort(key=lambda t: t[0], reverse=True)
         chosen = items[:n_i]
         sums: dict[str, Any] = {"player_id": int(pid), "gp": len(chosen)}
+        present: dict[str, int] = {}
+        ppg_games = 0
         for k in PLAYER_STATS_SUM_KEYS:
-            sums[k] = sum(_int0(rr.get(k)) for _idx, rr in chosen)
-        out[int(pid)] = compute_player_display_stats(sums)
+            total = 0
+            n_present = 0
+            for _idx, rr in chosen:
+                if rr.get(k) is not None:
+                    n_present += 1
+                total += _int0(rr.get(k))
+            sums[k] = total
+            present[k] = int(n_present)
+        for _idx, rr in chosen:
+            if rr.get("goals") is not None and rr.get("assists") is not None:
+                ppg_games += 1
+        denoms = {
+            "ppg": int(ppg_games),
+            "toi_seconds_per_game": int(present.get("toi_seconds", 0) or 0),
+            "shifts_per_game": int(present.get("shifts", 0) or 0),
+            "shots_per_game": int(present.get("shots", 0) or 0),
+            "sog_per_game": int(present.get("sog", 0) or 0),
+            "expected_goals_per_game": int(present.get("expected_goals", 0) or 0),
+            "plus_minus_per_game": int(present.get("plus_minus", 0) or 0),
+            "gf_per_game": int(present.get("gf_counted", 0) or 0),
+            "ga_per_game": int(present.get("ga_counted", 0) or 0),
+            "giveaways_per_game": int(present.get("giveaways", 0) or 0),
+            "takeaways_per_game": int(present.get("takeaways", 0) or 0),
+            "completed_passes_per_game": int(present.get("completed_passes", 0) or 0),
+            "turnovers_forced_per_game": int(present.get("turnovers_forced", 0) or 0),
+            "created_turnovers_per_game": int(present.get("created_turnovers", 0) or 0),
+            "controlled_entry_for_per_game": int(present.get("controlled_entry_for", 0) or 0),
+            "controlled_entry_against_per_game": int(
+                present.get("controlled_entry_against", 0) or 0
+            ),
+            "controlled_exit_for_per_game": int(present.get("controlled_exit_for", 0) or 0),
+            "controlled_exit_against_per_game": int(present.get("controlled_exit_against", 0) or 0),
+            "pim_per_game": int(present.get("pim", 0) or 0),
+            "hits_per_game": int(present.get("hits", 0) or 0),
+            "blocks_per_game": int(present.get("blocks", 0) or 0),
+        }
+        out[int(pid)] = compute_player_display_stats(sums, per_game_denoms=denoms)
     return out
 
 
@@ -10264,6 +10458,8 @@ def _aggregate_player_totals_from_rows(
 ) -> dict[int, dict[str, Any]]:
     sums_by_pid: dict[int, dict[str, Any]] = {}
     gp_by_pid: dict[int, int] = {}
+    present_counts_by_pid: dict[int, dict[str, int]] = {}
+    ppg_games_by_pid: dict[int, int] = {}
     for r in player_stats_rows or []:
         if not isinstance(r, dict):
             continue
@@ -10275,13 +10471,44 @@ def _aggregate_player_totals_from_rows(
         if gid not in allowed_game_ids:
             continue
         gp_by_pid[pid] = gp_by_pid.get(pid, 0) + 1
+        if r.get("goals") is not None and r.get("assists") is not None:
+            ppg_games_by_pid[pid] = ppg_games_by_pid.get(pid, 0) + 1
         acc = sums_by_pid.setdefault(pid, {"player_id": int(pid)})
         for k in PLAYER_STATS_SUM_KEYS:
+            if r.get(k) is not None:
+                per = present_counts_by_pid.setdefault(pid, {})
+                per[k] = per.get(k, 0) + 1
             acc[k] = _int0(acc.get(k)) + _int0(r.get(k))
     out: dict[int, dict[str, Any]] = {}
     for pid, base in sums_by_pid.items():
         base["gp"] = int(gp_by_pid.get(pid, 0))
-        out[int(pid)] = compute_player_display_stats(dict(base))
+        present = present_counts_by_pid.get(int(pid)) or {}
+        denoms = {
+            "ppg": int(ppg_games_by_pid.get(int(pid), 0) or 0),
+            "toi_seconds_per_game": int(present.get("toi_seconds", 0) or 0),
+            "shifts_per_game": int(present.get("shifts", 0) or 0),
+            "shots_per_game": int(present.get("shots", 0) or 0),
+            "sog_per_game": int(present.get("sog", 0) or 0),
+            "expected_goals_per_game": int(present.get("expected_goals", 0) or 0),
+            "plus_minus_per_game": int(present.get("plus_minus", 0) or 0),
+            "gf_per_game": int(present.get("gf_counted", 0) or 0),
+            "ga_per_game": int(present.get("ga_counted", 0) or 0),
+            "giveaways_per_game": int(present.get("giveaways", 0) or 0),
+            "takeaways_per_game": int(present.get("takeaways", 0) or 0),
+            "completed_passes_per_game": int(present.get("completed_passes", 0) or 0),
+            "turnovers_forced_per_game": int(present.get("turnovers_forced", 0) or 0),
+            "created_turnovers_per_game": int(present.get("created_turnovers", 0) or 0),
+            "controlled_entry_for_per_game": int(present.get("controlled_entry_for", 0) or 0),
+            "controlled_entry_against_per_game": int(
+                present.get("controlled_entry_against", 0) or 0
+            ),
+            "controlled_exit_for_per_game": int(present.get("controlled_exit_for", 0) or 0),
+            "controlled_exit_against_per_game": int(present.get("controlled_exit_against", 0) or 0),
+            "pim_per_game": int(present.get("pim", 0) or 0),
+            "hits_per_game": int(present.get("hits", 0) or 0),
+            "blocks_per_game": int(present.get("blocks", 0) or 0),
+        }
+        out[int(pid)] = compute_player_display_stats(dict(base), per_game_denoms=denoms)
     return out
 
 
@@ -10289,6 +10516,10 @@ def _player_stats_required_sum_keys_for_display_key(col_key: str) -> tuple[str, 
     k = str(col_key or "").strip()
     if not k:
         return tuple()
+    if k == "gf_per_game":
+        return ("gf_counted",)
+    if k == "ga_per_game":
+        return ("ga_counted",)
     if k in set(PLAYER_STATS_SUM_KEYS):
         return (k,)
     if k == "gp":
@@ -10666,6 +10897,40 @@ def normalize_player_name(raw: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(raw or "").strip().lower())
 
 
+def strip_jersey_from_player_name(raw: str, jersey_number: Optional[str]) -> str:
+    """
+    Strip embedded jersey numbers from a player name when the jersey matches.
+    """
+    name = str(raw or "").strip()
+    if not name:
+        return ""
+    jersey_norm = normalize_jersey_number(jersey_number) if jersey_number else None
+    if jersey_norm:
+        tail = re.sub(rf"\s*[\(#]?\s*{re.escape(jersey_norm)}\s*\)?\s*$", "", name).strip()
+        if tail:
+            name = tail
+        head = re.sub(rf"^#?\s*{re.escape(jersey_norm)}\s+", "", name).strip()
+        if head:
+            name = head
+    return name
+
+
+def normalize_player_name_no_middle(raw: str) -> str:
+    """
+    Normalize a name while dropping single-letter middle initials (e.g. "Brock T Birkey").
+    """
+    parts = [p for p in str(raw or "").strip().split() if p]
+    if len(parts) >= 3:
+        kept: list[str] = []
+        for idx, token in enumerate(parts):
+            t = token.strip(".")
+            if 0 < idx < (len(parts) - 1) and len(t) == 1:
+                continue
+            kept.append(token)
+        parts = kept or parts
+    return normalize_player_name(" ".join(parts))
+
+
 def parse_duration_seconds(raw: Any) -> Optional[int]:
     if raw is None:
         return None
@@ -10734,14 +10999,17 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
 
         # Back-compat: older outputs encoded jersey in the Player field (e.g. " 8 Adam Ro").
         name_part = player_name
-        if jersey_norm is None:
-            m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
-            if m:
-                jersey_norm = normalize_jersey_number(m.group(1))
+        m = re.match(r"^\s*(\d+)\s+(.*)$", player_name)
+        if m:
+            jersey_from_name = normalize_jersey_number(m.group(1))
+            if jersey_norm is None:
+                jersey_norm = jersey_from_name
+            if jersey_from_name and jersey_norm and jersey_from_name == jersey_norm:
                 name_part = m.group(2).strip()
 
         player_label = f"{jersey_norm} {name_part}".strip() if jersey_norm else name_part
         name_norm = normalize_player_name(name_part)
+        name_norm_no_middle = normalize_player_name_no_middle(name_part)
 
         stats: dict[str, Any] = {
             "goals": _int_or_none(row.get("Goals")),
@@ -10814,6 +11082,7 @@ def parse_shift_stats_player_stats_csv(csv_text: str) -> list[dict[str, Any]]:
                 "player_label": player_label,
                 "jersey_number": jersey_norm,
                 "name_norm": name_norm,
+                "name_norm_no_middle": name_norm_no_middle,
                 "stats": stats,
                 "period_stats": period_stats,
             }

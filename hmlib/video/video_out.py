@@ -39,6 +39,23 @@ def get_and_pop(map: Dict[str, Any], key: str) -> Any:
     return result
 
 
+def is_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return False
+        try:
+            x = float(s)
+        except ValueError:
+            return False
+        return math.isfinite(x)
+    return False
+
+
 def get_best_codec(
     gpu_number: int, width: int, height: int, allow_scaling: bool = False
 ) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
@@ -165,11 +182,12 @@ class VideoOutput(torch.nn.ModuleDict):
         visualization_config: Dict[str, Any] | None = None,
         dtype: torch.dtype | None = None,
         device: Union[torch.device, str, None] = None,
-        output_width: int | None = None,
+        output_width: int | str | None = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
         profiler: Any = None,
         enable_end_zones: bool = False,
+        encoder_backend: Optional[str] = None,
     ):
         """Construct a synchronous video writer.
 
@@ -226,8 +244,11 @@ class VideoOutput(torch.nn.ModuleDict):
         self._visualization_config = visualization_config
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
-
-        self._output_width = int(output_width) if output_width is not None else None
+        # TODO(colivier) not yet implemented (is it worth it?)
+        self._encoder_backend = (
+            None if (not encoder_backend or encoder_backend == "auto") else encoder_backend
+        )
+        self._output_width = output_width
         self._output_resize_wh: Optional[Tuple[int, int]] = None
 
         if device is not None:
@@ -281,9 +302,20 @@ class VideoOutput(torch.nn.ModuleDict):
 
     def _get_output_resize_wh(self, width: int, height: int) -> Optional[Tuple[int, int]]:
         """Return (width, height) to resize output frames to, if configured."""
-        if self._output_width is None:
+        output_width = self._output_width
+        if output_width is None:
             return None
-        target_w = int(self._output_width)
+        if not is_number(output_width):
+            if str(output_width).strip().lower() == "auto":
+                return width, height
+            if str(output_width).strip().lower() == "4k":
+                target_w = 4096
+            elif str(output_width).strip().lower() == "8k":
+                target_w = 8192
+            else:
+                raise ValueError(f'Invalid output width: "{output_width}"')
+        else:
+            target_w = int(output_width)
         if target_w <= 0:
             raise ValueError(f"output_width must be positive; got {target_w}")
         if target_w == int(width):

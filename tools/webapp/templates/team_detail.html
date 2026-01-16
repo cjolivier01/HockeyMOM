@@ -328,11 +328,27 @@
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
+              {% with denom=r|get_item:"_per_game_denoms"|get_item:col.key %}
+                {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_toi }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% else %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_stat }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% endif %}
+              {% endwith %}
             {% endfor %}
           </tr>
         {% empty %}
@@ -411,11 +427,27 @@
             </td>
             <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in recent_player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
+              {% with denom=r|get_item:"_per_game_denoms"|get_item:col.key %}
+                {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_toi }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% else %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_stat }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% endif %}
+              {% endwith %}
             {% endfor %}
           </tr>
         {% empty %}
@@ -538,25 +570,25 @@
 
 <dialog id="team-goalie-stats-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
   <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
-    <div>
-      <div id="team-goalie-stats-title" style="font-weight:700;"></div>
-      <div id="team-goalie-stats-subtitle" class="muted" style="font-size:.9rem;"></div>
-    </div>
-    <button id="team-goalie-stats-close" class="btn" type="button">Close</button>
-  </div>
-  <div id="team-goalie-stats-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+	    <div>
+	      <div id="team-goalie-stats-title" style="font-weight:700;"></div>
+	      <div id="team-goalie-stats-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-goalie-stats-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-goalie-stats-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 {% endif %}
 
 <dialog id="team-player-events-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
   <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
-    <div>
-      <div id="team-player-events-title" style="font-weight:700;"></div>
-      <div id="team-player-events-subtitle" class="muted" style="font-size:.9rem;"></div>
-    </div>
-    <button id="team-player-events-close" class="btn" type="button">Close</button>
-  </div>
-  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
+	    <div>
+	      <div id="team-player-events-title" style="font-weight:700;"></div>
+	      <div id="team-player-events-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-player-events-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
       <div>
         <strong>Video Clip</strong>
@@ -992,7 +1024,8 @@
               bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
               var filtered = attributed.filter(function (r) {
                 var k = normTypeKey(r.event_type_key || r.event_type);
-                return k !== "penaltyexpired";
+                // Completed Passes are per-game shift-sheet events; don't include them in multi-game views.
+                return k !== "penaltyexpired" && k !== "completedpass";
               });
 
               var goals = [];
@@ -1009,7 +1042,7 @@
                   shot.push(withDetailsTag(r, "Goal"));
                 } else if (k === "assist") {
                   assists.push(r);
-                } else if (k === "expectedgoal") {
+                } else if (k === "xg" || k === "expectedgoal") {
                   xg.push(withDetailsTag(r, "xG"));
                   sog.push(withDetailsTag(r, "xG"));
                   shot.push(withDetailsTag(r, "xG"));
@@ -1023,10 +1056,10 @@
 
               [
                 ["Goals", goals],
-                ["Assists", assists],
                 ["xG (Expected Goal)", xg],
                 ["SOG", sog],
                 ["Shot", shot],
+                ["Assists", assists],
               ].forEach(function (pair) {
                 var label = pair[0];
                 var rows = pair[1] || [];
@@ -1049,7 +1082,7 @@
                 });
               });
 
-              var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
+              var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
               var remaining = filtered.filter(function (r) {
                 var k = normTypeKey(r.event_type_key || r.event_type);
                 return !chainKeys[k];

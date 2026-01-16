@@ -110,6 +110,34 @@ def _event_type_key(raw: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", s)
 
 
+def _normalize_player_name_no_middle(raw: Any) -> str:
+    parts = [p for p in str(raw or "").strip().split() if p]
+    if len(parts) >= 3:
+        kept: list[str] = []
+        for idx, token in enumerate(parts):
+            t = token.strip(".")
+            if 0 < idx < (len(parts) - 1) and len(t) == 1:
+                continue
+            kept.append(token)
+        parts = kept or parts
+    return logic.normalize_player_name(" ".join(parts))
+
+
+def _strip_jersey_from_player_name(raw: Any, jersey_number: Optional[str]) -> str:
+    name = str(raw or "").strip()
+    if not name:
+        return ""
+    jersey_norm = logic.normalize_jersey_number(jersey_number) if jersey_number else None
+    if jersey_norm:
+        tail = re.sub(rf"\s*[\(#]?\s*{re.escape(jersey_norm)}\s*\)?\s*$", "", name).strip()
+        if tail:
+            name = tail
+        head = re.sub(rf"^#?\s*{re.escape(jersey_norm)}\s+", "", name).strip()
+        if head:
+            name = head
+    return name
+
+
 def _norm_ws(raw: Any) -> str:
     return " ".join(str(raw or "").strip().split())
 
@@ -487,18 +515,21 @@ def _upsert_game_event_rows_from_events_csv(
 
     # Propagate clip metadata across all events at the same instant so any event row can be used
     # as a video anchor (e.g. assists share the same clip time as the goal / xG / SOG at that time).
-    best_video_seconds: dict[tuple[int, int], int] = {}
+    best_video: dict[tuple[int, int], dict[str, Any]] = {}
     for rec in parsed:
         per = rec.get("period")
         gs = rec.get("game_seconds")
         vs = rec.get("video_seconds")
         if not isinstance(per, int) or not isinstance(gs, int) or not isinstance(vs, int):
             continue
-        prev = best_video_seconds.get((int(per), int(gs)))
-        if prev is None or int(vs) < int(prev):
-            best_video_seconds[(int(per), int(gs))] = int(vs)
+        prev = best_video.get((int(per), int(gs)))
+        if prev is None or int(vs) < int(prev.get("video_seconds") or 0):
+            best_video[(int(per), int(gs))] = {
+                "video_seconds": int(vs),
+                "video_time": str(rec.get("video_time") or "").strip(),
+            }
 
-    if best_video_seconds:
+    if best_video:
         for rec in parsed:
             per = rec.get("period")
             gs = rec.get("game_seconds")
@@ -506,11 +537,14 @@ def _upsert_game_event_rows_from_events_csv(
                 continue
             if rec.get("video_seconds") is not None:
                 continue
-            best = best_video_seconds.get((int(per), int(gs)))
-            if best is None:
+            best = best_video.get((int(per), int(gs)))
+            if not best:
                 continue
-            rec["video_seconds"] = int(best)
-            rec["video_time"] = logic.format_seconds_to_mmss_or_hhmmss(int(best))
+            best_vs = best.get("video_seconds")
+            if not isinstance(best_vs, int):
+                continue
+            rec["video_seconds"] = int(best_vs)
+            rec["video_time"] = logic.format_seconds_to_mmss_or_hhmmss(int(best_vs))
 
     # De-duplicate redundant shot implication rows (Goal > ExpectedGoal > SOG > Shot) at the same instant/player/side.
     chain_keys = {"goal", "expectedgoal", "sog", "shot"}
@@ -777,9 +811,15 @@ def _upsert_game_event_rows_from_events_csv(
                     game_id=int(game_id),
                     period__isnull=False,
                     game_seconds__isnull=False,
-                ).values("id", "period", "game_seconds", "video_time", "video_seconds")
+                ).values(
+                    "id",
+                    "period",
+                    "game_seconds",
+                    "video_time",
+                    "video_seconds",
+                )
             )
-            best_by_time: dict[tuple[int, int], int] = {}
+            best_by_time: dict[tuple[int, int], dict[str, Any]] = {}
             for r0 in all_rows:
                 per = r0.get("period")
                 gs = r0.get("game_seconds")
@@ -792,8 +832,11 @@ def _upsert_game_event_rows_from_events_csv(
                     continue
                 key = (int(per), int(gs))
                 prev = best_by_time.get(key)
-                if prev is None or int(vs) < int(prev):
-                    best_by_time[key] = int(vs)
+                if prev is None or int(vs) < int(prev.get("video_seconds") or 0):
+                    best_by_time[key] = {
+                        "video_seconds": int(vs),
+                        "video_time": str(vt or "").strip(),
+                    }
 
             if best_by_time:
                 to_fill: list[Any] = []
@@ -802,9 +845,13 @@ def _upsert_game_event_rows_from_events_csv(
                     gs = r0.get("game_seconds")
                     if per is None or gs is None:
                         continue
-                    best_vs = best_by_time.get((int(per), int(gs)))
-                    if best_vs is None:
+                    best = best_by_time.get((int(per), int(gs)))
+                    if not best:
                         continue
+                    best_vs = best.get("video_seconds")
+                    if not isinstance(best_vs, int):
+                        continue
+
                     has_video_time = bool(str(r0.get("video_time") or "").strip())
                     has_video_seconds = r0.get("video_seconds") is not None
                     if has_video_time and has_video_seconds:
@@ -817,6 +864,7 @@ def _upsert_game_event_rows_from_events_csv(
                         vt1, vs1 = logic.normalize_video_time_and_seconds("", int(best_vs))
                     if vs1 is None:
                         continue
+
                     to_fill.append(
                         m.HkyGameEventRow(
                             id=int(r0["id"]),
@@ -984,7 +1032,14 @@ def _overlay_game_player_stats_from_event_rows(
         m.HkyGameEventRow.objects.filter(
             game_id=int(game_id),
             player_id__isnull=False,
-            event_type__key__in=["goal", "assist", "expectedgoal", "sog", "shot"],
+            event_type__key__in=[
+                "goal",
+                "assist",
+                "expectedgoal",
+                "sog",
+                "shot",
+                "completedpass",
+            ],
         )
         .exclude(
             import_key__in=m.HkyGameEventSuppression.objects.filter(
@@ -994,46 +1049,46 @@ def _overlay_game_player_stats_from_event_rows(
         .values("player_id", "event_type__key")
         .annotate(n=Count("id"))
     )
-    if not rows:
-        return
+    if rows:
+        counts: dict[int, dict[str, int]] = {}
+        for r in rows:
+            try:
+                pid = int(r.get("player_id") or 0)
+            except Exception:
+                continue
+            if pid <= 0:
+                continue
+            k = str(r.get("event_type__key") or "").strip().casefold()
+            try:
+                n = int(r.get("n") or 0)
+            except Exception:
+                n = 0
+            if not k:
+                continue
+            counts.setdefault(pid, {})
+            counts[pid][k] = counts[pid].get(k, 0) + max(0, int(n))
 
-    counts: dict[int, dict[str, int]] = {}
-    for r in rows:
-        try:
-            pid = int(r.get("player_id") or 0)
-        except Exception:
-            continue
-        if pid <= 0:
-            continue
-        k = str(r.get("event_type__key") or "").strip().casefold()
-        try:
-            n = int(r.get("n") or 0)
-        except Exception:
-            n = 0
-        if not k:
-            continue
-        counts.setdefault(pid, {})
-        counts[pid][k] = counts[pid].get(k, 0) + max(0, int(n))
+        for pid, c in counts.items():
+            goals = int(c.get("goal") or 0)
+            assists = int(c.get("assist") or 0)
+            xg_direct = int(c.get("expectedgoal") or 0)
+            sog_direct = int(c.get("sog") or 0)
+            shots_direct = int(c.get("shot") or 0)
+            completed_passes = int(c.get("completedpass") or 0)
 
-    for pid, c in counts.items():
-        goals = int(c.get("goal") or 0)
-        assists = int(c.get("assist") or 0)
-        xg_direct = int(c.get("expectedgoal") or 0)
-        sog_direct = int(c.get("sog") or 0)
-        shots_direct = int(c.get("shot") or 0)
+            # Stat implications:
+            #   Goals ⊆ xG ⊆ SOG ⊆ Shots
+            xg = goals + xg_direct
+            sog = xg + sog_direct
+            shots = sog + shots_direct
 
-        # Stat implications:
-        #   Goals ⊆ xG ⊆ SOG ⊆ Shots
-        xg = goals + xg_direct
-        sog = xg + sog_direct
-        shots = sog + shots_direct
-
-        stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
-        stats_by_pid[pid]["goals"] = int(goals)
-        stats_by_pid[pid]["assists"] = int(assists)
-        stats_by_pid[pid]["expected_goals"] = int(xg)
-        stats_by_pid[pid]["sog"] = int(sog)
-        stats_by_pid[pid]["shots"] = int(shots)
+            stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
+            stats_by_pid[pid]["goals"] = int(goals)
+            stats_by_pid[pid]["assists"] = int(assists)
+            stats_by_pid[pid]["expected_goals"] = int(xg)
+            stats_by_pid[pid]["sog"] = int(sog)
+            stats_by_pid[pid]["shots"] = int(shots)
+            stats_by_pid[pid]["completed_passes"] = int(completed_passes)
 
     # Game-winning / game-tying goals + on-ice goal +/- are computed from goal event rows.
     try:
@@ -1051,13 +1106,27 @@ def _overlay_game_player_stats_from_event_rows(
 
         players = list(
             m.Player.objects.filter(team_id__in=[team1_id, team2_id]).values(
-                "id", "team_id", "jersey_number"
+                "id", "team_id", "jersey_number", "name"
             )
         )
 
         jersey_to_pids: dict[tuple[int, str], list[int]] = {}
         team_id_by_player_id: dict[int, int] = {}
         all_player_ids: set[int] = set()
+
+        def _player_jersey_norm(p: dict[str, Any]) -> Optional[str]:
+            j0 = logic.normalize_jersey_number(p.get("jersey_number"))
+            if j0:
+                return j0
+            nm = str(p.get("name") or "").strip()
+            m0 = re.match(r"^\s*#?\s*(\d+)\b", nm)
+            if m0:
+                return logic.normalize_jersey_number(m0.group(1))
+            m1 = re.search(r"\(\s*#\s*(\d+)\s*\)\s*$", nm)
+            if m1:
+                return logic.normalize_jersey_number(m1.group(1))
+            return None
+
         for p in players:
             try:
                 pid = int(p.get("id") or 0)
@@ -1068,10 +1137,10 @@ def _overlay_game_player_stats_from_event_rows(
                 continue
             all_player_ids.add(pid)
             team_id_by_player_id[pid] = tid
-            jn = logic.normalize_jersey_number(p.get("jersey_number"))
+            jn = _player_jersey_norm(p)
             if not jn:
                 continue
-            jersey_to_pids.setdefault((tid, jn), []).append(pid)
+            jersey_to_pids.setdefault((tid, str(jn)), []).append(pid)
 
         def _extract_numbers(raw: Any) -> set[str]:
             s = str(raw or "")
@@ -1109,6 +1178,7 @@ def _overlay_game_player_stats_from_event_rows(
                 "team_rel",
                 "team_raw",
                 "player_id",
+                "attributed_jerseys",
                 "on_ice_players_home",
                 "on_ice_players_away",
             )
@@ -1157,6 +1227,27 @@ def _overlay_game_player_stats_from_event_rows(
             eid_key = int(eid) if eid is not None else 1_000_000_000
             row_id = _int_or_none(row.get("id")) or 0
             return (period_key, gs_missing, gs_key, eid_key, row_id)
+
+        def _scorer_pid(row: dict[str, Any], scoring_tid: Optional[int]) -> Optional[int]:
+            pid = _int_or_none(row.get("player_id"))
+            if pid is not None and pid > 0:
+                return int(pid)
+            if scoring_tid not in {team1_id, team2_id}:
+                return None
+            jerseys_raw = str(row.get("attributed_jerseys") or "").strip()
+            if not jerseys_raw:
+                return None
+            nums = sorted(
+                _extract_numbers(jerseys_raw),
+                key=lambda x: int(x) if str(x).isdigit() else 9999,
+            )
+            if not nums:
+                return None
+            scorer_num = nums[0]
+            candidates = jersey_to_pids.get((int(scoring_tid), str(scorer_num)), [])
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
+            return None
 
         # Derive GT/GW goals from goal ordering and final score when possible.
         if goal_rows and bool(game.get("is_final")):
@@ -1208,7 +1299,7 @@ def _overlay_game_player_stats_from_event_rows(
                     else:
                         continue
 
-                    pid = _int_or_none(r0.get("player_id"))
+                    pid = _scorer_pid(r0, scoring_tid)
                     if pid is not None and score_team1 == score_team2:
                         gt_goals_by_pid[int(pid)] = gt_goals_by_pid.get(int(pid), 0) + 1
 
@@ -1236,11 +1327,17 @@ def _overlay_game_player_stats_from_event_rows(
         ga_by_pid: dict[int, int] = {}
 
         for r in goal_rows:
-            side = (
-                _norm_side(r.get("team_side"))
-                or _norm_side(r.get("team_rel"))
-                or _norm_side(r.get("team_raw"))
-            )
+            scoring_tid = _scoring_team_id(r)
+            if scoring_tid == team1_id:
+                side = "home"
+            elif scoring_tid == team2_id:
+                side = "away"
+            else:
+                side = (
+                    _norm_side(r.get("team_side"))
+                    or _norm_side(r.get("team_rel"))
+                    or _norm_side(r.get("team_raw"))
+                )
             if side not in {"home", "away"}:
                 continue
             total_goals += 1
@@ -1274,7 +1371,10 @@ def _overlay_game_player_stats_from_event_rows(
                 else:
                     ga_by_pid[pid] = ga_by_pid.get(pid, 0) + 1
 
-        if total_goals <= 0 or complete_goals != total_goals:
+        # Only compute on-ice GF/GA when at least one goal has complete on-ice lists.
+        # Note: GF/GA are computed only from goals that have complete on-ice lists ("counted" goals).
+        # Plus/Minus is only meaningful when *all* goals have complete on-ice lists.
+        if total_goals <= 0 or complete_goals <= 0:
             return
 
         for pid in all_player_ids:
@@ -1283,10 +1383,80 @@ def _overlay_game_player_stats_from_event_rows(
             stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
             stats_by_pid[pid]["gf_counted"] = int(gf)
             stats_by_pid[pid]["ga_counted"] = int(ga)
-            stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
+            if complete_goals == total_goals:
+                stats_by_pid[pid]["plus_minus"] = int(gf) - int(ga)
     except Exception:
         # Best-effort: this overlay is optional and should not break page rendering.
-        pass
+        logger.exception(
+            "Failed to overlay on-ice GF/GA into player stat rows (game_id=%s)", game_id
+        )
+
+
+def _overlay_completed_passes_into_player_stat_rows(
+    *,
+    game_ids: list[int],
+    player_stats_rows: list[dict[str, Any]],
+) -> None:
+    """
+    Best-effort: if `PlayerStat.completed_passes` is missing/0, derive it from normalized event rows.
+    This makes Completed Passes show up in team-level aggregated player stats even when only events
+    were imported.
+    """
+    if not game_ids or not player_stats_rows:
+        return
+    _django_orm, m = _orm_modules()
+    from django.db.models import Count
+
+    by_key: dict[tuple[int, int], dict[str, Any]] = {}
+    for r in player_stats_rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        if pid > 0 and gid > 0:
+            by_key[(pid, gid)] = r
+    if not by_key:
+        return
+
+    gids = [int(x) for x in game_ids]
+    pids = sorted({int(pid) for (pid, _gid) in by_key.keys()})
+    if not pids:
+        return
+
+    suppressed = m.HkyGameEventSuppression.objects.filter(game_id__in=gids).values_list(
+        "import_key", flat=True
+    )
+    qs = (
+        m.HkyGameEventRow.objects.filter(
+            game_id__in=gids,
+            player_id__in=pids,
+            event_type__key="completedpass",
+        )
+        .exclude(import_key__in=suppressed)
+        .values("player_id", "game_id")
+        .annotate(n=Count("id"))
+    )
+    for r in qs:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+            n = int(r.get("n") or 0)
+        except Exception:
+            continue
+        if pid <= 0 or gid <= 0 or n <= 0:
+            continue
+        row = by_key.get((pid, gid))
+        if not row:
+            continue
+        try:
+            existing = int(row.get("completed_passes") or 0)
+        except Exception:
+            existing = 0
+        if existing <= 0:
+            row["completed_passes"] = int(n)
+
+    return
 
 
 def _compute_player_has_events_by_pid_for_game(
@@ -3558,6 +3728,15 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        try:
+            _overlay_completed_passes_into_player_stat_rows(
+                game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+            )
+        except Exception:
+            logger.exception(
+                "Failed to overlay completed passes into player stat rows for game_ids=%s",
+                schedule_game_ids,
+            )
     else:
         tstats = logic.compute_team_stats(None, int(team_id), team_owner_id)
         schedule_rows = list(
@@ -3636,6 +3815,15 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
             )
         )
+        try:
+            _overlay_completed_passes_into_player_stat_rows(
+                game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+            )
+        except Exception:
+            logger.exception(
+                "Failed to overlay completed passes into player stat rows for game_ids=%s",
+                schedule_game_ids,
+            )
 
     for g2 in schedule_games or []:
         try:
@@ -4931,8 +5119,15 @@ def hky_game_import_shift_stats(
         nm = logic.normalize_player_name(p.get("name") or "")
         if nm:
             name_to_player_ids.setdefault((tid, nm), []).append(pid)
+        nm_no_mid = _normalize_player_name_no_middle(p.get("name") or "")
+        if nm_no_mid:
+            name_to_player_ids.setdefault((tid, nm_no_mid), []).append(pid)
 
-    def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+    def _resolve_player_id(
+        jersey_norm: Optional[str],
+        name_norm: str,
+        name_norm_no_middle: str,
+    ) -> Optional[int]:
         candidates: list[int] = []
         for tid in (team1_id, team2_id):
             if jersey_norm:
@@ -4945,6 +5140,12 @@ def hky_game_import_shift_stats(
             candidates.extend(name_to_player_ids.get((tid, name_norm), []))
         if len(set(candidates)) == 1:
             return int(list(set(candidates))[0])
+        if name_norm_no_middle and name_norm_no_middle != name_norm:
+            candidates = []
+            for tid in (team1_id, team2_id):
+                candidates.extend(name_to_player_ids.get((tid, name_norm_no_middle), []))
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
 
         # Jersey match + fuzzy name tie-breaker
         if jersey_norm:
@@ -4962,7 +5163,14 @@ def hky_game_import_shift_stats(
                     if not pl:
                         continue
                     n2 = logic.normalize_player_name(pl.get("name") or "")
+                    n2_no_mid = _normalize_player_name_no_middle(pl.get("name") or "")
                     if n2 and (n2 in name_norm or name_norm in n2):
+                        fuzzy.append(int(pid0))
+                    elif (
+                        name_norm_no_middle
+                        and n2_no_mid
+                        and (n2_no_mid in name_norm_no_middle or name_norm_no_middle in n2_no_mid)
+                    ):
                         fuzzy.append(int(pid0))
             if len(set(fuzzy)) == 1:
                 return int(list(set(fuzzy))[0])
@@ -4996,6 +5204,7 @@ def hky_game_import_shift_stats(
         "goalie_sa",
         "sog",
         "expected_goals",
+        "completed_passes",
         "giveaways",
         "turnovers_forced",
         "created_turnovers",
@@ -5017,7 +5226,8 @@ def hky_game_import_shift_stats(
         for row in parsed_rows:
             jersey_norm = row.get("jersey_number")
             name_norm = row.get("name_norm") or ""
-            pid = _resolve_player_id(jersey_norm, name_norm)
+            name_norm_no_middle = row.get("name_norm_no_middle") or ""
+            pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
             if pid is None:
                 unmatched.append(row.get("player_label") or "")
                 continue
@@ -5769,6 +5979,15 @@ def public_league_team_detail(
             "player_id", "game_id", *logic.PLAYER_STATS_SUM_KEYS
         )
     )
+    try:
+        _overlay_completed_passes_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
+    except Exception:
+        logger.exception(
+            "Failed to overlay completed passes into player stat rows for game_ids=%s",
+            schedule_game_ids,
+        )
 
     for g2 in schedule_games or []:
         try:
@@ -6767,7 +6986,8 @@ def _ensure_player_for_import(
     commit: bool = True,
 ) -> int:
     del commit
-    nm = (name or "").strip()
+    raw_name = str(name or "").strip()
+    nm = _strip_jersey_from_player_name(raw_name, jersey_number)
     if not nm:
         raise ValueError("player name is required")
     _django_orm, m = _orm_modules()
@@ -6776,6 +6996,17 @@ def _ensure_player_for_import(
         .values_list("id", flat=True)
         .first()
     )
+    if existing is None and raw_name and raw_name != nm:
+        existing_raw = (
+            m.Player.objects.filter(user_id=int(owner_user_id), team_id=int(team_id), name=raw_name)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if existing_raw is not None:
+            m.Player.objects.filter(id=int(existing_raw)).update(
+                name=nm, updated_at=dt.datetime.now()
+            )
+            existing = int(existing_raw)
     if existing is not None:
         pid = int(existing)
         if jersey_number or position:
@@ -8114,7 +8345,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         return JsonResponse(
             {"ok": False, "error": "team_side must be 'home' or 'away'"}, status=400
         )
-    create_missing_players = bool(payload.get("create_missing_players", False))
+    if "create_missing_players" in payload:
+        create_missing_players = bool(payload.get("create_missing_players"))
+    else:
+        create_missing_players = True
     owner_email = str(payload.get("owner_email") or "").strip().lower() or None
     league_id_payload = payload.get("league_id")
     league_name = str(payload.get("league_name") or "").strip() or None
@@ -8386,7 +8620,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 sort_order=sort_order,
                 commit=False,
             )
-            create_missing_players = True
+            # Do not implicitly create players for external games; respect the payload flag.
 
     if resolved_game_id is None:
         return JsonResponse(
@@ -8517,6 +8751,37 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     imported = 0
     unmatched: list[str] = []
 
+    # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
+    # This lets the webapp create missing roster players (including goalies) without contacting T2S.
+    roster_home = payload.get("roster_home") or []
+    roster_away = payload.get("roster_away") or []
+    if isinstance(roster_home, list) or isinstance(roster_away, list):
+        try:
+            for side, roster in (("home", roster_home), ("away", roster_away)):
+                if not isinstance(roster, list):
+                    continue
+                tid = team1_id if side == "home" else team2_id
+                for rec in roster:
+                    if not isinstance(rec, dict):
+                        continue
+                    nm = str(rec.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    jersey_norm = logic.normalize_jersey_number(rec.get("jersey_number"))
+                    pos = str(rec.get("position") or "").strip() or None
+                    _ensure_player_for_import(
+                        int(owner_user_id),
+                        int(tid),
+                        nm,
+                        str(jersey_norm) if jersey_norm else None,
+                        pos,
+                        commit=False,
+                    )
+        except Exception:
+            logger.exception(
+                "Error while creating/importing roster players (game_id=%s)", resolved_game_id
+            )
+
     try:
         from django.db import transaction
 
@@ -8541,6 +8806,9 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             nm = logic.normalize_player_name(name or "")
             if nm:
                 name_to_player_ids.setdefault((int(tid), nm), []).append(int(pid))
+            nm_no_mid = _normalize_player_name_no_middle(name or "")
+            if nm_no_mid:
+                name_to_player_ids.setdefault((int(tid), nm_no_mid), []).append(int(pid))
 
         for p in players:
             _register_player(
@@ -8550,7 +8818,11 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 jersey_number=p.get("jersey_number"),
             )
 
-        def _resolve_player_id(jersey_norm: Optional[str], name_norm: str) -> Optional[int]:
+        def _resolve_player_id(
+            jersey_norm: Optional[str],
+            name_norm: str,
+            name_norm_no_middle: str,
+        ) -> Optional[int]:
             candidates: list[int] = []
             for tid in (team1_id, team2_id):
                 if jersey_norm:
@@ -8562,6 +8834,12 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 candidates.extend(name_to_player_ids.get((tid, name_norm), []))
             if len(set(candidates)) == 1:
                 return int(list(set(candidates))[0])
+            if name_norm_no_middle and name_norm_no_middle != name_norm:
+                candidates = []
+                for tid in (team1_id, team2_id):
+                    candidates.extend(name_to_player_ids.get((tid, name_norm_no_middle), []))
+                if len(set(candidates)) == 1:
+                    return int(list(set(candidates))[0])
             return None
 
         now = dt.datetime.now()
@@ -8650,7 +8928,8 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 for row in parsed_rows:
                     jersey_norm = row.get("jersey_number")
                     name_norm = row.get("name_norm") or ""
-                    pid = _resolve_player_id(jersey_norm, name_norm)
+                    name_norm_no_middle = row.get("name_norm_no_middle") or ""
+                    pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
                     if pid is None:
                         if create_missing_players and team_side in {"home", "away"}:
                             target_team_id = team1_id if team_side == "home" else team2_id
@@ -8717,6 +8996,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         "goalie_sa",
                         "sog",
                         "expected_goals",
+                        "completed_passes",
                         "giveaways",
                         "turnovers_forced",
                         "created_turnovers",
@@ -8805,6 +9085,11 @@ def api_internal_ensure_league_owner(request: HttpRequest) -> JsonResponse:
     owner_email = str(payload.get("owner_email") or "").strip().lower()
     owner_name = str(payload.get("owner_name") or owner_email).strip() or owner_email
     is_shared = bool(payload["shared"]) if "shared" in payload else None
+    is_public = None
+    if "is_public" in payload:
+        is_public = bool(payload["is_public"])
+    elif "public" in payload:
+        is_public = bool(payload["public"])
     if not league_name or not owner_email:
         return JsonResponse(
             {"ok": False, "error": "owner_email and league_name are required"}, status=400
@@ -8822,15 +9107,19 @@ def api_internal_ensure_league_owner(request: HttpRequest) -> JsonResponse:
             updates: dict[str, Any] = {"owner_user_id": int(owner_user_id), "updated_at": now}
             if is_shared is not None:
                 updates["is_shared"] = bool(is_shared)
+            if is_public is not None:
+                updates["is_public"] = bool(is_public)
             m.League.objects.filter(id=league_id).update(**updates)
         else:
             if is_shared is None:
                 is_shared = True
+            if is_public is None:
+                is_public = False
             league = m.League.objects.create(
                 name=league_name,
                 owner_user_id=int(owner_user_id),
                 is_shared=bool(is_shared),
-                is_public=False,
+                is_public=bool(is_public),
                 created_at=now,
                 updated_at=None,
             )
