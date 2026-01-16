@@ -1,14 +1,16 @@
 /* Simple modern UI inspired by Hudl aesthetics (no branding assets) */
-	:root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --text: #e6e8ec;
-  --muted: #9aa4b2;
-  --accent: #ff6a13; /* vibrant orange */
-  --accent-2: #ff8a4c;
-  --success: #28a745;
-  --danger: #d81b60; /* magenta */
-  --warn: #ffc107;
+		:root {
+	  --bg: #0f1115;
+	  --panel: #171a21;
+	  --text: #e6e8ec;
+	  --muted: #9aa4b2;
+	  /* Used when muted text appears on light/white surfaces (e.g., table cells). */
+	  --muted-on-light: #4b5563;
+	  --accent: #ff6a13; /* vibrant orange */
+	  --accent-2: #ff8a4c;
+	  --success: #28a745;
+	  --danger: #d81b60; /* magenta */
+	  --warn: #ffc107;
   --border: #242835;
 
 	  /* Tables: white background + gray zebra striping. */
@@ -22,22 +24,30 @@
 	  --thead-text: #1f2937;
 	}
 
-* { box-sizing: border-box; }
-html, body { height: 100%; }
+	* { box-sizing: border-box; }
+	html, body { height: 100%; }
 
-body {
+	body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  line-height: 1.5;
-}
+	  line-height: 1.5;
+	}
 
-.site-header {
-  background: #0c0e13;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+	dialog {
+	  background: var(--panel);
+	  color: var(--text);
+	}
+	dialog::backdrop {
+	  background: rgba(0, 0, 0, 0.65);
+	}
+
+	.site-header {
+	  background: #0c0e13;
+	  border-bottom: 1px solid var(--border);
+	  position: sticky;
+	  top: 0;
   z-index: 50;
 }
 .nav-wrap { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.25rem; max-width: 1200px; margin: 0 auto; }
@@ -88,11 +98,11 @@ button { cursor: pointer; }
 .flash.error { background: #31161a; border: 1px solid #4a1a22; color: #ffb3be; }
 .flash.success { background: #14291d; border: 1px solid #1f3b2a; color: #abf5c0; }
 
-table { width: 100%; border-collapse: collapse; background: var(--table-bg); color: var(--table-text); border: 1px solid var(--table-border); border-radius: 12px; overflow: hidden; }
-th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); border-right: 1px solid var(--table-border); text-align: left; }
-th:last-child, td:last-child { border-right: none; }
-tbody tr:last-child td { border-bottom: none; }
-thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
+	table { width: 100%; border-collapse: collapse; background: var(--table-bg); color: var(--table-text); border: 1px solid var(--table-border); border-radius: 12px; overflow: hidden; --muted: var(--muted-on-light); }
+	th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); border-right: 1px solid var(--table-border); text-align: left; }
+	th:last-child, td:last-child { border-right: none; }
+	tbody tr:last-child td { border-bottom: none; }
+	thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
 	/* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
