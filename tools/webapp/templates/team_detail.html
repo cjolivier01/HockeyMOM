@@ -659,6 +659,11 @@
     padding: .45rem .65rem;
     font-size: .88rem;
   }
+
+  /* Keep the pairings header visible while scrolling within the modal. */
+  #team-player-pairings-body .table-scroll-y {
+    max-height: 62vh;
+  }
 </style>
 
 <script>
@@ -1421,7 +1426,7 @@
           }
 
           var wrap = document.createElement("div");
-          wrap.className = "table-scroll";
+          wrap.className = "table-scroll table-scroll-y";
           var table = document.createElement("table");
           table.className = "table-nowrap table-grid team-player-pairings-table";
           var thead = document.createElement("thead");
