@@ -11566,6 +11566,7 @@ def process_goals_only_xlsx(
     *,
     goals_xlsx: Path,
     outdir: Path,
+    label: str,
     team_side: Optional[str],
     our_team_name: Optional[str],
     write_events_summary: bool,
@@ -11582,6 +11583,16 @@ def process_goals_only_xlsx(
     Output is minimal: `stats/all_events_summary.csv` (and .xlsx) so the webapp can upsert
     goal/assist events for an external game.
     """
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Match process_sheet() directory structure so the webapp uploader finds the stats:
+    #   <outdir>/<Home|Away>/per_player/stats/*
+    side = str(team_side or "").strip().lower()
+    team_subdir = "Away" if side == "away" else "Home"
+    format_dir = "per_player"
+    (outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (outdir / "Away").mkdir(parents=True, exist_ok=True)
+    outdir = outdir / team_subdir / format_dir
     outdir.mkdir(parents=True, exist_ok=True)
     stats_dir = outdir / "stats"
     stats_dir.mkdir(parents=True, exist_ok=True)
@@ -11606,6 +11617,23 @@ def process_goals_only_xlsx(
             t2s_events=None,
             conv_segments_by_period={},
             spreadsheet_event_mapping_summary=None,
+        )
+
+    # Write game_stats.csv so the webapp can set the final score for external games.
+    try:
+        fake_sheet_path = Path(f"{str(label or 'game').strip() or 'game'}.xlsx")
+        _write_game_stats_files(
+            stats_dir,
+            xls_path=fake_sheet_path,
+            periods=periods,
+            goals=goals,
+            event_log_context=None,
+            focus_team=None,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[warn] goals-only: failed to write game_stats.csv for {label!r}: {type(e).__name__}: {e}",
+            file=sys.stderr,
         )
 
     stats_table_rows: List[Dict[str, str]] = []
@@ -12275,6 +12303,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--outdir", "-o", type=Path, default=Path("player_focus"), help="Output directory."
     )
     p.add_argument(
+        "--dump-events",
+        action="store_true",
+        help=(
+            "After processing each game, print the parsed per-game events (from stats/all_events_summary.csv) "
+            "to stdout. Implies writing all_events_summary even without --shifts/--upload-webapp."
+        ),
+    )
+    p.add_argument(
         "--keep-goalies",
         action="store_true",
         help="By default, rows like '(G) 37' are skipped. Use this flag to include them.",
@@ -12441,6 +12477,89 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     return p
+
+
+def _dump_game_events_from_outdir(*, label: str, outdir: Path) -> None:
+    stats_dir = outdir / "stats"
+    csv_path = stats_dir / "all_events_summary.csv"
+    if not csv_path.exists():
+        print(
+            f"[dump-events] {label}: no all_events_summary.csv found at {csv_path}",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[dump-events] {label}: failed to read {csv_path}: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        team_side = ""
+        try:
+            team_side = str(outdir.parent.name)
+        except Exception:
+            team_side = ""
+        hdr = f"[dump-events] {label}"
+        if team_side in {"Home", "Away"}:
+            hdr += f" ({team_side})"
+        print(hdr)
+
+        if df.empty:
+            print("  (no events)")
+            return
+
+        # Keep output readable by focusing on common, stable columns.
+        preferred_cols = [
+            "Event ID",
+            "Event Type",
+            "Team Side",
+            "Period",
+            "Game Time",
+            "Video Time",
+            "Attributed Players",
+            "Attributed Jerseys",
+            "Details",
+            "Source",
+        ]
+        cols = [c for c in preferred_cols if c in df.columns]
+        if "Event ID" in df.columns:
+            try:
+                df = df.sort_values(by=["Event ID"], kind="stable")
+            except Exception:
+                pass
+
+        for _, r in df[cols].iterrows():
+            d = r.to_dict()
+            event_id = str(d.get("Event ID") or "").strip()
+            etype = str(d.get("Event Type") or "").strip()
+            side = str(d.get("Team Side") or "").strip()
+            per = str(d.get("Period") or "").strip()
+            game_t = str(d.get("Game Time") or "").strip()
+            video_t = str(d.get("Video Time") or "").strip()
+            ap = str(d.get("Attributed Players") or "").strip()
+            aj = str(d.get("Attributed Jerseys") or "").strip()
+            details = str(d.get("Details") or "").strip()
+            src = str(d.get("Source") or "").strip()
+
+            attrib = aj or ap
+            extra = []
+            if attrib:
+                extra.append(f"attrib={attrib}")
+            if details:
+                extra.append(f"details={details}")
+            if src:
+                extra.append(f"src={src}")
+            extra_txt = f"  ({', '.join(extra)})" if extra else ""
+            print(
+                f"  {event_id:>3} {etype:<10} {side:<4} P{per} {game_t:<6} v{video_t:<6}{extra_txt}"
+            )
+    finally:
+        sys.stdout.flush()
 
 
 def _apply_event_corrections_to_webapp(
@@ -12723,9 +12842,16 @@ def main() -> None:
         sys.exit(2)
     t2s_allow_remote = not t2s_cache_only
     t2s_allow_full_sync = bool(t2s_allow_remote and not t2s_scrape_only)
+    dump_events = bool(args.dump_events)
     create_scripts = not args.no_scripts
     include_shifts_in_stats = bool(getattr(args, "shifts", False))
-    write_events_summary = include_shifts_in_stats or bool(getattr(args, "upload_webapp", False))
+    if dump_events and not include_shifts_in_stats:
+        # Dumping events is usually a debug workflow; avoid writing clip scripts/timestamp files unless
+        # the user explicitly asked for shift outputs.
+        create_scripts = False
+    write_events_summary = (
+        include_shifts_in_stats or bool(getattr(args, "upload_webapp", False)) or dump_events
+    )
     if getattr(args, "corrections_yaml", None) and not getattr(args, "upload_webapp", False):
         print("Error: --corrections-yaml requires --upload-webapp.", file=sys.stderr)
         sys.exit(2)
@@ -13341,6 +13467,9 @@ def main() -> None:
                 print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
             except Exception:
                 print("✅ Done.")
+
+            if dump_events:
+                _dump_game_events_from_outdir(label=label, outdir=final_outdir)
             continue
 
         primary_specs_raw = list(g.get("primaries") or [])
@@ -13398,6 +13527,7 @@ def main() -> None:
             ) = process_goals_only_xlsx(
                 goals_xlsx=goals_xlsx,
                 outdir=outdir,
+                label=label,
                 team_side=side_to_use,
                 our_team_name=our_team_name,
                 write_events_summary=write_events_summary,
@@ -13925,6 +14055,8 @@ def main() -> None:
             print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
         except Exception:
             print("✅ Done.")
+        if dump_events:
+            _dump_game_events_from_outdir(label=label, outdir=final_outdir)
 
         if getattr(args, "upload_webapp", False):
             meta = dict(g.get("meta") or {})

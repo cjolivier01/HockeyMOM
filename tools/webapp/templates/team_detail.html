@@ -664,12 +664,23 @@
     border-spacing: 0;
   }
 
+  @media (max-width: 720px), (pointer: coarse) and (max-width: 980px) {
+    #team-player-pairings-body table.team-player-pairings-table th,
+    #team-player-pairings-body table.team-player-pairings-table td {
+      font-size: calc(.88rem * 0.85);
+    }
+  }
+
   /* Keep the pairings header visible while scrolling within the modal. */
   #team-player-pairings-body .table-scroll-y {
     max-height: 62vh;
   }
   #team-player-pairings-body .table-scroll-y thead th {
-    z-index: 20;
+    /* Below the frozen left columns (which should sit on top). */
+    z-index: 10;
+  }
+  #team-player-pairings-body .table-scroll-y thead th.sticky-col {
+    z-index: 40;
   }
 </style>
 
@@ -1416,7 +1427,7 @@
         if (!isFinite(idx) || idx < 0 || idx > 1) return;
         cell.classList.add("sticky-col");
         cell.style.left = lefts[idx] + "px";
-        cell.style.zIndex = (cell.tagName === "TH") ? String(12 - idx) : String(8 - idx);
+        cell.style.zIndex = (cell.tagName === "TH") ? String(40 - idx) : String(20 - idx);
       });
     }
 

@@ -1575,7 +1575,56 @@ def should_resolve_file_list_paths_relative_to_hockeymom_stats_base_dir(
         ],
     )
     pss.main()
-    assert (outdir / "stats" / "all_events_summary.csv").exists()
+    assert (outdir / "Home" / "per_player" / "stats" / "all_events_summary.csv").exists()
+    assert (outdir / "Home" / "per_player" / "stats" / "game_stats.csv").exists()
+
+
+def should_dump_events_for_goals_only_xlsx(tmp_path: Path, monkeypatch, capsys):
+    stats_dir = tmp_path / "utah-1" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(
+        [
+            ["Utah", None, None, None, None, None, "Opp", None, None, None, None, None],
+            [None] * 12,
+            [
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+            ],
+            [1, "14:20", "0:10", "#12", "#34", None, 1, "10:00", "0:50", "#91", None, None],
+        ]
+    )
+    goals_xlsx = stats_dir / "goals.xlsx"
+    df.to_excel(goals_xlsx, index=False, header=False)
+
+    outdir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--input",
+            f"{goals_xlsx}:HOME:home_team=Utah:away_team=Opp",
+            "--outdir",
+            str(outdir),
+            "--no-scripts",
+            "--dump-events",
+        ],
+    )
+    pss.main()
+    out = capsys.readouterr().out
+    assert "[dump-events] utah-1" in out
+    assert "Goal" in out
+    assert "P1 14:20" in out
 
 
 def should_build_webapp_logo_payload_from_meta_path_and_base64(tmp_path: Path, capsys):
