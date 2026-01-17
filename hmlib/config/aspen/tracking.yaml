@@ -76,6 +76,7 @@ aspen:
       image_label: img
     - type: HmConfigureScoreboard
     - type: HmCaptureScoreboard
+      scoreboard_scale: GLOBAL.rink.scoreboard.scoreboard_scale
     - type: HmPerspectiveRotation
       pre_clip: GLOBAL.rink.camera.pre_clip
       fixed_edge_rotation_angle: GLOBAL.rink.camera.fixed_edge_rotation_angle

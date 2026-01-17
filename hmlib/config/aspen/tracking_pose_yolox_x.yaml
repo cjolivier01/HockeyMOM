@@ -19,6 +19,7 @@ aspen:
   video_out_pipeline:
     - type: HmConfigureScoreboard
     - type: HmCaptureScoreboard
+      scoreboard_scale: GLOBAL.rink.scoreboard.scoreboard_scale
     - type: HmPerspectiveRotation
       pre_clip: true
     - type: HmCropToVideoFrame

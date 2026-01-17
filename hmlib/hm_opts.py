@@ -902,6 +902,13 @@ class hm_opts(object):
             help="scale showed image (ignored is --show-image is not specified)",
         )
         parser.add_argument(
+            "--scoreboard-scale",
+            dest="scoreboard_scale",
+            type=float,
+            default=None,
+            help="Scale factor applied to the extracted scoreboard image (maps to rink.scoreboard.scoreboard_scale)",
+        )
+        parser.add_argument(
             "--ice-rink-inference-scale",
             "--ice-rink-mask-scale",
             dest="ice_rink_inference_scale",
@@ -1367,6 +1374,7 @@ class hm_opts(object):
             ("end_zones", "aspen.apply_camera.end_zones"),
             ("show_image", "aspen.video_out.show_image"),
             ("show_scaled", "aspen.video_out.show_scaled"),
+            ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
             ("output_video_bit_rate", "aspen.video_out.bit_rate"),
             (
                 "checkerboard_input",
@@ -1410,6 +1418,7 @@ class hm_opts(object):
         "end_zones": {True: True},
         "show_image": bool,
         "debug_play_tracker": {True: True},
+        "scoreboard_scale": float,
         "plot_moving_boxes": {True: True},
         "plot_trajectories": {True: True},
         "plot_jersey_numbers": {True: True},
