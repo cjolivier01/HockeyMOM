@@ -26,18 +26,31 @@ OWNER_NAME="${OWNER_NAME:-${GIT_USER_NAME:-$OWNER_EMAIL}}"
 
 # Game list for shift spreadsheet uploader.
 if [[ -z "${SHIFT_FILE_LIST:-}" ]]; then
-  if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
-    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
-  elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
-    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
-  elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
-    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
-  elif [[ -f "$HOME/Videos/game_list_long.yaml" ]]; then
-    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yaml"
-  elif [[ -f "$HOME/Videos/game_list_long.yml" ]]; then
-    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yml"
-  else
-    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
+  STATS_BASE_DIR="${HOCKEYMOM_STATS_BASE_DIR:-}"
+  if [[ -n "${STATS_BASE_DIR}" ]]; then
+    STATS_BASE_DIR="${STATS_BASE_DIR/#\~/$HOME}"
+    if [[ -f "${STATS_BASE_DIR}/game_list_long.yaml" ]]; then
+      SHIFT_FILE_LIST="${STATS_BASE_DIR}/game_list_long.yaml"
+    elif [[ -f "${STATS_BASE_DIR}/game_list_long.yml" ]]; then
+      SHIFT_FILE_LIST="${STATS_BASE_DIR}/game_list_long.yml"
+    elif [[ -f "${STATS_BASE_DIR}/game_list_long.txt" ]]; then
+      SHIFT_FILE_LIST="${STATS_BASE_DIR}/game_list_long.txt"
+    fi
+  fi
+  if [[ -z "${SHIFT_FILE_LIST:-}" ]]; then
+    if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
+      SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
+    elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
+      SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
+    elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
+      SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
+    elif [[ -f "$HOME/Videos/game_list_long.yaml" ]]; then
+      SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yaml"
+    elif [[ -f "$HOME/Videos/game_list_long.yml" ]]; then
+      SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yml"
+    else
+      SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
+    fi
   fi
 fi
 
@@ -73,7 +86,8 @@ Environment:
   LEAGUE_NAME             League name (default: CAHA)
   OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
   OWNER_NAME              League owner display name (default: git config user.name, else OWNER_EMAIL)
-  SHIFT_FILE_LIST         Shift spreadsheet file list (default: ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
+  SHIFT_FILE_LIST         Shift spreadsheet file list (default: $HOCKEYMOM_STATS_BASE_DIR/game_list_long.yaml if set, else ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
+  HOCKEYMOM_STATS_BASE_DIR  Optional base directory for locating `game_list_long.{yaml,yml,txt}` and relative paths within it.
   T2S_API_BATCH_SIZE      TimeToScore REST batch size for /api/import/hockey/games_batch (default: 10; lower avoids nginx 504 timeouts)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)

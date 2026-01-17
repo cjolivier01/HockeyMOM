@@ -313,6 +313,43 @@ def should_parse_long_left_event_table_goal_xg_and_turnovers():
     )
 
 
+def should_parse_goals_xlsx_team_tables_with_video_time(monkeypatch, tmp_path: Path):
+    goals_xlsx = tmp_path / "goals.xlsx"
+    goals_xlsx.write_text("placeholder", encoding="utf-8")
+
+    rows = [
+        ["Utah", None, None, None, None, None, "Opp", None, None, None, None, None],
+        [None] * 12,
+        [
+            "Period",
+            "Time",
+            "Video Time",
+            "Goal",
+            "Assist 1",
+            "Assist 2",
+            "Period",
+            "Time",
+            "Video Time",
+            "Goal",
+            "Assist 1",
+            "Assist 2",
+        ],
+        [1, "14:20", "0:10", "#12", "#34", None, 1, "10:00", "0:50", "#91", None, None],
+    ]
+    df = pd.DataFrame(rows)
+
+    def _fake_read_excel(path, *args, **kwargs):
+        assert Path(path) == goals_xlsx
+        return df
+
+    monkeypatch.setattr(pss.pd, "read_excel", _fake_read_excel)
+
+    goals = pss._goals_from_goals_xlsx(goals_xlsx, our_team_name="Utah")
+    assert [str(g) for g in goals] == ["GA:1/10:00", "GF:1/14:20"]
+    assert goals[0].video_t_sec == 50
+    assert goals[1].video_t_sec == 10
+
+
 def should_build_stats_dataframe_omits_per_game_columns_for_single_game():
     rows = [
         {
@@ -516,6 +553,12 @@ def should_expand_dir_input_to_game_sheets_and_ignore_goals_xlsx(tmp_path: Path)
     (tmp_path / "other.xlsx").write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match=r"multiple game labels"):
         _ = pss._expand_dir_input_to_game_sheets(tmp_path)
+
+
+def should_expand_dir_input_to_game_sheets_accepts_goals_xlsx_only(tmp_path: Path):
+    (tmp_path / "goals.xlsx").write_text("", encoding="utf-8")
+    paths = pss._expand_dir_input_to_game_sheets(tmp_path)
+    assert [p.name for p in paths] == ["goals.xlsx"]
 
 
 def should_select_tracking_output_video_prefers_highest_numbered(tmp_path: Path):
@@ -1478,6 +1521,61 @@ def should_parse_file_list_inline_meta_after_side_suffix(tmp_path: Path):
     assert p == stats_dir
     assert side == "away"
     assert meta.get("home_team") == "Reston Renegades 12AA"
+
+
+def should_resolve_file_list_paths_relative_to_hockeymom_stats_base_dir(
+    tmp_path: Path, monkeypatch
+):
+    base_dir = tmp_path / "Videos"
+    stats_dir = base_dir / "utah-1" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    df = pd.DataFrame(
+        [
+            ["Utah", None, None, None, None, None, "Opp", None, None, None, None, None],
+            [None] * 12,
+            [
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+            ],
+            [1, "14:20", "0:10", "#12", "#34", None, 1, "10:00", "0:50", "#91", None, None],
+        ]
+    )
+    goals_xlsx = stats_dir / "goals.xlsx"
+    df.to_excel(goals_xlsx, index=False, header=False)
+
+    file_list_dir = tmp_path / "lists"
+    file_list_dir.mkdir(parents=True, exist_ok=True)
+    file_list = file_list_dir / "games.txt"
+    file_list.write_text("utah-1/stats\n", encoding="utf-8")
+
+    monkeypatch.setenv("HOCKEYMOM_STATS_BASE_DIR", str(base_dir))
+    outdir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--file-list",
+            str(file_list),
+            "--outdir",
+            str(outdir),
+            "--no-scripts",
+            "--shifts",
+        ],
+    )
+    pss.main()
+    assert (outdir / "stats" / "all_events_summary.csv").exists()
 
 
 def should_build_webapp_logo_payload_from_meta_path_and_base64(tmp_path: Path, capsys):

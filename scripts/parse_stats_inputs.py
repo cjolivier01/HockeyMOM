@@ -110,6 +110,22 @@ def sanitize_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_\-]", "", s)
 
 
+def _stats_base_dir_from_env() -> Optional[Path]:
+    raw = str(os.environ.get("HOCKEYMOM_STATS_BASE_DIR") or "").strip()
+    if not raw:
+        return None
+    try:
+        p = Path(raw).expanduser()
+        # If a file is provided accidentally, treat its parent as the base dir.
+        if p.exists() and p.is_file():
+            p = p.parent
+        if not p.exists() or not p.is_dir():
+            return None
+        return p.resolve()
+    except Exception:
+        return None
+
+
 def is_period_label(x: object) -> bool:
     return parse_period_label(x) is not None
 
@@ -1453,16 +1469,24 @@ class GoalEvent:
     kind: str  # "GF" or "GA"
     period: int
     t_str: str
+    video_t_str: Optional[str] = None
     scorer: Optional[str] = None
     assists: List[str] = field(default_factory=list)
     t_sec: int = field(init=False)
+    video_t_sec: Optional[int] = field(init=False, default=None)
     is_game_tying: bool = False
     is_game_winning: bool = False
 
     def __post_init__(self) -> None:
         self.t_str = self.t_str.strip()
+        if self.video_t_str is not None:
+            self.video_t_str = str(self.video_t_str).strip()
+            if self.video_t_str.lower() in {"nan", "nat", "none"}:
+                self.video_t_str = None
         self.assists = [a for a in self.assists if a]
         self.t_sec = parse_flex_time_to_seconds(self.t_str)
+        if self.video_t_str:
+            self.video_t_sec = parse_flex_time_to_seconds(self.video_t_str)
 
     def __str__(self) -> str:  # preserve prior textual representation
         return f"{self.kind}:{self.period}/{self.t_str}"
@@ -2257,6 +2281,14 @@ def _expand_dir_input_to_game_sheets(
         dir_path = stats_dir
 
     if not candidates:
+        # Goals-only games: allow a directory that contains only goals.xlsx.
+        goals_xlsx = dir_path / "goals.xlsx"
+        if not goals_xlsx.exists() and stats_dir.is_dir():
+            goals_xlsx = stats_dir / "goals.xlsx"
+            if goals_xlsx.exists():
+                dir_path = stats_dir
+        if goals_xlsx.exists():
+            return [goals_xlsx]
         raise ValueError(f"No input .xls/.xlsx sheets found in {dir_path}")
 
     # Directory inputs are expected to correspond to a single game label.
@@ -2311,6 +2343,22 @@ def _expand_dir_input_to_game_sheets(
     return [primaries[0]] + long_paths
 
 
+def _label_from_goals_xlsx_path(p: Path) -> str:
+    """
+    Choose a game label for a goals-only goals.xlsx path.
+
+    Common layouts:
+      - /path/to/<game>/stats/goals.xlsx -> label '<game>'
+      - /path/to/<game>/goals.xlsx       -> label '<game>'
+    """
+    try:
+        if p.parent.name.lower() == "stats":
+            return p.parent.parent.name
+        return p.parent.name
+    except Exception:
+        return p.stem or "goals"
+
+
 def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[GoalEvent]:
     events: List[GoalEvent] = []
     # Inline
@@ -2360,7 +2408,27 @@ def _format_goal_time_cell(val: Any) -> Optional[str]:
     return s
 
 
-def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
+def _format_goal_video_time_cell(val: Any) -> Optional[str]:
+    """
+    Convert a goal video time cell (often an Excel time) into a string compatible with
+    parse_flex_time_to_seconds.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    if isinstance(val, datetime.time):
+        return val.strftime("%H:%M:%S")
+    if isinstance(val, pd.Timestamp):
+        return val.strftime("%H:%M:%S")
+    s = str(val).strip()
+    return s or None
+
+
+def _goals_from_goals_xlsx(
+    goals_xlsx: Path,
+    *,
+    our_jerseys: Optional[set[str]] = None,
+    our_team_name: Optional[str] = None,
+) -> List[GoalEvent]:
     """
     Parse goals from a goals.xlsx sheet that has side-by-side GF / GA tables.
 
@@ -2417,6 +2485,7 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
 
         period_col = label_to_col.get("period")
         time_col = label_to_col.get("time")
+        video_time_col = label_to_col.get("videotime")
         goal_col = label_to_col.get("goal")
         assist1_col = (
             label_to_col.get("assist1")
@@ -2441,6 +2510,9 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
             t_str = _format_goal_time_cell(time_val)
             if not t_str:
                 continue
+            v_str = None
+            if video_time_col is not None:
+                v_str = _format_goal_video_time_cell(df.iat[r, video_time_col])
             scorer = _extract_jersey_number(goal_val)
             assists: List[str] = []
             for col in (assist1_col, assist2_col):
@@ -2450,7 +2522,9 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
                 num = _extract_jersey_number(val)
                 if num:
                     assists.append(num)
-            events.append(GoalEvent(kind, period, t_str, scorer=scorer, assists=assists))
+            events.append(
+                GoalEvent(kind, period, t_str, video_t_str=v_str, scorer=scorer, assists=assists)
+            )
         return events
 
     events: List[GoalEvent] = []
@@ -2460,8 +2534,163 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
         events.extend(_parse_table(gf_rc, "GF"))
     if ga_rc:
         events.extend(_parse_table(ga_rc, "GA"))
-    events.sort(key=lambda e: (e.period, e.t_sec))
-    return events
+    if events:
+        events.sort(key=lambda e: (e.period, e.t_sec))
+        return events
+
+    def _scan_team_tables() -> List[Tuple[Optional[str], List[GoalEvent]]]:
+        """
+        Parse a goals.xlsx variant where each table is labeled by team name above it,
+        rather than "GF"/"GA", and may include a "Video Time" column.
+        """
+
+        def _infer_team_label(header_r: int, start_c: int, end_c: int) -> Optional[str]:
+            header_norm = {"period", "time", "goal", "assist", "assist1", "assist2", "videotime"}
+            for rr in range(header_r - 1, max(-1, header_r - 6), -1):
+                for cc in range(start_c, end_c + 1):
+                    v = df.iat[rr, cc]
+                    if pd.isna(v):
+                        continue
+                    s = str(v).strip()
+                    if not s:
+                        continue
+                    if _normalize_header_label(s) in header_norm:
+                        continue
+                    return s
+            return None
+
+        results: List[Tuple[Optional[str], List[GoalEvent]]] = []
+        for header_r in range(nrows):
+            period_cols = [
+                c
+                for c in range(ncols)
+                if (not pd.isna(df.iat[header_r, c]))
+                and _normalize_header_label(str(df.iat[header_r, c])) == "period"
+            ]
+            if not period_cols:
+                continue
+            period_cols = sorted(period_cols)
+            for idx, start_c in enumerate(period_cols):
+                next_c = period_cols[idx + 1] if idx + 1 < len(period_cols) else ncols
+                label_to_col: Dict[str, int] = {}
+                for c in range(start_c, next_c):
+                    val = df.iat[header_r, c]
+                    if pd.isna(val):
+                        continue
+                    key = _normalize_header_label(str(val))
+                    if key:
+                        label_to_col.setdefault(key, c)
+
+                period_col = label_to_col.get("period")
+                time_col = (
+                    label_to_col.get("scoreboard")
+                    or label_to_col.get("scoreboardtime")
+                    or label_to_col.get("time")
+                )
+                video_time_col = label_to_col.get("videotime")
+                goal_col = label_to_col.get("goal") or label_to_col.get("scorer")
+                assist1_col = (
+                    label_to_col.get("assist1")
+                    or label_to_col.get("assist")
+                    or label_to_col.get("assist_1")
+                )
+                assist2_col = label_to_col.get("assist2") or label_to_col.get("assist_2")
+
+                if period_col is None or time_col is None or goal_col is None:
+                    continue
+
+                team_label = _infer_team_label(header_r, start_c, max(start_c, next_c - 1))
+                table_events: List[GoalEvent] = []
+                for r in range(header_r + 1, nrows):
+                    period_val = df.iat[r, period_col]
+                    time_val = df.iat[r, time_col]
+                    goal_val = df.iat[r, goal_col]
+                    if all(pd.isna(x) for x in (period_val, time_val, goal_val)):
+                        continue
+                    if (
+                        not pd.isna(period_val)
+                        and _normalize_header_label(str(period_val)) == "period"
+                    ):
+                        break
+                    period = parse_period_token(period_val)
+                    if period is None:
+                        continue
+                    t_str = _format_goal_time_cell(time_val)
+                    if not t_str:
+                        continue
+                    v_str = None
+                    if video_time_col is not None:
+                        v_str = _format_goal_video_time_cell(df.iat[r, video_time_col])
+                    scorer = _extract_jersey_number(goal_val)
+                    assists: List[str] = []
+                    for col in (assist1_col, assist2_col):
+                        if col is None:
+                            continue
+                        num = _extract_jersey_number(df.iat[r, col])
+                        if num:
+                            assists.append(num)
+                    table_events.append(
+                        GoalEvent(
+                            "GF",
+                            period,
+                            t_str,
+                            video_t_str=v_str,
+                            scorer=scorer,
+                            assists=assists,
+                        )
+                    )
+                if table_events:
+                    results.append((team_label, table_events))
+        return results
+
+    tables = _scan_team_tables()
+    if not tables:
+        return []
+
+    our_jerseys_norm = {str(x).strip() for x in (our_jerseys or set()) if str(x).strip()}
+    our_team_norm = _normalize_header_label(str(our_team_name or ""))
+
+    def _table_overlap(events: List[GoalEvent]) -> int:
+        if not our_jerseys_norm or not events:
+            return 0
+        jerseys: set[str] = set()
+        for ev in events:
+            if ev.scorer:
+                jerseys.add(_normalize_jersey_number(ev.scorer) or "")
+            for a in ev.assists or []:
+                if a:
+                    jerseys.add(_normalize_jersey_number(a) or "")
+        jerseys.discard("")
+        return len(jerseys & our_jerseys_norm)
+
+    overlaps = [_table_overlap(evts) for _lbl, evts in tables]
+    gf_idx: Optional[int] = None
+    if our_team_norm:
+        matches = []
+        for idx, (lbl, _evts) in enumerate(tables):
+            lbl_norm = _normalize_header_label(str(lbl or ""))
+            if not lbl_norm:
+                continue
+            if our_team_norm == lbl_norm or our_team_norm in lbl_norm or lbl_norm in our_team_norm:
+                matches.append(idx)
+        if len(matches) == 1:
+            gf_idx = matches[0]
+    if gf_idx is None and overlaps and any(o > 0 for o in overlaps):
+        best = max(overlaps)
+        if overlaps.count(best) == 1:
+            gf_idx = overlaps.index(best)
+    if gf_idx is None:
+        gf_idx = 0
+
+    out_events: List[GoalEvent] = []
+    for idx, (_lbl, evts) in enumerate(tables):
+        kind = "GF" if idx == gf_idx or len(tables) == 1 else "GA"
+        for ev in evts:
+            ev.kind = kind
+            out_events.append(ev)
+
+    out_events.sort(key=lambda e: (e.period, e.t_sec))
+    return out_events
 
 
 def goals_from_t2s(
@@ -7143,7 +7372,9 @@ def _write_all_events_summary(
     ):
         period = int(getattr(ev, "period", 0) or 0)
         gs_i = int(getattr(ev, "t_sec", 0) or 0)
-        vs_i = _map_sb_to_video(period, gs_i)
+        vs_i = getattr(ev, "video_t_sec", None)
+        if vs_i is None:
+            vs_i = _map_sb_to_video(period, gs_i)
         kind = str(getattr(ev, "kind", "") or "").strip().upper()
         our_side_l = str(team_side or "").strip().lower()
         if our_side_l in {"home", "away"}:
@@ -11331,6 +11562,58 @@ def process_sheet(
     )
 
 
+def process_goals_only_xlsx(
+    *,
+    goals_xlsx: Path,
+    outdir: Path,
+    team_side: Optional[str],
+    our_team_name: Optional[str],
+    write_events_summary: bool,
+) -> Tuple[
+    Path,
+    List[Dict[str, str]],
+    List[int],
+    Dict[str, Dict[str, List[GoalEvent]]],
+    List[Dict[str, Any]],
+]:
+    """
+    Process a goals-only game where no shift sheet exists and goals are provided via goals.xlsx.
+
+    Output is minimal: `stats/all_events_summary.csv` (and .xlsx) so the webapp can upsert
+    goal/assist events for an external game.
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    stats_dir = outdir / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    goals = _goals_from_goals_xlsx(goals_xlsx, our_team_name=our_team_name)
+    goals_by_period: Dict[int, List[GoalEvent]] = {}
+    for ev in goals or []:
+        goals_by_period.setdefault(int(ev.period), []).append(ev)
+
+    periods = sorted({int(ev.period) for ev in goals or [] if int(ev.period) > 0})
+
+    if write_events_summary:
+        _write_all_events_summary(
+            stats_dir,
+            sb_pairs_by_player={},
+            goals=goals,
+            goals_by_period=goals_by_period,
+            event_log_context=None,
+            focus_team=None,
+            team_side=team_side,
+            t2s_game_id=None,
+            t2s_events=None,
+            conv_segments_by_period={},
+            spreadsheet_event_mapping_summary=None,
+        )
+
+    stats_table_rows: List[Dict[str, str]] = []
+    per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {}
+    pair_on_ice_rows: List[Dict[str, Any]] = []
+    return outdir, stats_table_rows, periods, per_player_goal_events, pair_on_ice_rows
+
+
 def process_long_only_sheets(
     *,
     long_xls_paths: List[Path],
@@ -12472,7 +12755,7 @@ def main() -> None:
     if args.file_list:
         try:
             file_list_path = args.file_list.expanduser()
-            base_dir = file_list_path.resolve().parent
+            base_dir = _stats_base_dir_from_env() or file_list_path.resolve().parent
             if file_list_path.suffix.lower() in {".yaml", ".yml"}:
                 input_entries.extend(
                     _load_input_entries_from_yaml_file_list(
@@ -12724,7 +13007,10 @@ def main() -> None:
             if entry.path is None:
                 continue
             p = Path(entry.path)
-            label = str(entry.label or _base_label_from_path(p))
+            if p.stem.lower() == "goals":
+                label = str(entry.label or _label_from_goals_xlsx_path(p))
+            else:
+                label = str(entry.label or _base_label_from_path(p))
             existing_key = display_label_to_key.get(label)
             if existing_key is not None and existing_key != label:
                 print(
@@ -12928,8 +13214,19 @@ def main() -> None:
         # If no t2s id was provided/inferred, fall back to goals.xlsx next to the input.
         if t2s_id is None:
             goals_xlsx = in_path.parent / "goals.xlsx"
+            our_jerseys: Optional[set[str]] = None
             try:
-                gx = _goals_from_goals_xlsx(goals_xlsx)
+                target_sheet = 0 if args.sheet is None else args.sheet
+                df_primary = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
+                roster_tables = _extract_roster_tables_from_df(df_primary)
+                jerseys = set()
+                for _team, roster in roster_tables:
+                    jerseys.update(str(x) for x in (roster or {}).keys())
+                our_jerseys = {str(x).strip() for x in jerseys if str(x).strip()}
+            except Exception:
+                our_jerseys = None
+            try:
+                gx = _goals_from_goals_xlsx(goals_xlsx, our_jerseys=our_jerseys)
             except Exception as e:  # noqa: BLE001
                 print(f"[goals.xlsx] Failed to parse {goals_xlsx}: {e}", file=sys.stderr)
                 gx = []
@@ -13062,6 +13359,54 @@ def main() -> None:
             primary_specs.append({"path": p0, "side": s.get("side")})
 
         multi_primary_processed = False
+        if (
+            len(primary_specs) == 1
+            and isinstance(primary_specs[0].get("path"), Path)
+            and str(primary_specs[0]["path"].stem).lower() == "goals"
+        ):
+            multi_primary_processed = True
+            goals_xlsx = Path(primary_specs[0]["path"])
+            label = str(g.get("label") or _label_from_goals_xlsx_path(goals_xlsx))
+            outdir = base_outdir if not multiple_inputs else base_outdir / label
+            meta = dict(g.get("meta") or {})
+
+            def _meta(*keys: str) -> Optional[str]:
+                for k in keys:
+                    v = meta.get(str(k).strip().lower())
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                return None
+
+            side_to_use: Optional[str] = g.get("side") or (
+                "home" if args.home else ("away" if args.away else None)
+            )
+            if side_to_use not in {"home", "away"}:
+                side_to_use = "home"
+
+            our_team_name = None
+            if side_to_use == "home":
+                our_team_name = _meta("home_team", "home_team_name", "home")
+            elif side_to_use == "away":
+                our_team_name = _meta("away_team", "away_team_name", "away")
+
+            (
+                final_outdir,
+                stats_rows,
+                periods,
+                per_player_events,
+                pair_on_ice_rows,
+            ) = process_goals_only_xlsx(
+                goals_xlsx=goals_xlsx,
+                outdir=outdir,
+                team_side=side_to_use,
+                our_team_name=our_team_name,
+                write_events_summary=write_events_summary,
+            )
+            in_path = goals_xlsx
+            primary_path = goals_xlsx
+            long_paths: List[Path] = []
+            t2s_id = None
+
         if len(primary_specs) > 1:
             # Multi-primary game: process each primary sheet (HOME/AWAY) into its own subtree, sharing any long sheets.
             multi_primary_processed = True
@@ -13616,7 +13961,7 @@ def main() -> None:
             external_away = _meta("away_team", "away_team_name", "away")
             file_list_base_dir: Optional[Path] = None
             try:
-                file_list_base_dir = (
+                file_list_base_dir = _stats_base_dir_from_env() or (
                     args.file_list.expanduser().resolve().parent if args.file_list else None
                 )
             except Exception:
