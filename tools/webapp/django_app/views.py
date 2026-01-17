@@ -3521,6 +3521,7 @@ def api_hky_team_pair_on_ice(request: HttpRequest, team_id: int) -> JsonResponse
     # Aggregation across all games with shift rows.
     agg: dict[tuple[int, int], dict[str, Any]] = {}
     total_pm_by_player: dict[int, int] = {}
+    shift_games_by_player: dict[int, int] = {}
     player_info: dict[int, dict[str, str]] = {}
 
     for gid in shift_game_ids_in_order:
@@ -3573,6 +3574,9 @@ def api_hky_team_pair_on_ice(request: HttpRequest, team_id: int) -> JsonResponse
         players = [pid for pid in sorted(toi_by_pid.keys()) if int(toi_by_pid.get(pid, 0) or 0) > 0]
         if not players:
             continue
+
+        for pid in players:
+            shift_games_by_player[int(pid)] = int(shift_games_by_player.get(int(pid), 0) or 0) + 1
 
         # Track player totals even when there are not enough players for any pair rows.
         pm_game: dict[int, int] = {int(pid): 0 for pid in players}
@@ -3823,6 +3827,8 @@ def api_hky_team_pair_on_ice(request: HttpRequest, team_id: int) -> JsonResponse
                 "plus_minus_together": int(gf) - int(ga),
                 "player_total_plus_minus": int(total_pm_by_player.get(int(pid), 0) or 0),
                 "teammate_total_plus_minus": int(total_pm_by_player.get(int(teammate), 0) or 0),
+                "player_shift_games": int(shift_games_by_player.get(int(pid), 0) or 0),
+                "teammate_shift_games": int(shift_games_by_player.get(int(teammate), 0) or 0),
             }
         )
 

@@ -644,7 +644,7 @@
 	    </div>
 	    <button id="team-player-pairings-close" class="btn" type="button">Close</button>
 	  </div>
-	  <div id="team-player-pairings-body" style="padding:12px 14px;overflow:hidden;"></div>
+	  <div id="team-player-pairings-body" tabindex="0" style="padding:12px 14px;overflow:hidden;overscroll-behavior:contain;"></div>
 </dialog>
 
 <style>
@@ -674,6 +674,7 @@
   /* Keep the pairings header visible while scrolling within the modal. */
   #team-player-pairings-body .table-scroll-y {
     max-height: 62vh;
+    overscroll-behavior: contain;
   }
   #team-player-pairings-body .table-scroll-y thead th {
     /* Stay above body cells. */
@@ -1373,18 +1374,64 @@
     var pairBodyEl = document.getElementById("team-player-pairings-body");
     var pairCloseBtn = document.getElementById("team-player-pairings-close");
     var pairingsTableEl = null;
+    var _pairScrollLock = null;
+
+    function lockBackgroundScrollForPairModal() {
+      if (_pairScrollLock) return;
+      try {
+        _pairScrollLock = {
+          htmlOverflow: document.documentElement.style.overflow,
+          bodyOverflow: document.body.style.overflow,
+        };
+        document.documentElement.style.overflow = "hidden";
+        document.body.style.overflow = "hidden";
+      } catch (e) {
+        _pairScrollLock = {};
+      }
+    }
+
+    function unlockBackgroundScrollForPairModal() {
+      if (!_pairScrollLock) return;
+      try {
+        if (_pairScrollLock.htmlOverflow !== undefined) {
+          document.documentElement.style.overflow = _pairScrollLock.htmlOverflow;
+        } else {
+          document.documentElement.style.overflow = "";
+        }
+        if (_pairScrollLock.bodyOverflow !== undefined) {
+          document.body.style.overflow = _pairScrollLock.bodyOverflow;
+        } else {
+          document.body.style.overflow = "";
+        }
+      } catch (e) {}
+      _pairScrollLock = null;
+    }
 
     function closePairModal() {
       if (!pairDlg) return;
       if (pairBodyEl) pairBodyEl.innerHTML = "";
       pairingsTableEl = null;
       try { pairDlg.close(); } catch (e) { pairDlg.open = false; }
+      unlockBackgroundScrollForPairModal();
     }
     function showPairModal() {
       if (!pairDlg) return;
+      lockBackgroundScrollForPairModal();
       try { pairDlg.showModal(); } catch (e) { pairDlg.open = true; }
+      try {
+        window.requestAnimationFrame(function () {
+          if (pairBodyEl && typeof pairBodyEl.focus === "function") pairBodyEl.focus();
+        });
+      } catch (e) {}
     }
     if (pairCloseBtn) pairCloseBtn.addEventListener("click", closePairModal);
+    if (pairDlg) {
+      pairDlg.addEventListener("close", unlockBackgroundScrollForPairModal);
+      pairDlg.addEventListener("cancel", function (e) {
+        try { e.preventDefault(); } catch (e2) {}
+        closePairModal();
+      });
+    }
 
     function buildPairingsApiUrl(opts) {
       opts = opts || {};
@@ -1415,6 +1462,20 @@
       var n = Number(v);
       if (!isFinite(n)) return String(v || "");
       return n.toFixed(1);
+    }
+
+    function cellWithGamesNote(value, games, maxGames) {
+      var txt = String(value || "");
+      var g = null;
+      try { g = parseInt(String(games || "").trim(), 10); } catch (e) { g = null; }
+      var mx = null;
+      try { mx = parseInt(String(maxGames || "").trim(), 10); } catch (e) { mx = null; }
+      if (g === null || !isFinite(g) || g <= 0) return txt;
+      if (mx !== null && isFinite(mx) && mx > 0 && g >= mx) return txt;
+      var wrap = document.createElement("span");
+      wrap.appendChild(document.createTextNode(txt));
+      wrap.appendChild(el("span", { className: "muted", style: "margin-left:4px;font-size:.86em;" }, "(" + String(g) + " games)"));
+      return wrap;
     }
 
     function applyPairingsFrozenColumns(table) {
@@ -1463,31 +1524,40 @@
 
           var wrap = document.createElement("div");
           wrap.className = "table-scroll table-scroll-y";
+          wrap.tabIndex = 0;
+          wrap.style.outline = "none";
           var table = document.createElement("table");
           table.className = "table-nowrap table-grid team-player-pairings-table";
           var thead = document.createElement("thead");
           var trh = document.createElement("tr");
-          [
-            "Player #",
-            "Player",
-            "Teammate #",
-            "Teammate",
-            "Games with Data",
-            "Overlap %",
-            "GF Together",
-            "GA Together",
-            "Player Goals (On Ice Together)",
-            "Player Assists (On Ice Together)",
-            "Goals Collaborated",
-            "Assists Collaborated",
-            "+/- Together",
-            "Player Total +/-",
-            "Teammate Total +/-",
-          ].forEach(function (h, idx) {
+          var shiftNote = (isFinite(eligible) && isFinite(shiftGames) && eligible > shiftGames && shiftGames > 0);
+          var shiftNoteText = shiftNote ? ("(" + String(shiftGames) + " games)") : "";
+          function th(label, idx, opts) {
+            opts = opts || {};
             var attrs = null;
             if (idx === 0 || idx === 1) attrs = { "data-sticky-col": String(idx) };
-            trh.appendChild(el("th", attrs, h));
-          });
+            var thEl = el("th", attrs, "");
+            thEl.appendChild(el("div", null, label));
+            if (opts.shiftNote && shiftNoteText) {
+              thEl.appendChild(el("div", { className: "th-subnote" }, shiftNoteText));
+            }
+            trh.appendChild(thEl);
+          }
+          th("Player #", 0);
+          th("Player", 1);
+          th("Teammate #", 2);
+          th("Teammate", 3);
+          th("Games with Data", 4);
+          th("Overlap %", 5, { shiftNote: true });
+          th("GF Together", 6, { shiftNote: true });
+          th("GA Together", 7, { shiftNote: true });
+          th("Player Goals (On Ice Together)", 8, { shiftNote: true });
+          th("Player Assists (On Ice Together)", 9, { shiftNote: true });
+          th("Goals Collaborated", 10, { shiftNote: true });
+          th("Assists Collaborated", 11, { shiftNote: true });
+          th("+/- Together", 12, { shiftNote: true });
+          th("Player Total +/-", 13, { shiftNote: true });
+          th("Teammate Total +/-", 14, { shiftNote: true });
           thead.appendChild(trh);
           table.appendChild(thead);
           var tbody = document.createElement("tbody");
@@ -1520,8 +1590,8 @@
               td(blankIfZero(r.goals_collab_with_teammate));
               td(blankIfZero(r.assists_collab_with_teammate));
               td(String(r.plus_minus_together || 0));
-              td(String(r.player_total_plus_minus || 0));
-              td(String(r.teammate_total_plus_minus || 0));
+              td(cellWithGamesNote(String(r.player_total_plus_minus || 0), r.player_shift_games, shiftGames));
+              td(cellWithGamesNote(String(r.teammate_total_plus_minus || 0), r.teammate_shift_games, shiftGames));
               tbody.appendChild(tr);
             });
           });
@@ -1540,6 +1610,11 @@
           } catch (e) {
             applyPairingsFrozenColumns(table);
           }
+          try {
+            window.requestAnimationFrame(function () {
+              if (typeof wrap.focus === "function") wrap.focus();
+            });
+          } catch (e) {}
         }).catch(function (e) {
           pairBodyEl.innerHTML = "";
           pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
