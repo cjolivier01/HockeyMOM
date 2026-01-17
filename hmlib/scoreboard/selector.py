@@ -35,16 +35,15 @@ except Exception:
     _cv2_available = False
 
 
-def get_screen_size() -> Optional[Tuple[int, int]]:
+def get_max_screen_height() -> Optional[int]:
     if not _tk_available:
         return None
     root = None
     try:
         root = tk.Tk()  # type: ignore
         root.withdraw()  # type: ignore
-        width = int(root.winfo_screenwidth())  # type: ignore
         height = int(root.winfo_screenheight())  # type: ignore
-        return width, height
+        return height
     except Exception:
         return None
     finally:
@@ -63,7 +62,7 @@ class ScoreboardSelector:
         self,
         image: Union[Image.Image, np.ndarray],
         initial_points: Optional[List[Tuple[int, int]]] = None,
-        max_display_size: Optional[Tuple[int, int]] = None,
+        max_display_height: Optional[int] = None,
     ) -> None:
         try:
             if isinstance(image, Image.Image):
@@ -85,13 +84,11 @@ class ScoreboardSelector:
 
         self._original_size = self.image.size
         self._display_scale = 1.0
-        if max_display_size is None:
-            max_display_size = get_screen_size()
-        if max_display_size is not None:
-            max_w, max_h = max_display_size
-            max_w = max(max_w - 100, 1)
-            max_h = max(max_h - 160, 1)
-            scale = min(max_w / self._original_size[0], max_h / self._original_size[1], 1.0)
+        if max_display_height is None:
+            max_display_height = get_max_screen_height()
+        if max_display_height is not None:
+            max_h = max(max_display_height - 160, 1)
+            scale = min(max_h / self._original_size[1], 1.0)
             if scale < 1.0:
                 new_size = (
                     int(round(self._original_size[0] * scale)),
@@ -475,7 +472,7 @@ def configure_scoreboard(
     game_id: str,
     image: Optional[torch.Tensor] = None,
     force: bool = False,
-    max_display_size: Optional[Tuple[int, int]] = None,
+    max_display_height: Optional[int] = None,
 ) -> List[List[int]]:
     assert game_id
     game_config = get_game_config(game_id=game_id)
@@ -490,7 +487,9 @@ def configure_scoreboard(
             raise FileNotFoundError(f"Could not find image file: {image_file}")
         image = Image.open(image_file)
     selector = ScoreboardSelector(
-        image=image, initial_points=current_scoreboard, max_display_size=max_display_size
+        image=image,
+        initial_points=current_scoreboard,
+        max_display_height=max_display_height,
     )
     selector.run()
     current_scoreboard = selector.points
