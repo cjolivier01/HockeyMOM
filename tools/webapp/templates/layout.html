@@ -103,6 +103,172 @@
         return (cell.innerText || cell.textContent || "").trim();
       }
 
+      function inferTableTitle(table) {
+        if (!table) return document.title || "Table";
+        var explicit = String(table.getAttribute("data-xlsx-title") || "").trim();
+        if (explicit) return explicit;
+
+        // Walk up the DOM, scanning previous siblings for a heading.
+        var node = table;
+        while (node && node !== document.body) {
+          var cur = node;
+          while (cur && cur.previousElementSibling) {
+            cur = cur.previousElementSibling;
+            if (!cur) break;
+            if (cur.tagName && String(cur.tagName).match(/^H[2-5]$/)) {
+              var txt = (cur.innerText || cur.textContent || "").trim();
+              if (txt) return txt;
+            }
+            var h = cur.querySelector && cur.querySelector("h2,h3,h4,h5");
+            if (h) {
+              var txt2 = (h.innerText || h.textContent || "").trim();
+              if (txt2) return txt2;
+            }
+          }
+          node = node.parentElement;
+        }
+
+        // Fallback: first page h2/h3.
+        var top = document.querySelector("h2,h3");
+        if (top) {
+          var t = (top.innerText || top.textContent || "").trim();
+          if (t) return t;
+        }
+        return document.title || "Table";
+      }
+
+      function sanitizeFilename(name) {
+        var s = String(name || "").trim() || "table";
+        s = s.replace(/[^\w\-. ]+/g, "_");
+        s = s.replace(/\s+/g, " ").trim().replace(/ /g, "_");
+        if (!s) s = "table";
+        if (s.toLowerCase().slice(-5) !== ".xlsx") s = s + ".xlsx";
+        return s;
+      }
+
+      function extractTableData(table) {
+        var thead = table && table.tHead;
+        var tbody = table && table.tBodies && table.tBodies[0];
+        if (!thead || !tbody || !thead.rows || !thead.rows[0]) return null;
+        var headerCells = Array.from(thead.rows[0].cells || []);
+        var headers = headerCells.map(function (th) {
+          return (th.innerText || th.textContent || "").trim();
+        });
+        var colKeys = headerCells.map(function (th) {
+          var k = String(th.getAttribute("data-stat-key") || "").trim();
+          return k ? k : null;
+        });
+
+        var rows = Array.from(tbody.rows || []).map(function (tr) {
+          return Array.from(tr.cells || []).map(function (td) {
+            if (!td) return "";
+            var inp = td.querySelector && td.querySelector("input,select,textarea");
+            if (inp) {
+              if (inp.tagName === "SELECT") {
+                var opt = inp.options && inp.selectedIndex >= 0 ? inp.options[inp.selectedIndex] : null;
+                return opt ? String(opt.textContent || "").trim() : String(inp.value || "").trim();
+              }
+              return String(inp.value || "").trim();
+            }
+            return (td.innerText || td.textContent || "").trim();
+          });
+        });
+
+        var freezeCols = 0;
+        try { freezeCols = parseInt(String(table.getAttribute("data-freeze-cols") || "0"), 10) || 0; } catch (e) { freezeCols = 0; }
+
+        var title = inferTableTitle(table);
+        return { title: title, headers: headers, rows: rows, colKeys: colKeys, freezeCols: freezeCols };
+      }
+
+      function downloadTableAsXlsx(table) {
+        var data = extractTableData(table);
+        if (!data || !data.headers || !data.headers.length) return;
+        var filename = sanitizeFilename(data.title);
+        var payload = {
+          title: data.title,
+          sheet_name: data.title,
+          filename: filename,
+          headers: data.headers,
+          col_keys: data.colKeys,
+          rows: data.rows,
+          freeze_cols: data.freezeCols,
+        };
+
+        fetch("/api/xlsx/table", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        })
+          .then(function (resp) {
+            if (!resp.ok) {
+              return resp.json().catch(function () { return {}; }).then(function (j) {
+                var err = (j && j.error) ? String(j.error) : ("HTTP " + String(resp.status || ""));
+                throw new Error(err);
+              });
+            }
+            return resp.blob();
+          })
+          .then(function (blob) {
+            var url = window.URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.setTimeout(function () {
+              try { window.URL.revokeObjectURL(url); } catch (e) {}
+              try { a.remove(); } catch (e) {}
+            }, 0);
+          })
+          .catch(function (e) {
+            try { window.alert("Unable to export XLSX (" + String(e && e.message || e || "error") + ")."); } catch (e2) {}
+          });
+      }
+
+      function tableAnchorEl(table) {
+        if (!table) return table;
+        var p = table.parentElement;
+        if (p && p.classList) {
+          if (p.classList.contains("table-scroll") || p.classList.contains("table-scroll-y") || p.classList.contains("table-fit-wrap")) {
+            return p;
+          }
+        }
+        return table;
+      }
+
+      function ensureTableExportLink(table) {
+        if (!table || table.getAttribute("data-no-export-xlsx") === "1") return;
+        if (table.getAttribute("data-xlsx-export-ready") === "1") return;
+        if (!table.tHead || !table.tBodies || !table.tBodies.length) return;
+        if (!table.tHead.rows || !table.tHead.rows.length) return;
+        if (!table.tBodies[0] || !table.tBodies[0].rows) return;
+
+        table.setAttribute("data-xlsx-export-ready", "1");
+        var anchor = tableAnchorEl(table);
+        if (!anchor || !anchor.parentNode) return;
+
+        var row = document.createElement("div");
+        row.className = "table-export-row";
+        var link = document.createElement("a");
+        link.href = "#";
+        link.className = "table-export-link";
+        link.textContent = "Download XLSX";
+        link.addEventListener("click", function (e) {
+          e.preventDefault();
+          downloadTableAsXlsx(table);
+        });
+        row.appendChild(link);
+        anchor.parentNode.insertBefore(row, anchor);
+      }
+
+      function setupTableExportLinks(root) {
+        (root || document).querySelectorAll("table").forEach(function (t) {
+          ensureTableExportLink(t);
+        });
+      }
+
       function setupTable(table) {
         if (!table) return;
         var thead = table.tHead;
@@ -192,6 +358,7 @@
       function init() {
         document.querySelectorAll("table[data-sortable='1']").forEach(function(t) { setupTable(t); });
         document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
+        setupTableExportLinks(document);
         // Clamp table header labels to at most 2 lines (avoid very tall header rows).
         (function clampTableHeaders() {
           document.querySelectorAll("table thead th").forEach(function(th) {
@@ -323,6 +490,29 @@
           run();
           window.addEventListener("resize", run);
           window.addEventListener("load", run);
+        })();
+
+        // Best-effort: if pages dynamically insert tables (e.g., drilldown dialogs), attach exports.
+        (function () {
+          var queued = false;
+          var obs = null;
+          try {
+            obs = new MutationObserver(function () {
+              if (queued) return;
+              queued = true;
+              window.requestAnimationFrame(function () {
+                queued = false;
+                setupTableExportLinks(document);
+              });
+            });
+          } catch (e) {
+            obs = null;
+          }
+          if (obs) {
+            try {
+              obs.observe(document.body, { childList: true, subtree: true });
+            } catch (e) {}
+          }
         })();
       }
       if (document.readyState === "loading") {

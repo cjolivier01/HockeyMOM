@@ -81,6 +81,9 @@ def main() -> int:
                 if ! /opt/hm-webapp/venv/bin/python -c 'import django' >/dev/null 2>&1; then
                   sudo /opt/hm-webapp/venv/bin/python -m pip install django
                 fi
+                if ! /opt/hm-webapp/venv/bin/python -c 'import openpyxl' >/dev/null 2>&1; then
+                  sudo /opt/hm-webapp/venv/bin/python -m pip install openpyxl
+                fi
 
                 sudo mkdir -p /opt/hm-webapp/app/templates /opt/hm-webapp/app/static
                 sudo cp /tmp/hm/tools/webapp/app.py /opt/hm-webapp/app/app.py

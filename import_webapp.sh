@@ -16,6 +16,7 @@ REBUILD=0
 INCLUDE_SHIFTS=0
 IGNORE_PRIMARY=0
 IGNORE_LONG=0
+NO_SPREADSHEETS=0
 VERBOSE=0
 T2S_LEAGUES=(3 5 18)
 T2S_LEAGUES_SET=0
@@ -27,7 +28,7 @@ OWNER_NAME="${OWNER_NAME:-${GIT_USER_NAME:-$OWNER_EMAIL}}"
 
 usage() {
   cat <<'EOF'
-Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--parse-only] [--shifts] [--ignore-primary] [--ignore-long]
+Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only | --no-spreadsheets] [--parse-only] [--shifts] [--ignore-primary] [--ignore-long]
 
 Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
@@ -43,6 +44,7 @@ Options:
   --t2s-league ID   Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
   --rebuild         Reset (delete) existing league hockey data before importing (destructive)
   --spreadsheets-only  Seed only from shift spreadsheets (skip TimeToScore import; scrape only per-game T2S lookups)
+  --no-spreadsheets Deploy + (optional) TimeToScore import only; skip spreadsheet parsing/upload
   --parse-only      Only run scripts/parse_stats_inputs.py upload (skip reset + TimeToScore import); forces --webapp-replace
   --scrape          Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
   --shifts          Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
@@ -82,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     --shifts) INCLUDE_SHIFTS=1; shift ;;
     --ignore-primary) IGNORE_PRIMARY=1; shift ;;
     --ignore-long) IGNORE_LONG=1; shift ;;
+    --no-spreadsheets) NO_SPREADSHEETS=1; shift ;;
     --verbose|-v) VERBOSE=1; shift ;;
     --t2s-league=*)
       T2S_LEAGUE_RAW="${1#*=}"
@@ -130,6 +133,14 @@ if [[ "${PARSE_ONLY}" == "1" && "${DROP_DB_ONLY}" == "1" ]]; then
 fi
 if [[ "${IGNORE_PRIMARY}" == "1" && "${IGNORE_LONG}" == "1" ]]; then
   echo "[!] --ignore-primary cannot be combined with --ignore-long" >&2
+  exit 2
+fi
+if [[ "${NO_SPREADSHEETS}" == "1" && "${SPREADSHEETS_ONLY}" == "1" ]]; then
+  echo "[!] --no-spreadsheets cannot be combined with --spreadsheets-only" >&2
+  exit 2
+fi
+if [[ "${NO_SPREADSHEETS}" == "1" && "${PARSE_ONLY}" == "1" ]]; then
+  echo "[!] --no-spreadsheets cannot be combined with --parse-only" >&2
   exit 2
 fi
 
@@ -360,11 +371,14 @@ PY
   fi
 fi
 
-#echo "[i] Uploading shift spreadsheets"
-if [[ -z "${SHIFT_FILE_LIST}" ]]; then
-  if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
-    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
-  elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
+if [[ "${NO_SPREADSHEETS}" == "1" ]]; then
+  echo "[i] --no-spreadsheets: skipping spreadsheet parsing/upload"
+else
+  #echo "[i] Uploading shift spreadsheets"
+  if [[ -z "${SHIFT_FILE_LIST}" ]]; then
+    if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
+      SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
+    elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
     SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
   elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
     SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
@@ -378,11 +392,11 @@ if [[ -z "${SHIFT_FILE_LIST}" ]]; then
 fi
 if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
   echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
-  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
-  exit 2
-fi
-SPREADSHEET_ARGS=()
-if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
+    echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
+    exit 2
+  fi
+  SPREADSHEET_ARGS=()
+  if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--t2s-scrape-only" )
 fi
 if [[ "${PARSE_ONLY}" == "1" ]]; then
@@ -409,6 +423,7 @@ fi
   ${WEB_ACCESS_KEY} \
   --webapp-owner-email "${OWNER_EMAIL}" \
   --webapp-league-name="${LEAGUE_NAME}"
+fi
 
 echo "[i] Recalculating Ratings (REST)"
 IMPORT_TOKEN="${HM_WEBAPP_IMPORT_TOKEN:-}"

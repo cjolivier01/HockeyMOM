@@ -67,10 +67,12 @@ dialog::backdrop {
 .hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
 .hero p { color: var(--muted); margin: 0 0 1rem; }
 
-.btn { display: inline-block; background: #1f2430; color: var(--text); border: 1px solid var(--border); padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; }
-.btn:hover { filter: brightness(1.1); }
+.btn { display: inline-block; background: #313e56; color: var(--text); border: 1px solid #51607a; padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 6px 18px rgba(0, 0, 0, 0.35); cursor: pointer; }
+.btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn:active { filter: brightness(1.06); transform: translateY(0); }
+.btn:focus-visible { outline: 2px solid rgba(255, 106, 19, 0.6); outline-offset: 2px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #101114; }
-.btn.secondary { background: #1c212c; }
+.btn.secondary { background: #2b3850; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #101114; }
 
 /* In tables (white background), render "secondary" buttons as slightly darker than the row background. */
@@ -78,6 +80,7 @@ table a.btn.secondary, table button.btn.secondary {
   background: rgba(0, 0, 0, 0.06);
   border-color: rgba(0, 0, 0, 0.14);
   color: var(--table-text);
+  box-shadow: none;
 }
 table a.btn.secondary:hover, table button.btn.secondary:hover {
   background: rgba(0, 0, 0, 0.09);
@@ -148,6 +151,21 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Scrollable viewport for very tall tables (e.g., game events). */
 .table-scroll-y { overflow-y: auto; max-height: 50vh; position: relative; }
 .table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
+
+/* Table export */
+.table-export-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.15rem 0 0.35rem 0;
+}
+.table-export-link {
+  font-size: 0.9rem;
+  color: var(--muted-strong);
+  text-decoration: underline;
+}
+.table-export-link:hover {
+  color: #e5e7eb;
+}
 
 /* Sortable tables */
 .table-sortable th { cursor: pointer; user-select: none; }

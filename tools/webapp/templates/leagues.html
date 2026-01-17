@@ -25,12 +25,17 @@
           {% if L.is_public %}<em>(public)</em>{% endif %}
           {% if L.is_admin %} — <a href="/leagues/{{ L.id }}/members">Manage Members</a>{% endif %}
           {% if L.is_admin %}
-            — <form method="post" action="/leagues/{{ L.id }}/update" style="display:inline; margin-left:6px;">
+            — <form method="post" action="/leagues/{{ L.id }}/update" style="display:inline-block; margin-left:6px; vertical-align:top;">
                 {% csrf_token %}
-                <label style="display:inline; margin-right:8px;"><input type="checkbox" name="is_shared" value="1" {% if L.is_shared %}checked{% endif %}> Shared</label>
-                <label style="display:inline; margin-right:8px;"><input type="checkbox" name="is_public" value="1" {% if L.is_public %}checked{% endif %}> Public</label>
-                <label style="display:inline; margin-right:8px;"><input type="checkbox" name="show_goalie_stats" value="1" {% if L.show_goalie_stats %}checked{% endif %}> Show goalie stats</label>
-                <button type="submit">Save</button>
+                <div style="display:flex; flex-direction:column; gap:.15rem; margin:.25rem 0;">
+                  <div class="muted" style="font-size:.85rem; margin:.15rem 0 .1rem 0;">Visibility</div>
+                  <label style="display:block;"><input type="checkbox" name="is_shared" value="1" {% if L.is_shared %}checked{% endif %}> Shared</label>
+                  <label style="display:block;"><input type="checkbox" name="is_public" value="1" {% if L.is_public %}checked{% endif %}> Public</label>
+                  <div class="muted" style="font-size:.85rem; margin:.35rem 0 .1rem 0;">Stats</div>
+                  <label style="display:block;"><input type="checkbox" name="show_goalie_stats" value="1" {% if L.show_goalie_stats %}checked{% endif %}> Show goalie stats</label>
+                  <label style="display:block;"><input type="checkbox" name="show_shift_data" value="1" {% if L.show_shift_data %}checked{% endif %}> Show shift data (TOI/Shifts)</label>
+                </div>
+                <button type="submit" class="btn" style="margin-top:.15rem;">Save</button>
               </form>
             — <form method="post" action="/leagues/{{ L.id }}/delete" style="display:inline" onsubmit="return confirm('This will delete the league and its data. Continue?')">
                 {% csrf_token %}
@@ -51,9 +56,12 @@
     {% csrf_token %}
     <label>Name</label>
     <input type="text" name="name" required />
-    <label><input type="checkbox" name="is_shared" value="1" /> Shared league</label>
-    <label><input type="checkbox" name="is_public" value="1" /> Public (viewable without login)</label>
-    <label><input type="checkbox" name="show_goalie_stats" value="1" /> Show goalie stats</label>
+    <div class="muted" style="font-size:.85rem; margin:.5rem 0 .1rem 0;">Visibility</div>
+    <label style="display:block;"><input type="checkbox" name="is_shared" value="1" /> Shared league</label>
+    <label style="display:block;"><input type="checkbox" name="is_public" value="1" /> Public (viewable without login)</label>
+    <div class="muted" style="font-size:.85rem; margin:.35rem 0 .1rem 0;">Stats</div>
+    <label style="display:block;"><input type="checkbox" name="show_goalie_stats" value="1" /> Show goalie stats</label>
+    <label style="display:block;"><input type="checkbox" name="show_shift_data" value="1" /> Show shift data (TOI/Shifts)</label>
     <button class="btn primary" type="submit">Create</button>
   </form>
   <p class="muted">You will be the administrator and can grant access to others.</p>

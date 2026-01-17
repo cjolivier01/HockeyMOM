@@ -206,14 +206,6 @@ class PlayerStat(models.Model):
     shots = models.IntegerField(null=True, blank=True)
     pim = models.IntegerField(null=True, blank=True)
     plus_minus = models.IntegerField(null=True, blank=True)
-    hits = models.IntegerField(null=True, blank=True)
-    blocks = models.IntegerField(null=True, blank=True)
-    toi_seconds = models.IntegerField(null=True, blank=True)
-    faceoff_wins = models.IntegerField(null=True, blank=True)
-    faceoff_attempts = models.IntegerField(null=True, blank=True)
-    goalie_saves = models.IntegerField(null=True, blank=True)
-    goalie_ga = models.IntegerField(null=True, blank=True)
-    goalie_sa = models.IntegerField(null=True, blank=True)
 
     sog = models.IntegerField(null=True, blank=True)
     expected_goals = models.IntegerField(null=True, blank=True)
@@ -230,14 +222,8 @@ class PlayerStat(models.Model):
     gw_goals = models.IntegerField(null=True, blank=True)
     ot_goals = models.IntegerField(null=True, blank=True)
     ot_assists = models.IntegerField(null=True, blank=True)
-    shifts = models.IntegerField(null=True, blank=True)
     gf_counted = models.IntegerField(null=True, blank=True)
     ga_counted = models.IntegerField(null=True, blank=True)
-    video_toi_seconds = models.IntegerField(null=True, blank=True)
-    sb_avg_shift_seconds = models.IntegerField(null=True, blank=True)
-    sb_median_shift_seconds = models.IntegerField(null=True, blank=True)
-    sb_longest_shift_seconds = models.IntegerField(null=True, blank=True)
-    sb_shortest_shift_seconds = models.IntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "player_stats"
@@ -315,6 +301,45 @@ class HkyGameEventRow(models.Model):
             models.Index(fields=["game", "event_type"], name="idx_event_game_type"),
             models.Index(fields=["game", "player"], name="idx_event_game_player"),
             models.Index(fields=["game", "period", "game_seconds"], name="idx_event_game_time"),
+        ]
+
+
+class HkyGameShiftRow(models.Model):
+    """
+    Per-player shift intervals imported from spreadsheets (separate from hky_game_event_rows).
+    These are used to derive TOI/shifts at runtime and (optionally) render on/off-ice markers.
+    """
+
+    game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="shift_rows")
+
+    # Idempotency key for upserting shift rows from repeated imports.
+    import_key = models.CharField(max_length=64)
+
+    source = models.CharField(max_length=255, null=True, blank=True)
+
+    # Optional resolved references for querying/aggregation.
+    team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True)
+    player = models.ForeignKey(Player, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # Interval identity.
+    team_side = models.CharField(max_length=16, null=True, blank=True)
+    period = models.IntegerField(null=True, blank=True)
+    game_seconds = models.IntegerField(null=True, blank=True)
+    game_seconds_end = models.IntegerField(null=True, blank=True)
+    video_seconds = models.IntegerField(null=True, blank=True)
+    video_seconds_end = models.IntegerField(null=True, blank=True)
+
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "hky_game_shift_rows"
+        constraints = [
+            models.UniqueConstraint(fields=["game", "import_key"], name="uniq_shift_game_import"),
+        ]
+        indexes = [
+            models.Index(fields=["game", "player"], name="idx_shift_game_player"),
+            models.Index(fields=["game", "period", "game_seconds"], name="idx_shift_game_time"),
         ]
 
 

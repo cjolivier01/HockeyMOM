@@ -26,6 +26,7 @@ urlpatterns = [
     path("league/select", v.league_select, name="league_select"),
     # API
     path("api/user/video_clip_len", v.api_user_video_clip_len, name="api_user_video_clip_len"),
+    path("api/xlsx/table", v.api_export_table_xlsx, name="api_export_table_xlsx"),
     path(
         "api/leagues/<int:league_id>/page_views",
         v.api_league_page_views,
@@ -36,6 +37,11 @@ urlpatterns = [
         "api/hky/teams/<int:team_id>/players/<int:player_id>/events",
         v.api_hky_team_player_events,
         name="api_hky_team_player_events",
+    ),
+    path(
+        "api/hky/teams/<int:team_id>/pair_on_ice",
+        v.api_hky_team_pair_on_ice,
+        name="api_hky_team_pair_on_ice",
     ),
     path(
         "api/hky/teams/<int:team_id>/goalies/<int:player_id>/stats",

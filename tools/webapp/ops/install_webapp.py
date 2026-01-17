@@ -37,7 +37,9 @@ def _ensure_port_available_for_nginx(listen_port: int, *, disable_apache2: bool)
         return
 
     if '("apache2",' in listeners and disable_apache2:
-        print(f"apache2 is listening on port {listen_port}; stopping/disabling apache2 so nginx can bind...")
+        print(
+            f"apache2 is listening on port {listen_port}; stopping/disabling apache2 so nginx can bind..."
+        )
         subprocess.run(["sudo", "systemctl", "disable", "--now", "apache2"], check=False)
         listeners = _sudo_capture_text(["ss", "-ltnHp", f"sport = :{listen_port}"]).strip()
         if not listeners:
@@ -144,7 +146,9 @@ def main():
     _do_copy(repo_root / "tools/webapp/django_app", app_dir)
     _do_copy(repo_root / "tools/webapp/hm_webapp", app_dir)
     _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
-    _do_copy(repo_root / "tools/webapp/scripts/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py")
+    _do_copy(
+        repo_root / "tools/webapp/scripts/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py"
+    )
     subprocess.check_call(["sudo", "mkdir", "-p", str(templates_dir)])
     for t in (repo_root / "tools/webapp/templates").glob("*.html"):
         _do_copy(t, templates_dir / t.name)
@@ -201,7 +205,7 @@ def main():
             args.user,
             "bash",
             "-lc",
-            f"{python_bin} -m pip install --upgrade pip wheel gunicorn werkzeug pymysql django",
+            f"{python_bin} -m pip install --upgrade pip wheel gunicorn werkzeug pymysql django openpyxl",
         ]
     )
 
@@ -392,7 +396,9 @@ server {{
                 if token:
                     headers["Authorization"] = f"Bearer {token}"
                     headers["X-HM-Import-Token"] = token
-                body = json.dumps({"email": email, "name": name, "password": "password"}).encode("utf-8")
+                body = json.dumps({"email": email, "name": name, "password": "password"}).encode(
+                    "utf-8"
+                )
                 url = f"http://{host}:{int(args.port)}/api/internal/ensure_user"
                 try:
                     req = urllib.request.Request(url, data=body, headers=headers, method="POST")

@@ -92,6 +92,7 @@ def _all_models() -> list[Type]:
         m.PlayerPeriodStat,
         m.HkyEventType,
         m.HkyGameEventRow,
+        m.HkyGameShiftRow,
         m.HkyGamePlayer,
         m.HkyGameEventSuppression,
         m.LeagueTeam,
