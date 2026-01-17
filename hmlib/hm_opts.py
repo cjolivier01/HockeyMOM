@@ -1374,6 +1374,13 @@ class hm_opts(object):
             ("end_zones", "aspen.apply_camera.end_zones"),
             ("show_image", "aspen.video_out.show_image"),
             ("show_scaled", "aspen.video_out.show_scaled"),
+            (
+                "output_width",
+                [
+                    "aspen.video_out.output_width",
+                    "aspen.plugins.video_out.params.output_width",
+                ],
+            ),
             ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
             ("output_video_bit_rate", "aspen.video_out.bit_rate"),
             (
