@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GCP-deployed webapp URL (default points at the production instance we set up).
-WEBAPP_URL="${WEBAPP_URL:-https://www.jrsharks2013.org}"
+# Target domain (required). Example: jrsharks2013.org, californiahockey.org
+WEBAPP_DOMAIN=""
+# Derived base URL for API calls. Populated from WEBAPP_DOMAIN after arg parsing.
+WEBAPP_URL=""
 
 # Import token (required for production; local dev typically does not require it).
 # Do NOT hardcode this in the script; pass it via env (or store it locally/remote per read_default_token()).
@@ -62,10 +64,10 @@ require_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--shifts] [--ignore-primary] [--ignore-long]
+Usage: ./gcp_import_webapp.sh --domain DOMAIN [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--shifts] [--ignore-primary] [--ignore-long]
 
 Environment:
-  WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
+  (none)                  Domain is required; pass `--domain`.
   HM_WEBAPP_IMPORT_TOKEN  Import token (required for reset/import/upload; not needed for --deploy-only; if unset, tries ~/.ssh/hm-webapp-token.txt and the GCE instance config.json)
   LEAGUE_NAME             League name (default: CAHA)
   OWNER_EMAIL             League owner email (default: git config user.email, else cjolivier01@gmail.com)
@@ -77,6 +79,7 @@ Environment:
   INSTANCE                GCE instance name (default: hm-webapp)
 
 Options:
+  --domain DOMAIN         Target webapp domain (required), e.g. jrsharks2013.org
   --deploy-only           Only redeploy/restart the webapp and exit (no reset/import/upload)
   --drop-db               Drop (and recreate) the webapp MariaDB database on the GCE instance, then continue
   --drop-db-only          Drop (and recreate) the database, then exit (implies --drop-db)
@@ -114,6 +117,10 @@ add_t2s_leagues() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --domain)
+      WEBAPP_DOMAIN="${2:-}"
+      shift 2
+      ;;
     --deploy-only) DEPLOY_ONLY=1; shift ;;
     --drop-db) DROP_DB=1; shift ;;
     --drop-db-only) DROP_DB=1; DROP_DB_ONLY=1; shift ;;
@@ -149,6 +156,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "${WEBAPP_DOMAIN}" ]]; then
+  echo "[!] Missing required --domain (e.g. --domain jrsharks2013.org)" >&2
+  usage >&2
+  exit 2
+fi
+if [[ "${WEBAPP_DOMAIN}" =~ ^https?:// ]]; then
+  echo "[!] --domain must be a bare hostname (no scheme): ${WEBAPP_DOMAIN}" >&2
+  exit 2
+fi
+if [[ ! "${WEBAPP_DOMAIN}" =~ ^[A-Za-z0-9.-]+$ || "${WEBAPP_DOMAIN}" != *.* ]]; then
+  echo "[!] Invalid --domain: ${WEBAPP_DOMAIN}" >&2
+  exit 2
+fi
+WEBAPP_URL="https://${WEBAPP_DOMAIN}"
+
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
     exit 2
@@ -172,11 +194,50 @@ require_cmd gcloud || {
   exit 2
 }
 
-is_local_url() {
-  case "${WEBAPP_URL}" in
-    http://127.0.0.1:*|http://localhost:*|https://127.0.0.1:*|https://localhost:* ) return 0 ;;
-    *) return 1 ;;
-  esac
+dns_ipv4s() {
+  local host="$1"
+  python3 - "${host}" <<'PY'
+import socket
+import sys
+
+host = sys.argv[1]
+ips = set()
+try:
+    for fam, _t, _p, _c, addr in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP):
+        if fam == socket.AF_INET:
+            ips.add(addr[0])
+except Exception:
+    pass
+for ip in sorted(ips):
+    print(ip)
+PY
+}
+
+require_domain_points_to_instance() {
+  local instance_ip=""
+  instance_ip="$(
+    gcloud --quiet --project "${PROJECT_ID}" compute instances describe "${INSTANCE}" --zone "${ZONE}" \
+      --format='value(networkInterfaces[0].accessConfigs[0].natIP)'
+  )"
+  if [[ -z "${instance_ip}" ]]; then
+    echo "[!] Failed to determine instance external IP for ${INSTANCE} (${PROJECT_ID}/${ZONE})" >&2
+    exit 2
+  fi
+
+  local ips=""
+  ips="$(dns_ipv4s "${WEBAPP_DOMAIN}" || true)"
+  if [[ -z "${ips}" ]]; then
+    echo "[!] ${WEBAPP_DOMAIN} does not resolve to any IPv4 addresses yet." >&2
+    echo "    Expected: ${instance_ip} (instance ${INSTANCE})" >&2
+    exit 2
+  fi
+  if ! printf '%s\n' "${ips}" | grep -Fxq "${instance_ip}"; then
+    echo "[!] Refusing to deploy: ${WEBAPP_DOMAIN} does not point at ${INSTANCE}." >&2
+    echo "    ${WEBAPP_DOMAIN} resolves to:" >&2
+    printf '%s\n' "${ips}" | sed 's/^/      - /' >&2
+    echo "    Expected instance IP: ${instance_ip}" >&2
+    exit 2
+  fi
 }
 
 read_default_token() {
@@ -237,10 +298,33 @@ gcp_ssh() {
   gcloud --quiet --project "${PROJECT_ID}" compute ssh "${INSTANCE}" --zone "${ZONE}" --command "${cmd}"
 }
 
+wait_for_webapp() {
+  local deadline_s="${1:-120}"
+  local start
+  start="$(date +%s)"
+  local tries=0
+  while true; do
+    tries=$((tries + 1))
+    if curl -sS -o /dev/null -m 15 -f -I "${WEBAPP_URL}/" >/dev/null 2>&1; then
+      return 0
+    fi
+    local now
+    now="$(date +%s)"
+    if (( now - start >= deadline_s )); then
+      echo "[!] Webapp did not become ready at ${WEBAPP_URL}/ within ${deadline_s}s" >&2
+      return 1
+    fi
+    if (( tries == 1 )); then
+      echo "[i] Waiting for webapp to become ready at ${WEBAPP_URL}/ ..."
+    fi
+    sleep 3
+  done
+}
+
 drop_db_gcp() {
   local remote_cmd
   remote_cmd="$(cat <<'EOF'
-set -euo pipefail
+	set -euo pipefail
 
 if ! sudo -n true 2>/dev/null; then
   echo "[!] Remote sudo requires a password/tty. SSH in and run: sudo -v  (then re-run gcp_import_webapp.sh --drop-db)" >&2
@@ -298,6 +382,10 @@ EOF
 
 TOKEN_ARGS=()
 RESET_TOKEN_ARGS=()
+
+echo "[i] Target domain: ${WEBAPP_DOMAIN}"
+require_domain_points_to_instance
+
 if [[ "${DROP_DB}" == "1" ]]; then
   drop_db_gcp
   if [[ "${DROP_DB_ONLY}" == "1" ]]; then
@@ -310,7 +398,7 @@ echo "[i] Redeploying GCP webapp (code-only)"
 python3 tools/webapp/ops/redeploy_gcp.py --project "${PROJECT_ID}" --zone "${ZONE}" --instance "${INSTANCE}"
 
 echo "[i] Verifying webapp endpoint"
-curl -sS -o /dev/null -m 15 -f -I "${WEBAPP_URL}/" >/dev/null
+wait_for_webapp 180
 
 read_default_token
 if [[ "${NO_DEFAULT_USER}" == "0" && -n "${GIT_USER_EMAIL}" && -n "${GIT_USER_NAME}" ]]; then
@@ -349,12 +437,10 @@ if [[ -n "${HM_WEBAPP_IMPORT_TOKEN:-}" ]]; then
   TOKEN_ARGS+=( "--import-token=${HM_WEBAPP_IMPORT_TOKEN}" )
   RESET_TOKEN_ARGS+=( "--webapp-token=${HM_WEBAPP_IMPORT_TOKEN}" )
 else
-  if ! is_local_url; then
-    echo "[!] HM_WEBAPP_IMPORT_TOKEN is not set. Production imports will be rejected." >&2
-    echo "    Set it like: export HM_WEBAPP_IMPORT_TOKEN='...'" >&2
-    echo "    Or put it in: ~/.ssh/hm-webapp-token.txt  (single line, no trailing newline)" >&2
-    exit 2
-  fi
+  echo "[!] HM_WEBAPP_IMPORT_TOKEN is not set. Production imports will be rejected." >&2
+  echo "    Set it like: export HM_WEBAPP_IMPORT_TOKEN='...'" >&2
+  echo "    Or put it in: ~/.ssh/hm-webapp-token.txt  (single line, no trailing newline)" >&2
+  exit 2
 fi
 
 echo "[i] Ensuring league '${LEAGUE_NAME}' is owned by ${OWNER_EMAIL}"
