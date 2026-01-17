@@ -35,6 +35,26 @@ except Exception:
     _cv2_available = False
 
 
+def get_screen_size() -> Optional[Tuple[int, int]]:
+    if not _tk_available:
+        return None
+    root = None
+    try:
+        root = tk.Tk()  # type: ignore
+        root.withdraw()  # type: ignore
+        width = int(root.winfo_screenwidth())  # type: ignore
+        height = int(root.winfo_screenheight())  # type: ignore
+        return width, height
+    except Exception:
+        return None
+    finally:
+        try:
+            if root is not None:
+                root.destroy()  # type: ignore
+        except Exception:
+            pass
+
+
 class ScoreboardSelector:
 
     NULL_POINTS = [(0, 0), (0, 0), (0, 0), (0, 0)]
@@ -43,6 +63,7 @@ class ScoreboardSelector:
         self,
         image: Union[Image.Image, np.ndarray],
         initial_points: Optional[List[Tuple[int, int]]] = None,
+        max_display_size: Optional[Tuple[int, int]] = None,
     ) -> None:
         try:
             if isinstance(image, Image.Image):
@@ -62,6 +83,23 @@ class ScoreboardSelector:
         # Selection points state (shared across backends)
         self.points: List[Tuple[int, int]] = []
 
+        self._original_size = self.image.size
+        self._display_scale = 1.0
+        if max_display_size is None:
+            max_display_size = get_screen_size()
+        if max_display_size is not None:
+            max_w, max_h = max_display_size
+            max_w = max(max_w - 100, 1)
+            max_h = max(max_h - 160, 1)
+            scale = min(max_w / self._original_size[0], max_h / self._original_size[1], 1.0)
+            if scale < 1.0:
+                new_size = (
+                    int(round(self._original_size[0] * scale)),
+                    int(round(self._original_size[1] * scale)),
+                )
+                self.image = self.image.resize(new_size, Image.LANCZOS)
+                self._display_scale = scale
+
         # Decide backend: try Tk first (if available), fallback to OpenCV if Tk fails or unavailable
         self._backend: str = "none"
         self._tk_state = {}
@@ -70,6 +108,8 @@ class ScoreboardSelector:
         # Normalize initial points
         if initial_points == ScoreboardSelector.NULL_POINTS:
             initial_points = []
+        if initial_points:
+            initial_points = self._scale_points_for_display(initial_points)
 
         # Try to initialize Tk backend
         if _tk_available:
@@ -177,6 +217,31 @@ class ScoreboardSelector:
             raise RuntimeError(
                 "No available GUI backend to select scoreboard points (Tkinter unusable and OpenCV not available)."
             )
+
+    def _scale_points_for_display(
+        self, points: List[Tuple[int, int]]
+    ) -> List[Tuple[int, int]]:
+        if not points:
+            return []
+        if self._display_scale == 1.0:
+            return [(int(pt[0]), int(pt[1])) for pt in points]
+        scale = self._display_scale
+        return [
+            (int(round(pt[0] * scale)), int(round(pt[1] * scale))) for pt in points
+        ]
+
+    def _scale_points_to_original(
+        self, points: List[Tuple[int, int]]
+    ) -> List[Tuple[int, int]]:
+        if not points:
+            return []
+        if self._display_scale == 1.0:
+            return [(int(pt[0]), int(pt[1])) for pt in points]
+        inv_scale = 1.0 / self._display_scale
+        return [
+            (int(round(pt[0] * inv_scale)), int(round(pt[1] * inv_scale)))
+            for pt in points
+        ]
 
     def draw_points_and_lines(self) -> None:
         if self._backend == "tk":
@@ -294,6 +359,7 @@ class ScoreboardSelector:
                 pass
             return
         ordered_points: List[Tuple[int, int]] = self.order_points_clockwise(self.points)
+        ordered_points = self._scale_points_to_original(ordered_points)
         # Print the points
         print("Selected points in clockwise order starting from the upper-left point:")
         for p in ordered_points:
@@ -406,7 +472,10 @@ def _untuple_points(points: List[Tuple[int, int]]) -> List[List[int]]:
 
 
 def configure_scoreboard(
-    game_id: str, image: Optional[torch.Tensor] = None, force: bool = False
+    game_id: str,
+    image: Optional[torch.Tensor] = None,
+    force: bool = False,
+    max_display_size: Optional[Tuple[int, int]] = None,
 ) -> List[List[int]]:
     assert game_id
     game_config = get_game_config(game_id=game_id)
@@ -420,7 +489,9 @@ def configure_scoreboard(
         if not os.path.exists(image_file):
             raise FileNotFoundError(f"Could not find image file: {image_file}")
         image = Image.open(image_file)
-    selector = ScoreboardSelector(image=image, initial_points=current_scoreboard)
+    selector = ScoreboardSelector(
+        image=image, initial_points=current_scoreboard, max_display_size=max_display_size
+    )
     selector.run()
     current_scoreboard = selector.points
     current_scoreboard = _untuple_points(current_scoreboard)
