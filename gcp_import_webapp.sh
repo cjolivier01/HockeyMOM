@@ -50,6 +50,7 @@ SPREADSHEETS_ONLY=0
 T2S_SCRAPE=0
 IGNORE_PRIMARY=0
 IGNORE_LONG=0
+NO_SPREADSHEETS=0
 VERBOSE=0
 
 require_cmd() {
@@ -62,7 +63,7 @@ require_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only] [--shifts] [--ignore-primary] [--ignore-long]
+Usage: ./gcp_import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spreadsheets-only | --no-spreadsheets] [--shifts] [--ignore-primary] [--ignore-long]
 
 Environment:
   WEBAPP_URL              Webapp base URL (default: https://www.jrsharks2013.org)
@@ -84,6 +85,7 @@ Options:
   --t2s-league ID         Only import these TimeToScore league ids (repeatable or comma-separated; default: 3,5,18)
   --rebuild               Reset (delete) existing league hockey data before importing (destructive)
   --spreadsheets-only     Seed only from shift spreadsheets (skip TimeToScore import; scrape only per-game T2S lookups)
+  --no-spreadsheets       Deploy + (optional) TimeToScore import only; skip spreadsheet parsing/upload
   --scrape                Force re-scraping TimeToScore game pages (overrides local cache) when running the T2S import step
   --shifts                Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
   --ignore-primary        Prefer '*-long*' spreadsheets when both exist (falls back to primary-only)
@@ -122,6 +124,7 @@ while [[ $# -gt 0 ]]; do
     --shifts) INCLUDE_SHIFTS=1; shift ;;
     --ignore-primary) IGNORE_PRIMARY=1; shift ;;
     --ignore-long) IGNORE_LONG=1; shift ;;
+    --no-spreadsheets) NO_SPREADSHEETS=1; shift ;;
     --verbose|-v) VERBOSE=1; shift ;;
     --t2s-league=*)
       T2S_LEAGUE_RAW="${1#*=}"
@@ -155,6 +158,10 @@ if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
 fi
 if [[ "${IGNORE_PRIMARY}" == "1" && "${IGNORE_LONG}" == "1" ]]; then
   echo "[!] --ignore-primary cannot be combined with --ignore-long" >&2
+  exit 2
+fi
+if [[ "${NO_SPREADSHEETS}" == "1" && "${SPREADSHEETS_ONLY}" == "1" ]]; then
+  echo "[!] --no-spreadsheets cannot be combined with --spreadsheets-only" >&2
   exit 2
 fi
 
@@ -417,36 +424,40 @@ else
     --owner-email "${OWNER_EMAIL}"
 fi
 
-echo "[i] Uploading shift spreadsheets via REST"
-if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
-  echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
-  echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
-  exit 2
+if [[ "${NO_SPREADSHEETS}" == "1" ]]; then
+  echo "[i] --no-spreadsheets: skipping spreadsheet parsing/upload"
+else
+  echo "[i] Uploading shift spreadsheets via REST"
+  if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
+    echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
+    echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
+    exit 2
+  fi
+  SPREADSHEET_ARGS=()
+  if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
+    SPREADSHEET_ARGS+=( "--t2s-scrape-only" )
+  fi
+  if [[ "${INCLUDE_SHIFTS}" == "1" ]]; then
+    SPREADSHEET_ARGS+=( "--shifts" )
+  fi
+  if [[ "${IGNORE_PRIMARY}" == "1" ]]; then
+    SPREADSHEET_ARGS+=( "--ignore-primary" )
+  fi
+  if [[ "${IGNORE_LONG}" == "1" ]]; then
+    SPREADSHEET_ARGS+=( "--ignore-long" )
+  fi
+  if [[ "${VERBOSE}" == "1" ]]; then
+    SPREADSHEET_ARGS+=( "--verbose" )
+  fi
+  ./p scripts/parse_stats_inputs.py \
+    --file-list "${SHIFT_FILE_LIST}" \
+    --upload-webapp \
+    --webapp-url="${WEBAPP_URL}" \
+    "${SPREADSHEET_ARGS[@]}" \
+    "${TOKEN_ARGS[@]}" \
+    --webapp-owner-email "${OWNER_EMAIL}" \
+    --webapp-league-name "${LEAGUE_NAME}"
 fi
-SPREADSHEET_ARGS=()
-if [[ "${SPREADSHEETS_ONLY}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--t2s-scrape-only" )
-fi
-if [[ "${INCLUDE_SHIFTS}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--shifts" )
-fi
-if [[ "${IGNORE_PRIMARY}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--ignore-primary" )
-fi
-if [[ "${IGNORE_LONG}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--ignore-long" )
-fi
-if [[ "${VERBOSE}" == "1" ]]; then
-  SPREADSHEET_ARGS+=( "--verbose" )
-fi
-./p scripts/parse_stats_inputs.py \
-  --file-list "${SHIFT_FILE_LIST}" \
-  --upload-webapp \
-  --webapp-url="${WEBAPP_URL}" \
-  "${SPREADSHEET_ARGS[@]}" \
-  "${TOKEN_ARGS[@]}" \
-  --webapp-owner-email "${OWNER_EMAIL}" \
-  --webapp-league-name "${LEAGUE_NAME}"
 
 echo "[i] Recalculating Ratings (REST)"
 RATINGS_PAYLOAD="$(
