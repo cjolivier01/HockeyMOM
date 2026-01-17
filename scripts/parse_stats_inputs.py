@@ -4770,6 +4770,7 @@ def _write_team_stats_from_long_shift_team(
     event_log_context: Optional["EventLogContext"],
     focus_team: Optional[str],
     include_shifts_in_stats: bool,
+    write_shift_rows_csv: bool = False,
     xls_path: Path,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     create_scripts: bool = False,
@@ -5276,6 +5277,16 @@ def _write_team_stats_from_long_shift_team(
 
         stats_table_rows.append(row_map)
 
+    if include_shifts_in_stats or write_shift_rows_csv:
+        try:
+            _write_shift_rows_csv(
+                stats_dir,
+                sb_pairs_by_player=sb_pairs_by_player,
+                video_pairs_by_player=video_pairs_by_player,
+                source="shift_spreadsheet",
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: failed to write shift_rows.csv: {exc!r}", file=sys.stderr)
     if include_shifts_in_stats:
         _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
@@ -5383,6 +5394,7 @@ def _write_opponent_team_stats_from_long_shifts(
     event_log_context: Optional["EventLogContext"],
     focus_team: Optional[str],
     include_shifts_in_stats: bool,
+    write_shift_rows_csv: bool = False,
     xls_path: Path,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     create_scripts: bool = False,
@@ -5448,6 +5460,7 @@ def _write_opponent_team_stats_from_long_shifts(
         event_log_context=event_log_context,
         focus_team=opp_focus_team,
         include_shifts_in_stats=include_shifts_in_stats,
+        write_shift_rows_csv=bool(write_shift_rows_csv),
         xls_path=xls_path,
         t2s_rosters_by_side=t2s_rosters_by_side,
         create_scripts=create_scripts,
@@ -6622,6 +6635,121 @@ def _write_global_summary_csv(
             sheet_name="summary_stats",
             title="Shift Summary",
         )
+
+
+def _write_shift_rows_csv(
+    stats_dir: Path,
+    *,
+    sb_pairs_by_player: Dict[str, List[Tuple[int, str, str]]],
+    video_pairs_by_player: Optional[Dict[str, List[Tuple[str, str]]]] = None,
+    source: str = "shift_spreadsheet",
+) -> None:
+    """
+    Write per-shift intervals for webapp ingestion (stats/shift_rows.csv).
+
+    These are later converted to on/off-ice markers for the timeline and used to derive TOI/Shifts
+    at runtime (instead of importing TOI aggregates into PlayerStat).
+    """
+    import csv  # local import
+    import hashlib  # local import
+    import io  # local import
+
+    if not sb_pairs_by_player:
+        return
+
+    video_pairs_by_player = dict(video_pairs_by_player or {})
+
+    rows: List[Dict[str, Any]] = []
+    for player_key, sb_list in (sb_pairs_by_player or {}).items():
+        if not sb_list:
+            continue
+        parts = _parse_player_key(player_key)
+        jersey = _normalize_jersey_number(parts.jersey)
+        name = str(parts.name or "").replace("_", " ").strip()
+        v_list = list(video_pairs_by_player.get(player_key) or [])
+        for idx, (period, sb_start, sb_end) in enumerate(sb_list):
+            try:
+                per_i = int(period)
+            except Exception:
+                continue
+            if per_i <= 0:
+                continue
+            try:
+                start_gs = parse_flex_time_to_seconds(str(sb_start))
+                end_gs = parse_flex_time_to_seconds(str(sb_end))
+            except Exception:
+                continue
+
+            start_vs = None
+            end_vs = None
+            if idx < len(v_list):
+                va, vb = v_list[idx]
+                try:
+                    start_vs = parse_flex_time_to_seconds(str(va))
+                    end_vs = parse_flex_time_to_seconds(str(vb))
+                except Exception:
+                    start_vs = None
+                    end_vs = None
+
+            import_key_raw = "|".join(
+                [
+                    str(jersey or ""),
+                    str(name or ""),
+                    str(per_i),
+                    str(start_gs),
+                    str(end_gs),
+                    str(start_vs if start_vs is not None else ""),
+                    str(end_vs if end_vs is not None else ""),
+                ]
+            )
+            import_key = hashlib.sha1(import_key_raw.encode("utf-8")).hexdigest()[:40]
+
+            rows.append(
+                {
+                    "Jersey #": str(jersey or ""),
+                    "Player": str(name or ""),
+                    "Period": int(per_i),
+                    "Game Seconds": int(start_gs),
+                    "Game Seconds End": int(end_gs),
+                    "Video Seconds": int(start_vs) if start_vs is not None else "",
+                    "Video Seconds End": int(end_vs) if end_vs is not None else "",
+                    "Source": str(source or ""),
+                    "Import Key": str(import_key),
+                }
+            )
+
+    if not rows:
+        return
+
+    # Keep file deterministic for clean diffs / stable imports.
+    rows.sort(
+        key=lambda r: (
+            int(str(r.get("Period") or 0) or 0),
+            str(r.get("Jersey #") or ""),
+            str(r.get("Player") or ""),
+            int(str(r.get("Game Seconds") or 0) or 0),
+            int(str(r.get("Game Seconds End") or 0) or 0),
+        )
+    )
+
+    out_path = stats_dir / "shift_rows.csv"
+    buf = io.StringIO()
+    fieldnames = [
+        "Jersey #",
+        "Player",
+        "Period",
+        "Game Seconds",
+        "Game Seconds End",
+        "Video Seconds",
+        "Video Seconds End",
+        "Source",
+        "Import Key",
+    ]
+    w = csv.DictWriter(buf, fieldnames=fieldnames)
+    w.writeheader()
+    for r in rows:
+        w.writerow({k: r.get(k, "") for k in fieldnames})
+    out_path.write_text(buf.getvalue(), encoding="utf-8")
 
 
 def _write_pair_on_ice_csv(
@@ -11058,7 +11186,18 @@ def process_sheet(
 
         stats_table_rows.append(row_map)
 
-    # Global CSV (contains TOI); only write when explicitly enabled.
+    # Always write shift_rows.csv when writing event summaries (webapp upload/auditing), even if
+    # shift/TOI columns are not being included in the parent-facing stats outputs.
+    if write_events_summary:
+        try:
+            _write_shift_rows_csv(
+                stats_dir,
+                sb_pairs_by_player=sb_pairs_by_player,
+                video_pairs_by_player=video_pairs_by_player,
+                source="shift_spreadsheet",
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"Warning: failed to write shift_rows.csv: {exc!r}", file=sys.stderr)
     if include_shifts_in_stats:
         _write_global_summary_csv(stats_dir, sb_pairs_by_player)
 
@@ -11096,6 +11235,7 @@ def process_sheet(
                 event_log_context=event_log_context,
                 focus_team=focus_team,
                 include_shifts_in_stats=include_shifts_in_stats,
+                write_shift_rows_csv=bool(write_events_summary),
                 xls_path=xls_path,
                 t2s_rosters_by_side=t2s_rosters_by_side,
                 create_scripts=create_scripts,
@@ -11423,6 +11563,7 @@ def process_long_only_sheets(
             event_log_context=merged_event_context,
             focus_team=focus_team,
             include_shifts_in_stats=include_shifts_in_stats,
+            write_shift_rows_csv=bool(write_events_summary),
             xls_path=Path(primary_long_path),
             t2s_rosters_by_side=t2s_rosters_by_side,
             create_scripts=create_scripts,
@@ -11521,6 +11662,7 @@ def process_long_only_sheets(
             event_log_context=merged_event_context,
             focus_team=focus_team,
             include_shifts_in_stats=include_shifts_in_stats,
+            write_shift_rows_csv=bool(write_events_summary),
             xls_path=Path(primary_long_path),
             t2s_rosters_by_side=t2s_rosters_by_side,
             create_scripts=create_scripts,
@@ -12119,6 +12261,56 @@ def _upload_shift_package_to_webapp(
     player_stats_csv = _read_text(stats_dir / "player_stats.csv") if include_player_stats else ""
     game_stats_csv = _read_text(stats_dir / "game_stats.csv") if include_game_stats else ""
     events_csv = _read_text(stats_dir / "all_events_summary.csv") if include_events else ""
+    shift_rows_csv = _read_text(stats_dir / "shift_rows.csv")
+
+    def _strip_shift_columns_from_player_stats_csv(text: str) -> str:
+        import csv  # local import
+        import io  # local import
+
+        if not text or not text.strip():
+            return text
+        f = io.StringIO(text)
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            return text
+
+        def _norm(s: str) -> str:
+            return re.sub(r"\s+", " ", str(s or "").strip()).casefold()
+
+        drop_exact = {
+            "shifts",
+            "toi",
+            "toi total",
+            "toi total (video)",
+            "toi (video)",
+            "average shift",
+            "median shift",
+            "longest shift",
+            "shortest shift",
+        }
+        keep_fields: list[str] = []
+        for fn in list(reader.fieldnames or []):
+            n = _norm(fn)
+            if n in drop_exact:
+                continue
+            if re.match(r"^period\s+\d+\s+(toi|shifts)$", n):
+                continue
+            keep_fields.append(fn)
+
+        if keep_fields == list(reader.fieldnames or []):
+            return text
+
+        out = io.StringIO()
+        w = csv.DictWriter(out, fieldnames=keep_fields)
+        w.writeheader()
+        for row in reader:
+            if not row:
+                continue
+            w.writerow({k: row.get(k, "") for k in keep_fields})
+        return out.getvalue()
+
+    # Do not send aggregated TOI/shift columns to the webapp; shift stats are derived from shift_rows_csv.
+    player_stats_csv = _strip_shift_columns_from_player_stats_csv(player_stats_csv)
 
     payload: Dict[str, Any] = {
         "player_stats_csv": player_stats_csv,
@@ -12168,6 +12360,9 @@ def _upload_shift_package_to_webapp(
     payload["create_missing_players"] = bool(create_missing_players)
     if game_video_url:
         payload["game_video_url"] = str(game_video_url)
+    if shift_rows_csv and shift_rows_csv.strip():
+        payload["shift_rows_csv"] = str(shift_rows_csv)
+        payload["replace_shift_rows"] = True
     headers: Dict[str, str] = {}
     if webapp_token:
         tok = str(webapp_token).strip()

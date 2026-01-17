@@ -357,6 +357,17 @@
       </tbody>
     </table>
   </div>
+  {% if has_pair_on_ice_all %}
+    <div style="margin-top:.75rem;">
+      <button
+        type="button"
+        class="btn secondary player-pairings-link"
+        data-scope="all"
+        data-scope-label="{{ game_type_filter_label|default:'All' }}"
+        title="Show pair on-ice overlap and goal-based pairing stats"
+      >Associated Player Pairing</button>
+    </div>
+  {% endif %}
 </div>
 
 <h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
@@ -379,26 +390,16 @@
   </div>
 
   <div class="table-scroll">
-    <table class="table-nowrap table-grid" data-freeze-cols="2">
+    <table class="table-nowrap table-grid table-sortable" data-sortable="1" data-freeze-cols="2">
       <thead>
         <tr>
-          {% sort_toggle_url "jersey_number" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "jersey_number" "#" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
-
-          {% sort_toggle_url "name" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "name" "Name" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
-
-          {% sort_toggle_url "position" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "position" "Pos" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
+          <th>#</th>
+          <th>Name</th>
+          <th>Pos</th>
 
           {% for col in recent_player_stats_columns %}
-            {% sort_toggle_url col.key sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-            {% sort_label recent_sort recent_dir col.key col.label as sort_txt %}
             <th>
-              <a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a>
+              <div>{{ col.label }}</div>
               {% if col.show_count %}
                 <div class="th-subnote">({{ col.n_games }} Games)</div>
               {% endif %}
@@ -456,6 +457,18 @@
       </tbody>
     </table>
   </div>
+  {% if has_pair_on_ice_recent %}
+    <div style="margin-top:.75rem;">
+      <button
+        type="button"
+        class="btn secondary player-pairings-link"
+        data-scope="recent"
+        data-recent-n="{{ recent_n|default:'5' }}"
+        data-scope-label="Last {{ recent_n|default:'5' }} Games"
+        title="Show pair on-ice overlap and goal-based pairing stats"
+      >Associated Player Pairing</button>
+    </div>
+  {% endif %}
 </div>
 
 {% if recent_goalie_stats_has_sog %}
@@ -623,11 +636,40 @@
   <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 
+<dialog id="team-player-pairings-modal" style="max-width:1100px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+	    <div>
+	      <div id="team-player-pairings-title" style="font-weight:700;"></div>
+	      <div id="team-player-pairings-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-player-pairings-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-player-pairings-body" style="padding:12px 14px;overflow:hidden;"></div>
+</dialog>
+
 <style>
   #team-player-events-body table.team-player-events-table th,
   #team-player-events-body table.team-player-events-table td {
     padding: .45rem .65rem;
     font-size: .88rem;
+  }
+
+  #team-player-pairings-body table.team-player-pairings-table th,
+  #team-player-pairings-body table.team-player-pairings-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+  #team-player-pairings-body table.team-player-pairings-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  /* Keep the pairings header visible while scrolling within the modal. */
+  #team-player-pairings-body .table-scroll-y {
+    max-height: 62vh;
+  }
+  #team-player-pairings-body .table-scroll-y thead th {
+    z-index: 20;
   }
 </style>
 
@@ -721,6 +763,156 @@
       }
       if (text !== undefined && text !== null) node.textContent = String(text);
       return node;
+    }
+
+    function headingIconKey(label) {
+      var sl = String(label || "").trim().toLowerCase();
+      if (!sl) return "other";
+      if (sl.indexOf("goals") === 0 || sl.indexOf("goal") === 0) return "goal";
+      if (sl.indexOf("xg") === 0) return "xg";
+      if (sl.indexOf("sog") === 0) return "sog";
+      if (sl.indexOf("shot") === 0) return "shot";
+      if (sl.indexOf("assists") === 0 || sl === "assist") return "assist";
+      if (sl.indexOf("completed pass") === 0) return "completed_pass";
+      if (sl.indexOf("giveaway") === 0) return "giveaway";
+      if (sl.indexOf("takeaway") === 0) return "takeaway";
+      if (sl.indexOf("penalty expired") === 0) return "penalty_expired";
+      if (sl.indexOf("penalty") === 0) return "penalty";
+      if (sl.indexOf("controlled entry") === 0) return "controlled_entry";
+      if (sl.indexOf("controlled exit") === 0) return "controlled_exit";
+      if (sl.indexOf("odd-man") === 0 || sl.indexOf("odd man") === 0 || sl.indexOf("rush") >= 0) return "odd_man_rush";
+      if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+      if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "turnover_created";
+      return normTypeKey(sl);
+    }
+
+    function makeHeadingIcon(label) {
+      var icon = headingIconKey(label);
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      svg.classList.add("event-type-icon");
+      var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      svg.appendChild(g);
+
+      function svgEl(tag, attrs) {
+        var el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        if (attrs) {
+          Object.keys(attrs).forEach(function (k) {
+            el.setAttribute(k, String(attrs[k]));
+          });
+        }
+        return el;
+      }
+      function path(d, fill, st, sw, lc, lj) {
+        g.appendChild(svgEl("path", { d: d, fill: fill || "none", stroke: st || "none", "stroke-width": sw || 0, "stroke-linecap": lc || "round", "stroke-linejoin": lj || "round" }));
+      }
+      function circle(cx, cy, r, fill, st, sw) {
+        g.appendChild(svgEl("circle", { cx: cx, cy: cy, r: r, fill: fill || "none", stroke: st || "none", "stroke-width": sw || 0 }));
+      }
+      function rect(x, y, w, h, rx, fill, st, sw) {
+        g.appendChild(svgEl("rect", { x: x, y: y, width: w, height: h, rx: rx || 0, fill: fill || "none", stroke: st || "none", "stroke-width": sw || 0 }));
+      }
+      function text(x, y, txt, fill, fs, fw) {
+        var t = svgEl("text", { x: x, y: y, fill: fill || "#fff", "font-size": fs || 10, "font-weight": fw || 800, "text-anchor": "middle", "dominant-baseline": "central", "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial" });
+        t.appendChild(document.createTextNode(txt));
+        g.appendChild(t);
+      }
+
+      if (icon === "goal") {
+        rect(4.5, 10, 15, 10.5, 5.2, "#ff2d2d", "rgba(0,0,0,0.30)", 1);
+        path("M8 10a4 4 0 0 1 8 0v2H8z", "#ff2d2d", "rgba(0,0,0,0.30)", 1, "round", "round");
+        path("M9 10a3 3 0 0 1 6 0", "none", "#ffe2e2", 2.4, "round", "round");
+        rect(10.8, 7.6, 2.4, 3.4, 1.2, "#ffe2e2", "none", 0);
+      } else if (icon === "xg") {
+        var ch = "rgba(255,255,255,0.85)";
+        var sw = 2.0;
+        path("M12 3.8V7.0", "none", ch, sw, "round", "round");
+        path("M12 17.0V20.2", "none", ch, sw, "round", "round");
+        path("M3.8 12H7.0", "none", ch, sw, "round", "round");
+        path("M17.0 12H20.2", "none", ch, sw, "round", "round");
+        circle(12, 12, 4.2, "none", ch, sw);
+        path("M8.8 8.8l6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
+        path("M15.2 8.8l-6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
+      } else if (icon === "sog") {
+        var ch2 = "rgba(255,255,255,0.85)";
+        var sw2 = 2.0;
+        path("M12 3.8V7.0", "none", ch2, sw2, "round", "round");
+        path("M12 17.0V20.2", "none", ch2, sw2, "round", "round");
+        path("M3.8 12H7.0", "none", ch2, sw2, "round", "round");
+        path("M17.0 12H20.2", "none", ch2, sw2, "round", "round");
+        circle(12, 12, 4.2, "none", ch2, sw2);
+      } else if (icon === "shot") {
+        var stroke = "rgba(255,255,255,0.9)";
+        circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
+        path("M13 12l8-6", "none", stroke, 2, "round", "round");
+        path("M15 14l6-4", "none", stroke, 2, "round", "round");
+      } else if (icon === "assist") {
+        var skin2 = "rgba(230,232,236,0.92)";
+        var edge2 = "rgba(0,0,0,0.42)";
+        rect(7.2, 10.2, 8.8, 9.0, 2.2, skin2, edge2, 1.0);
+        rect(5.0, 12.0, 3.0, 5.2, 1.6, skin2, edge2, 1.0);
+        rect(7.0, 6.0, 2.2, 5.0, 1.1, skin2, edge2, 1.0);
+        rect(9.4, 5.6, 2.2, 5.4, 1.1, skin2, edge2, 1.0);
+        rect(11.8, 5.8, 2.2, 5.2, 1.1, skin2, edge2, 1.0);
+        rect(14.2, 6.4, 2.2, 4.6, 1.1, skin2, edge2, 1.0);
+      } else if (icon === "completed_pass") {
+        text(12, 12, "C", "#fbbf24", 14, 900);
+      } else if (icon === "penalty") {
+        rect(6.3, 6.6, 11.4, 14.2, 2.2, "#fbbf24", "rgba(0,0,0,0.55)", 1.2);
+      } else if (icon === "giveaway") {
+        rect(6.3, 11.0, 11.4, 9.6, 1.6, "#ff4d7a", "rgba(0,0,0,0.55)", 1.2);
+        rect(6.0, 9.3, 12.0, 2.6, 1.2, "#ff6b93", "rgba(0,0,0,0.55)", 1.2);
+        rect(11.0, 9.3, 2.0, 11.3, 1.0, "#f7c6a5", "rgba(0,0,0,0.45)", 1.0);
+      } else if (icon === "takeaway") {
+        // Takeaway: simple revolver pictogram (non-violent, no muzzle flash).
+        var gunFill = "rgba(230,232,236,0.92)";
+        var gunEdge = "rgba(0,0,0,0.42)";
+        rect(5.8, 9.4, 7.4, 4.6, 1.6, gunFill, gunEdge, 1.0); // frame/body
+        circle(14.1, 11.7, 2.3, gunFill, gunEdge, 1.0); // cylinder
+        circle(14.1, 11.7, 0.7, "rgba(255,255,255,0.35)", "none", 0); // cylinder hub
+        rect(15.9, 10.5, 6.1, 2.4, 1.2, gunFill, gunEdge, 1.0); // barrel
+        rect(21.6, 10.9, 1.3, 1.6, 0.7, gunFill, gunEdge, 1.0); // muzzle
+        rect(8.1, 7.8, 3.2, 1.6, 0.8, gunFill, gunEdge, 1.0); // hammer
+        path("M7.2 14.0h4.7v7.1c0 .7-.6 1.3-1.3 1.3H8.5c-.7 0-1.3-.6-1.3-1.3z", gunFill, gunEdge, 1.0, "round", "round"); // grip
+        path("M12.7 14.1c1.6.1 2.6 1.3 2.6 2.7 0 1.7-1.4 3.1-3.1 3.1h-1.0", "none", gunEdge, 1.0, "round", "round"); // trigger guard
+        path("M13.0 15.8c-.4.5-.4 1.2 0 1.6", "none", gunEdge, 1.0, "round", "round"); // trigger
+      } else {
+        rect(5.5, 5.5, 13, 13, 3, "rgba(0,0,0,0.0)", "rgba(255,255,255,0.35)", 1.2);
+        var t = String(label || "?").trim();
+        text(12, 12.2, t ? t.slice(0, 1).toUpperCase() : "?", "#ffffff", 12, 900);
+      }
+      return svg;
+    }
+
+    function _uniqueGamesCount(rows) {
+      var seen = {};
+      var n = 0;
+      (rows || []).forEach(function (r) {
+        if (!r) return;
+        var gid = (r.game_id !== undefined && r.game_id !== null) ? String(r.game_id) : "";
+        if (!gid) return;
+        if (!seen[gid]) {
+          seen[gid] = true;
+          n += 1;
+        }
+      });
+      return n;
+    }
+
+    function makeEventsHeading(tagName, label, styleText, gamesCount) {
+      var h = document.createElement(tagName || "h5");
+      if (styleText) h.setAttribute("style", styleText);
+      var wrap = el("span", { className: "event-type-cell" });
+      wrap.appendChild(makeHeadingIcon(label));
+      wrap.appendChild(document.createTextNode(String(label || "")));
+      var n = null;
+      try { n = (gamesCount === undefined || gamesCount === null) ? null : parseInt(String(gamesCount), 10); } catch (e) { n = null; }
+      if (n !== null && isFinite(n) && n > 0) {
+        wrap.appendChild(el("span", { className: "muted-strong", style: "font-size:.9em;font-weight:600;" }, " (" + String(n) + " " + (n === 1 ? "game" : "games") + ")"));
+      }
+      h.appendChild(wrap);
+      return h;
     }
 
     function addRow(tbody, cols) {
@@ -1064,7 +1256,7 @@
                 var label = pair[0];
                 var rows = pair[1] || [];
                 if (!rows.length) return;
-                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
+                bodyEl.appendChild(makeEventsHeading("h5", label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(rows)));
                 renderEventsTable(bodyEl, rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                   rowCells: function (r, ctx) {
@@ -1091,7 +1283,7 @@
                 var eg = groupRows(remaining, function (r) { return r.event_type; });
                 eg.order.forEach(function (k) {
                   var g = eg.groups[k];
-                  bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+                  bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(g.rows)));
                   renderEventsTable(bodyEl, g.rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                     rowCells: function (r, ctx) {
@@ -1122,7 +1314,7 @@
             });
             og.order.forEach(function (k) {
               var g = og.groups[k];
-              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(g.rows)));
               renderEventsTable(bodyEl, g.rows, {
                 headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
@@ -1158,6 +1350,210 @@
           scope: a.getAttribute("data-scope"),
         });
       });
+    });
+
+    // ----------------------------
+    // Pair on-ice (player pairing) modal
+    // ----------------------------
+    var pairDlg = document.getElementById("team-player-pairings-modal");
+    var pairTitleEl = document.getElementById("team-player-pairings-title");
+    var pairSubtitleEl = document.getElementById("team-player-pairings-subtitle");
+    var pairBodyEl = document.getElementById("team-player-pairings-body");
+    var pairCloseBtn = document.getElementById("team-player-pairings-close");
+    var pairingsTableEl = null;
+
+    function closePairModal() {
+      if (!pairDlg) return;
+      if (pairBodyEl) pairBodyEl.innerHTML = "";
+      pairingsTableEl = null;
+      try { pairDlg.close(); } catch (e) { pairDlg.open = false; }
+    }
+    function showPairModal() {
+      if (!pairDlg) return;
+      try { pairDlg.showModal(); } catch (e) { pairDlg.open = true; }
+    }
+    if (pairCloseBtn) pairCloseBtn.addEventListener("click", closePairModal);
+
+    function buildPairingsApiUrl(opts) {
+      opts = opts || {};
+      var api = new URL("/api/hky/teams/" + String(teamId) + "/pair_on_ice", window.location.origin);
+      var cur = new URL(window.location.href);
+      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+      var rn = null;
+      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+      if (rn !== null && isFinite(rn) && rn > 0) {
+        rn = Math.max(1, Math.min(10, rn));
+        api.searchParams.set("recent_n", String(rn));
+      }
+      if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      return api;
+    }
+
+    function blankIfZero(v) {
+      if (v === null || v === undefined) return "";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v);
+      if (n === 0) return "";
+      if (Math.floor(n) === n) return String(n);
+      return String(v);
+    }
+
+    function fmtPct(v) {
+      if (v === null || v === undefined) return "0.0";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v || "");
+      return n.toFixed(1);
+    }
+
+    function applyPairingsFrozenColumns(table) {
+      if (!table || !table.tHead || !table.tHead.rows || !table.tHead.rows[0]) return;
+      var headerCells = Array.from(table.tHead.rows[0].cells || []);
+      if (headerCells.length < 2) return;
+      var w0 = headerCells[0].getBoundingClientRect().width;
+      var lefts = [0, w0];
+      table.querySelectorAll("[data-sticky-col]").forEach(function (cell) {
+        var idx = parseInt(String(cell.getAttribute("data-sticky-col") || "0"), 10);
+        if (!isFinite(idx) || idx < 0 || idx > 1) return;
+        cell.classList.add("sticky-col");
+        cell.style.left = lefts[idx] + "px";
+        cell.style.zIndex = (cell.tagName === "TH") ? String(12 - idx) : String(8 - idx);
+      });
+    }
+
+    function loadPairings(opts) {
+      opts = opts || {};
+      if (!pairDlg || !pairTitleEl || !pairSubtitleEl || !pairBodyEl) return;
+      var scopeLabel = normScopeLabel(opts.scopeLabel);
+      pairTitleEl.textContent = "Associated Player Pairing — " + scopeLabel;
+      pairSubtitleEl.textContent = "";
+      pairBodyEl.innerHTML = "<p class=\"muted\">Loading…</p>";
+      showPairModal();
+
+      var api = buildPairingsApiUrl(opts);
+      fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
+        return resp.json().then(function (data) {
+          if (!resp.ok || !data || !data.ok) {
+            var err = (data && data.error) ? String(data.error) : ("HTTP " + String(resp.status || ""));
+            pairBodyEl.innerHTML = "";
+            pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + err + ")."));
+            return;
+          }
+          var eligible = Number(data.eligible_games || 0);
+          var shiftGames = Number(data.shift_games || 0);
+          pairSubtitleEl.textContent = "Eligible games: " + String(eligible) + " • Games with shift data: " + String(shiftGames);
+          pairBodyEl.innerHTML = "";
+
+          var rows = Array.isArray(data.rows) ? data.rows : [];
+          if (!rows.length) {
+            pairBodyEl.appendChild(el("p", { className: "muted" }, "No pairing data for the selected games."));
+            return;
+          }
+
+          var wrap = document.createElement("div");
+          wrap.className = "table-scroll table-scroll-y";
+          var table = document.createElement("table");
+          table.className = "table-nowrap table-grid team-player-pairings-table";
+          var thead = document.createElement("thead");
+          var trh = document.createElement("tr");
+          [
+            "Player #",
+            "Player",
+            "Teammate #",
+            "Teammate",
+            "Games with Data",
+            "Overlap %",
+            "GF Together",
+            "GA Together",
+            "Player Goals (On Ice Together)",
+            "Player Assists (On Ice Together)",
+            "Goals Collaborated",
+            "Assists Collaborated",
+            "+/- Together",
+            "Player Total +/-",
+            "Teammate Total +/-",
+          ].forEach(function (h, idx) {
+            var attrs = null;
+            if (idx === 0 || idx === 1) attrs = { "data-sticky-col": String(idx) };
+            trh.appendChild(el("th", attrs, h));
+          });
+          thead.appendChild(trh);
+          table.appendChild(thead);
+          var tbody = document.createElement("tbody");
+          // Group rows by player and use rowspan to avoid repeating player/name for each teammate.
+          var byPid = {};
+          var pidOrder = [];
+          rows.forEach(function (r) {
+            var pidKey = String((r && r.player_id) || "");
+            if (!pidKey) pidKey = String(r.player_name || "") + "|" + String(r.player_jersey || "");
+            if (!byPid[pidKey]) { byPid[pidKey] = []; pidOrder.push(pidKey); }
+            byPid[pidKey].push(r);
+          });
+          pidOrder.forEach(function (pidKey) {
+            var group = byPid[pidKey] || [];
+            group.forEach(function (r, idx) {
+              var tr = document.createElement("tr");
+              function td(txt, attrs) { tr.appendChild(el("td", attrs || null, txt)); }
+              if (idx === 0) {
+                td(String(r.player_jersey || ""), { rowspan: String(group.length), style: "vertical-align: middle;", "data-sticky-col": "0" });
+                td(String(r.player_name || ""), { rowspan: String(group.length), style: "vertical-align: middle;", "data-sticky-col": "1" });
+              }
+              td(String(r.teammate_jersey || ""));
+              td(String(r.teammate_name || ""));
+              td(String(r.shift_games || 0));
+              td(fmtPct(r.overlap_pct));
+              td(String(r.gf_together || 0));
+              td(String(r.ga_together || 0));
+              td(blankIfZero(r.player_goals_on_ice_together));
+              td(blankIfZero(r.player_assists_on_ice_together));
+              td(blankIfZero(r.goals_collab_with_teammate));
+              td(blankIfZero(r.assists_collab_with_teammate));
+              td(String(r.plus_minus_together || 0));
+              td(String(r.player_total_plus_minus || 0));
+              td(String(r.teammate_total_plus_minus || 0));
+              tbody.appendChild(tr);
+            });
+          });
+          table.appendChild(tbody);
+          wrap.appendChild(table);
+          pairBodyEl.appendChild(wrap);
+          pairingsTableEl = table;
+          try {
+            window.requestAnimationFrame(function () {
+              applyPairingsFrozenColumns(table);
+              window.requestAnimationFrame(function () {
+                applyPairingsFrozenColumns(table);
+                window.setTimeout(function () { applyPairingsFrozenColumns(table); }, 0);
+              });
+            });
+          } catch (e) {
+            applyPairingsFrozenColumns(table);
+          }
+        }).catch(function (e) {
+          pairBodyEl.innerHTML = "";
+          pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
+        });
+      }).catch(function (e) {
+        pairBodyEl.innerHTML = "";
+        pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
+      });
+    }
+
+    document.querySelectorAll(".player-pairings-link").forEach(function (a) {
+      a.style.cursor = "pointer";
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        loadPairings({
+          recentN: a.getAttribute("data-recent-n"),
+          scopeLabel: a.getAttribute("data-scope-label"),
+          scope: a.getAttribute("data-scope"),
+        });
+      });
+    });
+    window.addEventListener("resize", function () {
+      if (!pairingsTableEl) return;
+      try {
+        applyPairingsFrozenColumns(pairingsTableEl);
+      } catch (e) {}
     });
 
     // ----------------------------
