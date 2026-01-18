@@ -112,6 +112,9 @@ games:
       game_video: /home/colivier/RVideos/stockton-r2/game.mp4
       home_logo: /home/colivier/RVideos/stockton-r2/home_logo.png
       away_logo: /home/colivier/RVideos/stockton-r2/away_logo.png
+      # Alias keys (same behavior as home_logo/away_logo):
+      # home_team_icon: /home/colivier/RVideos/stockton-r2/home_logo.png
+      # away_team_icon: /home/colivier/RVideos/stockton-r2/away_logo.png
 
   # TimeToScore-only game (no spreadsheets)
   - t2s: 51602

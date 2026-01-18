@@ -641,6 +641,7 @@ def _load_logo_fields_from_meta(
 
     Supports either:
       - home_logo=/path/to/image.png
+      - home_team_icon=/path/to/image.png  (alias)
       - home_logo_base64=<base64>
       - home_logo_content_type=image/png  (optional; otherwise guessed)
     and same for away_*.
@@ -668,10 +669,11 @@ def _load_logo_fields_from_meta(
 
         b64_key = f"{side_l}_logo_base64"
         path_key = f"{side_l}_logo"
+        icon_key = f"{side_l}_team_icon"
         ct_key = f"{side_l}_logo_content_type"
 
         b64_raw = str(meta.get(b64_key) or "").strip()
-        path_raw = str(meta.get(path_key) or "").strip()
+        path_raw = str(meta.get(path_key) or meta.get(icon_key) or "").strip()
         ct_raw = str(meta.get(ct_key) or "").strip()
 
         if b64_raw:

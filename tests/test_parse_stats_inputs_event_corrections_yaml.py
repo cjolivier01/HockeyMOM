@@ -49,3 +49,26 @@ games:
     assert e0.event_corrections
     assert isinstance(e0.event_corrections, dict)
     assert e0.event_corrections.get("reason") == "Swap scorer/assist"
+
+
+def should_accept_home_away_team_icon_aliases_for_logos(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    mod_path = repo_root / "scripts" / "parse_stats_inputs.py"
+    spec = importlib.util.spec_from_file_location("parse_stats_inputs", mod_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    icon_bytes = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 32)
+    (tmp_path / "home.png").write_bytes(icon_bytes)
+    (tmp_path / "away.png").write_bytes(icon_bytes)
+
+    meta = {
+        "home_team_icon": "home.png",
+        "away_team_icon": "away.png",
+    }
+    out = mod._load_logo_fields_from_meta(meta, base_dir=tmp_path, warn_label="utah-1")
+    assert out.get("home_logo_b64")
+    assert out.get("home_logo_content_type") == "image/png"
+    assert out.get("away_logo_b64")
+    assert out.get("away_logo_content_type") == "image/png"
