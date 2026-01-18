@@ -4128,7 +4128,17 @@ def create_app():
                 if str(g2.get("_game_type_label") or "") in selected_types
             ]
         )
-        eligible_games = [g2 for g2 in stats_schedule_games if _game_has_recorded_result(g2)]
+        league_name = _get_league_name(None, int(league_id))
+        eligible_games = [
+            g2
+            for g2 in stats_schedule_games
+            if _game_has_recorded_result(g2)
+            and game_is_eligible_for_stats(
+                g2,
+                team_id=int(team_id),
+                league_name=league_name,
+            )
+        ]
         eligible_game_ids_in_order: list[int] = []
         for g2 in eligible_games:
             try:
@@ -5164,7 +5174,22 @@ def create_app():
                 if str(g2.get("_game_type_label") or "") in selected_types
             ]
         )
-        eligible_games = [g2 for g2 in stats_schedule_games if _game_has_recorded_result(g2)]
+        league_name: Optional[str] = None
+        if league_id:
+            try:
+                league_name = _get_league_name(None, int(league_id))
+            except Exception:
+                league_name = None
+        eligible_games = [
+            g2
+            for g2 in stats_schedule_games
+            if _game_has_recorded_result(g2)
+            and game_is_eligible_for_stats(
+                g2,
+                team_id=int(team_id),
+                league_name=league_name,
+            )
+        ]
         eligible_game_ids_in_order: list[int] = []
         for g2 in eligible_games:
             try:
