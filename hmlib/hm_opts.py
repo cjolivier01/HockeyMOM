@@ -1493,7 +1493,11 @@ class hm_opts(object):
                             continue
                 if arg_name in setdefault_set and _has_nested_key(config, path):
                     continue
-                set_nested_value(config, path, mapped_value)
+                try:
+                    set_nested_value(config, path, mapped_value)
+                except Exception as ex:
+                    logger.error("Failed to set config value for %s: %s", path, ex)
+                    raise ex
                 changed = True
         return changed
 
