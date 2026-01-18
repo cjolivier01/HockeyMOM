@@ -72,15 +72,15 @@ dialog::backdrop {
   color: var(--warn);
   line-height: 1.2;
 }
-.yt-quality-hint > span:first-child { text-align: right; }
+.yt-quality-hint .yt-quality-text { flex: 1 1 auto; min-width: 0; text-align: right; }
 .yt-quality-hint .yt-quality-arrow {
   flex: 0 0 auto;
-  margin-right: 95px; /* approx. below the YouTube "gear" control in the iframe */
+  margin-right: 120px; /* approx. below the YouTube "gear" control in the iframe */
   font-size: 1.35rem;
   line-height: 1;
 }
 @media (max-width: 520px) {
-  .yt-quality-hint .yt-quality-arrow { margin-right: 70px; }
+  .yt-quality-hint .yt-quality-arrow { margin-right: 88px; }
 }
 
 .container { max-width: 1500px; margin: 0 auto; padding: 1.25rem; }
