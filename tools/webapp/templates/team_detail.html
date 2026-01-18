@@ -966,12 +966,23 @@
       return h;
     }
 
-    function addRow(tbody, cols) {
+    function addRow(tbody, cols, rowOpts) {
       var tr = document.createElement("tr");
+      var rowTitle = rowOpts && rowOpts.title ? String(rowOpts.title) : "";
+      if (rowOpts && rowOpts.className) tr.className = String(rowOpts.className);
       cols.forEach(function (c) {
         var td = document.createElement("td");
-        if (c && c.nodeType) td.appendChild(c);
-        else td.textContent = String(c || "");
+        if (rowTitle) td.title = rowTitle;
+        if (c && c.nodeType) {
+          td.appendChild(c);
+        } else if (c && typeof c === "object") {
+          if (c.className) td.className = String(c.className);
+          if (c.title) td.title = String(c.title);
+          if (c.node && c.node.nodeType) td.appendChild(c.node);
+          else td.textContent = String(c.text || "");
+        } else {
+          td.textContent = String(c || "");
+        }
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -1031,21 +1042,75 @@
           videoCell = btn;
         }
 
-        addRow(
-          tbody,
-          opts.rowCells(r, {
-            dateText: dateText,
-            opponentCell: opponentCell,
-            typeText: typeText,
-            videoCell: videoCell,
-          })
-        );
+        var spec = opts.rowCells(r, {
+          dateText: dateText,
+          opponentCell: opponentCell,
+          typeText: typeText,
+          videoCell: videoCell,
+        });
+        if (Array.isArray(spec)) {
+          addRow(tbody, spec);
+          return;
+        }
+        if (spec && typeof spec === "object") {
+          addRow(tbody, spec.cells || [], { className: spec.rowClassName, title: spec.rowTitle });
+          return;
+        }
+        addRow(tbody, []);
       });
       table.appendChild(tbody);
       wrap.appendChild(table);
       container.appendChild(wrap);
       queueTableFit();
     }
+
+      function _correctionTooltip(r) {
+        if (!r) return "";
+        var c = r.correction;
+        if (!c || typeof c !== "object") return "";
+        var lines = ["Corrected event"];
+        var etKey = normTypeKey(r.event_type_key || r.event_type);
+        var changeLabel = function (field) {
+          if (field === "jersey") {
+            if (etKey === "goal") return "Scorer";
+            if (etKey === "assist") return "Assist";
+            return "Jersey";
+          }
+          if (field === "player_name") return "Player";
+          if (field === "event_type") return "Type";
+          if (field === "team_side") return "Side";
+          if (field === "game_time") return "Time";
+          if (field === "video_time") return "Video";
+          if (field === "details") return "Details";
+          if (field === "period") return "Period";
+          return String(field || "Field");
+        };
+        var fmt = function (v, field) {
+          if (v === null || v === undefined || String(v).trim() === "") return "—";
+          if (field === "jersey" && String(v).trim()) return "#" + String(v).trim();
+          return String(v);
+        };
+        var changes = Array.isArray(c.changes) ? c.changes : [];
+        changes.forEach(function (ch) {
+          if (!ch || typeof ch !== "object") return;
+          var field = String(ch.field || "").trim();
+          if (!field) return;
+          lines.push(
+            changeLabel(field) + ": " + fmt(ch.from, field) + " → " + fmt(ch.to, field)
+          );
+        });
+        var note = String(c.note || "").trim();
+        var reason = String(c.reason || "").trim();
+        if (note) lines.push("Note: " + note);
+        if (reason) lines.push("Reason: " + reason);
+        var videoSeconds =
+          r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+        var hasVideoTime =
+          videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
+        var clip = (r.video_url && hasVideoTime) ? ("yes (" + (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) + ")") : "no";
+        lines.push("Video clip: " + clip);
+        return lines.join("\n");
+      }
 
       function groupRows(rows, keyFn) {
         var order = [];
@@ -1344,16 +1409,22 @@
                 renderEventsTable(bodyEl, rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                   rowCells: function (r, ctx) {
-                    return [
-                      ctx.dateText,
-                      ctx.opponentCell,
-                      ctx.typeText,
-                      String(r.period || ""),
-                      String(r.game_time || ""),
-                      ctx.videoCell,
-                      String(r.details || ""),
-                      String(r.source || ""),
-                    ];
+                    var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                    var tip = isCorrected ? _correctionTooltip(r) : "";
+                    return {
+                      rowClassName: isCorrected ? "event-corrected" : "",
+                      rowTitle: tip,
+                      cells: [
+                        ctx.dateText,
+                        ctx.opponentCell,
+                        ctx.typeText,
+                        String(r.period || ""),
+                        String(r.game_time || ""),
+                        ctx.videoCell,
+                        { text: String(r.details || ""), className: "cell-pre" },
+                        String(r.source || ""),
+                      ],
+                    };
                   },
                 });
               });
@@ -1371,16 +1442,22 @@
                   renderEventsTable(bodyEl, g.rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                     rowCells: function (r, ctx) {
-                      return [
-                        ctx.dateText,
-                        ctx.opponentCell,
-                        ctx.typeText,
-                        String(r.period || ""),
-                        String(r.game_time || ""),
-                        ctx.videoCell,
-                        String(r.details || ""),
-                        String(r.source || ""),
-                      ];
+                      var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                      var tip = isCorrected ? _correctionTooltip(r) : "";
+                      return {
+                        rowClassName: isCorrected ? "event-corrected" : "",
+                        rowTitle: tip,
+                        cells: [
+                          ctx.dateText,
+                          ctx.opponentCell,
+                          ctx.typeText,
+                          String(r.period || ""),
+                          String(r.game_time || ""),
+                          ctx.videoCell,
+                          { text: String(r.details || ""), className: "cell-pre" },
+                          String(r.source || ""),
+                        ],
+                      };
                     },
                   });
                 });
@@ -1402,16 +1479,22 @@
               renderEventsTable(bodyEl, g.rows, {
                 headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
-                  return [
-                    ctx.dateText,
-                    ctx.opponentCell,
-                    ctx.typeText,
-                    String(r.period || ""),
-                    String(r.game_time || ""),
-                    ctx.videoCell,
-                    String(r.details || ""),
-                    String(r.source || ""),
-                  ];
+                  var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                  var tip = isCorrected ? _correctionTooltip(r) : "";
+                  return {
+                    rowClassName: isCorrected ? "event-corrected" : "",
+                    rowTitle: tip,
+                    cells: [
+                      ctx.dateText,
+                      ctx.opponentCell,
+                      ctx.typeText,
+                      String(r.period || ""),
+                      String(r.game_time || ""),
+                      ctx.videoCell,
+                      { text: String(r.details || ""), className: "cell-pre" },
+                      String(r.source || ""),
+                    ],
+                  };
                 },
               });
             });

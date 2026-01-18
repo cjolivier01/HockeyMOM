@@ -283,6 +283,7 @@ class HkyGameEventRow(models.Model):
     game_seconds_end = models.IntegerField(null=True, blank=True)
     video_seconds = models.IntegerField(null=True, blank=True)
     details = models.TextField(null=True, blank=True)
+    correction = models.TextField(null=True, blank=True)
     attributed_players = models.TextField(null=True, blank=True)
     attributed_jerseys = models.TextField(null=True, blank=True)
     on_ice_players = models.TextField(null=True, blank=True)

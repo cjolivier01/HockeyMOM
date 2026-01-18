@@ -1815,6 +1815,7 @@ class InputEntry:
     t2s_id: Optional[int] = None
     label: Optional[str] = None
     meta: dict[str, str] = field(default_factory=dict)
+    event_corrections: Any = None
 
 
 def _parse_t2s_spec(token: Any) -> Optional[Tuple[int, Optional[str], Optional[str]]]:
@@ -2045,6 +2046,8 @@ def _load_input_entries_from_yaml_file_list(
             "metadata",
             "sheets",
             "shared_long_path",
+            "event_corrections",
+            "event_correction",
         }
         meta: dict[str, str] = {}
         if isinstance(item.get("meta"), dict):
@@ -2063,6 +2066,12 @@ def _load_input_entries_from_yaml_file_list(
             if v is None:
                 continue
             meta[str(kk).strip().lower()] = str(v).strip()
+
+        event_corrections = item.get("event_corrections")
+        if event_corrections is None:
+            event_corrections = item.get("event_correction")
+        if event_corrections is not None and not isinstance(event_corrections, (list, dict)):
+            raise ValueError(f"invalid event_corrections at games[{idx}] (must be list or mapping)")
 
         if item.get("token"):
             token = str(item.get("token") or "").strip()
@@ -2093,7 +2102,14 @@ def _load_input_entries_from_yaml_file_list(
                     continue
                 t2s_id, side, label = t2s_only
                 out_entries.append(
-                    InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
+                    InputEntry(
+                        path=None,
+                        side=side,
+                        t2s_id=t2s_id,
+                        label=label,
+                        meta=meta,
+                        event_corrections=event_corrections,
+                    )
                 )
                 continue
 
@@ -2104,6 +2120,7 @@ def _load_input_entries_from_yaml_file_list(
                     side=side,
                     label=label_key,
                     meta=_merge_meta(meta, inline_meta),
+                    event_corrections=event_corrections,
                 )
             )
             continue
@@ -2122,7 +2139,14 @@ def _load_input_entries_from_yaml_file_list(
             side = _parse_side(item.get("side"))
             label = str(item.get("label") or "").strip() or None
             out_entries.append(
-                InputEntry(path=None, side=side, t2s_id=int(t2s_id), label=label, meta=meta)
+                InputEntry(
+                    path=None,
+                    side=side,
+                    t2s_id=int(t2s_id),
+                    label=label,
+                    meta=meta,
+                    event_corrections=event_corrections,
+                )
             )
             continue
 
@@ -2146,7 +2170,13 @@ def _load_input_entries_from_yaml_file_list(
                         if _base_label_from_path(cand) != str(label_key):
                             continue
                         out_entries.append(
-                            InputEntry(path=cand, side=None, label=label_key, meta=dict(meta))
+                            InputEntry(
+                                path=cand,
+                                side=None,
+                                label=label_key,
+                                meta=dict(meta),
+                                event_corrections=event_corrections,
+                            )
                         )
                 elif shared_long_path.is_file():
                     if not _is_long_sheet_path(shared_long_path):
@@ -2155,7 +2185,11 @@ def _load_input_entries_from_yaml_file_list(
                         )
                     out_entries.append(
                         InputEntry(
-                            path=shared_long_path, side=None, label=label_key, meta=dict(meta)
+                            path=shared_long_path,
+                            side=None,
+                            label=label_key,
+                            meta=dict(meta),
+                            event_corrections=event_corrections,
                         )
                     )
                 else:
@@ -2175,6 +2209,7 @@ def _load_input_entries_from_yaml_file_list(
                             side=side,
                             label=label_key,
                             meta=_merge_meta(meta, inline_meta),
+                            event_corrections=event_corrections,
                         )
                     )
                     continue
@@ -2205,6 +2240,7 @@ def _load_input_entries_from_yaml_file_list(
                         side=side or side_hint,
                         label=label_key,
                         meta=_merge_meta(sheet_meta, inline_meta),
+                        event_corrections=event_corrections,
                     )
                 )
             continue
@@ -2223,6 +2259,7 @@ def _load_input_entries_from_yaml_file_list(
                 side=side or side_hint,
                 label=label_key,
                 meta=_merge_meta(meta, inline_meta),
+                event_corrections=event_corrections,
             )
         )
 
@@ -12615,6 +12652,50 @@ def _apply_event_corrections_to_webapp(
     return stats if isinstance(stats, dict) else {}
 
 
+def _apply_event_corrections_payload_to_webapp(
+    *,
+    webapp_url: str,
+    webapp_token: Optional[str],
+    corrections: list[dict[str, Any]],
+    create_missing_players: bool = False,
+) -> Dict[str, Any]:
+    try:
+        import requests  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"requests is required to apply event corrections: {e}") from e
+
+    if not corrections:
+        return {}
+
+    headers: Dict[str, str] = {}
+    if webapp_token:
+        tok = str(webapp_token).strip()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+            headers["X-HM-Import-Token"] = tok
+
+    base = str(webapp_url or "").rstrip("/")
+    req_payload: Dict[str, Any] = {"corrections": list(corrections)}
+    if create_missing_players:
+        req_payload["create_missing_players"] = True
+    r = requests.post(
+        f"{base}/api/internal/apply_event_corrections",
+        json=req_payload,
+        headers=headers,
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"apply_event_corrections failed: {r.status_code}: {r.text}")
+    try:
+        payload = r.json()
+    except Exception:  # noqa: BLE001
+        payload = None
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise RuntimeError(f"apply_event_corrections failed: {payload!r}")
+    stats = payload.get("stats")
+    return stats if isinstance(stats, dict) else {}
+
+
 def _upload_shift_package_to_webapp(
     *,
     webapp_url: str,
@@ -13127,6 +13208,7 @@ def main() -> None:
                     "order": order_idx,
                     "t2s_id_only": int(entry.t2s_id),
                     "meta": {},
+                    "event_corrections": None,
                 },
             )
         else:
@@ -13155,6 +13237,7 @@ def main() -> None:
                     "side": None,
                     "order": order_idx,
                     "meta": {},
+                    "event_corrections": None,
                 },
             )
         if side:
@@ -13181,6 +13264,18 @@ def main() -> None:
                     sys.exit(2)
                 gm[kk] = vv
             g["meta"] = gm
+
+        event_corrections = getattr(entry, "event_corrections", None)
+        if event_corrections:
+            existing = g.get("event_corrections")
+            if existing is None:
+                g["event_corrections"] = event_corrections
+            elif existing != event_corrections:
+                print(
+                    f"Error: conflicting event_corrections for '{g.get('label')}'.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
         if entry.path is None:
             continue
@@ -14241,6 +14336,44 @@ def main() -> None:
                             source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
+                        embedded = g.get("event_corrections")
+                        if embedded:
+                            corr_objs: list[dict[str, Any]] = []
+                            if isinstance(embedded, list):
+                                corr_objs = [{"patch": embedded}]
+                            elif isinstance(embedded, dict):
+                                corr_objs = [dict(embedded)]
+                            else:
+                                raise ValueError(
+                                    f"invalid event_corrections for {label!r} (must be list or mapping)"
+                                )
+                            for cobj in corr_objs:
+                                if not any(
+                                    cobj.get(k)
+                                    for k in (
+                                        "game_id",
+                                        "timetoscore_game_id",
+                                        "tts_game_id",
+                                        "external_game_key",
+                                        "external_key",
+                                        "label",
+                                    )
+                                ):
+                                    cobj["timetoscore_game_id"] = int(t2s_id)
+                            stats = _apply_event_corrections_payload_to_webapp(
+                                webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                                or "http://127.0.0.1:8008",
+                                webapp_token=(
+                                    getattr(args, "webapp_token", None)
+                                    or getattr(args, "import_token", None)
+                                    or None
+                                ),
+                                corrections=corr_objs,
+                                create_missing_players=False,
+                            )
+                            print(
+                                f"[webapp] Applied embedded event corrections for {label}: {stats}"
+                            )
 
                     other_side = "away" if primary_side == "home" else "home"
                     other_stats = dirs.get(other_side)
@@ -14342,6 +14475,48 @@ def main() -> None:
                             source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
+                        embedded = g.get("event_corrections")
+                        if embedded:
+                            corr_objs: list[dict[str, Any]] = []
+                            if isinstance(embedded, list):
+                                corr_objs = [{"patch": embedded}]
+                            elif isinstance(embedded, dict):
+                                corr_objs = [dict(embedded)]
+                            else:
+                                raise ValueError(
+                                    f"invalid event_corrections for {label!r} (must be list or mapping)"
+                                )
+                            for cobj in corr_objs:
+                                if not any(
+                                    cobj.get(k)
+                                    for k in (
+                                        "game_id",
+                                        "timetoscore_game_id",
+                                        "tts_game_id",
+                                        "external_game_key",
+                                        "external_key",
+                                        "label",
+                                    )
+                                ):
+                                    cobj["external_game_key"] = str(label or "")
+                                    if owner_email:
+                                        cobj["owner_email"] = str(owner_email)
+                            stats = _apply_event_corrections_payload_to_webapp(
+                                webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                                or "http://127.0.0.1:8008",
+                                webapp_token=(
+                                    getattr(args, "webapp_token", None)
+                                    or getattr(args, "import_token", None)
+                                    or None
+                                ),
+                                corrections=corr_objs,
+                                create_missing_players=bool(
+                                    getattr(args, "webapp_create_missing_players", False)
+                                ),
+                            )
+                            print(
+                                f"[webapp] Applied embedded event corrections for {label}: {stats}"
+                            )
 
                         other_side = "away" if primary_side == "home" else "home"
                         other_stats = dirs.get(other_side)

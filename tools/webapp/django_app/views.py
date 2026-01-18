@@ -739,6 +739,7 @@ def _upsert_game_event_rows_from_events_csv(
                 "game_seconds_end",
                 "video_seconds",
                 "details",
+                "correction",
                 "attributed_players",
                 "attributed_jerseys",
                 "on_ice_players",
@@ -800,10 +801,29 @@ def _upsert_game_event_rows_from_events_csv(
                     and event_type_key
                     and event_type_key in prefer_incoming_types
                 )
+                existing_is_corrected = bool(
+                    not _is_blank(existing_row.get("correction"))
+                    or "correction" in str(existing_row.get("source") or "").casefold()
+                )
+                incoming_is_correction = bool("correction" in incoming_record_source)
 
                 def _merge(field: str) -> Any:
                     existing_val = existing_row.get(field)
                     incoming_val = rec.get(field)
+                    if (
+                        existing_is_corrected
+                        and not incoming_is_correction
+                        and field
+                        in {
+                            "player_id",
+                            "attributed_players",
+                            "attributed_jerseys",
+                            "details",
+                            "correction",
+                        }
+                        and not _is_blank(existing_val)
+                    ):
+                        return existing_val
                     if (
                         event_type_key in {"goal", "goaliechange"}
                         and field in {"player_id", "attributed_players", "attributed_jerseys"}
@@ -838,6 +858,7 @@ def _upsert_game_event_rows_from_events_csv(
                         game_seconds_end=_merge("game_seconds_end"),
                         video_seconds=_merge("video_seconds"),
                         details=_merge("details") or None,
+                        correction=_merge("correction") or None,
                         attributed_players=_merge("attributed_players") or None,
                         attributed_jerseys=_merge("attributed_jerseys") or None,
                         on_ice_players=_merge("on_ice_players") or None,
@@ -882,6 +903,7 @@ def _upsert_game_event_rows_from_events_csv(
                     "game_seconds_end",
                     "video_seconds",
                     "details",
+                    "correction",
                     "attributed_players",
                     "attributed_jerseys",
                     "on_ice_players",
@@ -2932,6 +2954,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
         "game_seconds",
         "video_seconds",
         "details",
+        "correction",
         "attributed_players",
         "attributed_jerseys",
         "player_id",
@@ -3027,6 +3050,30 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
         video_time, video_seconds = logic.normalize_video_time_and_seconds(
             r0.get("video_time"), r0.get("video_seconds")
         )
+
+        correction: Any = None
+        corr_raw = r0.get("correction")
+        if corr_raw:
+            try:
+                correction = json.loads(str(corr_raw))
+            except Exception:
+                correction = {"raw": str(corr_raw)}
+
+        details_txt = str(r0.get("details") or "")
+        et_key = str(r0.get("event_type__key") or "").strip().lower()
+        if et_key == "goal":
+            try:
+                # Hide redundant goal-scorer text in the Details column; the row itself is already under Goals.
+                if jersey_norm and details_txt.strip():
+                    details_txt = re.sub(
+                        rf"(?i)(^|\b)#?{re.escape(str(jersey_norm))}\b",
+                        "",
+                        details_txt,
+                    ).strip()
+                    details_txt = re.sub(r"\\s{2,}", " ", details_txt)
+            except Exception:
+                pass
+
         events_out.append(
             {
                 "kind": "attributed",
@@ -3049,11 +3096,94 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                 "video_time": video_time,
                 "game_seconds": r0.get("game_seconds"),
                 "video_seconds": video_seconds,
-                "details": str(r0.get("details") or ""),
+                "details": details_txt,
+                "correction": correction,
                 "for_against": str(r0.get("for_against") or ""),
                 "source": str(r0.get("source") or ""),
             }
         )
+
+    # For goal events, show assists in the Details column (A2 on second line).
+    assist_rows = list(
+        qs.filter(event_type__key="assist").values(
+            "game_id",
+            "period",
+            "team_side",
+            "game_seconds",
+            "game_time",
+            "attributed_jerseys",
+            "id",
+        )
+    )
+    assists_by_time: dict[tuple[int, int, int], list[str]] = {}
+    assists_by_side_time: dict[tuple[int, int, int, str], list[str]] = {}
+    for r0 in assist_rows:
+        try:
+            gid = int(r0.get("game_id") or 0)
+            period = int(r0.get("period") or 0)
+        except Exception:
+            continue
+        if gid <= 0 or period <= 0:
+            continue
+        gs = r0.get("game_seconds")
+        try:
+            gs_i = int(gs) if gs is not None else None
+        except Exception:
+            gs_i = None
+        if gs_i is None:
+            gs_i = logic.parse_duration_seconds(str(r0.get("game_time") or ""))  # type: ignore[arg-type]
+        if gs_i is None:
+            continue
+        side = str(r0.get("team_side") or "").strip()
+        jerseys_raw = str(r0.get("attributed_jerseys") or "")
+        jerseys = [logic.normalize_jersey_number(x) for x in re.findall(r"([0-9]+)", jerseys_raw)]
+        jerseys_norm = [j for j in jerseys if j]
+        if not jerseys_norm:
+            continue
+        for j in jerseys_norm:
+            k0 = (gid, period, int(gs_i))
+            lst0 = assists_by_time.setdefault(k0, [])
+            if j not in lst0:
+                lst0.append(j)
+            if side:
+                k1 = (gid, period, int(gs_i), side)
+                lst1 = assists_by_side_time.setdefault(k1, [])
+                if j not in lst1:
+                    lst1.append(j)
+
+    for r in events_out:
+        if str(r.get("event_type_key") or "").strip().lower() != "goal":
+            continue
+        try:
+            gid = int(r.get("game_id") or 0)
+            period = int(r.get("period") or 0)
+        except Exception:
+            continue
+        if gid <= 0 or period <= 0:
+            continue
+        gs_val = r.get("game_seconds")
+        try:
+            gs_i = int(gs_val) if gs_val is not None else None
+        except Exception:
+            gs_i = None
+        if gs_i is None:
+            gs_i = logic.parse_duration_seconds(str(r.get("game_time") or ""))  # type: ignore[arg-type]
+        if gs_i is None:
+            continue
+        side = str(r.get("team_side") or "").strip()
+        assists = assists_by_side_time.get((gid, period, int(gs_i), side)) or assists_by_time.get(
+            (gid, period, int(gs_i))
+        )
+        if not assists:
+            continue
+        lines = []
+        if len(assists) == 1:
+            lines.append(f"A: #{assists[0]}")
+        else:
+            lines.append(f"A1: #{assists[0]}")
+            lines.append(f"A2: #{assists[1]}")
+        extra = str(r.get("details") or "").strip()
+        r["details"] = "\n".join(lines + ([extra] if extra else []))
 
     # On-ice goal events (for GF/GA and plus/minus drilldown).
     goal_rows = list(
@@ -3073,6 +3203,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             "game_seconds",
             "video_seconds",
             "details",
+            "correction",
             "attributed_players",
             "attributed_jerseys",
             "on_ice_players",
@@ -3113,6 +3244,13 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             video_time, video_seconds = logic.normalize_video_time_and_seconds(
                 r0.get("video_time"), r0.get("video_seconds")
             )
+            correction: Any = None
+            corr_raw = r0.get("correction")
+            if corr_raw:
+                try:
+                    correction = json.loads(str(corr_raw))
+                except Exception:
+                    correction = {"raw": str(corr_raw)}
             on_ice_goals_out.append(
                 {
                     "kind": "on_ice_goal",
@@ -3133,6 +3271,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                     "game_seconds": r0.get("game_seconds"),
                     "video_seconds": video_seconds,
                     "details": str(r0.get("details") or ""),
+                    "correction": correction,
                     "source": str(r0.get("source") or ""),
                 }
             )
@@ -11089,6 +11228,7 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
     Persist idempotent event corrections:
       - `suppress`: hide an imported event key for a game (prevents re-import from re-adding it)
       - `upsert`: insert/update an event row (typically paired with suppress of the original)
+      - `patch`: suppress + upsert in one step, with stored diff metadata for UI
 
     Payload:
       {
@@ -11096,8 +11236,16 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
           {
             "game_id": 1001 | null,
             "timetoscore_game_id": 123 | null,
+            "external_game_key": "utah-1" | null,
             "suppress": [ {event spec...}, ... ],
-            "upsert": [ {event spec...}, ... ]
+            "upsert": [ {event spec...}, ... ],
+            "patch": [
+              {
+                "match": {event spec...},
+                "set": {event spec overrides...},
+                "note": "see video"
+              }
+            ]
           }
         ]
       }
@@ -11125,22 +11273,62 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
             except Exception:
                 return None
         tts_raw = c.get("timetoscore_game_id") or c.get("tts_game_id")
-        if tts_raw is None or not str(tts_raw).strip():
-            return None
-        try:
-            tts_i = int(tts_raw)
-        except Exception:
-            return None
-        gid = (
-            m.HkyGame.objects.filter(timetoscore_game_id=int(tts_i))
-            .values_list("id", flat=True)
-            .first()
+        if tts_raw is not None and str(tts_raw).strip():
+            try:
+                tts_i = int(tts_raw)
+            except Exception:
+                tts_i = None
+            if tts_i is not None:
+                gid = (
+                    m.HkyGame.objects.filter(timetoscore_game_id=int(tts_i))
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                if gid is not None:
+                    return int(gid)
+                token = f'"timetoscore_game_id":{int(tts_i)}'
+                gid = (
+                    m.HkyGame.objects.filter(notes__contains=token)
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                if gid is not None:
+                    return int(gid)
+
+        ext_key_raw = (
+            c.get("external_game_key")
+            or c.get("external_key")
+            or c.get("external_game_id")
+            or c.get("label")
         )
-        if gid is not None:
-            return int(gid)
-        token = f'"timetoscore_game_id":{int(tts_i)}'
-        gid = m.HkyGame.objects.filter(notes__contains=token).values_list("id", flat=True).first()
-        return int(gid) if gid is not None else None
+        ext_key = str(ext_key_raw or "").strip() or None
+        if not ext_key:
+            return None
+
+        owner_user_id: Optional[int] = None
+        owner_user_id_raw = c.get("owner_user_id") or payload.get("owner_user_id")
+        if owner_user_id_raw is not None and str(owner_user_id_raw).strip():
+            try:
+                owner_user_id = int(owner_user_id_raw)
+            except Exception:
+                owner_user_id = None
+        owner_email = (
+            str(c.get("owner_email") or payload.get("owner_email") or "").strip().lower() or None
+        )
+        if owner_user_id is None and owner_email:
+            owner_user_id = (
+                m.User.objects.filter(email=str(owner_email)).values_list("id", flat=True).first()
+            )
+            owner_user_id = int(owner_user_id) if owner_user_id is not None else None
+
+        qs = m.HkyGame.objects.filter(external_game_key=str(ext_key))
+        if owner_user_id is not None:
+            qs = qs.filter(user_id=int(owner_user_id))
+
+        ids = list(qs.values_list("id", flat=True)[:2])
+        if len(ids) == 1 and ids[0] is not None:
+            return int(ids[0])
+        return None
 
     def _norm_side(raw: Any) -> tuple[Optional[str], Optional[str]]:
         side_norm, side_label = _normalize_team_side(raw)
@@ -11185,6 +11373,88 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
     stats = {"suppressed": 0, "unsuppressed": 0, "upserted": 0, "deleted_existing": 0}
     now = dt.datetime.now()
 
+    def _event_spec_norm_for_diff(ev: dict[str, Any]) -> dict[str, Any]:
+        et_raw = str(ev.get("event_type") or ev.get("event") or "").strip()
+        et_key = _event_type_key(et_raw) or ""
+        period = _ival(ev.get("period"))
+        game_time = _norm_ws(ev.get("game_time") or ev.get("time")) or ""
+        game_seconds = _ival(ev.get("game_seconds"))
+        if game_seconds is None:
+            game_seconds = logic.parse_duration_seconds(game_time)
+        side_norm, side_label = _norm_side(ev.get("team_side") or ev.get("side") or ev.get("team"))
+        jersey_norm = logic.normalize_jersey_number(
+            ev.get("jersey")
+            or ev.get("attributed_jerseys")
+            or ev.get("player")
+            or ev.get("attributed_players")
+        )
+        video_time, video_seconds = logic.normalize_video_time_and_seconds(
+            _norm_ws(ev.get("video_time")), ev.get("video_seconds")
+        )
+        return {
+            "event_type": et_raw,
+            "event_type_key": et_key,
+            "period": int(period) if period is not None else None,
+            "team_side": side_label,
+            "team_side_norm": side_norm,
+            "game_time": game_time,
+            "game_seconds": int(game_seconds) if game_seconds is not None else None,
+            "jersey": jersey_norm,
+            "player_name": str(
+                ev.get("attributed_players") or ev.get("player_name") or ev.get("player") or ""
+            ).strip()
+            or None,
+            "details": _norm_ws(ev.get("details")) or None,
+            "event_id": _ival(ev.get("event_id")),
+            "video_time": video_time,
+            "video_seconds": int(video_seconds) if video_seconds is not None else None,
+        }
+
+    def _correction_json(
+        *,
+        match_ev: dict[str, Any],
+        upsert_ev: dict[str, Any],
+        note: Optional[str],
+        reason: Optional[str],
+    ) -> str:
+        before = _event_spec_norm_for_diff(match_ev)
+        after = _event_spec_norm_for_diff(upsert_ev)
+        fields = [
+            "event_type",
+            "team_side",
+            "period",
+            "game_time",
+            "jersey",
+            "player_name",
+            "details",
+            "video_time",
+        ]
+        changes: list[dict[str, Any]] = []
+        for f in fields:
+            if before.get(f) != after.get(f):
+                changes.append({"field": f, "from": before.get(f), "to": after.get(f)})
+        try:
+            import_key_before, _sn1, _sl1 = _event_spec_import_key(match_ev)
+        except Exception:
+            import_key_before = ""
+        try:
+            import_key_after, _sn2, _sl2 = _event_spec_import_key(upsert_ev)
+        except Exception:
+            import_key_after = ""
+        return json.dumps(
+            {
+                "version": 1,
+                "note": str(note).strip() if note and str(note).strip() else None,
+                "reason": str(reason).strip() if reason and str(reason).strip() else None,
+                "changes": changes,
+                "match": before,
+                "set": after,
+                "match_import_key": import_key_before or None,
+                "upsert_import_key": import_key_after or None,
+            },
+            sort_keys=True,
+        )
+
     with transaction.atomic():
         for idx, c in enumerate(corrections):
             if not isinstance(c, dict):
@@ -11212,6 +11482,241 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
             team1_id = int(game_row["team1_id"])
             team2_id = int(game_row["team2_id"])
             owner_user_id = int(game_row.get("user_id") or 0)
+
+            patch_list = c.get("patch") or c.get("patches") or []
+            if patch_list:
+                if not isinstance(patch_list, list):
+                    return JsonResponse(
+                        {"ok": False, "error": f"corrections[{idx}].patch must be a list"},
+                        status=400,
+                    )
+                for pidx, patch in enumerate(patch_list):
+                    if not isinstance(patch, dict):
+                        continue
+                    match_ev = patch.get("match") or patch.get("from") or patch.get("old")
+                    set_ev = patch.get("set") or patch.get("to") or patch.get("new") or {}
+                    if not isinstance(match_ev, dict) or not isinstance(set_ev, dict):
+                        return JsonResponse(
+                            {
+                                "ok": False,
+                                "error": f"corrections[{idx}].patch[{pidx}] must contain match/set objects",
+                            },
+                            status=400,
+                        )
+
+                    # Build upsert event by applying overrides to the match spec.
+                    upsert_ev: dict[str, Any] = dict(match_ev)
+                    upsert_ev.update(dict(set_ev))
+
+                    reason = str(patch.get("reason") or c.get("reason") or "").strip() or None
+                    note = str(patch.get("note") or c.get("note") or "").strip() or None
+
+                    try:
+                        import_key_match, _sn, _sl = _event_spec_import_key(match_ev)
+                    except Exception as e:
+                        return JsonResponse(
+                            {
+                                "ok": False,
+                                "error": f"corrections[{idx}].patch[{pidx}] invalid match spec: {e}",
+                            },
+                            status=400,
+                        )
+                    try:
+                        import_key_upsert, side_norm, side_label = _event_spec_import_key(upsert_ev)
+                    except Exception as e:
+                        return JsonResponse(
+                            {
+                                "ok": False,
+                                "error": f"corrections[{idx}].patch[{pidx}] invalid set spec: {e}",
+                            },
+                            status=400,
+                        )
+
+                    # If the patch doesn't change the event import_key (notably: goal scorer corrections),
+                    # update the existing row in-place (do not suppress; suppressed keys are excluded from views).
+                    if str(import_key_match) != str(import_key_upsert):
+                        obj, created = m.HkyGameEventSuppression.objects.get_or_create(
+                            game_id=int(gid),
+                            import_key=str(import_key_match),
+                            defaults={"reason": reason, "created_at": now, "updated_at": None},
+                        )
+                        if (
+                            not created
+                            and reason
+                            and str(getattr(obj, "reason", "") or "") != reason
+                        ):
+                            m.HkyGameEventSuppression.objects.filter(id=int(obj.id)).update(
+                                reason=reason, updated_at=now
+                            )
+                        stats["suppressed"] += 1
+                        stats["deleted_existing"] += m.HkyGameEventRow.objects.filter(
+                            game_id=int(gid), import_key=str(import_key_match)
+                        ).delete()[0]
+                    else:
+                        m.HkyGameEventSuppression.objects.filter(
+                            game_id=int(gid), import_key=str(import_key_match)
+                        ).delete()
+
+                    # 2) Upsert the corrected event.
+                    et_raw = str(
+                        upsert_ev.get("event_type") or upsert_ev.get("event") or ""
+                    ).strip()
+                    et_key = _event_type_key(et_raw)
+                    if not et_key:
+                        continue
+                    et_obj, _ = m.HkyEventType.objects.get_or_create(
+                        key=str(et_key),
+                        defaults={"name": et_raw or et_key, "created_at": now},
+                    )
+
+                    team_id = upsert_ev.get("team_id")
+                    if team_id is not None and str(team_id).strip():
+                        try:
+                            team_id = int(team_id)
+                        except Exception:
+                            team_id = None
+                    elif side_norm == "home":
+                        team_id = team1_id
+                    elif side_norm == "away":
+                        team_id = team2_id
+                    else:
+                        team_id = None
+
+                    player_id = upsert_ev.get("player_id")
+                    if player_id is not None and str(player_id).strip():
+                        try:
+                            player_id = int(player_id)
+                        except Exception:
+                            player_id = None
+                    else:
+                        jersey_norm = logic.normalize_jersey_number(
+                            upsert_ev.get("jersey")
+                            or upsert_ev.get("attributed_jerseys")
+                            or upsert_ev.get("player")
+                        )
+                        player_name = str(
+                            upsert_ev.get("attributed_players")
+                            or upsert_ev.get("player_name")
+                            or ""
+                        ).strip()
+                        if team_id is not None and jersey_norm:
+                            player_id = (
+                                m.Player.objects.filter(
+                                    team_id=int(team_id), jersey_number=str(jersey_norm)
+                                )
+                                .values_list("id", flat=True)
+                                .first()
+                            )
+                            player_id = int(player_id) if player_id is not None else None
+                        if player_id is None and team_id is not None and player_name:
+                            player_id = (
+                                m.Player.objects.filter(team_id=int(team_id), name=str(player_name))
+                                .values_list("id", flat=True)
+                                .first()
+                            )
+                            player_id = int(player_id) if player_id is not None else None
+                        if (
+                            player_id is None
+                            and create_missing_players
+                            and team_id is not None
+                            and player_name
+                        ):
+                            try:
+                                player_id = _ensure_player_for_import(
+                                    int(owner_user_id),
+                                    int(team_id),
+                                    str(player_name),
+                                    jersey_norm,
+                                    None,
+                                    commit=False,
+                                )
+                            except Exception:
+                                player_id = None
+
+                    period = _ival(upsert_ev.get("period"))
+                    game_time = _norm_ws(upsert_ev.get("game_time") or upsert_ev.get("time"))
+                    game_seconds = _ival(upsert_ev.get("game_seconds"))
+                    if game_seconds is None:
+                        game_seconds = logic.parse_duration_seconds(game_time)
+                    game_seconds_end = _ival(upsert_ev.get("game_seconds_end"))
+                    video_time, video_seconds = logic.normalize_video_time_and_seconds(
+                        _norm_ws(upsert_ev.get("video_time")), upsert_ev.get("video_seconds")
+                    )
+
+                    details = _norm_ws(upsert_ev.get("details")) or None
+                    attributed_players = _norm_ws(upsert_ev.get("attributed_players")) or None
+                    attributed_jerseys = (
+                        _norm_ws(
+                            upsert_ev.get("attributed_jerseys")
+                            or upsert_ev.get("player")
+                            or upsert_ev.get("jersey")
+                        )
+                        or None
+                    )
+                    source = (
+                        str(upsert_ev.get("source") or patch.get("source") or "correction").strip()
+                        or "correction"
+                    )
+
+                    corr_json = _correction_json(
+                        match_ev=match_ev, upsert_ev=upsert_ev, note=note, reason=reason
+                    )
+
+                    m.HkyGameEventRow.objects.update_or_create(
+                        game_id=int(gid),
+                        import_key=str(import_key_upsert),
+                        defaults={
+                            "event_type_id": int(et_obj.id),
+                            "team_id": int(team_id) if team_id is not None else None,
+                            "player_id": int(player_id) if player_id is not None else None,
+                            "source": source,
+                            "event_id": _ival(upsert_ev.get("event_id")),
+                            "team_raw": _norm_ws(upsert_ev.get("team_raw") or upsert_ev.get("team"))
+                            or None,
+                            "team_side": side_label
+                            or _norm_ws(upsert_ev.get("team_side") or upsert_ev.get("side"))
+                            or None,
+                            "for_against": _norm_ws(upsert_ev.get("for_against")) or None,
+                            "team_rel": _norm_ws(upsert_ev.get("team_rel")) or None,
+                            "period": int(period) if period is not None else None,
+                            "game_time": game_time or None,
+                            "video_time": video_time or None,
+                            "game_seconds": int(game_seconds) if game_seconds is not None else None,
+                            "game_seconds_end": (
+                                int(game_seconds_end) if game_seconds_end is not None else None
+                            ),
+                            "video_seconds": (
+                                int(video_seconds) if video_seconds is not None else None
+                            ),
+                            "details": details,
+                            "correction": corr_json,
+                            "attributed_players": attributed_players,
+                            "attributed_jerseys": attributed_jerseys,
+                            "on_ice_players": _norm_ws(upsert_ev.get("on_ice_players")) or None,
+                            "on_ice_players_home": _norm_ws(upsert_ev.get("on_ice_players_home"))
+                            or None,
+                            "on_ice_players_away": _norm_ws(upsert_ev.get("on_ice_players_away"))
+                            or None,
+                            "created_at": now,
+                            "updated_at": now,
+                        },
+                    )
+                    stats["upserted"] += 1
+
+                    m.HkyGameEventSuppression.objects.filter(
+                        game_id=int(gid), import_key=str(import_key_upsert)
+                    ).delete()
+
+                    if player_id is not None and team_id is not None:
+                        m.HkyGamePlayer.objects.get_or_create(
+                            game_id=int(gid),
+                            player_id=int(player_id),
+                            defaults={
+                                "team_id": int(team_id),
+                                "created_at": now,
+                                "updated_at": None,
+                            },
+                        )
 
             suppress_list = c.get("suppress") or []
             if suppress_list:
@@ -11332,7 +11837,10 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                     details = _norm_ws(ev.get("details")) or None
                     attributed_players = _norm_ws(ev.get("attributed_players")) or None
                     attributed_jerseys = (
-                        _norm_ws(ev.get("attributed_jerseys") or ev.get("player")) or None
+                        _norm_ws(
+                            ev.get("attributed_jerseys") or ev.get("player") or ev.get("jersey")
+                        )
+                        or None
                     )
                     source = str(ev.get("source") or "correction").strip() or "correction"
 
@@ -11362,6 +11870,7 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                                 int(video_seconds) if video_seconds is not None else None
                             ),
                             "details": details,
+                            "correction": None,
                             "attributed_players": attributed_players,
                             "attributed_jerseys": attributed_jerseys,
                             "on_ice_players": _norm_ws(ev.get("on_ice_players")) or None,

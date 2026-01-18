@@ -195,9 +195,14 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Allow newline rendering inside specific cells even in nowrap tables */
 td.cell-pre { white-space: pre-line !important; }
 
+/* Highlight corrected events in Player Events modal. */
+tr.event-corrected td { color: #ff8a8a; }
+tr.event-corrected td a { color: #ff8a8a; }
+
 /* Tables that should never wrap cell content (used with JS fit scaling). */
 .table-never-wrap th, .table-never-wrap td { white-space: nowrap !important; }
 .table-never-wrap td { overflow-wrap: normal !important; word-break: normal !important; }
+.table-never-wrap td.cell-pre { white-space: pre-line !important; }
 
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
 table[data-freeze-cols] { border-collapse: separate; border-spacing: 0; overflow: visible; }
