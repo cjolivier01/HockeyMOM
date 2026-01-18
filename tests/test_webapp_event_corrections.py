@@ -249,3 +249,61 @@ def should_apply_patch_corrections_and_expose_diffs_in_player_events_api(client_
     assert "correction" in r0 and r0["correction"]
     assert "A:" in str(r0.get("details") or "")
     assert "#13" not in str(r0.get("details") or "")
+
+
+def should_fail_when_patch_match_does_not_match_any_event(client_and_models):
+    client, m, game, _team, _p3, _p13 = client_and_models
+
+    from tools.webapp.django_app import views
+
+    events_csv = (
+        "Event Type,Team Side,Period,Game Seconds,Video Time,Attributed Jerseys\n"
+        "Goal,Away,2,194,10:20,3\n"
+        "Assist,Away,2,194,10:20,13\n"
+    )
+    out = views._upsert_game_event_rows_from_events_csv(
+        game_id=int(game.id),
+        events_csv=events_csv,
+        replace=True,
+        create_missing_players=False,
+        incoming_source_label="unit-test",
+    )
+    assert out["ok"] is True
+    assert m.HkyGameEventRow.objects.filter(game_id=int(game.id)).count() == 2
+    assert m.HkyGameEventSuppression.objects.filter(game_id=int(game.id)).count() == 0
+
+    payload = {
+        "corrections": [
+            {
+                "external_game_key": "utah-1",
+                "owner_email": "owner@example.com",
+                "reason": "Bad patch should fail",
+                "patch": [
+                    {
+                        "match": {
+                            "event_type": "Goal",
+                            "period": 2,
+                            "game_time": "03:15",  # does not exist (seeded at 03:14)
+                            "team_side": "Away",
+                            "jersey": "3",
+                        },
+                        "set": {"jersey": "13", "video_time": "10:20"},
+                        "note": "see video",
+                    }
+                ],
+            }
+        ]
+    }
+    resp = client.post(
+        "/api/internal/apply_event_corrections",
+        data=json.dumps(payload),
+        content_type="application/json",
+        HTTP_X_HM_IMPORT_TOKEN="sekret",
+    )
+    assert resp.status_code == 400
+    body = json.loads(resp.content)
+    assert body["ok"] is False
+    assert "match did not match any event" in str(body.get("error") or "")
+
+    assert m.HkyGameEventRow.objects.filter(game_id=int(game.id)).count() == 2
+    assert m.HkyGameEventSuppression.objects.filter(game_id=int(game.id)).count() == 0

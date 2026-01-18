@@ -11532,6 +11532,30 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                             status=400,
                         )
 
+                    match_exists = m.HkyGameEventRow.objects.filter(
+                        game_id=int(gid), import_key=str(import_key_match)
+                    ).exists()
+                    if not match_exists:
+                        # Idempotency: once applied, the matched row may be deleted while the import_key remains
+                        # suppressed and the corrected upsert row exists.
+                        already_suppressed = m.HkyGameEventSuppression.objects.filter(
+                            game_id=int(gid), import_key=str(import_key_match)
+                        ).exists()
+                        already_upserted = m.HkyGameEventRow.objects.filter(
+                            game_id=int(gid), import_key=str(import_key_upsert)
+                        ).exists()
+                        if not (already_suppressed and already_upserted):
+                            return JsonResponse(
+                                {
+                                    "ok": False,
+                                    "error": (
+                                        f"corrections[{idx}].patch[{pidx}] match did not match any event "
+                                        f"(import_key={import_key_match})"
+                                    ),
+                                },
+                                status=400,
+                            )
+
                     # If the patch doesn't change the event import_key (notably: goal scorer corrections),
                     # update the existing row in-place (do not suppress; suppressed keys are excluded from views).
                     if str(import_key_match) != str(import_key_upsert):
