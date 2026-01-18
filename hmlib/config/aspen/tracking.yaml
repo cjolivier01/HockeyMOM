@@ -209,6 +209,7 @@ aspen:
         plot_speed: GLOBAL.plot.plot_speed
         plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
         plot_actions: GLOBAL.plot.plot_actions
+        no_wide_start: GLOBAL.aspen.play_tracker.no_wide_start
 
     save_camera:
       class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin

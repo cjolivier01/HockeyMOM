@@ -102,6 +102,8 @@ aspen:
         - [game, stitching, right, color]
         - [game, stitching, right]
       refresh_from_config: true
+  play_tracker:
+    no_wide_start: false
 
 #
 # Rink config
