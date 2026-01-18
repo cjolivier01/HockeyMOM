@@ -2832,6 +2832,69 @@
     }
     if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
 
+    var _assistsByTime = {};
+    var _assistsBySideTime = {};
+    eventsRows.forEach(function (row) {
+      if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "assist") return;
+      var period = rowPeriod(row);
+      if (period === null) return;
+      var gs = rowGameSeconds(row);
+      if (gs === null) return;
+      var jersey = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+      if (!jersey) return;
+      var k0 = String(period) + "|" + String(gs);
+      if (!_assistsByTime[k0]) _assistsByTime[k0] = [];
+      if (_assistsByTime[k0].indexOf(jersey) < 0) _assistsByTime[k0].push(jersey);
+      var side = rowSide(row);
+      if (side) {
+        var k1 = k0 + "|" + String(side);
+        if (!_assistsBySideTime[k1]) _assistsBySideTime[k1] = [];
+        if (_assistsBySideTime[k1].indexOf(jersey) < 0) _assistsBySideTime[k1].push(jersey);
+      }
+    });
+
+    function _assistJerseysForGoalRow(row) {
+      var period = rowPeriod(row);
+      if (period === null) return [];
+      var gs = rowGameSeconds(row);
+      if (gs === null) return [];
+      var k0 = String(period) + "|" + String(gs);
+      var side = rowSide(row);
+      var k1 = side ? (k0 + "|" + String(side)) : "";
+      return (k1 && _assistsBySideTime[k1]) || _assistsByTime[k0] || [];
+    }
+
+    function _stripGoalScorerFromDetails(rawDetails, scorerName) {
+      var s = String(rawDetails || "").trim();
+      if (!s) return "";
+
+      // If this was prefixed by withDetailsTag("Goal"), keep the tag but operate on the base.
+      var tag = "";
+      if (s === "Goal") {
+        tag = "Goal";
+        s = "";
+      } else if (s.indexOf("Goal — ") === 0) {
+        tag = "Goal";
+        s = String(s.slice("Goal — ".length) || "").trim();
+      }
+
+      // Remove the common "(A: ...)" suffix from TimeToScore goals; assists are shown separately.
+      s = s.replace(/\(\s*A\s*:\s*[^)]*\)\s*$/i, "").trim();
+
+      var name = String(scorerName || "").trim();
+      if (name) {
+        var sLower = s.toLowerCase();
+        var nameLower = name.toLowerCase();
+        if (sLower === nameLower) s = "";
+        else if (sLower.indexOf(nameLower) === 0) {
+          s = String(s.slice(name.length) || "").trim();
+          s = s.replace(/^[\s\-–—:]+/, "").trim();
+        }
+      }
+
+      return tag ? (tag + (s ? (" — " + s) : "")) : s;
+    }
+
     var STAT_TO_EVENT_TYPE_KEYS = {
       goals: ["goal"],
       assists: ["assist"],
@@ -2865,6 +2928,7 @@
     }
 
     function buildEventsTable(container, rows) {
+      var tableCtx = arguments.length > 2 && arguments[2] ? arguments[2] : {};
       var wrap = document.createElement("div");
       wrap.className = "table-fit-wrap";
       var table = document.createElement("table");
@@ -2899,11 +2963,44 @@
                 vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
               }
             }
-            if (vs2 !== null && vs2 >= 0) {
+          if (vs2 !== null && vs2 >= 0) {
               tVideo = fmtSecondsToTime(vs2);
             }
           }
           var details = String(getValue(row, ["Details"]) || "").trim();
+          if (tableCtx && tableCtx.hideGoalScorer) {
+            var typeKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+            if (typeKey === "goal") {
+              var baseTag = "";
+              var baseDetails = details;
+              if (details === "Goal") {
+                baseTag = "Goal";
+                baseDetails = "";
+              } else if (details.indexOf("Goal — ") === 0) {
+                baseTag = "Goal";
+                baseDetails = String(details.slice("Goal — ".length) || "").trim();
+              }
+
+              var assists = _assistJerseysForGoalRow(row);
+              var assistLines = [];
+              if (assists && assists.length === 1) assistLines.push("A: #" + assists[0]);
+              else if (assists && assists.length >= 2) {
+                assistLines.push("A1: #" + assists[0]);
+                assistLines.push("A2: #" + assists[1]);
+              }
+
+              var extra = _stripGoalScorerFromDetails(baseDetails, tableCtx.scorerName || "");
+              if (extra && (extra === "Goal" || extra.indexOf("Goal — ") === 0)) {
+                // _stripGoalScorerFromDetails can re-apply a Goal tag; don't double-tag.
+                extra = String(extra.replace(/^Goal\s*(—\s*)?/, "") || "").trim();
+              }
+
+              var outLines = assistLines.slice();
+              if (extra) outLines.push(extra);
+              if (baseTag && outLines.length) outLines[0] = baseTag + " — " + outLines[0];
+              details = outLines.length ? outLines.join("\n") : (baseTag || "");
+            }
+          }
           var src = String(getValue(row, ["Source"]) || "").trim();
 
         var tdP = document.createElement("td");
@@ -2937,6 +3034,7 @@
 
         var tdD = document.createElement("td");
         tdD.textContent = details;
+        if (details.indexOf("\n") >= 0) tdD.className = "cell-pre";
         tr.appendChild(tdD);
 
         var tdS = document.createElement("td");
@@ -3179,7 +3277,7 @@
                 var rows = pair[1] || [];
                 if (!rows.length) return;
                 bodyEl.appendChild(makeEventsHeading("h4", label));
-                buildEventsTable(bodyEl, rows);
+                buildEventsTable(bodyEl, rows, { hideGoalScorer: true, scorerName: playerName });
               });
 
               var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
@@ -3193,32 +3291,32 @@
                 byType = moveGroupToEnd(byType, "completed pass");
                 byType.order.forEach(function (k) {
                   bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
-                  buildEventsTable(bodyEl, byType.groups[k].rows);
+                  buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
                 });
               }
             } else if (statKey === "expected_goals") {
               var xgRows = buildShotChainTables(filtered).xg;
               if (xgRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "xG (Expected Goal)"));
-                buildEventsTable(bodyEl, xgRows);
+                buildEventsTable(bodyEl, xgRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "sog") {
               var sogRows = buildShotChainTables(filtered).sog;
               if (sogRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "SOG"));
-                buildEventsTable(bodyEl, sogRows);
+                buildEventsTable(bodyEl, sogRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "shots") {
               var shotRows = buildShotChainTables(filtered).shot;
               if (shotRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "Shot"));
-                buildEventsTable(bodyEl, shotRows);
+                buildEventsTable(bodyEl, shotRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "goals") {
               var goalRows = buildShotChainTables(filtered).goals;
               if (goalRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "Goals"));
-                buildEventsTable(bodyEl, goalRows);
+                buildEventsTable(bodyEl, goalRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else {
               var byType = groupRows(filtered, function (r) {
@@ -3227,7 +3325,7 @@
               byType = moveGroupToEnd(byType, "completed pass");
               byType.order.forEach(function (k) {
                 bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
-                buildEventsTable(bodyEl, byType.groups[k].rows);
+                buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
               });
             }
           }
