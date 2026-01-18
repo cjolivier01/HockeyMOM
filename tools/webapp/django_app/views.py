@@ -2737,6 +2737,20 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             )
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
 
+    league_name: Optional[str] = None
+    if league_id_i is not None:
+        try:
+            league_name = logic._get_league_name(None, int(league_id_i))
+        except Exception:
+            league_name = None
+
+    league_name: Optional[str] = None
+    if league_id_i is not None:
+        try:
+            league_name = logic._get_league_name(None, int(league_id_i))
+        except Exception:
+            league_name = None
+
     for g2 in schedule_games or []:
         try:
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
@@ -2764,7 +2778,16 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             if str(g2.get("_game_type_label") or "") in selected_types
         ]
     )
-    eligible_games = [g2 for g2 in stats_schedule_games if logic._game_has_recorded_result(g2)]
+    eligible_games = [
+        g2
+        for g2 in stats_schedule_games
+        if logic._game_has_recorded_result(g2)
+        and logic.game_is_eligible_for_stats(
+            g2,
+            team_id=int(team_id),
+            league_name=league_name,
+        )
+    ]
     eligible_game_ids = [int(g2["id"]) for g2 in eligible_games if g2.get("id") is not None]
     eligible_game_ids_set = set(eligible_game_ids)
 
@@ -3308,6 +3331,13 @@ def api_hky_team_pair_on_ice(request: HttpRequest, team_id: int) -> JsonResponse
             )
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
 
+    league_name: Optional[str] = None
+    if league_id_i is not None:
+        try:
+            league_name = logic._get_league_name(None, int(league_id_i))
+        except Exception:
+            league_name = None
+
     for g2 in schedule_games or []:
         try:
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
@@ -3329,7 +3359,16 @@ def api_hky_team_pair_on_ice(request: HttpRequest, team_id: int) -> JsonResponse
             if str(g2.get("_game_type_label") or "") in selected_types
         ]
     )
-    eligible_games = [g2 for g2 in stats_schedule_games if logic._game_has_recorded_result(g2)]
+    eligible_games = [
+        g2
+        for g2 in stats_schedule_games
+        if logic._game_has_recorded_result(g2)
+        and logic.game_is_eligible_for_stats(
+            g2,
+            team_id=int(team_id),
+            league_name=league_name,
+        )
+    ]
     eligible_game_ids_in_order: list[int] = []
     for g2 in eligible_games:
         try:
@@ -4035,6 +4074,13 @@ def api_hky_team_goalie_stats(request: HttpRequest, team_id: int, player_id: int
             )
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
 
+    league_name: Optional[str] = None
+    if league_id_i is not None:
+        try:
+            league_name = logic._get_league_name(None, int(league_id_i))
+        except Exception:
+            league_name = None
+
     for g2 in schedule_games or []:
         try:
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
@@ -4062,7 +4108,16 @@ def api_hky_team_goalie_stats(request: HttpRequest, team_id: int, player_id: int
             if str(g2.get("_game_type_label") or "") in selected_types
         ]
     )
-    eligible_games = [g2 for g2 in stats_schedule_games if logic._game_has_recorded_result(g2)]
+    eligible_games = [
+        g2
+        for g2 in stats_schedule_games
+        if logic._game_has_recorded_result(g2)
+        and logic.game_is_eligible_for_stats(
+            g2,
+            team_id=int(team_id),
+            league_name=league_name,
+        )
+    ]
     eligible_game_ids_in_order: list[int] = []
     for g2 in eligible_games:
         try:
@@ -5181,17 +5236,32 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 schedule_game_ids,
             )
 
+    league_name: Optional[str] = None
+    if league_id:
+        try:
+            league_name = logic._get_league_name(None, int(league_id))
+        except Exception:
+            league_name = None
+
     for g2 in schedule_games or []:
         try:
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
         except Exception:
             g2["_game_type_label"] = "Unknown"
+        try:
+            reason = logic.game_exclusion_reason_for_stats(
+                g2, team_id=int(team_id), league_name=league_name
+            )
+        except Exception:
+            reason = None
+        g2["excluded_from_stats_reason"] = reason
+        g2["excluded_from_stats"] = bool(reason)
     # Tournament-only players: show them on game pages, but not on team/division-level roster/stats.
     try:
         tournament_game_ids: set[int] = {
             int(g2.get("id"))
             for g2 in (schedule_games or [])
-            if str(g2.get("_game_type_label") or "").strip().casefold() == "tournament"
+            if str(g2.get("_game_type_label") or "").strip().casefold().startswith("tournament")
             and g2.get("id") is not None
         }
         player_ids_with_any_stats: set[int] = set()
@@ -5234,7 +5304,16 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             if str(g2.get("_game_type_label") or "") in selected_types
         ]
     )
-    eligible_games = [g2 for g2 in stats_schedule_games if logic._game_has_recorded_result(g2)]
+    eligible_games = [
+        g2
+        for g2 in stats_schedule_games
+        if logic._game_has_recorded_result(g2)
+        and logic.game_is_eligible_for_stats(
+            g2,
+            team_id=int(team_id),
+            league_name=league_name,
+        )
+    ]
     eligible_game_ids_in_order: list[int] = []
     for g2 in eligible_games:
         try:
@@ -5420,6 +5499,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
             ),
         }
+    excluded_games = [g2 for g2 in (schedule_games or []) if bool(g2.get("excluded_from_stats"))]
     return render(
         request,
         "team_detail.html",
@@ -5438,6 +5518,9 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             "recent_dir": recent_dir,
             "tstats": tstats,
             "schedule_games": schedule_games,
+            "excluded_schedule_games_count": len(excluded_games),
+            "show_caha_preseason_exclusion_note": str(league_name or "").strip().casefold()
+            == "caha",
             "editable": editable,
             "is_league_admin": is_league_admin,
             "player_stats_sources": player_stats_sources,
@@ -7286,6 +7369,12 @@ def public_league_team_detail(
         show_shift_data = _league_show_shift_data(int(league_id))
     except Exception:
         show_shift_data = False
+    try:
+        league_name = (
+            str(league.get("name") or "").strip() if isinstance(league, dict) else None
+        ) or logic._get_league_name(None, int(league_id))
+    except Exception:
+        league_name = None
 
     recent_n_raw = request.GET.get("recent_n")
     try:
@@ -7470,12 +7559,20 @@ def public_league_team_detail(
             g2["_game_type_label"] = logic._game_type_label_for_row(g2)
         except Exception:
             g2["_game_type_label"] = "Unknown"
+        try:
+            reason = logic.game_exclusion_reason_for_stats(
+                g2, team_id=int(team_id), league_name=league_name
+            )
+        except Exception:
+            reason = None
+        g2["excluded_from_stats_reason"] = reason
+        g2["excluded_from_stats"] = bool(reason)
     # Tournament-only players: show them on game pages, but not on team/division-level roster/stats.
     try:
         tournament_game_ids: set[int] = {
             int(g2.get("id"))
             for g2 in (schedule_games or [])
-            if str(g2.get("_game_type_label") or "").strip().casefold() == "tournament"
+            if str(g2.get("_game_type_label") or "").strip().casefold().startswith("tournament")
             and g2.get("id") is not None
         }
         player_ids_with_any_stats: set[int] = set()
@@ -7518,7 +7615,16 @@ def public_league_team_detail(
             if str(g2.get("_game_type_label") or "") in selected_types
         ]
     )
-    eligible_games = [g2 for g2 in stats_schedule_games if logic._game_has_recorded_result(g2)]
+    eligible_games = [
+        g2
+        for g2 in stats_schedule_games
+        if logic._game_has_recorded_result(g2)
+        and logic.game_is_eligible_for_stats(
+            g2,
+            team_id=int(team_id),
+            league_name=league_name,
+        )
+    ]
     eligible_game_ids_in_order: list[int] = []
     for g2 in eligible_games:
         try:
@@ -7704,6 +7810,7 @@ def public_league_team_detail(
                 None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
             ),
         }
+    excluded_games = [g2 for g2 in (schedule_games or []) if bool(g2.get("excluded_from_stats"))]
     return render(
         request,
         "team_detail.html",
@@ -7722,6 +7829,9 @@ def public_league_team_detail(
             "recent_dir": recent_dir,
             "tstats": tstats,
             "schedule_games": schedule_games,
+            "excluded_schedule_games_count": len(excluded_games),
+            "show_caha_preseason_exclusion_note": str(league_name or "").strip().casefold()
+            == "caha",
             "editable": False,
             "public_league_id": int(league_id),
             "player_stats_sources": player_stats_sources,

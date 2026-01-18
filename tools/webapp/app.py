@@ -90,6 +90,17 @@ def _get_league_owner_user_id(db_conn, league_id: int) -> Optional[int]:
         return None
 
 
+def _get_league_name(db_conn, league_id: int) -> Optional[str]:
+    del db_conn
+    try:
+        _django_orm, m = _orm_modules()
+        name = m.League.objects.filter(id=int(league_id)).values_list("name", flat=True).first()
+        s = str(name or "").strip()
+        return s or None
+    except Exception:
+        return None
+
+
 def _get_league_page_view_count(db_conn, league_id: int, *, kind: str, entity_id: int = 0) -> int:
     kind_s = str(kind or "").strip()
     if kind_s not in LEAGUE_PAGE_VIEW_KINDS:
@@ -9094,6 +9105,7 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
     _django_orm, m = _orm_modules()
     from django.db.models import Q
 
+    league_name = _get_league_name(None, int(league_id))
     league_team_div: dict[int, str] = {
         int(tid): str(dn or "").strip()
         for tid, dn in m.LeagueTeam.objects.filter(league_id=int(league_id)).values_list(
@@ -9163,6 +9175,8 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
 
     for r in rows:
         if _is_cross_division_non_external_game(r):
+            continue
+        if not game_is_eligible_for_stats(r, team_id=int(team_id), league_name=league_name):
             continue
         t1 = int(r["team1_id"]) == team_id
         my_score = (
@@ -10350,7 +10364,12 @@ def _dedupe_preserve_str(items: list[str]) -> list[str]:
 
 def _game_type_label_for_row(game_row: dict[str, Any]) -> str:
     gt = str(game_row.get("game_type_name") or "").strip()
-    if not gt and is_external_division_name(game_row.get("division_name")):
+    div_name = (
+        game_row.get("division_name")
+        if game_row.get("division_name") is not None
+        else game_row.get("league_division_name")
+    )
+    if not gt and is_external_division_name(div_name):
         return "Tournament"
     return gt or "Unknown"
 
@@ -10360,6 +10379,91 @@ def _game_has_recorded_result(game_row: dict[str, Any]) -> bool:
         (game_row.get("team1_score") is not None)
         or (game_row.get("team2_score") is not None)
         or bool(game_row.get("is_final"))
+    )
+
+
+def _norm_division_name_for_compare(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+def _game_goal_diff(game_row: dict[str, Any]) -> Optional[int]:
+    try:
+        s1 = game_row.get("team1_score")
+        s2 = game_row.get("team2_score")
+        if s1 is None or s2 is None:
+            return None
+        return abs(int(s1) - int(s2))
+    except Exception:
+        return None
+
+
+def game_exclusion_reason_for_stats(
+    game_row: dict[str, Any],
+    *,
+    team_id: Optional[int] = None,
+    league_name: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Return a short reason when a game should be excluded from team/player statistics.
+
+    Rules:
+      - Tournament games with goal differential >= 7 are excluded (blowouts can heavily skew rates/averages).
+      - CAHA preseason games are excluded for a given team if the game was played in a different league
+        division than the team's current CAHA league division (relegation/evaluation games are not representative).
+    """
+    gt_label = str(_game_type_label_for_row(game_row) or "").strip()
+    gt_cf = gt_label.casefold()
+
+    if gt_cf.startswith("tournament"):
+        gd = _game_goal_diff(game_row)
+        if gd is not None and int(gd) >= 7:
+            return "Tournament blowout (goal differential ≥ 7)"
+
+    league_cf = str(league_name or "").strip().casefold()
+    if league_cf == "caha" and "preseason" in gt_cf:
+        if team_id is None:
+            return None
+        try:
+            tid = int(team_id)
+        except Exception:
+            return None
+
+        game_div = (
+            game_row.get("division_name")
+            if game_row.get("division_name") is not None
+            else game_row.get("league_division_name")
+        )
+        game_div_cf = _norm_division_name_for_compare(game_div)
+
+        if not game_div_cf or is_external_division_name(game_div):
+            return None
+
+        t1 = game_row.get("team1_id")
+        t2 = game_row.get("team2_id")
+        team_div = None
+        if t1 is not None and int(t1) == tid:
+            team_div = game_row.get("team1_league_division_name")
+        elif t2 is not None and int(t2) == tid:
+            team_div = game_row.get("team2_league_division_name")
+        team_div_cf = _norm_division_name_for_compare(team_div)
+
+        if team_div_cf and not is_external_division_name(team_div) and team_div_cf != game_div_cf:
+            return "CAHA preseason (played in a different division than the team's final placement)"
+
+    return None
+
+
+def game_is_eligible_for_stats(
+    game_row: dict[str, Any],
+    *,
+    team_id: Optional[int] = None,
+    league_name: Optional[str] = None,
+) -> bool:
+    return (
+        game_exclusion_reason_for_stats(game_row, team_id=team_id, league_name=league_name) is None
     )
 
 

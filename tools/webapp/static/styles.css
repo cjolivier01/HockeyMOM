@@ -205,6 +205,10 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 
 .muted { color: var(--muted); }
 .muted-strong { color: var(--muted-strong); }
+
+/* Team schedule: excluded games should still be visible/clickable, but visually de-emphasized. */
+tr.game-excluded { opacity: .55; }
+tr.game-excluded:hover { opacity: .85; }
 .spacer { height: 1rem; }
 
 .event-type-cell {

@@ -60,6 +60,21 @@
   </div>
 {% endif %}
 
+<div class="card" style="margin-top:1.25rem;">
+  <p class="muted" style="margin:0">
+    Season/team/player statistics exclude certain outlier games to keep rate stats and comparisons representative of normal league play.
+  </p>
+  <ul class="muted" style="margin:.5rem 0 0 1.2rem;">
+    <li>Tournament games with goal differential ≥ 7 (often mismatched and can skew averages).</li>
+    {% if show_caha_preseason_exclusion_note %}
+      <li>CAHA Preseason games played in a different division than the team’s final CAHA division placement (evaluation games before relegation/promotion).</li>
+    {% endif %}
+  </ul>
+  {% if excluded_schedule_games_count %}
+    <p class="muted" style="margin:.5rem 0 0">Excluded games are shown grayed out in the schedule but remain clickable.</p>
+  {% endif %}
+</div>
+
 <h3 style="margin-top:1.25rem;">Schedule</h3>
 <div class="card">
   <div>
@@ -90,7 +105,7 @@
             {% url "media_team_logo" team_id=g.team2_id as team2_logo %}
           {% endif %}
           {% with s1=g.team1_score s2=g.team2_score %}
-          <tr>
+          <tr{% if g.excluded_from_stats %} class="game-excluded" title="{{ g.excluded_from_stats_reason }}"{% endif %}>
             {% if schedule_games and schedule_games.0.division_name %}<td>{{ g.division_name|default_if_none:"" }}</td>{% endif %}
             <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
             <td class="nowrap">{{ g.starts_at|fmt_time }}</td>
@@ -123,6 +138,9 @@
                 {{ g.game_type_name }}
               {% elif g.division_name|is_external_division %}
                 Tournament
+              {% endif %}
+              {% if g.excluded_from_stats %}
+                <span class="muted" title="{{ g.excluded_from_stats_reason }}"> (excluded)</span>
               {% endif %}
             </td>
             <td>{{ g.location|default_if_none:"" }}</td>
@@ -644,7 +662,7 @@
 	    </div>
 	    <button id="team-player-pairings-close" class="btn" type="button">Close</button>
 	  </div>
-	  <div id="team-player-pairings-body" tabindex="0" style="padding:12px 14px;overflow:hidden;overscroll-behavior:contain;"></div>
+	  <div id="team-player-pairings-body" tabindex="0" style="padding:12px 14px;overflow:visible;overscroll-behavior:contain;"></div>
 </dialog>
 
 <style>

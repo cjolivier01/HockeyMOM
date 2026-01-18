@@ -26,6 +26,7 @@ import tempfile
 import time
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 
 
 DEFAULT_ACCOUNT_EMAIL = "cjolivier01@gmail.com"
@@ -35,6 +36,25 @@ GCLOUD_FALLBACKS = (
     "/snap/google-cloud-sdk/632/bin/gcloud",
 )
 GCLOUD_BIN = "gcloud"
+
+# Do not upload local build artifacts / caches / secrets to the VM.
+WEBAPP_UPLOAD_IGNORE_PATTERNS = (
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coverage",
+    ".DS_Store",
+    # Local secret/config state.
+    "instance",
+    # Common local data artifacts.
+    "*.sqlite3",
+    "*.db",
+    "*.log",
+)
 
 
 @dataclass(frozen=True)
@@ -518,26 +538,37 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
             "--zone",
             zone,
             "--command",
-            "mkdir -p /tmp/hm/tools",
+            "rm -rf /tmp/hm/tools/webapp && mkdir -p /tmp/hm/tools",
         ],
         project=project,
         check=True,
     )
 
-    print("Copying `tools/webapp` to the VM...")
-    _gcloud(
-        [
-            "compute",
-            "scp",
-            "--recurse",
-            "tools/webapp",
-            f"{names.instance}:/tmp/hm/tools",
-            "--zone",
-            zone,
-        ],
-        project=project,
-        check=True,
-    )
+    print("Copying `tools/webapp` to the VM (excluding caches/bytecode)...")
+    repo_root = Path(__file__).resolve().parents[3]
+    src_webapp_dir = repo_root / "tools" / "webapp"
+    if not src_webapp_dir.exists():
+        raise RuntimeError(f"Missing webapp source dir: {src_webapp_dir}")
+    with tempfile.TemporaryDirectory(prefix="hm_webapp_gcp_stage_") as td:
+        stage_dir = Path(td) / "webapp"
+        shutil.copytree(
+            src_webapp_dir,
+            stage_dir,
+            ignore=shutil.ignore_patterns(*WEBAPP_UPLOAD_IGNORE_PATTERNS),
+        )
+        _gcloud(
+            [
+                "compute",
+                "scp",
+                "--recurse",
+                str(stage_dir),
+                f"{names.instance}:/tmp/hm/tools",
+                "--zone",
+                zone,
+            ],
+            project=project,
+            check=True,
+        )
 
     server_name = args.server_name
     if server_name == "AUTO":
