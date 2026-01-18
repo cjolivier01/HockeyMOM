@@ -10857,12 +10857,38 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
     from django.db.models.functions import Coalesce
     from django.db.models.functions import Abs
 
+    # Exclude outlier games from aggregated totals (outliers are allowed for MHR-like ratings only).
+    from django.db.models import Q
+
+    eligible_game_ids: list[int] = []
+    for r in (
+        m.HkyGame.objects.filter(user_id=int(user_id))
+        .filter(Q(team1_id=int(team_id)) | Q(team2_id=int(team_id)))
+        .select_related("game_type")
+        .values("id", "team1_score", "team2_score", "game_type__name")
+    ):
+        try:
+            gid = int(r.get("id") or 0)
+        except Exception:
+            continue
+        if gid <= 0:
+            continue
+        row = dict(r)
+        row["game_type_name"] = row.get("game_type__name")
+        if not game_is_eligible_for_stats(row, team_id=int(team_id), league_name=None):
+            continue
+        eligible_game_ids.append(int(gid))
+
+    if not eligible_game_ids:
+        return {}
+
     annotations: dict[str, Any] = {"gp": Count("id")}
     for k in PLAYER_STATS_DB_KEYS:
         annotations[str(k)] = Coalesce(Sum(str(k)), 0)
 
     rows = (
         m.PlayerStat.objects.filter(team_id=int(team_id), user_id=int(user_id))
+        .filter(game_id__in=[int(x) for x in eligible_game_ids])
         .values("player_id")
         .annotate(**annotations)
     )
@@ -10876,11 +10902,7 @@ def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
             r.setdefault("toi_seconds", 0)
             r.setdefault("shifts", 0)
 
-        game_ids = set(
-            m.PlayerStat.objects.filter(team_id=int(team_id), user_id=int(user_id)).values_list(
-                "game_id", flat=True
-            )
-        )
+        game_ids = {int(x) for x in eligible_game_ids}
         if game_ids:
             dur_expr = Abs(F("game_seconds_end") - F("game_seconds"))
             for srow in (
@@ -10915,6 +10937,7 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
     from django.db.models.functions import Coalesce
     from django.db.models.functions import Abs
 
+    league_name = _get_league_name(None, int(league_id))
     league_team_div: dict[int, str] = {
         int(tid): str(dn or "").strip()
         for tid, dn in m.LeagueTeam.objects.filter(league_id=int(league_id)).values_list(
@@ -10925,17 +10948,25 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
     for lg in (
         m.LeagueGame.objects.filter(league_id=int(league_id))
         .filter(Q(game__team1_id=int(team_id)) | Q(game__team2_id=int(team_id)))
-        .select_related("game")
+        .select_related("game", "game__game_type")
     ):
         g = lg.game
         t1_id = int(g.team1_id)
         t2_id = int(g.team2_id)
-        row = {
+        row: dict[str, Any] = {
+            "team1_id": t1_id,
+            "team2_id": t2_id,
+            "team1_score": g.team1_score,
+            "team2_score": g.team2_score,
+            "is_final": bool(getattr(g, "is_final", False)),
+            "game_type_name": (g.game_type.name if g.game_type else None),
             "division_name": lg.division_name,
             "team1_league_division_name": league_team_div.get(t1_id),
             "team2_league_division_name": league_team_div.get(t2_id),
         }
         if _league_game_is_cross_division_non_external(row):
+            continue
+        if not game_is_eligible_for_stats(row, team_id=int(team_id), league_name=league_name):
             continue
         eligible_game_ids.append(int(lg.game_id))
 

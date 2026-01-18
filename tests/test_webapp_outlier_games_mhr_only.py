@@ -163,3 +163,293 @@ def should_use_outlier_games_only_for_mhr_ratings(monkeypatch, webapp_db):
     )
     assert lt_a is not None
     assert int(lt_a["mhr_games"]) == 2
+
+
+def should_exclude_outlier_games_from_aggregate_player_totals(monkeypatch, webapp_db):
+    _django_orm, m = webapp_db
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+
+    from tools.webapp import app as webapp_app
+
+    now = dt.datetime(2026, 1, 1, 0, 0, 0)
+    user = m.User.objects.create(
+        id=10,
+        email="u@example.com",
+        password_hash="x",
+        name="U",
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    team = m.Team.objects.create(
+        id=1,
+        user_id=int(user.id),
+        name="Team",
+        is_external=False,
+        logo_path=None,
+        created_at=now,
+        updated_at=None,
+    )
+    opp = m.Team.objects.create(
+        id=2,
+        user_id=int(user.id),
+        name="Opp",
+        is_external=True,
+        logo_path=None,
+        created_at=now,
+        updated_at=None,
+    )
+    player = m.Player.objects.create(
+        id=100,
+        user_id=int(user.id),
+        team_id=int(team.id),
+        name="P",
+        jersey_number="9",
+        position=None,
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    gt_regular = m.GameType.objects.get(name="Regular Season")
+    gt_tournament = m.GameType.objects.get(name="Tournament")
+
+    g_ok = m.HkyGame.objects.create(
+        id=10,
+        user_id=int(user.id),
+        team1_id=int(team.id),
+        team2_id=int(opp.id),
+        game_type_id=int(gt_regular.id),
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=2,
+        team2_score=1,
+        is_final=True,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    g_outlier = m.HkyGame.objects.create(
+        id=11,
+        user_id=int(user.id),
+        team1_id=int(team.id),
+        team2_id=int(opp.id),
+        game_type_id=int(gt_tournament.id),
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=12,
+        team2_score=0,
+        is_final=True,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    m.PlayerStat.objects.create(
+        id=1,
+        user_id=int(user.id),
+        team_id=int(team.id),
+        game_id=int(g_ok.id),
+        player_id=int(player.id),
+        goals=1,
+        assists=0,
+        pim=0,
+        shots=1,
+    )
+    m.PlayerStat.objects.create(
+        id=2,
+        user_id=int(user.id),
+        team_id=int(team.id),
+        game_id=int(g_outlier.id),
+        player_id=int(player.id),
+        goals=5,
+        assists=1,
+        pim=0,
+        shots=6,
+    )
+
+    totals = webapp_app.aggregate_players_totals(None, team_id=int(team.id), user_id=int(user.id))
+    p = totals[int(player.id)]
+    assert p["gp"] == 1
+    assert p["goals"] == 1
+    assert p["assists"] == 0
+
+
+def should_exclude_outlier_games_from_aggregate_player_totals_league(monkeypatch, webapp_db):
+    _django_orm, m = webapp_db
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+
+    from tools.webapp import app as webapp_app
+
+    now = dt.datetime(2026, 1, 1, 0, 0, 0)
+    owner = m.User.objects.create(
+        id=10,
+        email="owner@example.com",
+        password_hash="x",
+        name="Owner",
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    league = m.League.objects.create(
+        id=1,
+        name="L",
+        owner_user_id=int(owner.id),
+        is_shared=False,
+        is_public=True,
+        show_goalie_stats=False,
+        show_shift_data=False,
+        source=None,
+        external_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    team_a = m.Team.objects.create(
+        id=101,
+        user_id=int(owner.id),
+        name="Team A",
+        is_external=False,
+        logo_path=None,
+        created_at=now,
+        updated_at=None,
+    )
+    team_b = m.Team.objects.create(
+        id=102,
+        user_id=int(owner.id),
+        name="Team B",
+        is_external=False,
+        logo_path=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id),
+        team_id=int(team_a.id),
+        division_name="12AA",
+        division_id=None,
+        conference_id=None,
+        mhr_div_rating=None,
+        mhr_rating=None,
+        mhr_agd=None,
+        mhr_sched=None,
+        mhr_games=None,
+        mhr_updated_at=None,
+    )
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id),
+        team_id=int(team_b.id),
+        division_name="12AA",
+        division_id=None,
+        conference_id=None,
+        mhr_div_rating=None,
+        mhr_rating=None,
+        mhr_agd=None,
+        mhr_sched=None,
+        mhr_games=None,
+        mhr_updated_at=None,
+    )
+    player = m.Player.objects.create(
+        id=100,
+        user_id=int(owner.id),
+        team_id=int(team_a.id),
+        name="P",
+        jersey_number="9",
+        position=None,
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    gt_regular = m.GameType.objects.get(name="Regular Season")
+    gt_tournament = m.GameType.objects.get(name="Tournament")
+    g_ok = m.HkyGame.objects.create(
+        id=201,
+        user_id=int(owner.id),
+        team1_id=int(team_a.id),
+        team2_id=int(team_b.id),
+        game_type_id=int(gt_regular.id),
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=2,
+        team2_score=1,
+        is_final=True,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    g_outlier = m.HkyGame.objects.create(
+        id=202,
+        user_id=int(owner.id),
+        team1_id=int(team_a.id),
+        team2_id=int(team_b.id),
+        game_type_id=int(gt_tournament.id),
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=12,
+        team2_score=0,
+        is_final=True,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueGame.objects.create(
+        league_id=int(league.id),
+        game_id=int(g_ok.id),
+        division_name="12AA",
+        division_id=None,
+        conference_id=None,
+        sort_order=1,
+    )
+    m.LeagueGame.objects.create(
+        league_id=int(league.id),
+        game_id=int(g_outlier.id),
+        division_name="12AA",
+        division_id=None,
+        conference_id=None,
+        sort_order=2,
+    )
+
+    m.PlayerStat.objects.create(
+        id=1,
+        user_id=int(owner.id),
+        team_id=int(team_a.id),
+        game_id=int(g_ok.id),
+        player_id=int(player.id),
+        goals=1,
+        assists=0,
+        pim=0,
+        shots=1,
+    )
+    m.PlayerStat.objects.create(
+        id=2,
+        user_id=int(owner.id),
+        team_id=int(team_a.id),
+        game_id=int(g_outlier.id),
+        player_id=int(player.id),
+        goals=5,
+        assists=1,
+        pim=0,
+        shots=6,
+    )
+
+    totals = webapp_app.aggregate_players_totals_league(
+        None, team_id=int(team_a.id), league_id=int(league.id)
+    )
+    p = totals[int(player.id)]
+    assert p["gp"] == 1
+    assert p["goals"] == 1
+    assert p["assists"] == 0
