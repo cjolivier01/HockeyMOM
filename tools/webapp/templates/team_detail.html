@@ -680,12 +680,24 @@
   #team-player-pairings-body table.team-player-pairings-table {
     border-collapse: separate;
     border-spacing: 0;
+    /* Allow sticky header/columns to key off the scroll wrapper, not the table itself. */
+    overflow: visible;
+  }
+
+  #team-player-pairings-body table.team-player-pairings-table th.pair-jersey-col,
+  #team-player-pairings-body table.team-player-pairings-table td.pair-jersey-col {
+    min-width: 46px;
+    width: 46px;
+    max-width: 46px;
+    text-align: right;
+    padding-left: .5rem;
+    padding-right: .5rem;
   }
 
   @media (max-width: 720px), (pointer: coarse) and (max-width: 980px) {
     #team-player-pairings-body table.team-player-pairings-table th,
     #team-player-pairings-body table.team-player-pairings-table td {
-      font-size: calc(.88rem * 0.80);
+      font-size: calc(.88rem * 0.85);
     }
   }
 
@@ -792,7 +804,11 @@
           else node.setAttribute(k, String(attrs[k]));
         });
       }
-      if (text !== undefined && text !== null) node.textContent = String(text);
+      if (text && text.nodeType) {
+        node.appendChild(text);
+      } else if (text !== undefined && text !== null) {
+        node.textContent = String(text);
+      }
       return node;
     }
 
@@ -1482,6 +1498,22 @@
       return n.toFixed(1);
     }
 
+    function thClampLabel(label) {
+      var txt = String(label || "").trim();
+      var wrap = document.createElement("div");
+      wrap.className = "th-clamp";
+      if (!txt) return wrap;
+      var parts = txt.split(/\\s+/);
+      if (parts.length <= 2) {
+        wrap.textContent = txt;
+        return wrap;
+      }
+      wrap.appendChild(document.createTextNode(parts.slice(0, 2).join(" ")));
+      wrap.appendChild(document.createElement("br"));
+      wrap.appendChild(document.createTextNode(parts.slice(2).join(" ")));
+      return wrap;
+    }
+
     function cellWithGamesNote(value, games, maxGames) {
       var txt = String(value || "");
       var g = null;
@@ -1552,18 +1584,19 @@
           var shiftNoteText = shiftNote ? ("(" + String(shiftGames) + " games)") : "";
           function th(label, idx, opts) {
             opts = opts || {};
-            var attrs = null;
-            if (idx === 0 || idx === 1) attrs = { "data-sticky-col": String(idx) };
-            var thEl = el("th", attrs, "");
-            thEl.appendChild(el("div", null, label));
+            var attrs = {};
+            if (idx === 0 || idx === 1) attrs["data-sticky-col"] = String(idx);
+            if (idx === 0 || idx === 2) attrs.className = "pair-jersey-col";
+            var thEl = el("th", attrs, null);
+            thEl.appendChild(thClampLabel(label));
             if (opts.shiftNote && shiftNoteText) {
               thEl.appendChild(el("div", { className: "th-subnote" }, shiftNoteText));
             }
             trh.appendChild(thEl);
           }
-          th("Player #", 0);
+          th("#", 0);
           th("Player", 1);
-          th("Teammate #", 2);
+          th("#", 2);
           th("Teammate", 3);
           th("Games with Data", 4);
           th("Overlap %", 5, { shiftNote: true });
@@ -1594,10 +1627,10 @@
               var tr = document.createElement("tr");
               function td(txt, attrs) { tr.appendChild(el("td", attrs || null, txt)); }
               if (idx === 0) {
-                td(String(r.player_jersey || ""), { rowspan: String(group.length), style: "vertical-align: middle;", "data-sticky-col": "0" });
+                td(String(r.player_jersey || ""), { rowspan: String(group.length), style: "vertical-align: middle;", className: "pair-jersey-col", "data-sticky-col": "0" });
                 td(String(r.player_name || ""), { rowspan: String(group.length), style: "vertical-align: middle;", "data-sticky-col": "1" });
               }
-              td(String(r.teammate_jersey || ""));
+              td(String(r.teammate_jersey || ""), { className: "pair-jersey-col" });
               td(String(r.teammate_name || ""));
               td(String(r.shift_games || 0));
               td(fmtPct(r.overlap_pct));

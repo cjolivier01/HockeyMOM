@@ -1,0 +1,6 @@
+# Webapp development/test dependencies.
+#
+# Note: deployment installs runtime deps via `tools/webapp/ops/install_webapp.py`.
+
+# Browser-based UI regression tests (uses system Chrome in our tests).
+playwright>=1.41.0
