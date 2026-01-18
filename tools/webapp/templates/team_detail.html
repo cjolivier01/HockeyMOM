@@ -65,10 +65,10 @@
     Season/team/player statistics exclude certain outlier games to keep rate stats and comparisons representative of normal league play.
   </p>
   <ul class="muted" style="margin:.5rem 0 0 1.2rem;">
-    <li>Tournament games with goal differential ≥ 7 (often mismatched and can skew averages).</li>
     {% if show_caha_preseason_exclusion_note %}
-      <li>CAHA Preseason games played in a different division than the team’s final CAHA division placement (evaluation games before relegation/promotion).</li>
+      <li>League Preseason games played in a different division than the team’s final CAHA division placement (evaluation games before relegation/promotion).</li>
     {% endif %}
+    <li>Tournament games with goal differential ≥ 7 (often mismatched and can skew averages).</li>
   </ul>
   {% if excluded_schedule_games_count %}
     <p class="muted" style="margin:.5rem 0 0">Excluded games are shown grayed out in the schedule but remain clickable.</p>
