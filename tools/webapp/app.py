@@ -9065,10 +9065,17 @@ def compute_team_stats(db_conn, team_id: int, user_id: int) -> dict:
             team2_score__isnull=False,
         )
         .filter(Q(team1_id=int(team_id)) | Q(team2_id=int(team_id)))
-        .values("team1_id", "team2_id", "team1_score", "team2_score")
+        .select_related("game_type")
+        .values("team1_id", "team2_id", "team1_score", "team2_score", "game_type__name")
     )
     wins = losses = ties = gf = ga = 0
     for r in rows:
+        # Keep non-league team totals consistent with league/team/player stat behavior:
+        # exclude outlier games (MHR-like ratings handle outliers separately via goal-diff capping).
+        r2 = dict(r)
+        r2["game_type_name"] = r.get("game_type__name")
+        if not game_is_eligible_for_stats(r2, team_id=int(team_id), league_name=None):
+            continue
         t1 = int(r["team1_id"]) == team_id
         my_score = (
             int(r["team1_score"])
