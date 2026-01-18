@@ -780,12 +780,12 @@
               w.searchParams.set("v", String(id));
               w.searchParams.set("t", String(sec) + "s");
               w.searchParams.set("autoplay", "1");
-              w.searchParams.set("vq", "hd1080");
+              w.searchParams.set("vq", "highres");
               return w.toString();
             }
             u.searchParams.set("t", String(sec) + "s");
             u.searchParams.set("autoplay", "1");
-            u.searchParams.set("vq", "hd1080");
+            u.searchParams.set("vq", "highres");
             return u.toString();
           }
           u.hash = "t=" + String(sec);
@@ -1094,7 +1094,7 @@
           w.searchParams.set("v", String(id));
           w.searchParams.set("t", String(start) + "s");
           w.searchParams.set("autoplay", "1");
-          w.searchParams.set("vq", "hd1080");
+          w.searchParams.set("vq", "highres");
           return w.toString();
         } catch (e) {
           return null;
@@ -1113,11 +1113,33 @@
         params.set("origin", String(window.location.origin || ""));
         params.set("start", String(start));
         params.set("end", String(end));
-        params.set("vq", "hd1080");
+        params.set("vq", "highres");
         params.set("rel", "0");
         params.set("modestbranding", "1");
         params.set("playsinline", "1");
         return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+      }
+
+      function requestYouTubeBestQuality(iframeEl) {
+        try {
+          if (!iframeEl || !iframeEl.contentWindow) return;
+          var cmds = [
+            { func: "setPlaybackQuality", args: ["highres"] },
+            { func: "setPlaybackQuality", args: ["hd2160"] },
+            { func: "setPlaybackQuality", args: ["hd1440"] },
+            { func: "setPlaybackQuality", args: ["hd1080"] },
+            { func: "setPlaybackQuality", args: ["hd720"] },
+            { func: "setPlaybackQuality", args: ["large"] },
+            { func: "setPlaybackQualityRange", args: ["highres", "highres"] },
+            { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+          ];
+          for (var i = 0; i < cmds.length; i++) {
+            iframeEl.contentWindow.postMessage(
+              JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+              "https://www.youtube-nocookie.com"
+            );
+          }
+        } catch (e) {}
       }
 
       function clipTimingForEvent(r) {
@@ -1156,6 +1178,17 @@
         }
         videoIframe.src = embed;
         videoIframe.setAttribute("src", embed);
+        // Best-effort: request highest available quality after navigation.
+        try {
+          if (!videoIframe._hmYtQualityHookInstalled) {
+            videoIframe._hmYtQualityHookInstalled = true;
+            videoIframe.addEventListener("load", function () { requestYouTubeBestQuality(videoIframe); });
+          }
+          requestYouTubeBestQuality(videoIframe);
+          window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 250);
+          window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 800);
+          window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 1600);
+        } catch (e) {}
         if (videoMeta) {
           var tLabel = timing.kindKey ? timing.kindKey.toUpperCase() : "";
           var at = (String(r.video_time || "").trim() || fmtSecondsToTime(vs));

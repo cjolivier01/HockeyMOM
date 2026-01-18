@@ -657,7 +657,7 @@
                   w.searchParams.set("v", String(id));
                   w.searchParams.set("t", String(start) + "s");
                   w.searchParams.set("autoplay", "1");
-                  w.searchParams.set("vq", "hd1080");
+                  w.searchParams.set("vq", "highres");
                   return w.toString();
                 } catch (e) {
                   return null;
@@ -679,7 +679,7 @@
                 params.set("start", String(start));
                 params.set("end", String(end));
                 // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
-                params.set("vq", "hd1080");
+                params.set("vq", "highres");
                 params.set("rel", "0");
               params.set("modestbranding", "1");
               params.set("playsinline", "1");
@@ -750,7 +750,7 @@
                     var u2 = new URL(String(gameVideoUrl));
                     u2.searchParams.set("t", String(start2) + "s");
                     u2.searchParams.set("autoplay", "1");
-                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
+                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "highres");
                     window.open(u2.toString(), "_blank", "noopener");
                   } catch (e) {
                     window.open(String(gameVideoUrl), "_blank", "noopener");
@@ -2490,7 +2490,8 @@
         id="events-drilldown-video-iframe"
         title="Game video clip"
         style="border:0;width:100%;height:100%;background:#000;"
-        allow="autoplay; fullscreen; picture-in-picture"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
       ></iframe>
     </div>
   </div>
@@ -2653,7 +2654,7 @@
       return null;
     }
 
-    function buildYoutubeWatchUrl(url, startSec) {
+      function buildYoutubeWatchUrl(url, startSec) {
       var id = extractYoutubeId(url);
       if (!id) return null;
       var start = Math.max(0, Math.floor(startSec || 0));
@@ -2662,7 +2663,7 @@
         w.searchParams.set("v", String(id));
         w.searchParams.set("t", String(start) + "s");
         w.searchParams.set("autoplay", "1");
-        w.searchParams.set("vq", "hd1080");
+        w.searchParams.set("vq", "highres");
         return w.toString();
       } catch (e) {
         return null;
@@ -2681,11 +2682,33 @@
       params.set("origin", String(window.location.origin || ""));
       params.set("start", String(start));
       params.set("end", String(end));
-      params.set("vq", "hd1080");
+      params.set("vq", "highres");
       params.set("rel", "0");
       params.set("modestbranding", "1");
       params.set("playsinline", "1");
       return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+    }
+
+    function requestYouTubeBestQuality(iframeEl) {
+      try {
+        if (!iframeEl || !iframeEl.contentWindow) return;
+        var cmds = [
+          { func: "setPlaybackQuality", args: ["highres"] },
+          { func: "setPlaybackQuality", args: ["hd2160"] },
+          { func: "setPlaybackQuality", args: ["hd1440"] },
+          { func: "setPlaybackQuality", args: ["hd1080"] },
+          { func: "setPlaybackQuality", args: ["hd720"] },
+          { func: "setPlaybackQuality", args: ["large"] },
+          { func: "setPlaybackQualityRange", args: ["highres", "highres"] },
+          { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+        ];
+        for (var i = 0; i < cmds.length; i++) {
+          iframeEl.contentWindow.postMessage(
+            JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+            "https://www.youtube-nocookie.com"
+          );
+        }
+      } catch (e) {}
     }
 
     function closeDrilldownVideo() {
@@ -2749,6 +2772,17 @@
       if (!embed) return false;
       iframe.src = embed;
       iframe.setAttribute("src", embed);
+      // Best-effort: request highest available quality after navigation.
+      try {
+        if (!iframe._hmYtQualityHookInstalled) {
+          iframe._hmYtQualityHookInstalled = true;
+          iframe.addEventListener("load", function () { requestYouTubeBestQuality(iframe); });
+        }
+        requestYouTubeBestQuality(iframe);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 250);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 800);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 1600);
+      } catch (e) {}
       if (meta) {
         var label = (opts.label ? String(opts.label) : "");
         var at = (opts.at ? String(opts.at) : "");

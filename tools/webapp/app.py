@@ -326,7 +326,7 @@ def create_app():
     @app.template_filter("youtube_best_quality_url")
     def _youtube_best_quality_url(url: Any) -> str:
         """
-        Best-effort: append YouTube's `vq` hint (e.g. hd1080) to prefer higher playback quality.
+        Best-effort: append YouTube's `vq` hint (e.g. highres/hd1080) to prefer higher playback quality.
         Note: YouTube ultimately chooses resolution based on bandwidth/device/player size.
         """
         s = str(url or "").strip()
@@ -343,7 +343,7 @@ def create_app():
             if not is_youtube:
                 return s
             q = dict(parse_qsl(u.query or "", keep_blank_values=True))
-            q.setdefault("vq", "hd1080")
+            q.setdefault("vq", "highres")
             new_u = u._replace(query=urlencode(q, doseq=True))
             return urlunparse(new_u)
         except Exception:
