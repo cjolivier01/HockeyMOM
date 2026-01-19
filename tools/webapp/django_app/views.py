@@ -1881,6 +1881,124 @@ def _overlay_completed_passes_into_player_stat_rows(
     return
 
 
+def _overlay_scoring_into_player_stat_rows_from_event_rows(
+    *,
+    game_ids: list[int],
+    player_stats_rows: list[dict[str, Any]],
+) -> None:
+    """
+    Best-effort: if scoring-derived `PlayerStat` fields (Goals/Assists/Shots/SOG/xG) are missing,
+    derive them from normalized event rows and overlay into the in-memory player stat rows used for
+    team-level aggregation/rendering.
+
+    This is important for "events-only" uploads (e.g. external games / spreadsheets-only flows)
+    where game pages can compute scoring from `hky_game_event_rows`, but `player_stats` rows may not
+    have explicit scoring columns populated.
+    """
+    if not game_ids or not player_stats_rows:
+        return
+    _django_orm, m = _orm_modules()
+    from django.db.models import Count
+
+    by_key: dict[tuple[int, int], dict[str, Any]] = {}
+    for r in player_stats_rows:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+        except Exception:
+            continue
+        if pid > 0 and gid > 0:
+            by_key[(pid, gid)] = r
+    if not by_key:
+        return
+
+    gids = [int(x) for x in game_ids]
+    pids = sorted({int(pid) for (pid, _gid) in by_key.keys()})
+    if not pids:
+        return
+
+    suppressed = m.HkyGameEventSuppression.objects.filter(game_id__in=gids).values_list(
+        "import_key", flat=True
+    )
+    qs = (
+        m.HkyGameEventRow.objects.filter(
+            game_id__in=gids,
+            player_id__in=pids,
+            event_type__key__in=[
+                "goal",
+                "assist",
+                "expectedgoal",
+                "sog",
+                "shotongoal",
+                "shot",
+            ],
+        )
+        .exclude(import_key__in=suppressed)
+        .values("player_id", "game_id", "event_type__key")
+        .annotate(n=Count("id"))
+    )
+
+    counts_by_key: dict[tuple[int, int], dict[str, int]] = {}
+    present_by_game_id: dict[int, set[str]] = {}
+    for r in qs:
+        try:
+            pid = int(r.get("player_id") or 0)
+            gid = int(r.get("game_id") or 0)
+            n = int(r.get("n") or 0)
+        except Exception:
+            continue
+        if pid <= 0 or gid <= 0 or n <= 0:
+            continue
+        k = str(r.get("event_type__key") or "").strip().casefold()
+        if not k:
+            continue
+        present_by_game_id.setdefault(gid, set()).add(k)
+        counts_by_key.setdefault((pid, gid), {})
+        counts_by_key[(pid, gid)][k] = counts_by_key[(pid, gid)].get(k, 0) + int(n)
+
+    scoring_game_ids = {
+        int(gid)
+        for gid, keys in (present_by_game_id or {}).items()
+        if ("goal" in keys) or ("assist" in keys)
+    }
+    shot_game_ids = {
+        int(gid)
+        for gid, keys in (present_by_game_id or {}).items()
+        if any(k in keys for k in ("expectedgoal", "sog", "shotongoal", "shot"))
+    }
+
+    for (pid, gid), row in by_key.items():
+        if not row:
+            continue
+
+        c = counts_by_key.get((pid, gid), {})
+        goals = int(c.get("goal") or 0)
+        assists = int(c.get("assist") or 0)
+        xg_direct = int(c.get("expectedgoal") or 0)
+        sog_direct = int(c.get("sog") or 0) + int(c.get("shotongoal") or 0)
+        shots_direct = int(c.get("shot") or 0)
+
+        xg = goals + xg_direct
+        sog = xg + sog_direct
+        shots = sog + shots_direct
+
+        # Only fill missing (NULL) values; do not override explicit DB values.
+        # When we have event data for a game, treat missing stats as 0 so per-game rates (PPG, shots/game)
+        # don't use a denominator of 1 just because the player had 0 in that stat.
+        if gid in scoring_game_ids:
+            if row.get("goals") is None:
+                row["goals"] = int(goals)
+            if row.get("assists") is None:
+                row["assists"] = int(assists)
+        if gid in shot_game_ids:
+            if row.get("expected_goals") is None:
+                row["expected_goals"] = int(xg)
+            if row.get("sog") is None:
+                row["sog"] = int(sog)
+            if row.get("shots") is None:
+                row["shots"] = int(shots)
+
+
 def _overlay_shift_stats_into_player_stat_rows(
     *,
     game_ids: list[int],
@@ -5231,6 +5349,9 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         _overlay_timetoscore_zero_stats_into_player_stat_rows(
             game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
         )
+        _overlay_scoring_into_player_stat_rows_from_event_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
         if not show_shift_data:
             _mask_shift_stats_in_player_stat_rows(ps_rows)
         if show_shift_data:
@@ -5331,6 +5452,9 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             )
         )
         _overlay_timetoscore_zero_stats_into_player_stat_rows(
+            game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+        )
+        _overlay_scoring_into_player_stat_rows_from_event_rows(
             game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
         )
         if not show_shift_data:
@@ -7637,6 +7761,9 @@ def public_league_team_detail(
         )
     )
     _overlay_timetoscore_zero_stats_into_player_stat_rows(
+        game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
+    )
+    _overlay_scoring_into_player_stat_rows_from_event_rows(
         game_ids=[int(x) for x in schedule_game_ids], player_stats_rows=ps_rows
     )
     if not show_shift_data:
