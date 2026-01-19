@@ -3269,6 +3269,10 @@ def create_app():
 
         # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
         # This lets the webapp create missing roster players (including goalies) without contacting T2S.
+        roster_player_ids_by_team: dict[int, set[int]] = {
+            int(team1_id): set(),
+            int(team2_id): set(),
+        }
         roster_home = payload.get("roster_home") or []
         roster_away = payload.get("roster_away") or []
         if isinstance(roster_home, list) or isinstance(roster_away, list):
@@ -3285,7 +3289,7 @@ def create_app():
                             continue
                         jersey_norm = normalize_jersey_number(rec.get("jersey_number"))
                         pos = str(rec.get("position") or "").strip() or None
-                        _ensure_player_for_import(
+                        pid = _ensure_player_for_import(
                             int(owner_user_id),
                             int(tid),
                             nm,
@@ -3293,6 +3297,10 @@ def create_app():
                             pos,
                             commit=False,
                         )
+                        try:
+                            roster_player_ids_by_team[int(tid)].add(int(pid))
+                        except Exception:
+                            pass
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "Error while creating/importing roster players (game_id=%s)",
@@ -3353,6 +3361,27 @@ def create_app():
 
             now = dt.datetime.now()
             with transaction.atomic():
+                has_stats_payload = bool(
+                    (isinstance(player_stats_csv, str) and player_stats_csv.strip())
+                    or (isinstance(game_stats_csv, str) and game_stats_csv.strip())
+                    or (isinstance(events_csv, str) and events_csv.strip())
+                )
+                if has_stats_payload and roster_player_ids_by_team:
+                    # Credit GP for roster players even when they have no shift-package scoring stats.
+                    to_create = []
+                    for tid, pids in roster_player_ids_by_team.items():
+                        for pid in sorted(pids):
+                            to_create.append(
+                                m.PlayerStat(
+                                    user_id=int(owner_user_id),
+                                    team_id=int(tid),
+                                    game_id=int(resolved_game_id),
+                                    player_id=int(pid),
+                                )
+                            )
+                    if to_create:
+                        m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+
                 if isinstance(events_csv, str) and events_csv.strip():
                     has_existing = m.HkyGameEventRow.objects.filter(
                         game_id=int(resolved_game_id)
@@ -9173,26 +9202,14 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
     wins = losses = ties = gf = ga = 0
     swins = slosses = sties = sgf = sga = 0
 
-    def _is_cross_division_non_external_game(r: dict) -> bool:
-        """
-        Ignore TimeToScore cross-division games (e.g. 12AA vs 12A) when both teams have a known
-        non-External league division. External games (or unknown opponent division) are kept.
-        """
-        d1 = str(r.get("team1_league_division_name") or "").strip()
-        d2 = str(r.get("team2_league_division_name") or "").strip()
-        if not d1 or not d2:
-            return False
-        if is_external_division_name(d1) or is_external_division_name(d2):
-            return False
-        ld = str(r.get("league_division_name") or "").strip()
-        if is_external_division_name(ld):
-            return False
-        return d1 != d2
-
     def _is_regular_game(r: dict) -> bool:
         # Only regular-season games should contribute to standings points/rankings.
         gt = str(r.get("game_type_name") or "").strip()
         if not gt or not gt.lower().startswith("regular"):
+            return False
+        # Cross-division games are part of the team's overall record, but should not affect
+        # division standings points/rankings.
+        if _league_game_is_cross_division_non_external(r):
             return False
         # Any game involving an External team, or mapped to the External division, does not count for standings.
         for key in (
@@ -9206,8 +9223,6 @@ def compute_team_stats_league(db_conn, team_id: int, league_id: int) -> dict:
         return True
 
     for r in rows:
-        if _is_cross_division_non_external_game(r):
-            continue
         if not game_is_eligible_for_stats(r, team_id=int(team_id), league_name=league_name):
             continue
         t1 = int(r["team1_id"]) == team_id
@@ -10989,8 +11004,6 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
             "team1_league_division_name": league_team_div.get(t1_id),
             "team2_league_division_name": league_team_div.get(t2_id),
         }
-        if _league_game_is_cross_division_non_external(row):
-            continue
         if not game_is_eligible_for_stats(row, team_id=int(team_id), league_name=league_name):
             continue
         eligible_game_ids.append(int(lg.game_id))

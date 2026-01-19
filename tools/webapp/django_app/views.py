@@ -2699,11 +2699,6 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                     "team2_league_division_name": league_team_div_map.get(t2),
                 }
             )
-        schedule_games = [
-            g2
-            for g2 in (schedule_games or [])
-            if not logic._league_game_is_cross_division_non_external(g2)
-        ]
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
     else:
         if not session_uid:
@@ -3412,11 +3407,6 @@ def api_hky_team_pair_on_ice(request: HttpRequest, team_id: int) -> JsonResponse
                     "team2_league_division_name": league_team_div_map.get(t2),
                 }
             )
-        schedule_games = [
-            g2
-            for g2 in (schedule_games or [])
-            if not logic._league_game_is_cross_division_non_external(g2)
-        ]
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
     else:
         if not session_uid:
@@ -4153,11 +4143,6 @@ def api_hky_team_goalie_stats(request: HttpRequest, team_id: int, player_id: int
                     "team2_league_division_name": league_team_div_map.get(t2),
                 }
             )
-        schedule_games = [
-            g2
-            for g2 in (schedule_games or [])
-            if not logic._league_game_is_cross_division_non_external(g2)
-        ]
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
     else:
         if not session_uid:
@@ -5213,11 +5198,6 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
                 }
             )
 
-        schedule_games = [
-            g2
-            for g2 in (schedule_games or [])
-            if not logic._league_game_is_cross_division_non_external(g2)
-        ]
         now_dt = dt.datetime.now()
         for g2 in schedule_games:
             sdt = g2.get("starts_at")
@@ -5985,11 +5965,6 @@ def schedule(request: HttpRequest) -> HttpResponse:
                 }
             )
 
-    if league_id:
-        games = [
-            g2 for g2 in (games or []) if not logic._league_game_is_cross_division_non_external(g2)
-        ]
-
     now_dt = dt.datetime.now()
     is_league_admin = bool(
         league_id and _is_league_admin(int(league_id), _session_user_id(request))
@@ -6250,8 +6225,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         game["game_video_url"] = None
 
     is_owner = int(game.get("user_id") or 0) == int(session_uid)
-    if league_id and not is_owner and logic._league_game_is_cross_division_non_external(game):
-        raise Http404
 
     now_dt = dt.datetime.now()
     sdt = game.get("starts_at")
@@ -7632,11 +7605,6 @@ def public_league_team_detail(
             }
         )
 
-    schedule_games = [
-        g2
-        for g2 in (schedule_games or [])
-        if not logic._league_game_is_cross_division_non_external(g2)
-    ]
     now_dt = dt.datetime.now()
     for g2 in schedule_games:
         sdt = g2.get("starts_at")
@@ -8123,9 +8091,7 @@ def public_league_schedule(
                 "team2_league_division_name": league_team_div_map.get(t2),
             }
         )
-    games = [
-        g2 for g2 in (games or []) if not logic._league_game_is_cross_division_non_external(g2)
-    ]
+    games = list(games or [])
     now_dt = dt.datetime.now()
     for g2 in games or []:
         try:
@@ -8272,9 +8238,6 @@ def public_hky_game_detail(
         )
     except Exception:
         game["game_video_url"] = None
-    if logic._league_game_is_cross_division_non_external(game):
-        raise Http404
-
     now_dt = dt.datetime.now()
     sdt = game.get("starts_at")
     started = False
@@ -10428,8 +10391,58 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 )
             )
 
-            game_division_name = str(division_name or "").strip() or "External"
-            new_team_division_name = game_division_name
+            def _infer_base_division_name(s: Optional[str]) -> Optional[str]:
+                raw = str(s or "").strip()
+                if not raw:
+                    return None
+                if logic.is_external_division_name(raw):
+                    raw = re.sub(r"(?i)^external\s*", "", raw).strip()
+                m_age_level = re.search(
+                    r"(?i)(?:^|\b)(\d{1,2})(?:u)?\s*(AAA|AA|BB|A|B)(?=\b|\s|$|[-–—])",
+                    raw,
+                )
+                if m_age_level:
+                    try:
+                        age = int(m_age_level.group(1))
+                    except Exception:
+                        age = None
+                    level = str(m_age_level.group(2) or "").strip().upper() or None
+                    if age is not None and level:
+                        return f"{age} {level}"
+                raw_cf = raw.casefold()
+                if "mite" in raw_cf:
+                    return "8U"
+                if "squirt" in raw_cf:
+                    return "10U"
+                if "peewee" in raw_cf or "pee wee" in raw_cf:
+                    return "12U"
+                if "bantam" in raw_cf:
+                    return "14U"
+                if "midget" in raw_cf:
+                    return "16U"
+                if "junior" in raw_cf:
+                    return "18U"
+                m_age_u = re.search(r"(?i)(?:^|\b)(\d{1,2})u(?=\b|\s|$|[-–—])", raw)
+                if m_age_u:
+                    try:
+                        age = int(m_age_u.group(1))
+                    except Exception:
+                        age = None
+                    if age is not None:
+                        return f"{age}U"
+                return None
+
+            base_division_name = (
+                _infer_base_division_name(division_name)
+                or _infer_base_division_name(home_team_name)
+                or _infer_base_division_name(away_team_name)
+            )
+            external_division_name = (
+                f"External {base_division_name}".strip() if base_division_name else "External"
+            )
+            game_division_name = external_division_name
+            new_team_division_name = external_division_name
+            division_name = external_division_name
 
             _ensure_team_logo_for_import(
                 team_id=team1_id,
@@ -10645,6 +10658,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
 
     # Optional roster seed (provided by client, e.g., parse_stats_inputs scraping TimeToScore).
     # This lets the webapp create missing roster players (including goalies) without contacting T2S.
+    roster_player_ids_by_team: dict[int, set[int]] = {
+        int(team1_id): set(),
+        int(team2_id): set(),
+    }
     roster_home = payload.get("roster_home") or []
     roster_away = payload.get("roster_away") or []
     if isinstance(roster_home, list) or isinstance(roster_away, list):
@@ -10661,7 +10678,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         continue
                     jersey_norm = logic.normalize_jersey_number(rec.get("jersey_number"))
                     pos = str(rec.get("position") or "").strip() or None
-                    _ensure_player_for_import(
+                    pid = _ensure_player_for_import(
                         int(owner_user_id),
                         int(tid),
                         nm,
@@ -10669,6 +10686,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         pos,
                         commit=False,
                     )
+                    try:
+                        roster_player_ids_by_team[int(tid)].add(int(pid))
+                    except Exception:
+                        pass
         except Exception:
             logger.exception(
                 "Error while creating/importing roster players (game_id=%s)", resolved_game_id
@@ -10748,6 +10769,28 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
 
         now = dt.datetime.now()
         with transaction.atomic():
+            has_stats_payload = bool(
+                (isinstance(player_stats_csv, str) and player_stats_csv.strip())
+                or (isinstance(game_stats_csv, str) and game_stats_csv.strip())
+                or (isinstance(events_csv, str) and events_csv.strip())
+                or (isinstance(shift_rows_csv, str) and shift_rows_csv.strip())
+            )
+            if has_stats_payload and roster_player_ids_by_team:
+                # Credit GP for roster players even when they have no shift-package scoring stats.
+                to_create = []
+                for tid, pids in roster_player_ids_by_team.items():
+                    for pid in sorted(pids):
+                        to_create.append(
+                            m.PlayerStat(
+                                user_id=int(owner_user_id),
+                                team_id=int(tid),
+                                game_id=int(resolved_game_id),
+                                player_id=int(pid),
+                            )
+                        )
+                if to_create:
+                    m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+
             if isinstance(events_csv, str) and events_csv.strip():
                 try:
                     has_existing = m.HkyGameEventRow.objects.filter(

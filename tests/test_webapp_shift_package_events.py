@@ -1045,6 +1045,33 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "table-scroll-y" in html
 
 
+def should_credit_roster_players_via_shift_package_when_only_events_provided(client_and_models):
+    client, m = client_and_models
+    assert not m.PlayerStat.objects.filter(game_id=1001).exists()
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": "Period,Time,Team,Event Type\n1,12:00,Home,Shot\n",
+            "roster_home": [
+                {"jersey_number": "9", "name": "Alice"},
+                {"jersey_number": "37", "name": "Goalie A", "position": "G"},
+            ],
+            "roster_away": [{"jersey_number": "12", "name": "Bob"}],
+            "source_label": "unit-test",
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    assert m.PlayerStat.objects.filter(game_id=1001, player_id=501).exists()
+    assert m.PlayerStat.objects.filter(game_id=1001, player_id=502).exists()
+    assert m.PlayerStat.objects.filter(game_id=1001, player__name="Goalie A").exists()
+
+
 def should_compute_on_ice_gfga_from_goal_event_on_ice_lists(client_and_models):
     client, m = client_and_models
     _upsert_event_rows_from_csv(
@@ -1463,7 +1490,7 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
     assert after_div and str(after_div["division_name"]) == "12AA"
     gid = int(out["game_id"])
     lg = m.LeagueGame.objects.filter(league_id=2, game_id=gid).values("division_name").first()
-    assert lg and str(lg.get("division_name") or "") == "External"
+    assert lg and str(lg.get("division_name") or "") == "External 12 AA"
 
 
 def should_not_create_duplicate_external_teams_for_name_variants(client_and_models):

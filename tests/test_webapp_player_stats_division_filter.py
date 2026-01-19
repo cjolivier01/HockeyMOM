@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import datetime as dt
 import os
-from typing import Any
 
 
 def _load_app_module():
@@ -21,7 +20,9 @@ def should_ignore_cross_division_non_external_games_in_league_player_totals(weba
     mod = _load_app_module()
 
     now = dt.datetime.now()
-    owner = m.User.objects.create(id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now)
+    owner = m.User.objects.create(
+        id=10, email="owner@example.com", password_hash="x", name="Owner", created_at=now
+    )
     league = m.League.objects.create(
         id=99,
         name="L",
@@ -62,9 +63,15 @@ def should_ignore_cross_division_non_external_games_in_league_player_totals(weba
         updated_at=None,
     )
 
-    m.LeagueTeam.objects.create(league_id=int(league.id), team_id=int(team1.id), division_name="12AA")
-    m.LeagueTeam.objects.create(league_id=int(league.id), team_id=int(team2.id), division_name="12A")
-    m.LeagueTeam.objects.create(league_id=int(league.id), team_id=int(team3.id), division_name="12AA")
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id), team_id=int(team1.id), division_name="12AA"
+    )
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id), team_id=int(team2.id), division_name="12A"
+    )
+    m.LeagueTeam.objects.create(
+        league_id=int(league.id), team_id=int(team3.id), division_name="12AA"
+    )
 
     g10 = m.HkyGame.objects.create(
         id=10,
@@ -115,9 +122,15 @@ def should_ignore_cross_division_non_external_games_in_league_player_totals(weba
         updated_at=None,
     )
 
-    m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(g10.id), division_name="12AA", sort_order=None)
-    m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(g11.id), division_name="External", sort_order=None)
-    m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(g12.id), division_name="12AA", sort_order=None)
+    m.LeagueGame.objects.create(
+        league_id=int(league.id), game_id=int(g10.id), division_name="12AA", sort_order=None
+    )
+    m.LeagueGame.objects.create(
+        league_id=int(league.id), game_id=int(g11.id), division_name="External", sort_order=None
+    )
+    m.LeagueGame.objects.create(
+        league_id=int(league.id), game_id=int(g12.id), division_name="12AA", sort_order=None
+    )
 
     player = m.Player.objects.create(
         id=100,
@@ -130,15 +143,36 @@ def should_ignore_cross_division_non_external_games_in_league_player_totals(weba
         created_at=now,
         updated_at=None,
     )
-    m.PlayerStat.objects.create(game_id=int(g10.id), player_id=int(player.id), user_id=int(owner.id), team_id=int(team1.id), goals=1, assists=0)
-    m.PlayerStat.objects.create(game_id=int(g11.id), player_id=int(player.id), user_id=int(owner.id), team_id=int(team1.id), goals=2, assists=1)
-    m.PlayerStat.objects.create(game_id=int(g12.id), player_id=int(player.id), user_id=int(owner.id), team_id=int(team1.id), goals=0, assists=2)
+    m.PlayerStat.objects.create(
+        game_id=int(g10.id),
+        player_id=int(player.id),
+        user_id=int(owner.id),
+        team_id=int(team1.id),
+        goals=1,
+        assists=0,
+    )
+    m.PlayerStat.objects.create(
+        game_id=int(g11.id),
+        player_id=int(player.id),
+        user_id=int(owner.id),
+        team_id=int(team1.id),
+        goals=2,
+        assists=1,
+    )
+    m.PlayerStat.objects.create(
+        game_id=int(g12.id),
+        player_id=int(player.id),
+        user_id=int(owner.id),
+        team_id=int(team1.id),
+        goals=0,
+        assists=2,
+    )
 
-    totals = mod.aggregate_players_totals_league(None, team_id=int(team1.id), league_id=int(league.id))
+    totals = mod.aggregate_players_totals_league(
+        None, team_id=int(team1.id), league_id=int(league.id)
+    )
     p100 = totals[int(player.id)]
-    # Game 10 is cross-division (12AA vs 12A) and not External => excluded.
-    # Game 11 is in External division => included.
-    # Game 12 is same-division => included.
-    assert p100["gp"] == 2
-    assert p100["goals"] == 2  # game 11 goals only
+    # Cross-division games (e.g. 12AA vs 12A) are included in league totals.
+    assert p100["gp"] == 3
+    assert p100["goals"] == 3  # game 10 (1) + game 11 (2)
     assert p100["assists"] == 3  # game 11 (1) + game 12 (2)

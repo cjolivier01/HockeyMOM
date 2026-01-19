@@ -2646,10 +2646,10 @@ def _goals_from_goals_xlsx(
                     goal_val = df.iat[r, goal_col]
                     if all(pd.isna(x) for x in (period_val, time_val, goal_val)):
                         continue
-                    if (
-                        not pd.isna(period_val)
-                        and _normalize_header_label(str(period_val)) == "period"
-                    ):
+                    if not pd.isna(period_val) and _normalize_header_label(str(period_val)) in {
+                        "period",
+                        "roster",
+                    }:
                         break
                     period = parse_period_token(period_val)
                     if period is None:
@@ -2730,6 +2730,219 @@ def _goals_from_goals_xlsx(
 
     out_events.sort(key=lambda e: (e.period, e.t_sec))
     return out_events
+
+
+def _rosters_from_goals_xlsx(
+    goals_xlsx: Path,
+) -> List[Tuple[Optional[str], List[Dict[str, Any]]]]:
+    """
+    Best-effort roster extraction from goals.xlsx (team-table variant).
+
+    This supports goals.xlsx layouts where the two teams are presented side-by-side, and each side
+    optionally contains a "Roster" section below the goal table with columns like:
+      - "#", "Name", "Pos"
+
+    Returns a list of (team_label_or_none, roster_records) entries where roster_records contains
+    dicts with keys: {jersey_number, name, position?}.
+    """
+    if not goals_xlsx.exists():
+        return []
+
+    df = pd.read_excel(goals_xlsx, header=None)
+    nrows, ncols = df.shape
+
+    def _norm_roster_header(v: Any) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        try:
+            s = str(v).strip().lower()
+        except Exception:
+            return ""
+        if not s:
+            return ""
+        # Preserve '#' for roster headers.
+        if s == "#":
+            return "#"
+        s = s.replace("\xa0", " ")
+        s = " ".join(s.split())
+        return re.sub(r"[^a-z0-9#]+", "", s)
+
+    def _infer_team_label(anchor_r: int, start_c: int, end_c: int) -> Optional[str]:
+        skip_norm = {
+            "period",
+            "time",
+            "scoreboard",
+            "scoreboardtime",
+            "videotime",
+            "goal",
+            "scorer",
+            "assist",
+            "assist1",
+            "assist2",
+            "roster",
+            "name",
+            "player",
+            "playername",
+            "pos",
+            "position",
+            "#",
+            "number",
+            "num",
+        }
+        for rr in range(anchor_r - 1, max(-1, anchor_r - 12), -1):
+            for cc in range(start_c, end_c + 1):
+                v = df.iat[rr, cc]
+                if pd.isna(v):
+                    continue
+                s = str(v).strip()
+                if not s:
+                    continue
+                if s.lower().startswith(("http://", "https://")):
+                    continue
+                if _normalize_header_label(s) in skip_norm or _norm_roster_header(s) in skip_norm:
+                    continue
+                return s
+        return None
+
+    # Identify team blocks by the first row that looks like a goals-table header row.
+    blocks: List[Tuple[int, int, int]] = []
+    for r in range(nrows):
+        norm_row = []
+        for c in range(ncols):
+            v = df.iat[r, c]
+            if pd.isna(v):
+                norm_row.append("")
+            else:
+                norm_row.append(_normalize_header_label(str(v)))
+
+        period_cols = [c for c, key in enumerate(norm_row) if key == "period"]
+        if not period_cols:
+            continue
+        period_cols = sorted(period_cols)
+        for idx, start_c in enumerate(period_cols):
+            next_c = period_cols[idx + 1] if idx + 1 < len(period_cols) else ncols
+            has_time = any(
+                norm_row[c] in {"time", "scoreboard", "scoreboardtime"}
+                for c in range(start_c, next_c)
+            )
+            if not has_time:
+                continue
+            blocks.append((r, start_c, next_c - 1))
+        if blocks:
+            break
+
+    if not blocks:
+        # Fallback: scan the full sheet for a roster table.
+        blocks = [(0, 0, max(0, ncols - 1))]
+
+    out: List[Tuple[Optional[str], List[Dict[str, Any]]]] = []
+    for header_r, start_c, end_c in blocks:
+        team_label = _infer_team_label(header_r, start_c, end_c)
+
+        roster_label_r: Optional[int] = None
+        for rr in range(header_r + 1, nrows):
+            found = False
+            for cc in range(start_c, end_c + 1):
+                v = df.iat[rr, cc]
+                if pd.isna(v):
+                    continue
+                if _normalize_header_label(str(v)) == "roster":
+                    roster_label_r = rr
+                    found = True
+                    break
+            if found:
+                break
+        if roster_label_r is None:
+            continue
+
+        roster_header_r: Optional[int] = None
+        jersey_col: Optional[int] = None
+        name_col: Optional[int] = None
+        pos_col: Optional[int] = None
+        for rr in range(roster_label_r + 1, min(nrows, roster_label_r + 8)):
+            normed = [_norm_roster_header(df.iat[rr, c]) for c in range(start_c, end_c + 1)]
+            if not any(normed):
+                continue
+            jersey_cols = [
+                cidx
+                for cidx, s in enumerate(normed)
+                if s and (("jersey" in s) or s in {"number", "num", "#"})
+            ]
+            name_cols = [
+                cidx
+                for cidx, s in enumerate(normed)
+                if s and (("name" in s) or s in {"player", "playername"})
+            ]
+            pos_cols = [
+                cidx
+                for cidx, s in enumerate(normed)
+                if s and (s in {"pos", "position"} or "position" in s)
+            ]
+            if not jersey_cols or not name_cols:
+                continue
+
+            best = None
+            for jc in jersey_cols:
+                for nc in name_cols:
+                    dist = abs(jc - nc)
+                    if best is None or dist < best[0]:
+                        best = (dist, jc, nc)
+            if best is None:
+                continue
+            _, jc, nc = best
+            roster_header_r = rr
+            jersey_col = start_c + jc
+            name_col = start_c + nc
+            pos_col = (start_c + pos_cols[0]) if pos_cols else None
+            break
+
+        if roster_header_r is None or jersey_col is None or name_col is None:
+            continue
+
+        roster: List[Dict[str, Any]] = []
+        seen_jerseys: set[str] = set()
+        blank_streak = 0
+        for rr in range(roster_header_r + 1, nrows):
+            jv = df.iat[rr, jersey_col] if jersey_col < ncols else None
+            nv = df.iat[rr, name_col] if name_col < ncols else None
+
+            j_blank = jv is None or (isinstance(jv, float) and pd.isna(jv)) or not str(jv).strip()
+            n_blank = nv is None or (isinstance(nv, float) and pd.isna(nv)) or not str(nv).strip()
+            if j_blank and n_blank:
+                blank_streak += 1
+                if blank_streak >= 3:
+                    break
+                continue
+            blank_streak = 0
+
+            # Stop if we hit another "Roster" marker.
+            if isinstance(jv, str) and _normalize_header_label(jv) == "roster":
+                break
+
+            jersey_norm = _normalize_jersey_number(jv)
+            name = str(nv).strip() if not n_blank else ""
+            if not jersey_norm or not name:
+                continue
+            if jersey_norm in seen_jerseys:
+                continue
+            seen_jerseys.add(jersey_norm)
+
+            rec: Dict[str, Any] = {"jersey_number": jersey_norm, "name": name}
+            if pos_col is not None and pos_col < ncols:
+                pv = df.iat[rr, pos_col]
+                if pv is not None and not (isinstance(pv, float) and pd.isna(pv)):
+                    ps = str(pv).strip()
+                    if ps:
+                        rec["position"] = ps
+            roster.append(rec)
+
+        if not roster:
+            continue
+        if team_label is None:
+            team_label = _infer_team_label(roster_header_r, start_c, end_c)
+        out.append((team_label, roster))
+
+    return out
 
 
 def goals_from_t2s(
@@ -5804,7 +6017,8 @@ def _extract_roster_tables_from_df(
             return ""
         s = s.replace("\xa0", " ")
         s = " ".join(s.split())
-        return re.sub(r"[^a-z0-9]+", "", s)
+        # Preserve '#' so roster headers like "#" can be detected.
+        return re.sub(r"[^a-z0-9#]+", "", s)
 
     def _scan_team_near(r: int) -> Optional[str]:
         # Look in the header row and a couple of rows above for Blue/White labels.
@@ -14263,6 +14477,84 @@ def main() -> None:
                 except Exception:
                     roster_home_payload = None
                     roster_away_payload = None
+
+            # Optional roster seed from goals.xlsx (external games / non-T2S goals-only games).
+            # This supports goals.xlsx variants where a "Roster" table appears under each team's goal table.
+            if roster_home_payload is None or roster_away_payload is None:
+                try:
+                    candidates: List[Path] = []
+                    if isinstance(primary_path, Path):
+                        candidates.append(primary_path)
+                        candidates.append(primary_path.parent / "goals.xlsx")
+                    if isinstance(in_path, Path):
+                        candidates.append(in_path)
+                        candidates.append(in_path.parent / "goals.xlsx")
+                    for lp in long_paths or []:
+                        try:
+                            candidates.append(Path(lp).parent / "goals.xlsx")
+                        except Exception:
+                            pass
+
+                    goals_xlsx_path: Optional[Path] = None
+                    for c in candidates:
+                        try:
+                            if c.name.lower() == "goals.xlsx" and c.exists() and c.is_file():
+                                goals_xlsx_path = c
+                                break
+                        except Exception:
+                            continue
+
+                    if goals_xlsx_path is not None:
+                        tables = _rosters_from_goals_xlsx(goals_xlsx_path)
+
+                        def _norm_team(s: Optional[str]) -> str:
+                            return re.sub(r"[^a-z0-9]+", "", str(s or "").strip().casefold())
+
+                        def _match_score(label: Optional[str], target: Optional[str]) -> int:
+                            a = _norm_team(label)
+                            b = _norm_team(target)
+                            if not a or not b:
+                                return 0
+                            if a == b:
+                                return 3
+                            if a in b or b in a:
+                                return 2
+                            return 0
+
+                        home_name = str(upload_home or "").strip() or None
+                        away_name = str(upload_away or "").strip() or None
+
+                        unassigned: List[Tuple[Optional[str], List[Dict[str, Any]]]] = []
+                        for team_label, roster in tables:
+                            if not roster:
+                                continue
+                            sh = _match_score(team_label, home_name)
+                            sa = _match_score(team_label, away_name)
+                            if sh > sa and sh > 0 and roster_home_payload is None:
+                                roster_home_payload = roster
+                            elif sa > sh and sa > 0 and roster_away_payload is None:
+                                roster_away_payload = roster
+                            else:
+                                unassigned.append((team_label, roster))
+
+                        # Fallback: if labels are missing/ambiguous, assign by order.
+                        if (
+                            roster_home_payload is None
+                            and roster_away_payload is None
+                            and len(unassigned) == 2
+                        ):
+                            roster_home_payload = unassigned[0][1]
+                            roster_away_payload = unassigned[1][1]
+                        elif len(unassigned) == 1:
+                            if roster_home_payload is None and roster_away_payload is None:
+                                roster_home_payload = unassigned[0][1]
+                            elif roster_home_payload is None:
+                                roster_home_payload = unassigned[0][1]
+                            elif roster_away_payload is None:
+                                roster_away_payload = unassigned[0][1]
+                except Exception:
+                    # Best-effort: roster extraction must not block uploads.
+                    pass
             if t2s_id is not None and not (
                 logo_fields.get("home_logo_b64") or logo_fields.get("away_logo_b64")
             ):
@@ -14470,6 +14762,8 @@ def main() -> None:
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             home_logo_url=upload_home_logo_url,
                             away_logo_url=upload_away_logo_url,
+                            roster_home=roster_home_payload,
+                            roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=bool(
                                 getattr(args, "webapp_create_missing_players", False)
@@ -14550,6 +14844,8 @@ def main() -> None:
                                 away_logo_content_type=logo_fields.get("away_logo_content_type"),
                                 home_logo_url=upload_home_logo_url,
                                 away_logo_url=upload_away_logo_url,
+                                roster_home=roster_home_payload,
+                                roster_away=roster_away_payload,
                                 game_video_url=_meta("game_video", "game_video_url", "video_url"),
                                 create_missing_players=bool(
                                     getattr(args, "webapp_create_missing_players", False)

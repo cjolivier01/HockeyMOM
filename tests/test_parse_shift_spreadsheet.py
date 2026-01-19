@@ -350,6 +350,60 @@ def should_parse_goals_xlsx_team_tables_with_video_time(monkeypatch, tmp_path: P
     assert goals[1].video_t_sec == 10
 
 
+def should_parse_goals_xlsx_roster_tables_with_positions(monkeypatch, tmp_path: Path):
+    goals_xlsx = tmp_path / "goals.xlsx"
+    goals_xlsx.write_text("placeholder", encoding="utf-8")
+
+    rows = [
+        ["https://example.com/tournament", None, None, None, None, None, None, None, None, None],
+        [None] * 10,
+        ["Team A", None, None, None, None, None, None, "Team B", None, None],
+        [
+            "Period",
+            "Time",
+            "Video Time",
+            "Goal",
+            "Assist 1",
+            "Assist 2",
+            None,
+            "Period",
+            "Time",
+            "Goal",
+        ],
+        [1, "14:20", "0:10", "#12", "#34", None, None, 1, "10:00", "#91"],
+        [None] * 10,
+        ["Roster", None, None, None, None, None, None, "Roster", None, None],
+        ["#", "Name", "Pos", None, None, None, None, "#", "Name", "Pos"],
+        [1, "Alice", "D", None, None, None, None, 9, "Bob", ""],
+        [37, "Goalie A", "G", None, None, None, None, 30, "Goalie B", "G"],
+    ]
+    df = pd.DataFrame(rows)
+
+    def _fake_read_excel(path, *args, **kwargs):
+        assert Path(path) == goals_xlsx
+        return df
+
+    monkeypatch.setattr(pss.pd, "read_excel", _fake_read_excel)
+
+    rosters = pss._rosters_from_goals_xlsx(goals_xlsx)
+    assert rosters == [
+        (
+            "Team A",
+            [
+                {"jersey_number": "1", "name": "Alice", "position": "D"},
+                {"jersey_number": "37", "name": "Goalie A", "position": "G"},
+            ],
+        ),
+        (
+            "Team B",
+            [
+                {"jersey_number": "9", "name": "Bob"},
+                {"jersey_number": "30", "name": "Goalie B", "position": "G"},
+            ],
+        ),
+    ]
+
+
 def should_build_stats_dataframe_omits_per_game_columns_for_single_game():
     rows = [
         {
@@ -1441,6 +1495,96 @@ def should_error_when_upload_webapp_external_game_missing_date(tmp_path: Path, m
     with pytest.raises(SystemExit) as e:
         pss.main()
     assert int(getattr(e.value, "code", 0) or 0) == 2
+
+
+def should_include_goals_xlsx_roster_in_upload_webapp_payload(tmp_path: Path, monkeypatch):
+    base_dir = tmp_path / "Videos"
+    stats_dir = base_dir / "utah-1" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    df = pd.DataFrame(
+        [
+            [None] * 13,
+            [None] * 13,
+            ["Team A", None, None, None, None, None, None, "Team B", None, None, None, None, None],
+            [
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+                None,
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+            ],
+            [1, "14:20", "0:10", "#12", "#34", None, None, 1, "10:00", "0:50", "#91", None, None],
+            [None] * 13,
+            ["Roster", None, None, None, None, None, None, "Roster", None, None, None, None, None],
+            ["#", "Name", "Pos", None, None, None, None, "#", "Name", "Pos", None, None, None],
+            [1, "Alice", "D", None, None, None, None, 9, "Bob", "", None, None, None],
+        ]
+    )
+    goals_xlsx = stats_dir / "goals.xlsx"
+    df.to_excel(goals_xlsx, index=False, header=False)
+
+    file_list = tmp_path / "games.txt"
+    file_list.write_text(
+        "utah-1/stats|home_team=Team A|away_team=Team B|date=2024-01-01\n",
+        encoding="utf-8",
+    )
+
+    captured: list[dict] = []
+
+    class _Resp:
+        status_code = 200
+        text = '{"ok": true}'
+
+        def json(self):
+            return {"ok": True, "game_id": 123, "imported_players": 0, "unmatched": []}
+
+    def _post(url, json=None, headers=None, timeout=None, **kwargs):
+        captured.append({"url": url, "json": json, "headers": headers})
+        return _Resp()
+
+    import types
+
+    monkeypatch.setitem(
+        sys.modules,
+        "requests",
+        types.SimpleNamespace(post=_post, RequestException=Exception),
+    )
+    monkeypatch.setenv("HOCKEYMOM_STATS_BASE_DIR", str(base_dir))
+
+    outdir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--file-list",
+            str(file_list),
+            "--outdir",
+            str(outdir),
+            "--no-scripts",
+            "--upload-webapp",
+            "--webapp-url",
+            "http://example.com",
+            "--webapp-owner-email",
+            "owner@example.com",
+            "--webapp-league-name",
+            "CAHA",
+        ],
+    )
+    pss.main()
+    assert captured
+    payload = captured[0]["json"]
+    assert payload["roster_home"] == [{"jersey_number": "1", "name": "Alice", "position": "D"}]
+    assert payload["roster_away"] == [{"jersey_number": "9", "name": "Bob"}]
 
 
 def should_allow_file_list_home_away_suffix_on_directory_inputs(tmp_path: Path):
