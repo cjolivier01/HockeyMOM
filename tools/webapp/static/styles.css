@@ -111,6 +111,18 @@ table a.btn.secondary:hover, table button.btn.secondary:hover {
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
 .card h3 { margin: 0 0 .5rem; }
 
+.card.partial-stats {
+  background: #7a6500; /* dark yellow */
+  border-color: #b91c1c; /* red */
+}
+.partial-stats-banner {
+  color: #b91c1c;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5rem;
+}
+
 form { margin: 1rem 0; }
 .form-row { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
 input[type=text], input[type=password], input[type=email], input[type=file], select, input[type=number], input[type=datetime-local] {
