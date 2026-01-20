@@ -57,7 +57,7 @@ fi
 # GCP instance info for code redeploy.
 PROJECT_ID="${PROJECT_ID:-sage-courier-241217}"
 ZONE="${ZONE:-us-central1-a}"
-INSTANCE="${INSTANCE:-hm-webapp}"
+INSTANCE="${INSTANCE:-}"
 DEPLOY_ONLY=0
 DROP_DB=0
 DROP_DB_ONLY=0
@@ -91,7 +91,7 @@ Environment:
   T2S_API_BATCH_SIZE      TimeToScore REST batch size for /api/import/hockey/games_batch (default: 10; lower avoids nginx 504 timeouts)
   PROJECT_ID              GCP project id (default: sage-courier-241217)
   ZONE                    GCE zone (default: us-central1-a)
-  INSTANCE                GCE instance name (default: hm-webapp)
+  INSTANCE                Optional GCE instance name override (default: derived from --domain; falls back to hm-webapp if it exists)
 
 Options:
   --domain DOMAIN         Target webapp domain (required), e.g. jrsharks2013.org
@@ -109,6 +109,25 @@ Options:
   --ignore-long           Prefer primary spreadsheets when both exist (falls back to '*-long*' only)
   --verbose               Verbose spreadsheet parsing output (prints spreadsheet event mapping summary)
 EOF
+}
+
+sanitize_instance_name_from_domain() {
+  local domain="$1"
+  python3 - "$domain" <<'PY'
+import re
+import sys
+
+domain = (sys.argv[1] or "").lower()
+name = "hm-" + re.sub(r"[^a-z0-9]+", "-", domain)
+name = re.sub(r"^[-]+", "", name)
+name = name[:63].rstrip("-")
+if not name:
+    name = "hm-webapp"
+elif not name[0].isalpha():
+    name = "hm-" + name
+    name = name[:63].rstrip("-")
+print(name)
+PY
 }
 
 add_t2s_leagues() {
@@ -188,6 +207,8 @@ if [[ ! "${WEBAPP_DOMAIN}" =~ ^[A-Za-z0-9.-]+$ || "${WEBAPP_DOMAIN}" != *.* ]]; 
 fi
 WEBAPP_URL="https://${WEBAPP_DOMAIN}"
 
+INSTANCE_FROM_DOMAIN="$(sanitize_instance_name_from_domain "${WEBAPP_DOMAIN}")"
+
 if [[ "${DROP_DB_ONLY}" == "1" && "${DEPLOY_ONLY}" == "1" ]]; then
   echo "[!] --drop-db-only cannot be combined with --deploy-only" >&2
     exit 2
@@ -214,6 +235,17 @@ require_cmd gcloud || {
   echo "    See: https://cloud.google.com/sdk/docs/install" >&2
   exit 2
 }
+
+if [[ -z "${INSTANCE}" ]]; then
+  if gcloud --quiet --project "${PROJECT_ID}" compute instances describe "${INSTANCE_FROM_DOMAIN}" --zone "${ZONE}" >/dev/null 2>&1; then
+    INSTANCE="${INSTANCE_FROM_DOMAIN}"
+  elif gcloud --quiet --project "${PROJECT_ID}" compute instances describe "hm-webapp" --zone "${ZONE}" >/dev/null 2>&1; then
+    # Backwards-compatible fallback for older deployments that used a single shared instance name.
+    INSTANCE="hm-webapp"
+  else
+    INSTANCE="${INSTANCE_FROM_DOMAIN}"
+  fi
+fi
 
 dns_ipv4s() {
   local host="$1"
