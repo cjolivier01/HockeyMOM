@@ -83,18 +83,6 @@ def should_import_shift_stats_player_csv_into_game(client_and_db):
     r = client.post(
         "/hky/games/1001/import_shift_stats?return_to=/schedule", {"player_stats_csv": f}
     )
-    assert r.status_code == 302
-
-    ps = (
-        m.PlayerStat.objects.filter(game_id=1001, player_id=501)
-        .values("goals", "assists", "shots", "sog", "plus_minus")
-        .first()
-    )
-    assert ps is not None
-    assert ps["goals"] == 1
-    assert ps["assists"] == 0
-    assert ps["shots"] == 2
-    assert ps["sog"] == 1
-    assert ps["plus_minus"] == 1
-
-    assert m.HkyGame.objects.filter(id=1001).exclude(stats_imported_at=None).exists()
+    # Legacy per-game player_stats.csv upload is no longer supported (event-driven shift_package import only).
+    assert r.status_code == 404
+    assert m.HkyGame.objects.filter(id=1001, stats_imported_at=None).exists()

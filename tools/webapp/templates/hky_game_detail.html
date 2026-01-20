@@ -379,31 +379,7 @@
     </div>
     </form>
 
-    {% if can_edit %}
-      <div style="margin-top:1rem;">
-        <h3 style="margin:0 0 .25rem 0;">Import Shift Spreadsheet Stats</h3>
-        <p class="muted" style="margin-top:0">
-          Upload <code>stats/player_stats.csv</code> from
-          <code>scripts/parse_stats_inputs.py</code>.
-        </p>
-        {% url "hky_game_import_shift_stats" game_id=game.id as import_shift_stats_url %}
-        <form method="post" action="{{ import_shift_stats_url }}?return_to={{ return_to_enc }}" enctype="multipart/form-data">
-          {% csrf_token %}
-          <div class="grid" style="grid-template-columns: 1fr; gap: 1rem;">
-            <div class="form-row">
-              <label class="muted">player_stats.csv</label>
-              <input type="file" name="player_stats_csv" accept=".csv" required>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:1rem;">
-            <button class="btn" type="submit">Import stats</button>
-            {% if game.stats_imported_at %}
-              <span class="muted">Last import: {{ game.stats_imported_at|fmt_date }}</span>
-            {% endif %}
-          </div>
-        </form>
-      </div>
-    {% endif %}
+    {# Roster/stats imports are event-driven via the import endpoints; no per-game player_stats.csv uploads. #}
   {% endif %}
 </div>
 
@@ -2834,6 +2810,20 @@
 
     var _assistsByTime = {};
     var _assistsBySideTime = {};
+    function _pushUniqueAssist(list, jersey, name) {
+      if (!list) return;
+      var j = String(jersey || "").trim();
+      if (!j) return;
+      var nm = String(name || "").trim();
+      for (var i = 0; i < list.length; i++) {
+        var cur = list[i] || {};
+        if (String(cur.jersey || "") === j) {
+          if (!String(cur.name || "").trim() && nm) cur.name = nm;
+          return;
+        }
+      }
+      list.push({ jersey: j, name: nm });
+    }
     eventsRows.forEach(function (row) {
       if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "assist") return;
       var period = rowPeriod(row);
@@ -2842,14 +2832,15 @@
       if (gs === null) return;
       var jersey = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
       if (!jersey) return;
+      var assistName = String(getValue(row, ["Attributed Players", "AttributedPlayers"]) || "").trim();
       var k0 = String(period) + "|" + String(gs);
       if (!_assistsByTime[k0]) _assistsByTime[k0] = [];
-      if (_assistsByTime[k0].indexOf(jersey) < 0) _assistsByTime[k0].push(jersey);
+      _pushUniqueAssist(_assistsByTime[k0], jersey, assistName);
       var side = rowSide(row);
       if (side) {
         var k1 = k0 + "|" + String(side);
         if (!_assistsBySideTime[k1]) _assistsBySideTime[k1] = [];
-        if (_assistsBySideTime[k1].indexOf(jersey) < 0) _assistsBySideTime[k1].push(jersey);
+        _pushUniqueAssist(_assistsBySideTime[k1], jersey, assistName);
       }
     });
 
@@ -2883,6 +2874,15 @@
 
       var name = String(scorerName || "").trim();
       if (name) {
+        var esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        // Handle strings like "#9 Ethan L Olivier" / "9Ethan L Olivier" / "#9Ethan L Olivier".
+        var reJerseyName = new RegExp("^#?\\s*\\d+\\s*" + esc + "(\\b|$)", "i");
+        if (reJerseyName.test(s)) {
+          s = String(s.replace(reJerseyName, "") || "").trim();
+          s = s.replace(/^[\\s\\-–—:]+/, "").trim();
+        }
+
         var sLower = s.toLowerCase();
         var nameLower = name.toLowerCase();
         if (sLower === nameLower) s = "";
@@ -2983,10 +2983,17 @@
 
               var assists = _assistJerseysForGoalRow(row);
               var assistLines = [];
-              if (assists && assists.length === 1) assistLines.push("A: #" + assists[0]);
+              function _fmtAssist(a) {
+                if (!a) return "";
+                var j = String(a.jersey || "").trim();
+                if (!j) return "";
+                var nm = String(a.name || "").trim();
+                return "#" + j + (nm ? (" " + nm) : "");
+              }
+              if (assists && assists.length === 1) assistLines.push("A: " + _fmtAssist(assists[0]));
               else if (assists && assists.length >= 2) {
-                assistLines.push("A1: #" + assists[0]);
-                assistLines.push("A2: #" + assists[1]);
+                assistLines.push("A1: " + _fmtAssist(assists[0]));
+                assistLines.push("A2: " + _fmtAssist(assists[1]));
               }
 
               var extra = _stripGoalScorerFromDetails(baseDetails, tableCtx.scorerName || "");

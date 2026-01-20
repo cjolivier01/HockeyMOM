@@ -143,30 +143,65 @@ def should_ignore_cross_division_non_external_games_in_league_player_totals(weba
         created_at=now,
         updated_at=None,
     )
-    m.PlayerStat.objects.create(
+
+    ev_goal, _created = m.HkyEventType.objects.get_or_create(
+        key="goal", defaults={"name": "Goal", "created_at": now}
+    )
+    ev_assist, _created = m.HkyEventType.objects.get_or_create(
+        key="assist", defaults={"name": "Assist", "created_at": now}
+    )
+
+    # Game 10: 1G
+    m.HkyGameEventRow.objects.create(
         game_id=int(g10.id),
-        player_id=int(player.id),
-        user_id=int(owner.id),
+        event_type_id=int(ev_goal.id),
+        import_key="g10-g-0",
         team_id=int(team1.id),
-        goals=1,
-        assists=0,
+        player_id=int(player.id),
+        period=1,
+        game_seconds=10,
+        created_at=now,
+        updated_at=None,
     )
-    m.PlayerStat.objects.create(
+
+    # Game 11: 2G 1A
+    for i in range(2):
+        m.HkyGameEventRow.objects.create(
+            game_id=int(g11.id),
+            event_type_id=int(ev_goal.id),
+            import_key=f"g11-g-{i}",
+            team_id=int(team1.id),
+            player_id=int(player.id),
+            period=1,
+            game_seconds=20 + i,
+            created_at=now,
+            updated_at=None,
+        )
+    m.HkyGameEventRow.objects.create(
         game_id=int(g11.id),
-        player_id=int(player.id),
-        user_id=int(owner.id),
+        event_type_id=int(ev_assist.id),
+        import_key="g11-a-0",
         team_id=int(team1.id),
-        goals=2,
-        assists=1,
-    )
-    m.PlayerStat.objects.create(
-        game_id=int(g12.id),
         player_id=int(player.id),
-        user_id=int(owner.id),
-        team_id=int(team1.id),
-        goals=0,
-        assists=2,
+        period=1,
+        game_seconds=30,
+        created_at=now,
+        updated_at=None,
     )
+
+    # Game 12: 0G 2A
+    for i in range(2):
+        m.HkyGameEventRow.objects.create(
+            game_id=int(g12.id),
+            event_type_id=int(ev_assist.id),
+            import_key=f"g12-a-{i}",
+            team_id=int(team1.id),
+            player_id=int(player.id),
+            period=1,
+            game_seconds=40 + i,
+            created_at=now,
+            updated_at=None,
+        )
 
     totals = mod.aggregate_players_totals_league(
         None, team_id=int(team1.id), league_id=int(league.id)

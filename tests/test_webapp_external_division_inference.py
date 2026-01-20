@@ -41,9 +41,6 @@ def should_infer_external_division_from_team_names_for_shift_package(webapp_db):
         "away_team_name": "San Jose Jr Sharks 12AA-2",
         "replace": False,
         # Keep stats payloads empty; this test focuses on league/team mappings.
-        "player_stats_csv": "",
-        "game_stats_csv": "",
-        "events_csv": "",
     }
 
     client = Client()

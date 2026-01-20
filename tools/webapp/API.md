@@ -89,7 +89,7 @@ Body:
   - optional division metadata: `division_name`, `division_id`, `conference_id`, plus `home_*`/`away_*` overrides
   - optional TimeToScore metadata: `timetoscore_game_id`, `season_id`, `timetoscore_type`/`game_type_name`
   - optional rosters: `home_roster` / `away_roster` (list of `{name, number, position}`)
-  - optional player stats: `player_stats` (list; schema depends on importer)
+  - optional events: `events_csv` (string; CSV with per-row events, same shape as `all_events_summary.csv`)
 
 Response includes (at least):
 - `game_id`, `league_id`, `owner_user_id`, `team1_id`, `team2_id`
@@ -112,15 +112,13 @@ Body highlights (many optional fields exist):
 - `game_id` (int, optional) or `timetoscore_game_id` (int, optional) or `external_game_key` (string, optional)
 - `league_id` (int, optional) or `league_name` (string, optional) (used when creating external games)
 - `owner_email` (string, optional; used when creating external games)
-- `team_side` (`"home"` or `"away"`, optional; used to interpret Goals For/Against)
+- `team_side` (`"home"` or `"away"`, optional; required when uploading `shift_rows_csv`)
 - `replace` (bool, optional)
 - `create_missing_players` (bool, optional)
-- CSV payloads (strings): `events_csv`, `player_stats_csv`, plus shift-related CSVs:
+- CSV payloads (strings): `events_csv` plus shift-related CSVs:
   - `shift_rows_csv` (optional): per-player shift intervals (used to derive TOI/Shifts at runtime and optionally render on/off-ice markers)
-  - `game_stats_csv` (optional): only used to fill missing final scores
 - Shift row behavior:
   - `shift_rows_csv` requires `team_side` and will be stored in `hky_game_shift_rows` (separate from `hky_game_event_rows`).
-  - When `shift_rows_csv` is present, stored TOI/Shifts fields in `PlayerStat` are cleared and are expected to be derived at runtime.
   - `replace_shift_rows` (bool, optional): if true, existing shift rows for the game+team_side are deleted before importing new ones.
 
 Response:

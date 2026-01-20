@@ -251,27 +251,57 @@ def should_exclude_outlier_games_from_aggregate_player_totals(monkeypatch, webap
         updated_at=None,
     )
 
-    m.PlayerStat.objects.create(
-        id=1,
-        user_id=int(user.id),
-        team_id=int(team.id),
+    et_goal = m.HkyEventType.objects.create(key="goal", name="Goal", created_at=now)
+    et_assist = m.HkyEventType.objects.create(key="assist", name="Assist", created_at=now)
+
+    m.HkyGamePlayer.objects.create(
         game_id=int(g_ok.id),
         player_id=int(player.id),
-        goals=1,
-        assists=0,
-        pim=0,
-        shots=1,
-    )
-    m.PlayerStat.objects.create(
-        id=2,
-        user_id=int(user.id),
         team_id=int(team.id),
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(g_ok.id),
+        event_type=et_goal,
+        import_key="g_ok_goal_1",
+        team_id=int(team.id),
+        player_id=int(player.id),
+        team_side="Home",
+        period=1,
+        created_at=now,
+        updated_at=None,
+    )
+
+    m.HkyGamePlayer.objects.create(
         game_id=int(g_outlier.id),
         player_id=int(player.id),
-        goals=5,
-        assists=1,
-        pim=0,
-        shots=6,
+        team_id=int(team.id),
+        created_at=now,
+        updated_at=None,
+    )
+    for i in range(5):
+        m.HkyGameEventRow.objects.create(
+            game_id=int(g_outlier.id),
+            event_type=et_goal,
+            import_key=f"g_outlier_goal_{i}",
+            team_id=int(team.id),
+            player_id=int(player.id),
+            team_side="Home",
+            period=1,
+            created_at=now,
+            updated_at=None,
+        )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(g_outlier.id),
+        event_type=et_assist,
+        import_key="g_outlier_assist_1",
+        team_id=int(team.id),
+        player_id=int(player.id),
+        team_side="Home",
+        period=1,
+        created_at=now,
+        updated_at=None,
     )
 
     totals = webapp_app.aggregate_players_totals(None, team_id=int(team.id), user_id=int(user.id))
@@ -423,27 +453,57 @@ def should_exclude_outlier_games_from_aggregate_player_totals_league(monkeypatch
         sort_order=2,
     )
 
-    m.PlayerStat.objects.create(
-        id=1,
-        user_id=int(owner.id),
-        team_id=int(team_a.id),
+    et_goal = m.HkyEventType.objects.create(key="goal", name="Goal", created_at=now)
+    et_assist = m.HkyEventType.objects.create(key="assist", name="Assist", created_at=now)
+
+    m.HkyGamePlayer.objects.create(
         game_id=int(g_ok.id),
         player_id=int(player.id),
-        goals=1,
-        assists=0,
-        pim=0,
-        shots=1,
-    )
-    m.PlayerStat.objects.create(
-        id=2,
-        user_id=int(owner.id),
         team_id=int(team_a.id),
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(g_ok.id),
+        event_type=et_goal,
+        import_key="g_ok_goal_1",
+        team_id=int(team_a.id),
+        player_id=int(player.id),
+        team_side="Home",
+        period=1,
+        created_at=now,
+        updated_at=None,
+    )
+
+    m.HkyGamePlayer.objects.create(
         game_id=int(g_outlier.id),
         player_id=int(player.id),
-        goals=5,
-        assists=1,
-        pim=0,
-        shots=6,
+        team_id=int(team_a.id),
+        created_at=now,
+        updated_at=None,
+    )
+    for i in range(5):
+        m.HkyGameEventRow.objects.create(
+            game_id=int(g_outlier.id),
+            event_type=et_goal,
+            import_key=f"g_outlier_goal_{i}",
+            team_id=int(team_a.id),
+            player_id=int(player.id),
+            team_side="Home",
+            period=1,
+            created_at=now,
+            updated_at=None,
+        )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(g_outlier.id),
+        event_type=et_assist,
+        import_key="g_outlier_assist_1",
+        team_id=int(team_a.id),
+        player_id=int(player.id),
+        team_side="Home",
+        period=1,
+        created_at=now,
+        updated_at=None,
     )
 
     totals = webapp_app.aggregate_players_totals_league(

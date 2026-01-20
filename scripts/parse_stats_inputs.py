@@ -12669,7 +12669,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--upload-webapp",
         action="store_true",
-        help="Upload per-game CSV outputs (player_stats/game_stats/all_events_summary) to the HockeyMOM webapp via REST.",
+        help="Upload per-game CSV outputs (all_events_summary and optional shift_rows) to the HockeyMOM webapp via REST.",
     )
     p.add_argument(
         "--corrections-yaml",
@@ -12939,8 +12939,6 @@ def _upload_shift_package_to_webapp(
     roster_home: Optional[List[Dict[str, Any]]] = None,
     roster_away: Optional[List[Dict[str, Any]]] = None,
     create_missing_players: bool = False,
-    include_player_stats: bool = True,
-    include_game_stats: bool = True,
     include_events: bool = True,
     source_label_suffix: Optional[str] = None,
 ) -> None:
@@ -12957,63 +12955,10 @@ def _upload_shift_package_to_webapp(
             pass
         return ""
 
-    player_stats_csv = _read_text(stats_dir / "player_stats.csv") if include_player_stats else ""
-    game_stats_csv = _read_text(stats_dir / "game_stats.csv") if include_game_stats else ""
     events_csv = _read_text(stats_dir / "all_events_summary.csv") if include_events else ""
     shift_rows_csv = _read_text(stats_dir / "shift_rows.csv")
 
-    def _strip_shift_columns_from_player_stats_csv(text: str) -> str:
-        import csv  # local import
-        import io  # local import
-
-        if not text or not text.strip():
-            return text
-        f = io.StringIO(text)
-        reader = csv.DictReader(f)
-        if not reader.fieldnames:
-            return text
-
-        def _norm(s: str) -> str:
-            return re.sub(r"\s+", " ", str(s or "").strip()).casefold()
-
-        drop_exact = {
-            "shifts",
-            "toi",
-            "toi total",
-            "toi total (video)",
-            "toi (video)",
-            "average shift",
-            "median shift",
-            "longest shift",
-            "shortest shift",
-        }
-        keep_fields: list[str] = []
-        for fn in list(reader.fieldnames or []):
-            n = _norm(fn)
-            if n in drop_exact:
-                continue
-            if re.match(r"^period\s+\d+\s+(toi|shifts)$", n):
-                continue
-            keep_fields.append(fn)
-
-        if keep_fields == list(reader.fieldnames or []):
-            return text
-
-        out = io.StringIO()
-        w = csv.DictWriter(out, fieldnames=keep_fields)
-        w.writeheader()
-        for row in reader:
-            if not row:
-                continue
-            w.writerow({k: row.get(k, "") for k in keep_fields})
-        return out.getvalue()
-
-    # Do not send aggregated TOI/shift columns to the webapp; shift stats are derived from shift_rows_csv.
-    player_stats_csv = _strip_shift_columns_from_player_stats_csv(player_stats_csv)
-
     payload: Dict[str, Any] = {
-        "player_stats_csv": player_stats_csv,
-        "game_stats_csv": game_stats_csv,
         "events_csv": events_csv,
         "source_label": (
             f"parse_stats_inputs:{label}{str(source_label_suffix) if source_label_suffix else ''}"
@@ -14572,7 +14517,7 @@ def main() -> None:
             try:
                 # If both Home/Away outputs exist (e.g., when long-sheet shift tables were used to
                 # generate both teams), upload both. To avoid overwriting the per-game raw CSV blobs
-                # and game/event stats, we only upload the non-primary side's player_stats.csv.
+                # and game/event stats, we only upload the non-primary side's shift rows (no events).
                 def _team_stats_dirs(final_out: Path) -> Dict[str, Path]:
                     # final_out is "<game>/<Home|Away>/<format_dir>"
                     root = final_out.parent.parent
@@ -14582,12 +14527,15 @@ def main() -> None:
                         "away": root / "Away" / format_dir / "stats",
                     }
 
-                def _has_player_stats(sd: Path) -> bool:
+                def _has_uploadable_stats(sd: Path) -> bool:
                     try:
-                        p = sd / "player_stats.csv"
-                        return p.exists() and p.is_file() and p.stat().st_size > 0
+                        for fn in ("all_events_summary.csv", "shift_rows.csv"):
+                            p = sd / fn
+                            if p.exists() and p.is_file() and p.stat().st_size > 0:
+                                return True
                     except Exception:
-                        return False
+                        pass
+                    return False
 
                 if t2s_id is not None:
                     dirs = _team_stats_dirs(final_outdir)
@@ -14595,7 +14543,7 @@ def main() -> None:
                     if primary_side not in {"home", "away"}:
                         primary_side = "home"
                     primary_stats = dirs.get(primary_side, final_outdir / "stats")
-                    if _has_player_stats(primary_stats):
+                    if _has_uploadable_stats(primary_stats):
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                             or "http://127.0.0.1:8008",
@@ -14671,8 +14619,8 @@ def main() -> None:
 
                     other_side = "away" if primary_side == "home" else "home"
                     other_stats = dirs.get(other_side)
-                    if other_stats is not None and _has_player_stats(other_stats):
-                        # Avoid overwriting per-game blob tables (player_stats_csv/events/game_stats) and game_stats.
+                    if other_stats is not None and _has_uploadable_stats(other_stats):
+                        # Avoid overwriting per-game events: upload only the other side's shift rows (no events).
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                             or "http://127.0.0.1:8008",
@@ -14704,7 +14652,6 @@ def main() -> None:
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=False,
-                            include_game_stats=False,
                             include_events=False,
                             source_label_suffix=f":{other_side}",
                         )
@@ -14816,7 +14763,7 @@ def main() -> None:
 
                         other_side = "away" if primary_side == "home" else "home"
                         other_stats = dirs.get(other_side)
-                        if other_stats is not None and _has_player_stats(other_stats):
+                        if other_stats is not None and _has_uploadable_stats(other_stats):
                             _upload_shift_package_to_webapp(
                                 webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                                 or "http://127.0.0.1:8008",
@@ -14850,7 +14797,6 @@ def main() -> None:
                                 create_missing_players=bool(
                                     getattr(args, "webapp_create_missing_players", False)
                                 ),
-                                include_game_stats=False,
                                 include_events=False,
                                 source_label_suffix=f":{other_side}",
                             )

@@ -49,45 +49,18 @@
           </td>
           {% for col in columns %}
             {% with k=col.key %}
-              {% if edit_mode and not public_league_id %}
-                {% if k == "goals" %}
-                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_goals_{{ r.player_id }}" value="{{ r.goals|default_if_none:'' }}" min="0" style="width:70px"></td>
-                {% elif k == "assists" %}
-                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_assists_{{ r.player_id }}" value="{{ r.assists|default_if_none:'' }}" min="0" style="width:70px"></td>
-                {% elif k == "shots" %}
-                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_shots_{{ r.player_id }}" value="{{ r.shots|default_if_none:'' }}" min="0" style="width:70px"></td>
-                {% elif k == "pim" %}
-                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_pim_{{ r.player_id }}" value="{{ r.pim|default_if_none:'' }}" min="0" style="width:70px"></td>
-                {% elif k == "plus_minus" %}
-                  <td{% if include_stat_key_attrs %} data-stat-key="{{ k }}"{% endif %}><input type="number" name="ps_plusminus_{{ r.player_id }}" value="{{ r.plus_minus|default_if_none:'' }}" style="width:70px"></td>
+              {% with conflict=row_conf|get_item:k %}
+              <td
+                {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
+                {% if conflict %}style="color:#ff6b6b;font-weight:600;" title="{{ conflict }}"{% endif %}
+              >
+                {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
+                  {{ r|get_item:k|fmt_toi }}
                 {% else %}
-                  {% with conflict=row_conf|get_item:k %}
-                  <td
-                    {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
-                    {% if conflict %}style="color:#ff6b6b;font-weight:600;" title="{{ conflict }}"{% endif %}
-                  >
-                    {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
-                      {{ r|get_item:k|fmt_toi }}
-                    {% else %}
-                      {{ r|get_item:k|fmt_stat }}
-                    {% endif %}
-                  </td>
-                  {% endwith %}
+                  {{ r|get_item:k|fmt_stat }}
                 {% endif %}
-              {% else %}
-                {% with conflict=row_conf|get_item:k %}
-                <td
-                  {% if include_stat_key_attrs %}data-stat-key="{{ k }}"{% endif %}
-                  {% if conflict %}style="color:#ff6b6b;font-weight:600;" title="{{ conflict }}"{% endif %}
-                >
-                  {% if k == "toi_seconds" or k == "toi_seconds_per_game" %}
-                    {{ r|get_item:k|fmt_toi }}
-                  {% else %}
-                    {{ r|get_item:k|fmt_stat }}
-                  {% endif %}
-                </td>
-                {% endwith %}
-              {% endif %}
+              </td>
+              {% endwith %}
             {% endwith %}
           {% endfor %}
         </tr>

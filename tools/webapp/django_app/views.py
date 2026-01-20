@@ -349,6 +349,31 @@ def _upsert_game_event_rows_from_events_csv(
         if nn:
             name_to_pids.setdefault((tid, nn), []).append(pid)
 
+    # For some imports (e.g. TimeToScore) roster rows may be present even when jersey numbers
+    # are missing. As a best-effort fallback, if a game+team has a single roster player
+    # (`hky_game_players`) and an event row includes a jersey/name but can't be resolved to a
+    # specific player, attribute it to that unique roster player.
+    roster_pids_by_team: dict[int, list[int]] = {}
+    try:
+        for tid0, pid0 in m.HkyGamePlayer.objects.filter(
+            game_id=int(game_id), team_id__in=[int(team1_id), int(team2_id)]
+        ).values_list("team_id", "player_id"):
+            try:
+                tid_i = int(tid0 or 0)
+                pid_i = int(pid0 or 0)
+            except Exception:
+                continue
+            if tid_i > 0 and pid_i > 0:
+                roster_pids_by_team.setdefault(int(tid_i), []).append(int(pid_i))
+    except Exception:
+        roster_pids_by_team = {}
+
+    def _unique_game_roster_pid(tid: int) -> Optional[int]:
+        uniq = sorted(set(int(x) for x in (roster_pids_by_team.get(int(tid)) or []) if int(x) > 0))
+        if len(uniq) == 1:
+            return int(uniq[0])
+        return None
+
     # Ensure event types exist.
     needed_types: dict[str, str] = {}
     for r in rows:
@@ -497,6 +522,11 @@ def _upsert_game_event_rows_from_events_csv(
             candidates = name_to_pids.get((int(team_id), name_norm), [])
             if len(set(candidates)) == 1:
                 player_id = int(list(set(candidates))[0])
+
+        if player_id is None and team_id is not None and (jersey_norm or attributed_players):
+            roster_pid = _unique_game_roster_pid(int(team_id))
+            if roster_pid is not None:
+                player_id = int(roster_pid)
 
         if (
             player_id is None
@@ -1247,74 +1277,16 @@ def _overlay_game_player_stats_from_event_rows(
     *, game_id: int, stats_by_pid: dict[int, dict[str, Any]]
 ) -> None:
     """
-    Best-effort: compute event-derived stats from normalized event rows (Goals/Assists/Shots/SOG/xG
-    and on-ice GF/GA/+/-) and overlay onto the per-game `stats_by_pid` dict used by the game detail
-    view.
+    Best-effort: compute goal-derived per-game stats from normalized event rows and overlay onto the
+    per-game `stats_by_pid` dict used by the game detail view:
+
+      - game-winning goals (`gw_goals`)
+      - game-tying goals (`gt_goals`)
+      - on-ice goal GF/GA and +/- from goal event on-ice lists (`gf_counted`/`ga_counted`/`plus_minus`)
+
+    This intentionally avoids stored aggregates and does not require shift rows.
     """
     _django_orm, m = _orm_modules()
-    from django.db.models import Count
-
-    rows = list(
-        m.HkyGameEventRow.objects.filter(
-            game_id=int(game_id),
-            player_id__isnull=False,
-            event_type__key__in=[
-                "goal",
-                "assist",
-                "expectedgoal",
-                "sog",
-                "shot",
-                "completedpass",
-            ],
-        )
-        .exclude(
-            import_key__in=m.HkyGameEventSuppression.objects.filter(
-                game_id=int(game_id)
-            ).values_list("import_key", flat=True)
-        )
-        .values("player_id", "event_type__key")
-        .annotate(n=Count("id"))
-    )
-    if rows:
-        counts: dict[int, dict[str, int]] = {}
-        for r in rows:
-            try:
-                pid = int(r.get("player_id") or 0)
-            except Exception:
-                continue
-            if pid <= 0:
-                continue
-            k = str(r.get("event_type__key") or "").strip().casefold()
-            try:
-                n = int(r.get("n") or 0)
-            except Exception:
-                n = 0
-            if not k:
-                continue
-            counts.setdefault(pid, {})
-            counts[pid][k] = counts[pid].get(k, 0) + max(0, int(n))
-
-        for pid, c in counts.items():
-            goals = int(c.get("goal") or 0)
-            assists = int(c.get("assist") or 0)
-            xg_direct = int(c.get("expectedgoal") or 0)
-            sog_direct = int(c.get("sog") or 0)
-            shots_direct = int(c.get("shot") or 0)
-            completed_passes = int(c.get("completedpass") or 0)
-
-            # Stat implications:
-            #   Goals ⊆ xG ⊆ SOG ⊆ Shots
-            xg = goals + xg_direct
-            sog = xg + sog_direct
-            shots = sog + shots_direct
-
-            stats_by_pid.setdefault(pid, {"player_id": int(pid), "game_id": int(game_id)})
-            stats_by_pid[pid]["goals"] = int(goals)
-            stats_by_pid[pid]["assists"] = int(assists)
-            stats_by_pid[pid]["expected_goals"] = int(xg)
-            stats_by_pid[pid]["sog"] = int(sog)
-            stats_by_pid[pid]["shots"] = int(shots)
-            stats_by_pid[pid]["completed_passes"] = int(completed_passes)
 
     # Game-winning / game-tying goals + on-ice goal +/- are computed from goal event rows.
     try:
@@ -2167,7 +2139,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
         return []
 
     def _norm_name(raw: Any) -> str:
-        return re.sub(r"\\s+", " ", str(raw or "").strip()).casefold()
+        return re.sub(r"\s+", " ", str(raw or "").strip()).casefold()
 
     # Roster lookup helpers for jersey/name matching (used for events where player_id is NULL).
     roster_by_pid: dict[int, dict[str, Any]] = {}
@@ -2220,7 +2192,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
 
     def _extract_numbers(raw: Any) -> list[str]:
         out: list[str] = []
-        for m0 in re.findall(r"(\\d+)", str(raw or "")):
+        for m0 in re.findall(r"(\d+)", str(raw or "")):
             jn = logic.normalize_jersey_number(m0)
             if jn:
                 out.append(str(jn))
@@ -2232,7 +2204,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
             return []
         out: list[tuple[Optional[str], Optional[str]]] = []
         for tok in [t.strip() for t in s.split(",") if t.strip()]:
-            m0 = re.match(r"^(.*?)\\(\\s*#?\\s*(\\d+)\\s*\\)\\s*$", tok)
+            m0 = re.match(r"^(.*?)\(\s*#?\s*(\d+)\s*\)\s*$", tok)
             if m0:
                 out.append((m0.group(1).strip(), logic.normalize_jersey_number(m0.group(2))))
                 continue
@@ -2282,7 +2254,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
         s = str(details or "").strip()
         if not s:
             return 0
-        m0 = re.search(r"(\\d+)\\s*(?:m|min)\\b", s, flags=re.IGNORECASE)
+        m0 = re.search(r"(\d+)\s*(?:m|min)\b", s, flags=re.IGNORECASE)
         if not m0:
             return 0
         try:
@@ -3530,7 +3502,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             order_idx[int(gid)] = int(idx)
 
         pid_game_ids_raw = list(
-            m.PlayerStat.objects.filter(
+            m.HkyGamePlayer.objects.filter(
                 player_id=int(player_id),
                 game_id__in=eligible_game_ids,
             )
@@ -6977,66 +6949,38 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
     )
     player_stats_imported_by_pid: dict[int, dict[str, Optional[int]]] = {}
     stats_rows: list[dict[str, Any]] = []
-    if edit_mode:
-        stats_rows = list(m.PlayerStat.objects.filter(game_id=int(game_id)).values())
-        for r0 in stats_rows:
-            try:
-                pid_i = int(r0.get("player_id") or 0)
-            except Exception:
-                continue
-            if pid_i <= 0:
-                continue
-            player_stats_imported_by_pid[int(pid_i)] = {
-                "toi_seconds": (
-                    r0.get("toi_seconds") if r0.get("toi_seconds") is not None else None
-                ),
-                "shifts": (r0.get("shifts") if r0.get("shifts") is not None else None),
-                "gf_counted": (r0.get("gf_counted") if r0.get("gf_counted") is not None else None),
-                "ga_counted": (r0.get("ga_counted") if r0.get("ga_counted") is not None else None),
-                "plus_minus": (r0.get("plus_minus") if r0.get("plus_minus") is not None else None),
-            }
-        if not show_shift_data:
-            _mask_shift_stats_in_player_stat_rows(stats_rows)
-        if show_shift_data and stats_rows:
-            try:
-                _overlay_shift_stats_into_player_stat_rows(
-                    game_ids=[int(game_id)], player_stats_rows=stats_rows
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to overlay shift stats into player stat rows for game_id=%s", game_id
-                )
-    else:
-        try:
-            stats_rows.extend(
-                _player_stat_rows_from_event_tables_for_team_games(
-                    team_id=int(game["team1_id"]),
-                    schedule_games=[dict(game)],
-                    roster_players=list(team1_players or []),
-                    show_shift_data=bool(show_shift_data),
-                )
+    try:
+        stats_rows.extend(
+            _player_stat_rows_from_event_tables_for_team_games(
+                team_id=int(game["team1_id"]),
+                schedule_games=[dict(game)],
+                roster_players=list(team1_players or []),
+                show_shift_data=bool(show_shift_data),
             )
-            stats_rows.extend(
-                _player_stat_rows_from_event_tables_for_team_games(
-                    team_id=int(game["team2_id"]),
-                    schedule_games=[dict(game)],
-                    roster_players=list(team2_players or []),
-                    show_shift_data=bool(show_shift_data),
-                )
+        )
+        stats_rows.extend(
+            _player_stat_rows_from_event_tables_for_team_games(
+                team_id=int(game["team2_id"]),
+                schedule_games=[dict(game)],
+                roster_players=list(team2_players or []),
+                show_shift_data=bool(show_shift_data),
             )
-        except Exception:
-            logger.exception(
-                "Failed to compute event-derived player stat rows for game_id=%s", game_id
-            )
-            stats_rows = []
-        if not show_shift_data:
-            _mask_shift_stats_in_player_stat_rows(stats_rows)
+        )
+    except Exception:
+        logger.exception("Failed to compute event-derived player stat rows for game_id=%s", game_id)
+        stats_rows = []
+    if not show_shift_data:
+        _mask_shift_stats_in_player_stat_rows(stats_rows)
     team1_skaters, team1_goalies, team1_hc, team1_ac = logic.split_roster(team1_players or [])
     team2_skaters, team2_goalies, team2_hc, team2_ac = logic.split_roster(team2_players or [])
     team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
     team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
     stats_by_pid = {r0["player_id"]: r0 for r0 in stats_rows}
-    if not edit_mode and show_shift_data:
+    try:
+        _overlay_game_player_stats_from_event_rows(game_id=int(game_id), stats_by_pid=stats_by_pid)
+    except Exception:
+        logger.exception("Failed to overlay goal-derived stats for game_id=%s", game_id)
+    if show_shift_data:
         try:
             _overlay_on_ice_goal_stats_from_shift_rows(
                 game_id=int(game_id), stats_by_pid=stats_by_pid
@@ -7250,49 +7194,11 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "is_final": bool(is_final),
             "updated_at": dt.datetime.now(),
         }
-
-        def _collect(prefix: str, pid: int) -> dict[str, Optional[int]]:
-            def _ival(name: str) -> Optional[int]:
-                v = request.POST.get(f"{prefix}_{name}_{pid}")
-                return int(v) if v and v.strip() else None
-
-            return {
-                "goals": _ival("goals"),
-                "assists": _ival("assists"),
-                "shots": _ival("shots"),
-                "pim": _ival("pim"),
-                "plus_minus": _ival("plusminus"),
-            }
-
-        cols = [
-            "goals",
-            "assists",
-            "shots",
-            "pim",
-            "plus_minus",
-        ]
-        game_owner_user_id = int(game.get("user_id") or session_uid)
         with transaction.atomic():
             if is_owner:
                 m.HkyGame.objects.filter(id=int(game_id), user_id=session_uid).update(**updates)
             else:
                 m.HkyGame.objects.filter(id=int(game_id)).update(**updates)
-            for p in list(team1_skaters) + list(team2_skaters):
-                pid = int(p["id"])
-                vals = _collect("ps", pid)
-                team_id_for_player = int(p["team_id"])
-                defaults = {
-                    "user_id": int(game_owner_user_id),
-                    "team_id": int(team_id_for_player),
-                    **{c: vals.get(c) for c in cols},
-                }
-                ps, created = m.PlayerStat.objects.get_or_create(
-                    game_id=int(game_id),
-                    player_id=int(pid),
-                    defaults=defaults,
-                )
-                if not created:
-                    m.PlayerStat.objects.filter(id=ps.id).update(**{c: vals.get(c) for c in cols})
 
         messages.success(request, "Game updated")
         return redirect(f"/hky/games/{int(game_id)}?return_to={return_to}")
@@ -7351,263 +7257,6 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "league_page_views": league_page_views,
         },
     )
-
-
-def hky_game_import_shift_stats(
-    request: HttpRequest, game_id: int
-) -> HttpResponse:  # pragma: no cover
-    from django.contrib import messages
-    from urllib.parse import urlencode
-
-    r = _require_login(request)
-    if r:
-        return r
-    if request.method != "POST":
-        raise Http404
-
-    league_id = request.session.get("league_id")
-
-    _django_orm, m = _orm_modules()
-    game = (
-        m.HkyGame.objects.filter(id=int(game_id))
-        .values("id", "user_id", "team1_id", "team2_id", "notes")
-        .first()
-    )
-    if not game:
-        messages.error(request, "Not found")
-        return redirect("/schedule")
-
-    tts_linked = logic._extract_timetoscore_game_id_from_notes(game.get("notes")) is not None
-
-    session_uid = _session_user_id(request)
-    is_owner = int(game.get("user_id") or 0) == int(session_uid)
-    if not is_owner:
-        if (
-            not league_id
-            or not m.LeagueGame.objects.filter(
-                league_id=int(league_id), game_id=int(game_id)
-            ).exists()
-        ):
-            messages.error(request, "Not found")
-            return redirect("/schedule")
-
-    can_edit = bool(is_owner)
-    if league_id and not can_edit:
-        can_edit = bool(_is_league_admin(int(league_id), int(session_uid)))
-    if not can_edit:
-        messages.error(request, "You do not have permission to import stats for this game.")
-        qs = urlencode(
-            {
-                "return_to": logic._safe_return_to_url(
-                    request.GET.get("return_to"), default="/schedule"
-                )
-            }
-        )
-        return redirect(f"/hky/games/{int(game_id)}?{qs}")
-
-    ps_file = request.FILES.get("player_stats_csv")
-    if not ps_file or not getattr(ps_file, "name", ""):
-        messages.error(request, "Select a player_stats.csv file to import.")
-        qs = urlencode(
-            {
-                "return_to": logic._safe_return_to_url(
-                    request.GET.get("return_to"), default="/schedule"
-                )
-            }
-        )
-        return redirect(f"/hky/games/{int(game_id)}?{qs}")
-
-    try:
-        ps_text = ps_file.read().decode("utf-8", errors="replace")
-    except Exception:
-        messages.error(request, "Failed to read uploaded player_stats.csv")
-        qs = urlencode(
-            {
-                "return_to": logic._safe_return_to_url(
-                    request.GET.get("return_to"), default="/schedule"
-                )
-            }
-        )
-        return redirect(f"/hky/games/{int(game_id)}?{qs}")
-
-    try:
-        parsed_rows = logic.parse_shift_stats_player_stats_csv(ps_text)
-    except Exception as e:  # noqa: BLE001
-        messages.error(request, f"Failed to parse player_stats.csv: {e}")
-        qs = urlencode(
-            {
-                "return_to": logic._safe_return_to_url(
-                    request.GET.get("return_to"), default="/schedule"
-                )
-            }
-        )
-        return redirect(f"/hky/games/{int(game_id)}?{qs}")
-
-    owner_user_id = int(game.get("user_id") or 0)
-    team1_id = int(game["team1_id"])
-    team2_id = int(game["team2_id"])
-
-    players = list(
-        m.Player.objects.filter(
-            user_id=int(owner_user_id), team_id__in=[team1_id, team2_id]
-        ).values("id", "team_id", "name", "jersey_number")
-    )
-
-    players_by_team: dict[int, list[dict[str, Any]]] = {}
-    jersey_to_player_ids: dict[tuple[int, str], list[int]] = {}
-    name_to_player_ids: dict[tuple[int, str], list[int]] = {}
-    player_team_by_id: dict[int, int] = {}
-
-    for p in players:
-        tid = int(p["team_id"])
-        pid = int(p["id"])
-        player_team_by_id[pid] = tid
-        players_by_team.setdefault(tid, []).append(p)
-        j = logic.normalize_jersey_number(p.get("jersey_number"))
-        if j:
-            jersey_to_player_ids.setdefault((tid, j), []).append(pid)
-        nm = logic.normalize_player_name(p.get("name") or "")
-        if nm:
-            name_to_player_ids.setdefault((tid, nm), []).append(pid)
-        nm_no_mid = _normalize_player_name_no_middle(p.get("name") or "")
-        if nm_no_mid:
-            name_to_player_ids.setdefault((tid, nm_no_mid), []).append(pid)
-
-    def _resolve_player_id(
-        jersey_norm: Optional[str],
-        name_norm: str,
-        name_norm_no_middle: str,
-    ) -> Optional[int]:
-        candidates: list[int] = []
-        for tid in (team1_id, team2_id):
-            if jersey_norm:
-                candidates.extend(jersey_to_player_ids.get((tid, jersey_norm), []))
-        if len(set(candidates)) == 1:
-            return int(list(set(candidates))[0])
-
-        candidates = []
-        for tid in (team1_id, team2_id):
-            candidates.extend(name_to_player_ids.get((tid, name_norm), []))
-        if len(set(candidates)) == 1:
-            return int(list(set(candidates))[0])
-        if name_norm_no_middle and name_norm_no_middle != name_norm:
-            candidates = []
-            for tid in (team1_id, team2_id):
-                candidates.extend(name_to_player_ids.get((tid, name_norm_no_middle), []))
-            if len(set(candidates)) == 1:
-                return int(list(set(candidates))[0])
-
-        # Jersey match + fuzzy name tie-breaker
-        if jersey_norm:
-            fuzzy: list[int] = []
-            for tid in (team1_id, team2_id):
-                for pid0 in jersey_to_player_ids.get((tid, jersey_norm), []):
-                    pl = next(
-                        (
-                            x
-                            for x in players_by_team.get(tid, [])
-                            if int(x.get("id") or 0) == int(pid0)
-                        ),
-                        None,
-                    )
-                    if not pl:
-                        continue
-                    n2 = logic.normalize_player_name(pl.get("name") or "")
-                    n2_no_mid = _normalize_player_name_no_middle(pl.get("name") or "")
-                    if n2 and (n2 in name_norm or name_norm in n2):
-                        fuzzy.append(int(pid0))
-                    elif (
-                        name_norm_no_middle
-                        and n2_no_mid
-                        and (n2_no_mid in name_norm_no_middle or name_norm_no_middle in n2_no_mid)
-                    ):
-                        fuzzy.append(int(pid0))
-            if len(set(fuzzy)) == 1:
-                return int(list(set(fuzzy))[0])
-
-        return None
-
-    imported = 0
-    unmatched: list[str] = []
-
-    from django.db import transaction
-
-    cols = [
-        "goals",
-        "assists",
-        "shots",
-        "pim",
-        "plus_minus",
-        "sog",
-        "expected_goals",
-        "completed_passes",
-        "giveaways",
-        "turnovers_forced",
-        "created_turnovers",
-        "takeaways",
-        "controlled_entry_for",
-        "controlled_entry_against",
-        "controlled_exit_for",
-        "controlled_exit_against",
-        "gt_goals",
-        "gw_goals",
-        "ot_goals",
-        "ot_assists",
-        "gf_counted",
-        "ga_counted",
-    ]
-
-    now = dt.datetime.now()
-    with transaction.atomic():
-        for row in parsed_rows:
-            jersey_norm = row.get("jersey_number")
-            name_norm = row.get("name_norm") or ""
-            name_norm_no_middle = row.get("name_norm_no_middle") or ""
-            pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
-            if pid is None:
-                unmatched.append(row.get("player_label") or "")
-                continue
-
-            team_id_for_player = player_team_by_id.get(int(pid))
-            if team_id_for_player is None:
-                unmatched.append(row.get("player_label") or "")
-                continue
-
-            stats = row.get("stats") or {}
-            if tts_linked:
-                stats = dict(stats)
-                stats["goals"] = None
-                stats["assists"] = None
-
-            defaults = {
-                "user_id": int(owner_user_id),
-                "team_id": int(team_id_for_player),
-                **{c: stats.get(c) for c in cols},
-            }
-            ps, created = m.PlayerStat.objects.get_or_create(
-                game_id=int(game_id),
-                player_id=int(pid),
-                defaults=defaults,
-            )
-            if not created:
-                updates = {c: stats.get(c) for c in cols if stats.get(c) is not None}
-                if updates:
-                    m.PlayerStat.objects.filter(id=ps.id).update(**updates)
-            imported += 1
-
-        m.HkyGame.objects.filter(id=int(game_id)).update(stats_imported_at=now)
-
-    if unmatched:
-        messages.error(
-            f"Imported stats for {imported} player(s). Unmatched: {', '.join([u for u in unmatched if u])}"
-        )
-    else:
-        messages.success(request, f"Imported stats for {imported} player(s).")
-
-    qs = urlencode(
-        {"return_to": logic._safe_return_to_url(request.GET.get("return_to"), default="/schedule")}
-    )
-    return redirect(f"/hky/games/{int(game_id)}?{qs}")
 
 
 def game_types(request: HttpRequest) -> HttpResponse:  # pragma: no cover
@@ -7801,7 +7450,6 @@ def leagues_delete(request: HttpRequest, league_id: int) -> HttpResponse:  # pra
             if game_ids:
                 for chunk in _chunks(sorted({int(x) for x in game_ids}), n=500):
                     m.PlayerPeriodStat.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
-                    m.PlayerStat.objects.filter(game_id__in=[int(x) for x in chunk]).delete()
                     m.HkyGameEventSuppression.objects.filter(
                         game_id__in=[int(x) for x in chunk]
                     ).delete()
@@ -10330,102 +9978,25 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
         )
         return int(pid) if pid is not None else None
 
-    stats_rows = game.get("player_stats") or []
-    played = (
-        bool(game.get("is_final"))
-        or (t1s is not None and t2s is not None)
-        or (isinstance(stats_rows, list) and bool(stats_rows))
-    )
-
     _django_orm2, m2 = _orm_modules()
     from django.db import transaction
 
     with transaction.atomic():
-        if played:
-            to_create = []
-            for tid, pids in roster_player_ids_by_team.items():
-                for pid in sorted(pids):
-                    to_create.append(
-                        m2.PlayerStat(
-                            user_id=int(owner_user_id),
-                            team_id=int(tid),
-                            game_id=int(gid),
-                            player_id=int(pid),
-                        )
+        now = dt.datetime.now()
+        to_create_links = []
+        for tid, pids in roster_player_ids_by_team.items():
+            for pid in sorted(pids):
+                to_create_links.append(
+                    m2.HkyGamePlayer(
+                        game_id=int(gid),
+                        player_id=int(pid),
+                        team_id=int(tid),
+                        created_at=now,
+                        updated_at=None,
                     )
-            if to_create:
-                m2.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
-            # For TimeToScore-linked games, core player stats should be treated as known "0" when absent.
-            # This keeps per-game denominators stable even when a player has 0 PIM/goals/assists.
-            if tts_game_id is not None:
-                for tid, pids in roster_player_ids_by_team.items():
-                    if not pids:
-                        continue
-                    qs = m2.PlayerStat.objects.filter(
-                        game_id=int(gid), team_id=int(tid), player_id__in=list(pids)
-                    )
-                    if replace:
-                        qs.update(goals=0, assists=0, pim=0)
-                    else:
-                        qs.filter(goals__isnull=True).update(goals=0)
-                        qs.filter(assists__isnull=True).update(assists=0)
-                        qs.filter(pim__isnull=True).update(pim=0)
-
-        if isinstance(stats_rows, list):
-            for srow in stats_rows:
-                if not isinstance(srow, dict):
-                    continue
-                pname = str(srow.get("name") or "").strip()
-                if not pname:
-                    continue
-                goals = srow.get("goals")
-                assists = srow.get("assists")
-                pim = srow.get("pim")
-                try:
-                    gval = int(goals) if goals is not None else 0
-                except Exception:
-                    gval = 0
-                try:
-                    aval = int(assists) if assists is not None else 0
-                except Exception:
-                    aval = 0
-                try:
-                    pim_val = int(pim) if pim is not None and str(pim).strip() != "" else None
-                except Exception:
-                    pim_val = None
-
-                team_ref = team1_id
-                pid = _player_id_by_name(team1_id, pname)
-                if pid is None:
-                    pid = _player_id_by_name(team2_id, pname)
-                    team_ref = team2_id if pid is not None else team1_id
-                if pid is None:
-                    pid = _ensure_player_for_import(owner_user_id, team_ref, pname, None, None)
-
-                force_tts_scoring = bool(tts_game_id is not None)
-                ps, _created = m2.PlayerStat.objects.get_or_create(
-                    game_id=int(gid),
-                    player_id=int(pid),
-                    defaults={
-                        "user_id": int(owner_user_id),
-                        "team_id": int(team_ref),
-                        "goals": gval,
-                        "assists": aval,
-                        "pim": pim_val,
-                    },
                 )
-                if replace or force_tts_scoring:
-                    updates = {"goals": gval, "assists": aval}
-                    if pim_val is not None:
-                        updates["pim"] = pim_val
-                    m2.PlayerStat.objects.filter(id=ps.id).update(**updates)
-                else:
-                    m2.PlayerStat.objects.filter(id=ps.id, goals__isnull=True).update(goals=gval)
-                    m2.PlayerStat.objects.filter(id=ps.id, assists__isnull=True).update(
-                        assists=aval
-                    )
-                    if pim_val is not None:
-                        m2.PlayerStat.objects.filter(id=ps.id, pim__isnull=True).update(pim=pim_val)
+        if to_create_links:
+            m2.HkyGamePlayer.objects.bulk_create(to_create_links, ignore_conflicts=True)
 
     return JsonResponse(
         {
@@ -10723,112 +10294,28 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                         except Exception:
                             pass
 
-            def _player_id_by_name(team_id: int, name: str) -> Optional[int]:
-                pid = (
-                    m.Player.objects.filter(
-                        user_id=int(owner_user_id), team_id=int(team_id), name=str(name)
-                    )
-                    .values_list("id", flat=True)
-                    .first()
-                )
-                return int(pid) if pid is not None else None
-
-            stats_rows = game.get("player_stats") or []
             events_csv = game.get("events_csv")
             played = (
                 bool(game.get("is_final"))
                 or (t1s is not None and t2s is not None)
-                or (isinstance(stats_rows, list) and bool(stats_rows))
+                or (isinstance(events_csv, str) and events_csv.strip())
             )
-            if played:
-                to_create = []
+            if played and roster_player_ids_by_team:
+                now = dt.datetime.now()
+                to_create_links = []
                 for tid, pids in roster_player_ids_by_team.items():
                     for pid in sorted(pids):
-                        to_create.append(
-                            m.PlayerStat(
-                                user_id=int(owner_user_id),
-                                team_id=int(tid),
+                        to_create_links.append(
+                            m.HkyGamePlayer(
                                 game_id=int(gid),
                                 player_id=int(pid),
+                                team_id=int(tid),
+                                created_at=now,
+                                updated_at=None,
                             )
                         )
-                if to_create:
-                    m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
-                # For TimeToScore-linked games, core player stats should be treated as known "0" when absent.
-                # This keeps per-game denominators stable even when a player has 0 PIM/goals/assists.
-                if tts_game_id is not None:
-                    for tid, pids in roster_player_ids_by_team.items():
-                        if not pids:
-                            continue
-                        qs = m.PlayerStat.objects.filter(
-                            game_id=int(gid), team_id=int(tid), player_id__in=list(pids)
-                        )
-                        if game_replace:
-                            qs.update(goals=0, assists=0, pim=0)
-                        else:
-                            qs.filter(goals__isnull=True).update(goals=0)
-                            qs.filter(assists__isnull=True).update(assists=0)
-                            qs.filter(pim__isnull=True).update(pim=0)
-
-            if isinstance(stats_rows, list):
-                for srow in stats_rows:
-                    if not isinstance(srow, dict):
-                        continue
-                    pname = str(srow.get("name") or "").strip()
-                    if not pname:
-                        continue
-                    goals = srow.get("goals")
-                    assists = srow.get("assists")
-                    pim = srow.get("pim")
-                    try:
-                        gval = int(goals) if goals is not None else 0
-                    except Exception:
-                        gval = 0
-                    try:
-                        aval = int(assists) if assists is not None else 0
-                    except Exception:
-                        aval = 0
-                    try:
-                        pim_val = int(pim) if pim is not None and str(pim).strip() != "" else None
-                    except Exception:
-                        pim_val = None
-
-                    team_ref = team1_id
-                    pid = _player_id_by_name(team1_id, pname)
-                    if pid is None:
-                        pid = _player_id_by_name(team2_id, pname)
-                        team_ref = team2_id if pid is not None else team1_id
-                    if pid is None:
-                        pid = _ensure_player_for_import(
-                            owner_user_id, team_ref, pname, None, None, commit=False
-                        )
-
-                    force_tts_scoring = bool(tts_game_id is not None)
-                    ps, _created = m.PlayerStat.objects.get_or_create(
-                        game_id=int(gid),
-                        player_id=int(pid),
-                        defaults={
-                            "user_id": int(owner_user_id),
-                            "team_id": int(team_ref),
-                            "goals": gval,
-                            "assists": aval,
-                            "pim": pim_val,
-                        },
-                    )
-                    if game_replace or force_tts_scoring:
-                        updates = {"goals": gval, "assists": aval}
-                        if pim_val is not None:
-                            updates["pim"] = pim_val
-                        m.PlayerStat.objects.filter(id=ps.id).update(**updates)
-                    else:
-                        m.PlayerStat.objects.filter(id=ps.id, goals__isnull=True).update(goals=gval)
-                        m.PlayerStat.objects.filter(id=ps.id, assists__isnull=True).update(
-                            assists=aval
-                        )
-                        if pim_val is not None:
-                            m.PlayerStat.objects.filter(id=ps.id, pim__isnull=True).update(
-                                pim=pim_val
-                            )
+                if to_create_links:
+                    m.HkyGamePlayer.objects.bulk_create(to_create_links, ignore_conflicts=True)
 
             if isinstance(events_csv, str) and events_csv.strip():
                 try:
@@ -11164,18 +10651,27 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             team1_score = None
             team2_score = None
             try:
-                parsed_gs = logic.parse_shift_stats_game_stats_csv(
-                    str(payload.get("game_stats_csv") or "")
-                )
-                gf = parsed_gs.get("Goals For")
-                ga = parsed_gs.get("Goals Against")
-                gf_i = int(gf) if gf not in (None, "") else None
-                ga_i = int(ga) if ga not in (None, "") else None
-                if gf_i is not None and ga_i is not None and team_side in {"home", "away"}:
-                    if team_side == "home":
-                        team1_score, team2_score = gf_i, ga_i
-                    else:
-                        team1_score, team2_score = ga_i, gf_i
+                raw_events_csv = payload.get("events_csv")
+                if isinstance(raw_events_csv, str) and raw_events_csv.strip():
+                    _h, _rows = logic.parse_events_csv(str(raw_events_csv))
+                    if _rows:
+                        home_goals = 0
+                        away_goals = 0
+                        for r0 in _rows:
+                            if not isinstance(r0, dict):
+                                continue
+                            et = str(
+                                r0.get("Event Type") or r0.get("Event") or r0.get("Type") or ""
+                            ).strip()
+                            if not et or et.casefold() != "goal":
+                                continue
+                            side = str(r0.get("Team Side") or r0.get("TeamSide") or "").strip()
+                            if side.casefold() == "home":
+                                home_goals += 1
+                            elif side.casefold() == "away":
+                                away_goals += 1
+                        team1_score = int(home_goals)
+                        team2_score = int(away_goals)
             except Exception:
                 team1_score, team2_score = None, None
 
@@ -11277,14 +10773,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     team1_id = int(game_row["team1_id"])
     team2_id = int(game_row["team2_id"])
     owner_user_id = int(game_row.get("user_id") or 0)
-    tts_linked = bool(
-        tts_int is not None
-        or game_row.get("timetoscore_game_id") is not None
-        or logic._extract_timetoscore_game_id_from_notes(game_row.get("notes")) is not None
-    )
 
-    player_stats_csv = payload.get("player_stats_csv")
-    game_stats_csv = payload.get("game_stats_csv")
     events_csv = payload.get("events_csv")
     shift_rows_csv = payload.get("shift_rows_csv")
     replace_shift_rows_payload = payload.get("replace_shift_rows")
@@ -11470,26 +10959,25 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         now = dt.datetime.now()
         with transaction.atomic():
             has_stats_payload = bool(
-                (isinstance(player_stats_csv, str) and player_stats_csv.strip())
-                or (isinstance(game_stats_csv, str) and game_stats_csv.strip())
-                or (isinstance(events_csv, str) and events_csv.strip())
+                (isinstance(events_csv, str) and events_csv.strip())
                 or (isinstance(shift_rows_csv, str) and shift_rows_csv.strip())
             )
             if has_stats_payload and roster_player_ids_by_team:
-                # Credit GP for roster players even when they have no shift-package scoring stats.
-                to_create = []
+                # Credit GP for roster players even when they have no shift-package stats/events.
+                to_create_links = []
                 for tid, pids in roster_player_ids_by_team.items():
                     for pid in sorted(pids):
-                        to_create.append(
-                            m.PlayerStat(
-                                user_id=int(owner_user_id),
-                                team_id=int(tid),
+                        to_create_links.append(
+                            m.HkyGamePlayer(
                                 game_id=int(resolved_game_id),
                                 player_id=int(pid),
+                                team_id=int(tid),
+                                created_at=now,
+                                updated_at=None,
                             )
                         )
-                if to_create:
-                    m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+                if to_create_links:
+                    m.HkyGamePlayer.objects.bulk_create(to_create_links, ignore_conflicts=True)
 
             if isinstance(events_csv, str) and events_csv.strip():
                 try:
@@ -11525,39 +11013,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         exc_info=True,
                     )
                     raise
-
-            if isinstance(game_stats_csv, str) and game_stats_csv.strip():
-                try:
-                    parsed_gs = logic.parse_shift_stats_game_stats_csv(game_stats_csv)
-                    gf = parsed_gs.get("Goals For")
-                    ga = parsed_gs.get("Goals Against")
-                    gf_i = int(gf) if gf not in (None, "") else None
-                    ga_i = int(ga) if ga not in (None, "") else None
-                    if (
-                        gf_i is not None
-                        and ga_i is not None
-                        and team_side in {"home", "away"}
-                        and int(resolved_game_id) > 0
-                    ):
-                        if team_side == "home":
-                            t1_score_new, t2_score_new = gf_i, ga_i
-                        else:
-                            t1_score_new, t2_score_new = ga_i, gf_i
-                        if replace:
-                            m.HkyGame.objects.filter(id=int(resolved_game_id)).update(
-                                team1_score=int(t1_score_new),
-                                team2_score=int(t2_score_new),
-                                updated_at=now,
-                            )
-                        else:
-                            m.HkyGame.objects.filter(
-                                id=int(resolved_game_id), team1_score__isnull=True
-                            ).update(team1_score=int(t1_score_new), updated_at=now)
-                            m.HkyGame.objects.filter(
-                                id=int(resolved_game_id), team2_score__isnull=True
-                            ).update(team2_score=int(t2_score_new), updated_at=now)
-                except Exception:
-                    pass
 
             if (
                 isinstance(shift_rows_csv, str)
@@ -11687,98 +11142,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                     m.HkyGameShiftRow.objects.bulk_create(to_create, ignore_conflicts=True)
                     imported_shifts += len(to_create)
 
-            if isinstance(player_stats_csv, str) and player_stats_csv.strip():
-                parsed_rows = logic.parse_shift_stats_player_stats_csv(player_stats_csv)
-                for row in parsed_rows:
-                    jersey_norm = row.get("jersey_number")
-                    name_norm = row.get("name_norm") or ""
-                    name_norm_no_middle = row.get("name_norm_no_middle") or ""
-                    pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
-                    if pid is None:
-                        if create_missing_players and team_side in {"home", "away"}:
-                            target_team_id = team1_id if team_side == "home" else team2_id
-                            disp = str(row.get("display_name") or "").strip()
-                            if not disp:
-                                disp = str(row.get("player_label") or "").strip()
-                                match = re.match(r"^\s*\d+\s+(.*)$", disp)
-                                if match:
-                                    disp = str(match.group(1) or "").strip()
-                            if disp:
-                                try:
-                                    pid = _ensure_player_for_import(
-                                        owner_user_id,
-                                        int(target_team_id),
-                                        disp,
-                                        str(jersey_norm or "").strip() or None,
-                                        None,
-                                        commit=False,
-                                    )
-                                    _register_player(
-                                        int(pid),
-                                        int(target_team_id),
-                                        name=str(disp),
-                                        jersey_number=jersey_norm,
-                                    )
-                                except Exception:
-                                    pid = None
-                        if pid is None:
-                            unmatched.append(row.get("player_label") or "")
-                            continue
-
-                    team_id = player_team_by_id.get(int(pid))
-                    if team_id is None:
-                        if create_missing_players and team_side in {"home", "away"}:
-                            team_id = team1_id if team_side == "home" else team2_id
-                        else:
-                            unmatched.append(row.get("player_label") or "")
-                            continue
-
-                    stats = row.get("stats") or {}
-                    if tts_linked:
-                        stats = dict(stats)
-                        stats["goals"] = None
-                        stats["assists"] = None
-                    cols = [
-                        "goals",
-                        "assists",
-                        "shots",
-                        "pim",
-                        "plus_minus",
-                        "sog",
-                        "expected_goals",
-                        "completed_passes",
-                        "giveaways",
-                        "turnovers_forced",
-                        "created_turnovers",
-                        "takeaways",
-                        "controlled_entry_for",
-                        "controlled_entry_against",
-                        "controlled_exit_for",
-                        "controlled_exit_against",
-                        "gt_goals",
-                        "gw_goals",
-                        "ot_goals",
-                        "ot_assists",
-                        "gf_counted",
-                        "ga_counted",
-                    ]
-                    defaults = {
-                        "user_id": int(owner_user_id),
-                        "team_id": int(team_id),
-                        **{c: stats.get(c) for c in cols},
-                    }
-                    ps, created = m.PlayerStat.objects.get_or_create(
-                        game_id=int(resolved_game_id),
-                        player_id=int(pid),
-                        defaults=defaults,
-                    )
-                    if not created:
-                        updates = {c: stats.get(c) for c in cols if stats.get(c) is not None}
-                        if updates:
-                            m.PlayerStat.objects.filter(id=ps.id).update(**updates)
-                    imported += 1
-
-            if player_stats_csv or game_stats_csv or events_csv or shift_rows_csv:
+            if events_csv or shift_rows_csv:
                 m.HkyGame.objects.filter(id=int(resolved_game_id)).update(stats_imported_at=now)
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)

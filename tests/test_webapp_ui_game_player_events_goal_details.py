@@ -189,34 +189,6 @@ def should_not_repeat_goal_scorer_in_game_player_events_details(monkeypatch, web
         created_at=now,
         updated_at=None,
     )
-    m.PlayerStat.objects.create(
-        user_id=int(owner.id),
-        team_id=int(team.id),
-        game_id=int(game.id),
-        player_id=int(p.id),
-        goals=1,
-        assists=0,
-        shots=0,
-        pim=0,
-        plus_minus=0,
-        sog=0,
-        expected_goals=0,
-        completed_passes=0,
-        giveaways=0,
-        turnovers_forced=0,
-        created_turnovers=0,
-        takeaways=0,
-        controlled_entry_for=0,
-        controlled_entry_against=0,
-        controlled_exit_for=0,
-        controlled_exit_against=0,
-        gt_goals=0,
-        gw_goals=0,
-        ot_goals=0,
-        ot_assists=0,
-        gf_counted=0,
-        ga_counted=0,
-    )
 
     ev_goal, _created = m.HkyEventType.objects.get_or_create(
         key="goal", defaults={"name": "Goal", "created_at": now}

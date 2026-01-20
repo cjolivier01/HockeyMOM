@@ -146,7 +146,7 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
     }
 
     rf = RequestFactory()
-    request = rf.get("/teams/101", {"recent_n": "5", "recent_sort": "points", "recent_dir": "desc"})
+    request = rf.get("/teams/101", {"gt": "All", "gid": "1"})
     request.session = {}
     html = render_to_string(
         "team_detail.html",
@@ -155,11 +155,11 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
             "players": players,
             "player_stats_columns": cols,
             "player_stats_rows": [row],
-            "recent_player_stats_columns": cols,
-            "recent_player_stats_rows": [row],
-            "recent_n": 5,
-            "recent_sort": "points",
-            "recent_dir": "desc",
+            "game_type_filter_options": [{"label": "All", "checked": True}],
+            "game_type_filter_label": "All",
+            "select_games_options": [{"id": 1, "label": "Game 1", "checked": True}],
+            "select_games_label": "All",
+            "select_games_partial": False,
             "tstats": {"wins": 0, "losses": 0, "ties": 0, "gf": 0, "ga": 0, "points": 0},
             "schedule_games": [],
             "editable": False,
@@ -167,11 +167,13 @@ def should_render_recent_player_stats_section_in_team_template(webapp_test_confi
         request=request,
     )
 
-    assert "Recent Player Stats  -- Are They On a Roll?" in html
+    assert "Player Stats (Skaters)" in html
+    assert "Game Types:" in html
+    assert "Select Games:" in html
     assert 'data-freeze-cols="2"' in html
     assert "table-nowrap" in html
-    assert "<select" in html and "recent_n" in html
-    assert html.count("(3 games)") == 2
+    assert "(5 Games)" in html
+    assert html.count("(3 games)") == 1
 
 
 def should_split_coaches_out_of_player_lists():

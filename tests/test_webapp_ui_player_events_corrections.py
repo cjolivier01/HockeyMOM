@@ -189,33 +189,27 @@ def should_render_corrected_player_events_in_red_with_tooltip(monkeypatch, webap
         created_at=now,
         updated_at=None,
     )
-    m.PlayerStat.objects.create(
-        user_id=int(owner.id),
-        team_id=int(team.id),
+    et_goal = m.HkyEventType.objects.create(key="goal", name="Goal", created_at=now)
+    m.HkyGamePlayer.objects.create(
         game_id=int(game.id),
         player_id=int(p.id),
-        goals=1,
-        assists=0,
-        shots=0,
-        pim=0,
-        plus_minus=0,
-        sog=0,
-        expected_goals=0,
-        completed_passes=0,
-        giveaways=0,
-        turnovers_forced=0,
-        created_turnovers=0,
-        takeaways=0,
-        controlled_entry_for=0,
-        controlled_entry_against=0,
-        controlled_exit_for=0,
-        controlled_exit_against=0,
-        gt_goals=0,
-        gw_goals=0,
-        ot_goals=0,
-        ot_assists=0,
-        gf_counted=0,
-        ga_counted=0,
+        team_id=int(team.id),
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(game.id),
+        event_type=et_goal,
+        import_key="seed_goal",
+        team_id=int(team.id),
+        player_id=int(p.id),
+        team_side="Home",
+        period=1,
+        game_time="10:00",
+        game_seconds=0,
+        details="A1: #3\\nA2: #8",
+        created_at=now,
+        updated_at=None,
     )
 
     from django.core.wsgi import get_wsgi_application

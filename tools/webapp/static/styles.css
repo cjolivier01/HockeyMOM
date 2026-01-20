@@ -496,12 +496,13 @@ tr.game-excluded:hover { opacity: .85; }
   gap: 0.45rem;
 }
 .hm-player-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.72;
+  color: var(--accent);
+  opacity: 0.92;
   flex: 0 0 auto;
 }
 .hm-player-icon svg {

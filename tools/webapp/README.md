@@ -87,9 +87,15 @@ Dev (repo)
 
 Import Shift Spreadsheet Stats
 ------------------------------
-To import the `stats/player_stats.csv` output written by `scripts/parse_stats_inputs.py` and view it per game/player/team:
+To import shift-spreadsheet stats from `scripts/parse_stats_inputs.py` into the webapp:
 
-- See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
+- Run `scripts/parse_stats_inputs.py` with `--upload-webapp ...` (or use `./import_webapp.sh`).
+- The script uploads `stats/all_events_summary.csv` as `events_csv` and `stats/shift_rows.csv` as `shift_rows_csv` to
+  `/api/import/hockey/shift_package`.
+- The webapp computes player/game/team stats at runtime from `hky_game_event_rows` and `hky_game_shift_rows`
+  (no `player_stats.csv` / `game_stats.csv` imports).
+
+See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
 
 ### Shift spreadsheet file-list YAML (`game_list_long.yaml`)
 

@@ -827,7 +827,10 @@ def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkey
             "season_id": 77,
             "home_roster": [{"name": "Alice", "number": "9", "position": "F"}],
             "away_roster": [{"name": "Bob", "number": "", "position": "D"}],
-            "player_stats": [{"name": "Alice", "goals": 1, "assists": 0}],
+            "events_csv": (
+                "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source,Details\n"
+                "Goal,Home,1,100,9,timetoscore,First import\n"
+            ),
         },
         "source": "timetoscore",
         "external_key": "sharksice:77",
@@ -854,13 +857,16 @@ def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkey
     assert m.LeagueTeam.objects.filter(league_id=lid, team_id=team2_id).exists()
     assert m.LeagueGame.objects.filter(league_id=lid, game_id=gid).exists()
 
-    # Re-import with different scores/stats without replace should not overwrite existing scores,
-    # but should still refresh TimeToScore-sourced goal/assist attribution.
+    # Re-import with different scores/events without replace should not overwrite existing scores,
+    # but should still refresh TimeToScore-sourced goal/assist events.
     payload2 = dict(payload)
     payload2["game"] = dict(payload["game"])
     payload2["game"]["home_score"] = 9
     payload2["game"]["away_score"] = 9
-    payload2["game"]["player_stats"] = [{"name": "Alice", "goals": 7, "assists": 7}]
+    payload2["game"]["events_csv"] = (
+        "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source,Details\n"
+        "Goal,Home,1,100,9,timetoscore,Second import\n"
+    )
     r2 = _post(client, "/api/import/hockey/game", payload2, token="sekret")
     assert r2.status_code == 200
     gid2 = int(r2.get_json()["game_id"])
@@ -876,13 +882,15 @@ def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkey
         .first()
     )
     assert alice is not None
-    ps = (
-        m.PlayerStat.objects.filter(game_id=gid, player_id=int(alice["id"]))
-        .values("goals", "assists")
+    assert m.HkyGamePlayer.objects.filter(game_id=gid, player_id=int(alice["id"])).exists()
+    ev = (
+        m.HkyGameEventRow.objects.filter(game_id=gid, event_type__key="goal")
+        .values("player_id", "details")
         .first()
     )
-    assert ps is not None
-    assert int(ps["goals"]) == 7 and int(ps["assists"]) == 7
+    assert ev is not None
+    assert int(ev.get("player_id") or 0) == int(alice["id"])
+    assert str(ev.get("details") or "").strip() == "Second import"
 
 
 def should_persist_division_metadata_on_import(webapp_mod, monkeypatch):
@@ -919,7 +927,10 @@ def should_persist_division_metadata_on_import(webapp_mod, monkeypatch):
             "conference_id": 7,
             "home_roster": [{"name": "P1"}],
             "away_roster": [{"name": "P2"}],
-            "player_stats": [{"name": "P1", "goals": 1, "assists": 0}],
+            "events_csv": (
+                "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source\n"
+                "Goal,Home,1,100,,timetoscore\n"
+            ),
         },
         "source": "timetoscore",
         "external_key": "caha:0",
@@ -987,7 +998,11 @@ def should_overwrite_with_replace(webapp_mod, monkeypatch):
             "season_id": 77,
             "home_roster": [{"name": "Alice", "number": None, "position": None}],
             "away_roster": [],
-            "player_stats": [{"name": "Alice", "goals": 2, "assists": 1}],
+            "events_csv": (
+                "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source\n"
+                "Goal,Home,1,100,9,timetoscore\n"
+                "Assist,Home,1,100,9,timetoscore\n"
+            ),
         },
     }
     r = _post(client, "/api/import/hockey/game", payload, token="sekret")
@@ -1007,13 +1022,18 @@ def should_overwrite_with_replace(webapp_mod, monkeypatch):
         .first()
     )
     assert alice is not None
-    ps = (
-        m.PlayerStat.objects.filter(game_id=gid, player_id=int(alice["id"]))
-        .values("goals", "assists")
-        .first()
+    assert (
+        m.HkyGameEventRow.objects.filter(
+            game_id=gid, event_type__key="goal", player_id=int(alice["id"])
+        ).count()
+        == 1
     )
-    assert ps is not None
-    assert int(ps["goals"]) == 2 and int(ps["assists"]) == 1
+    assert (
+        m.HkyGameEventRow.objects.filter(
+            game_id=gid, event_type__key="assist", player_id=int(alice["id"])
+        ).count()
+        == 1
+    )
 
 
 def should_match_existing_game_by_timetoscore_id_when_no_starts_at(webapp_mod, monkeypatch):
@@ -1412,29 +1432,34 @@ def _snapshot_import_state(m) -> dict[str, Any]:
         .values("team__name", "name", "jersey_number", "position")
         .order_by("team__name", "name")
     )
-    pstats_rows = list(
-        m.PlayerStat.objects.select_related("player", "team", "game").values(
-            "game__notes", "player__name", "team__name", "goals", "assists"
-        )
-    )
-    pstats = []
-    for r in pstats_rows:
-        pstats.append(
+    game_players = []
+    for notes, pname, tname in (
+        m.HkyGamePlayer.objects.select_related("game", "player", "team")
+        .values_list("game__notes", "player__name", "team__name")
+        .order_by("game_id", "team__name", "player__name")
+    ):
+        game_players.append(
             {
-                "tts_game_id": tts_id(r.get("game__notes")),
-                "player_name": r.get("player__name"),
-                "team_name": r.get("team__name"),
-                "goals": r.get("goals"),
-                "assists": r.get("assists"),
+                "tts_game_id": tts_id(notes),
+                "player_name": pname,
+                "team_name": tname,
             }
         )
-    pstats.sort(
-        key=lambda r: (
-            int(r.get("tts_game_id") or 0),
-            str(r.get("team_name") or ""),
-            str(r.get("player_name") or ""),
+
+    event_rows = []
+    for notes, et_key, import_key, pid in (
+        m.HkyGameEventRow.objects.select_related("event_type", "game")
+        .values_list("game__notes", "event_type__key", "import_key", "player_id")
+        .order_by("game__id", "event_type__key", "import_key")
+    ):
+        event_rows.append(
+            {
+                "tts_game_id": tts_id(notes),
+                "event_type_key": et_key,
+                "import_key": import_key,
+                "player_id": pid,
+            }
         )
-    )
 
     return {
         "users": users,
@@ -1445,7 +1470,8 @@ def _snapshot_import_state(m) -> dict[str, Any]:
         "games": games,
         "league_games": lg2,
         "players": players,
-        "player_stats": pstats,
+        "game_players": game_players,
+        "event_rows": event_rows,
     }
 
 
@@ -1470,7 +1496,10 @@ def should_import_games_batch_and_match_individual_imports(
         "season_id": 77,
         "home_roster": [{"name": "Alice", "number": "9", "position": "F"}],
         "away_roster": [{"name": "Bob", "number": "4", "position": "D"}],
-        "player_stats": [{"name": "Alice", "goals": 1, "assists": 0}],
+        "events_csv": (
+            "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source\n"
+            "Goal,Home,1,100,9,timetoscore\n"
+        ),
         "home_division_name": "10 B West",
         "away_division_name": "10 B West",
     }
@@ -1485,7 +1514,10 @@ def should_import_games_batch_and_match_individual_imports(
         "season_id": 77,
         "home_roster": [{"name": "Carol", "number": "12", "position": "F"}],
         "away_roster": [{"name": "Dan", "number": "2", "position": "D"}],
-        "player_stats": [{"name": "Carol", "goals": 2, "assists": 1}],
+        "events_csv": (
+            "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source\n"
+            "Goal,Home,1,100,12,timetoscore\n"
+        ),
         "home_division_name": "12U A",
         "away_division_name": "12U A",
     }

@@ -54,7 +54,9 @@ def create_team(m: Any, *, user_id: int, name: str, is_external: bool = False) -
     return int(team.id)
 
 
-def create_player(m: Any, *, user_id: int, team_id: int, name: str, jersey: str, position: str) -> int:
+def create_player(
+    m: Any, *, user_id: int, team_id: int, name: str, jersey: str, position: str
+) -> int:
     now = dt.datetime.now()
     p = m.Player.objects.create(
         user_id=int(user_id),
@@ -98,34 +100,102 @@ def create_game(
 def add_random_stats(m: Any, *, game_id: int, team_id: int, user_id: int) -> None:
     import random as _r
 
-    pids = list(m.Player.objects.filter(team_id=int(team_id)).order_by("id").values_list("id", flat=True))
-    for pid in pids:
+    del user_id  # legacy param (stats are now derived from events)
+
+    now = dt.datetime.now()
+    game = m.HkyGame.objects.filter(id=int(game_id)).values("id", "team1_id", "team2_id").first()
+    if not game:
+        return
+    team_side = (
+        "Home"
+        if int(game.get("team1_id") or 0) == int(team_id)
+        else "Away" if int(game.get("team2_id") or 0) == int(team_id) else ""
+    )
+
+    def _ensure_event_type(key: str, name: str) -> int:
+        et, _created = m.HkyEventType.objects.get_or_create(
+            key=str(key),
+            defaults={"name": str(name), "created_at": now},
+        )
+        return int(et.id)
+
+    et_goal = _ensure_event_type("goal", "Goal")
+    et_assist = _ensure_event_type("assist", "Assist")
+    et_shot = _ensure_event_type("shot", "Shot")
+    et_penalty = _ensure_event_type("penalty", "Penalty")
+
+    players = list(
+        m.Player.objects.filter(team_id=int(team_id))
+        .order_by("id")
+        .values("id", "name", "jersey_number")
+    )
+    for idx, p in enumerate(players):
+        pid = int(p["id"])
+        m.HkyGamePlayer.objects.get_or_create(
+            game_id=int(game_id),
+            player_id=int(pid),
+            defaults={
+                "team_id": int(team_id),
+                "created_at": now,
+                "updated_at": None,
+            },
+        )
+
         goals = _r.randint(0, 2)
         assists = _r.randint(0, 2)
         shots = goals + assists + _r.randint(0, 3)
         pim = _r.choice([0, 0, 2, 4])
-        plus_minus = _r.randint(-1, 2)
-        ps, created = m.PlayerStat.objects.get_or_create(
-            game_id=int(game_id),
-            player_id=int(pid),
-            defaults={
-                "user_id": int(user_id),
-                "team_id": int(team_id),
-                "goals": int(goals),
-                "assists": int(assists),
-                "shots": int(shots),
-                "pim": int(pim),
-                "plus_minus": int(plus_minus),
-            },
-        )
-        if not created:
-            m.PlayerStat.objects.filter(id=ps.id).update(
-                goals=int(goals),
-                assists=int(assists),
-                shots=int(shots),
-                pim=int(pim),
-                plus_minus=int(plus_minus),
-            )
+
+        jersey = str(p.get("jersey_number") or "").strip()
+        pname = str(p.get("name") or "").strip()
+
+        def _mk_event(
+            *,
+            et_id: int,
+            kind: str,
+            n: int,
+            details: str = "",
+        ) -> None:
+            for j in range(int(n)):
+                period = 1
+                gs = 60 + int(idx) * 10 + int(j) * 5
+                import_key = f"seed_demo:{int(game_id)}:{int(pid)}:{kind}:{int(j)}"
+                m.HkyGameEventRow.objects.update_or_create(
+                    game_id=int(game_id),
+                    import_key=str(import_key),
+                    defaults={
+                        "event_type_id": int(et_id),
+                        "team_id": int(team_id),
+                        "player_id": int(pid),
+                        "source": "seed_demo",
+                        "event_id": None,
+                        "team_raw": None,
+                        "team_side": str(team_side),
+                        "for_against": "For",
+                        "team_rel": None,
+                        "period": int(period),
+                        "game_time": None,
+                        "video_time": None,
+                        "game_seconds": int(gs),
+                        "game_seconds_end": None,
+                        "video_seconds": None,
+                        "details": str(details or "").strip() or None,
+                        "correction": None,
+                        "attributed_players": pname or None,
+                        "attributed_jerseys": (f"#{jersey}" if jersey else None),
+                        "on_ice_players": None,
+                        "on_ice_players_home": None,
+                        "on_ice_players_away": None,
+                        "created_at": now,
+                        "updated_at": None,
+                    },
+                )
+
+        _mk_event(et_id=et_goal, kind="goal", n=goals)
+        _mk_event(et_id=et_assist, kind="assist", n=assists)
+        _mk_event(et_id=et_shot, kind="shot", n=shots)
+        if pim > 0:
+            _mk_event(et_id=et_penalty, kind="penalty", n=1, details=f"{int(pim)} min")
 
 
 def main():
@@ -147,7 +217,10 @@ def main():
     try:
         _django_orm, m = _orm_modules(config_path=str(args.config))
     except Exception:
-        print("Failed to initialize ORM. Ensure Django is installed and DB configured.", file=sys.stderr)
+        print(
+            "Failed to initialize ORM. Ensure Django is installed and DB configured.",
+            file=sys.stderr,
+        )
         raise
 
     user_id = ensure_user(m, email=args.email, name=args.name, password_hash=args.password_hash)
@@ -166,7 +239,14 @@ def main():
     num = 1
     for tid in team_ids:
         for i in range(10):
-            create_player(m, user_id=user_id, team_id=tid, name=gen_name(), jersey=str(num), position=random.choice(positions))
+            create_player(
+                m,
+                user_id=user_id,
+                team_id=tid,
+                name=gen_name(),
+                jersey=str(num),
+                position=random.choice(positions),
+            )
             num += 1
 
     # Games
