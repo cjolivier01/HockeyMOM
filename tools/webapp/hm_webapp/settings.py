@@ -154,6 +154,11 @@ TEMPLATES = [
                     if IS_REPO
                     else "django_app.context_processors.user_leagues"
                 ),
+                (
+                    "tools.webapp.django_app.context_processors.static_versions"
+                    if IS_REPO
+                    else "django_app.context_processors.static_versions"
+                ),
             ],
         },
     }

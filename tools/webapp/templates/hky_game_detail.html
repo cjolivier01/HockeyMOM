@@ -232,7 +232,7 @@
             {% for p in team1_roster %}
               <tr>
                 <td>{{ p.jersey_number|default_if_none:"" }}</td>
-                <td>{{ p.name|default_if_none:"" }}</td>
+                <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
                 <td>{{ p.position|default_if_none:"" }}</td>
               </tr>
             {% empty %}
@@ -255,7 +255,7 @@
             {% for p in team2_roster %}
               <tr>
                 <td>{{ p.jersey_number|default_if_none:"" }}</td>
-                <td>{{ p.name|default_if_none:"" }}</td>
+                <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
                 <td>{{ p.position|default_if_none:"" }}</td>
               </tr>
             {% empty %}
@@ -3268,10 +3268,10 @@
               var chain = buildShotChainTables(filtered);
               [
                 ["Goals", chain.goals],
+                ["Assists", chain.assists],
                 ["xG (Expected Goal)", chain.xg],
                 ["SOG", chain.sog],
                 ["Shot", chain.shot],
-                ["Assists", chain.assists],
               ].forEach(function (pair) {
                 var label = pair[0];
                 var rows = pair[1] || [];
