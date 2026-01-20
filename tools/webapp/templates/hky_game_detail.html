@@ -3268,10 +3268,10 @@
               var chain = buildShotChainTables(filtered);
               [
                 ["Goals", chain.goals],
+                ["Assists", chain.assists],
                 ["xG (Expected Goal)", chain.xg],
                 ["SOG", chain.sog],
                 ["Shot", chain.shot],
-                ["Assists", chain.assists],
               ].forEach(function (pair) {
                 var label = pair[0];
                 var rows = pair[1] || [];
