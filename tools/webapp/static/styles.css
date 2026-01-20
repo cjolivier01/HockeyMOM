@@ -21,8 +21,8 @@
   --row-odd: #f3f4f6;
   --row-even: #e5e7eb;
   --row-hover: #dbeafe; /* subtle light-blue highlight */
-  --thead-bg: #f8fafc;
-  --thead-text: #1f2937;
+  --thead-bg: #0b2a5b;   /* dark blue */
+  --thead-text: #ffd84d; /* yellow */
 }
 
 * { box-sizing: border-box; }
@@ -128,6 +128,10 @@ th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); bor
 th:last-child, td:last-child { border-right: none; }
 tbody tr:last-child td { border-bottom: none; }
 thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
+thead th { border-bottom-color: rgba(255, 255, 255, 0.12); border-right-color: rgba(255, 255, 255, 0.10); }
+thead th:last-child { border-right-color: rgba(255, 255, 255, 0.10); }
+thead .th-subnote, thead .muted { color: rgba(226, 232, 240, 0.95); }
+thead .th-subnote { font-weight: 600; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
 /* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
@@ -467,4 +471,29 @@ tr.game-excluded:hover { opacity: .85; }
   body { font-size: 13px; }
   th, td { padding: .45rem .5rem; font-size: .8rem; }
   .btn { padding: .38rem .55rem; font-size: .9rem; }
+}
+
+.hm-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.btn .hm-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.hm-player-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.72;
+  flex: 0 0 auto;
+}
+.hm-player-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.6;
 }

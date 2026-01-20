@@ -11,7 +11,6 @@
       <tr>
         <th>#</th>
         <th>Name</th>
-        {% if show_position %}<th>Pos</th>{% endif %}
         {% for col in columns %}
           <th{% if include_stat_key_attrs %} data-stat-key="{{ col.key }}"{% endif %}>
             <div>{{ col.label }}</div>
@@ -38,17 +37,16 @@
                   {% if events_recent_n %}data-recent-n="{{ events_recent_n }}"{% endif %}
                   data-scope-label="{{ events_scope_label|default:'All Games' }}"
                   title="Show underlying events"
-                >{{ r.name|default_if_none:"" }}</button>
+                ><span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span></button>
               {% elif events_button_kind == "game" %}
-                <button type="button" class="btn secondary player-events-btn" title="Show underlying events">{{ r.name|default_if_none:"" }}</button>
+                <button type="button" class="btn secondary player-events-btn" title="Show underlying events"><span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span></button>
               {% else %}
-                {{ r.name|default_if_none:"" }}
+                <span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span>
               {% endif %}
             {% else %}
-              {{ r.name|default_if_none:"" }}
+              <span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span>
             {% endif %}
           </td>
-          {% if show_position %}<td>{{ r.position|default_if_none:"" }}</td>{% endif %}
           {% for col in columns %}
             {% with k=col.key %}
               {% if edit_mode and not public_league_id %}
@@ -95,11 +93,7 @@
         </tr>
         {% endwith %}
       {% empty %}
-        {% if show_position %}
-          <tr><td colspan="{{ columns|length|add:'3' }}" class="muted">{{ empty_label|default:"No player stats yet." }}</td></tr>
-        {% else %}
-          <tr><td colspan="{{ columns|length|add:'2' }}" class="muted">{{ empty_label|default:"No player stats yet." }}</td></tr>
-        {% endif %}
+        <tr><td colspan="{{ columns|length|add:'2' }}" class="muted">{{ empty_label|default:"No player stats yet." }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
