@@ -50,3 +50,6 @@ ffmpegio
 pyquaternion
 ./external/fast_pytorch_kmeans
 ./external/pt_autograph
+
+# Webapp dev/test extras
+-r tools/webapp/requirements.txt

@@ -11,7 +11,6 @@ This operates directly on the webapp DB (no REST API).
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from dataclasses import dataclass
 from typing import Iterable, Optional
@@ -63,7 +62,9 @@ class TeamRow:
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Deduplicate teams within a league by normalized name")
-    ap.add_argument("--config", default="/opt/hm-webapp/app/config.json", help="Webapp config.json with DB cfg")
+    ap.add_argument(
+        "--config", default="/opt/hm-webapp/app/config.json", help="Webapp config.json with DB cfg"
+    )
     ap.add_argument("--league-name", required=True, help="League name (exact match)")
     ap.add_argument("--dry-run", action="store_true", help="Print plan only; do not modify DB")
     ap.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
@@ -73,7 +74,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     from django.db import transaction
     from django.db.models import Count
 
-    league_id = m.League.objects.filter(name=str(args.league_name)).values_list("id", flat=True).first()
+    league_id = (
+        m.League.objects.filter(name=str(args.league_name)).values_list("id", flat=True).first()
+    )
     if league_id is None:
         print("League not found.", file=sys.stderr)
         return 2
@@ -111,15 +114,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     plan: list[tuple[int, list[int], list[str]]] = []
     all_team_ids = sorted({int(t.team_id) for t in teams})
     players_n_by_team = dict(
-        m.Player.objects.filter(team_id__in=all_team_ids).values("team_id").annotate(n=Count("id")).values_list("team_id", "n")
+        m.Player.objects.filter(team_id__in=all_team_ids)
+        .values("team_id")
+        .annotate(n=Count("id"))
+        .values_list("team_id", "n")
     )
     games_n_by_team: dict[int, int] = {int(tid): 0 for tid in all_team_ids}
     for tid, n in (
-        m.HkyGame.objects.filter(team1_id__in=all_team_ids).values("team1_id").annotate(n=Count("id")).values_list("team1_id", "n")
+        m.HkyGame.objects.filter(team1_id__in=all_team_ids)
+        .values("team1_id")
+        .annotate(n=Count("id"))
+        .values_list("team1_id", "n")
     ):
         games_n_by_team[int(tid)] = games_n_by_team.get(int(tid), 0) + int(n or 0)
     for tid, n in (
-        m.HkyGame.objects.filter(team2_id__in=all_team_ids).values("team2_id").annotate(n=Count("id")).values_list("team2_id", "n")
+        m.HkyGame.objects.filter(team2_id__in=all_team_ids)
+        .values("team2_id")
+        .annotate(n=Count("id"))
+        .values_list("team2_id", "n")
     ):
         games_n_by_team[int(tid)] = games_n_by_team.get(int(tid), 0) + int(n or 0)
 
@@ -131,7 +143,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         for tid in team_ids:
             has_logo = 1 if str(logo_by_team.get(int(tid), "")).strip() else 0
             scored.append(
-                (int(tid), int(has_logo), int(players_n_by_team.get(int(tid), 0)), int(games_n_by_team.get(int(tid), 0)))
+                (
+                    int(tid),
+                    int(has_logo),
+                    int(players_n_by_team.get(int(tid), 0)),
+                    int(games_n_by_team.get(int(tid), 0)),
+                )
             )
         # Prefer: has_logo, then most games, then most players, then lowest id (stable).
         scored.sort(key=lambda x: (-x[1], -x[3], -x[2], x[0]))
@@ -173,7 +190,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 m.HkyGame.objects.filter(team2_id=int(old_id)).update(team2_id=int(keep_id))
                 # Update player/team references
                 m.Player.objects.filter(team_id=int(old_id)).update(team_id=int(keep_id))
-                m.PlayerStat.objects.filter(team_id=int(old_id)).update(team_id=int(keep_id))
+                m.HkyGamePlayer.objects.filter(team_id=int(old_id)).update(team_id=int(keep_id))
+                m.HkyGameEventRow.objects.filter(team_id=int(old_id)).update(team_id=int(keep_id))
+                m.HkyGameShiftRow.objects.filter(team_id=int(old_id)).update(team_id=int(keep_id))
                 # Remove league mapping for old team
                 m.LeagueTeam.objects.filter(league_id=int(league_id), team_id=int(old_id)).delete()
                 # Finally delete the team (should cascade nothing critical after re-pointing)

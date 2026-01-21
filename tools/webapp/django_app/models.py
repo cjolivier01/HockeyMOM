@@ -193,45 +193,6 @@ class HkyGame(models.Model):
         ]
 
 
-class PlayerStat(models.Model):
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="player_stats", db_constraint=False
-    )
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="player_stats")
-    game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="player_stats")
-    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="stats")
-
-    goals = models.IntegerField(null=True, blank=True)
-    assists = models.IntegerField(null=True, blank=True)
-    shots = models.IntegerField(null=True, blank=True)
-    pim = models.IntegerField(null=True, blank=True)
-    plus_minus = models.IntegerField(null=True, blank=True)
-
-    sog = models.IntegerField(null=True, blank=True)
-    expected_goals = models.IntegerField(null=True, blank=True)
-    completed_passes = models.IntegerField(null=True, blank=True)
-    giveaways = models.IntegerField(null=True, blank=True)
-    turnovers_forced = models.IntegerField(null=True, blank=True)
-    created_turnovers = models.IntegerField(null=True, blank=True)
-    takeaways = models.IntegerField(null=True, blank=True)
-    controlled_entry_for = models.IntegerField(null=True, blank=True)
-    controlled_entry_against = models.IntegerField(null=True, blank=True)
-    controlled_exit_for = models.IntegerField(null=True, blank=True)
-    controlled_exit_against = models.IntegerField(null=True, blank=True)
-    gt_goals = models.IntegerField(null=True, blank=True)
-    gw_goals = models.IntegerField(null=True, blank=True)
-    ot_goals = models.IntegerField(null=True, blank=True)
-    ot_assists = models.IntegerField(null=True, blank=True)
-    gf_counted = models.IntegerField(null=True, blank=True)
-    ga_counted = models.IntegerField(null=True, blank=True)
-
-    class Meta:
-        db_table = "player_stats"
-        constraints = [
-            models.UniqueConstraint(fields=["game", "player"], name="uniq_game_player"),
-        ]
-
-
 class PlayerPeriodStat(models.Model):
     game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="player_period_stats")
     player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="period_stats")
@@ -283,6 +244,7 @@ class HkyGameEventRow(models.Model):
     game_seconds_end = models.IntegerField(null=True, blank=True)
     video_seconds = models.IntegerField(null=True, blank=True)
     details = models.TextField(null=True, blank=True)
+    correction = models.TextField(null=True, blank=True)
     attributed_players = models.TextField(null=True, blank=True)
     attributed_jerseys = models.TextField(null=True, blank=True)
     on_ice_players = models.TextField(null=True, blank=True)
@@ -346,7 +308,6 @@ class HkyGameShiftRow(models.Model):
 class HkyGamePlayer(models.Model):
     """
     Cross-reference table for knowing which players were present in a game.
-    This is intentionally separate from PlayerStat so that "present but no stats" is representable.
     """
 
     game = models.ForeignKey(HkyGame, on_delete=models.CASCADE, related_name="player_links")

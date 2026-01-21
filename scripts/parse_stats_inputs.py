@@ -110,6 +110,22 @@ def sanitize_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_\-]", "", s)
 
 
+def _stats_base_dir_from_env() -> Optional[Path]:
+    raw = str(os.environ.get("HOCKEYMOM_STATS_BASE_DIR") or "").strip()
+    if not raw:
+        return None
+    try:
+        p = Path(raw).expanduser()
+        # If a file is provided accidentally, treat its parent as the base dir.
+        if p.exists() and p.is_file():
+            p = p.parent
+        if not p.exists() or not p.is_dir():
+            return None
+        return p.resolve()
+    except Exception:
+        return None
+
+
 def is_period_label(x: object) -> bool:
     return parse_period_label(x) is not None
 
@@ -625,6 +641,7 @@ def _load_logo_fields_from_meta(
 
     Supports either:
       - home_logo=/path/to/image.png
+      - home_team_icon=/path/to/image.png  (alias)
       - home_logo_base64=<base64>
       - home_logo_content_type=image/png  (optional; otherwise guessed)
     and same for away_*.
@@ -652,10 +669,11 @@ def _load_logo_fields_from_meta(
 
         b64_key = f"{side_l}_logo_base64"
         path_key = f"{side_l}_logo"
+        icon_key = f"{side_l}_team_icon"
         ct_key = f"{side_l}_logo_content_type"
 
         b64_raw = str(meta.get(b64_key) or "").strip()
-        path_raw = str(meta.get(path_key) or "").strip()
+        path_raw = str(meta.get(path_key) or meta.get(icon_key) or "").strip()
         ct_raw = str(meta.get(ct_key) or "").strip()
 
         if b64_raw:
@@ -1453,16 +1471,24 @@ class GoalEvent:
     kind: str  # "GF" or "GA"
     period: int
     t_str: str
+    video_t_str: Optional[str] = None
     scorer: Optional[str] = None
     assists: List[str] = field(default_factory=list)
     t_sec: int = field(init=False)
+    video_t_sec: Optional[int] = field(init=False, default=None)
     is_game_tying: bool = False
     is_game_winning: bool = False
 
     def __post_init__(self) -> None:
         self.t_str = self.t_str.strip()
+        if self.video_t_str is not None:
+            self.video_t_str = str(self.video_t_str).strip()
+            if self.video_t_str.lower() in {"nan", "nat", "none"}:
+                self.video_t_str = None
         self.assists = [a for a in self.assists if a]
         self.t_sec = parse_flex_time_to_seconds(self.t_str)
+        if self.video_t_str:
+            self.video_t_sec = parse_flex_time_to_seconds(self.video_t_str)
 
     def __str__(self) -> str:  # preserve prior textual representation
         return f"{self.kind}:{self.period}/{self.t_str}"
@@ -1791,6 +1817,7 @@ class InputEntry:
     t2s_id: Optional[int] = None
     label: Optional[str] = None
     meta: dict[str, str] = field(default_factory=dict)
+    event_corrections: Any = None
 
 
 def _parse_t2s_spec(token: Any) -> Optional[Tuple[int, Optional[str], Optional[str]]]:
@@ -2021,6 +2048,8 @@ def _load_input_entries_from_yaml_file_list(
             "metadata",
             "sheets",
             "shared_long_path",
+            "event_corrections",
+            "event_correction",
         }
         meta: dict[str, str] = {}
         if isinstance(item.get("meta"), dict):
@@ -2039,6 +2068,12 @@ def _load_input_entries_from_yaml_file_list(
             if v is None:
                 continue
             meta[str(kk).strip().lower()] = str(v).strip()
+
+        event_corrections = item.get("event_corrections")
+        if event_corrections is None:
+            event_corrections = item.get("event_correction")
+        if event_corrections is not None and not isinstance(event_corrections, (list, dict)):
+            raise ValueError(f"invalid event_corrections at games[{idx}] (must be list or mapping)")
 
         if item.get("token"):
             token = str(item.get("token") or "").strip()
@@ -2069,7 +2104,14 @@ def _load_input_entries_from_yaml_file_list(
                     continue
                 t2s_id, side, label = t2s_only
                 out_entries.append(
-                    InputEntry(path=None, side=side, t2s_id=t2s_id, label=label, meta=meta)
+                    InputEntry(
+                        path=None,
+                        side=side,
+                        t2s_id=t2s_id,
+                        label=label,
+                        meta=meta,
+                        event_corrections=event_corrections,
+                    )
                 )
                 continue
 
@@ -2080,6 +2122,7 @@ def _load_input_entries_from_yaml_file_list(
                     side=side,
                     label=label_key,
                     meta=_merge_meta(meta, inline_meta),
+                    event_corrections=event_corrections,
                 )
             )
             continue
@@ -2098,7 +2141,14 @@ def _load_input_entries_from_yaml_file_list(
             side = _parse_side(item.get("side"))
             label = str(item.get("label") or "").strip() or None
             out_entries.append(
-                InputEntry(path=None, side=side, t2s_id=int(t2s_id), label=label, meta=meta)
+                InputEntry(
+                    path=None,
+                    side=side,
+                    t2s_id=int(t2s_id),
+                    label=label,
+                    meta=meta,
+                    event_corrections=event_corrections,
+                )
             )
             continue
 
@@ -2122,7 +2172,13 @@ def _load_input_entries_from_yaml_file_list(
                         if _base_label_from_path(cand) != str(label_key):
                             continue
                         out_entries.append(
-                            InputEntry(path=cand, side=None, label=label_key, meta=dict(meta))
+                            InputEntry(
+                                path=cand,
+                                side=None,
+                                label=label_key,
+                                meta=dict(meta),
+                                event_corrections=event_corrections,
+                            )
                         )
                 elif shared_long_path.is_file():
                     if not _is_long_sheet_path(shared_long_path):
@@ -2131,7 +2187,11 @@ def _load_input_entries_from_yaml_file_list(
                         )
                     out_entries.append(
                         InputEntry(
-                            path=shared_long_path, side=None, label=label_key, meta=dict(meta)
+                            path=shared_long_path,
+                            side=None,
+                            label=label_key,
+                            meta=dict(meta),
+                            event_corrections=event_corrections,
                         )
                     )
                 else:
@@ -2151,6 +2211,7 @@ def _load_input_entries_from_yaml_file_list(
                             side=side,
                             label=label_key,
                             meta=_merge_meta(meta, inline_meta),
+                            event_corrections=event_corrections,
                         )
                     )
                     continue
@@ -2181,6 +2242,7 @@ def _load_input_entries_from_yaml_file_list(
                         side=side or side_hint,
                         label=label_key,
                         meta=_merge_meta(sheet_meta, inline_meta),
+                        event_corrections=event_corrections,
                     )
                 )
             continue
@@ -2199,6 +2261,7 @@ def _load_input_entries_from_yaml_file_list(
                 side=side or side_hint,
                 label=label_key,
                 meta=_merge_meta(meta, inline_meta),
+                event_corrections=event_corrections,
             )
         )
 
@@ -2257,6 +2320,14 @@ def _expand_dir_input_to_game_sheets(
         dir_path = stats_dir
 
     if not candidates:
+        # Goals-only games: allow a directory that contains only goals.xlsx.
+        goals_xlsx = dir_path / "goals.xlsx"
+        if not goals_xlsx.exists() and stats_dir.is_dir():
+            goals_xlsx = stats_dir / "goals.xlsx"
+            if goals_xlsx.exists():
+                dir_path = stats_dir
+        if goals_xlsx.exists():
+            return [goals_xlsx]
         raise ValueError(f"No input .xls/.xlsx sheets found in {dir_path}")
 
     # Directory inputs are expected to correspond to a single game label.
@@ -2311,6 +2382,22 @@ def _expand_dir_input_to_game_sheets(
     return [primaries[0]] + long_paths
 
 
+def _label_from_goals_xlsx_path(p: Path) -> str:
+    """
+    Choose a game label for a goals-only goals.xlsx path.
+
+    Common layouts:
+      - /path/to/<game>/stats/goals.xlsx -> label '<game>'
+      - /path/to/<game>/goals.xlsx       -> label '<game>'
+    """
+    try:
+        if p.parent.name.lower() == "stats":
+            return p.parent.parent.name
+        return p.parent.name
+    except Exception:
+        return p.stem or "goals"
+
+
 def load_goals(goals_inline: Iterable[str], goals_file: Optional[Path]) -> List[GoalEvent]:
     events: List[GoalEvent] = []
     # Inline
@@ -2360,7 +2447,27 @@ def _format_goal_time_cell(val: Any) -> Optional[str]:
     return s
 
 
-def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
+def _format_goal_video_time_cell(val: Any) -> Optional[str]:
+    """
+    Convert a goal video time cell (often an Excel time) into a string compatible with
+    parse_flex_time_to_seconds.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    if isinstance(val, datetime.time):
+        return val.strftime("%H:%M:%S")
+    if isinstance(val, pd.Timestamp):
+        return val.strftime("%H:%M:%S")
+    s = str(val).strip()
+    return s or None
+
+
+def _goals_from_goals_xlsx(
+    goals_xlsx: Path,
+    *,
+    our_jerseys: Optional[set[str]] = None,
+    our_team_name: Optional[str] = None,
+) -> List[GoalEvent]:
     """
     Parse goals from a goals.xlsx sheet that has side-by-side GF / GA tables.
 
@@ -2417,6 +2524,7 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
 
         period_col = label_to_col.get("period")
         time_col = label_to_col.get("time")
+        video_time_col = label_to_col.get("videotime")
         goal_col = label_to_col.get("goal")
         assist1_col = (
             label_to_col.get("assist1")
@@ -2441,6 +2549,9 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
             t_str = _format_goal_time_cell(time_val)
             if not t_str:
                 continue
+            v_str = None
+            if video_time_col is not None:
+                v_str = _format_goal_video_time_cell(df.iat[r, video_time_col])
             scorer = _extract_jersey_number(goal_val)
             assists: List[str] = []
             for col in (assist1_col, assist2_col):
@@ -2450,7 +2561,9 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
                 num = _extract_jersey_number(val)
                 if num:
                     assists.append(num)
-            events.append(GoalEvent(kind, period, t_str, scorer=scorer, assists=assists))
+            events.append(
+                GoalEvent(kind, period, t_str, video_t_str=v_str, scorer=scorer, assists=assists)
+            )
         return events
 
     events: List[GoalEvent] = []
@@ -2460,8 +2573,376 @@ def _goals_from_goals_xlsx(goals_xlsx: Path) -> List[GoalEvent]:
         events.extend(_parse_table(gf_rc, "GF"))
     if ga_rc:
         events.extend(_parse_table(ga_rc, "GA"))
-    events.sort(key=lambda e: (e.period, e.t_sec))
-    return events
+    if events:
+        events.sort(key=lambda e: (e.period, e.t_sec))
+        return events
+
+    def _scan_team_tables() -> List[Tuple[Optional[str], List[GoalEvent]]]:
+        """
+        Parse a goals.xlsx variant where each table is labeled by team name above it,
+        rather than "GF"/"GA", and may include a "Video Time" column.
+        """
+
+        def _infer_team_label(header_r: int, start_c: int, end_c: int) -> Optional[str]:
+            header_norm = {"period", "time", "goal", "assist", "assist1", "assist2", "videotime"}
+            for rr in range(header_r - 1, max(-1, header_r - 6), -1):
+                for cc in range(start_c, end_c + 1):
+                    v = df.iat[rr, cc]
+                    if pd.isna(v):
+                        continue
+                    s = str(v).strip()
+                    if not s:
+                        continue
+                    if _normalize_header_label(s) in header_norm:
+                        continue
+                    return s
+            return None
+
+        results: List[Tuple[Optional[str], List[GoalEvent]]] = []
+        for header_r in range(nrows):
+            period_cols = [
+                c
+                for c in range(ncols)
+                if (not pd.isna(df.iat[header_r, c]))
+                and _normalize_header_label(str(df.iat[header_r, c])) == "period"
+            ]
+            if not period_cols:
+                continue
+            period_cols = sorted(period_cols)
+            for idx, start_c in enumerate(period_cols):
+                next_c = period_cols[idx + 1] if idx + 1 < len(period_cols) else ncols
+                label_to_col: Dict[str, int] = {}
+                for c in range(start_c, next_c):
+                    val = df.iat[header_r, c]
+                    if pd.isna(val):
+                        continue
+                    key = _normalize_header_label(str(val))
+                    if key:
+                        label_to_col.setdefault(key, c)
+
+                period_col = label_to_col.get("period")
+                time_col = (
+                    label_to_col.get("scoreboard")
+                    or label_to_col.get("scoreboardtime")
+                    or label_to_col.get("time")
+                )
+                video_time_col = label_to_col.get("videotime")
+                goal_col = label_to_col.get("goal") or label_to_col.get("scorer")
+                assist1_col = (
+                    label_to_col.get("assist1")
+                    or label_to_col.get("assist")
+                    or label_to_col.get("assist_1")
+                )
+                assist2_col = label_to_col.get("assist2") or label_to_col.get("assist_2")
+
+                if period_col is None or time_col is None or goal_col is None:
+                    continue
+
+                team_label = _infer_team_label(header_r, start_c, max(start_c, next_c - 1))
+                table_events: List[GoalEvent] = []
+                for r in range(header_r + 1, nrows):
+                    period_val = df.iat[r, period_col]
+                    time_val = df.iat[r, time_col]
+                    goal_val = df.iat[r, goal_col]
+                    if all(pd.isna(x) for x in (period_val, time_val, goal_val)):
+                        continue
+                    if not pd.isna(period_val) and _normalize_header_label(str(period_val)) in {
+                        "period",
+                        "roster",
+                    }:
+                        break
+                    period = parse_period_token(period_val)
+                    if period is None:
+                        continue
+                    t_str = _format_goal_time_cell(time_val)
+                    if not t_str:
+                        continue
+                    v_str = None
+                    if video_time_col is not None:
+                        v_str = _format_goal_video_time_cell(df.iat[r, video_time_col])
+                    scorer = _extract_jersey_number(goal_val)
+                    assists: List[str] = []
+                    for col in (assist1_col, assist2_col):
+                        if col is None:
+                            continue
+                        num = _extract_jersey_number(df.iat[r, col])
+                        if num:
+                            assists.append(num)
+                    table_events.append(
+                        GoalEvent(
+                            "GF",
+                            period,
+                            t_str,
+                            video_t_str=v_str,
+                            scorer=scorer,
+                            assists=assists,
+                        )
+                    )
+                if table_events:
+                    results.append((team_label, table_events))
+        return results
+
+    tables = _scan_team_tables()
+    if not tables:
+        return []
+
+    our_jerseys_norm = {str(x).strip() for x in (our_jerseys or set()) if str(x).strip()}
+    our_team_norm = _normalize_header_label(str(our_team_name or ""))
+
+    def _table_overlap(events: List[GoalEvent]) -> int:
+        if not our_jerseys_norm or not events:
+            return 0
+        jerseys: set[str] = set()
+        for ev in events:
+            if ev.scorer:
+                jerseys.add(_normalize_jersey_number(ev.scorer) or "")
+            for a in ev.assists or []:
+                if a:
+                    jerseys.add(_normalize_jersey_number(a) or "")
+        jerseys.discard("")
+        return len(jerseys & our_jerseys_norm)
+
+    overlaps = [_table_overlap(evts) for _lbl, evts in tables]
+    gf_idx: Optional[int] = None
+    if our_team_norm:
+        matches = []
+        for idx, (lbl, _evts) in enumerate(tables):
+            lbl_norm = _normalize_header_label(str(lbl or ""))
+            if not lbl_norm:
+                continue
+            if our_team_norm == lbl_norm or our_team_norm in lbl_norm or lbl_norm in our_team_norm:
+                matches.append(idx)
+        if len(matches) == 1:
+            gf_idx = matches[0]
+    if gf_idx is None and overlaps and any(o > 0 for o in overlaps):
+        best = max(overlaps)
+        if overlaps.count(best) == 1:
+            gf_idx = overlaps.index(best)
+    if gf_idx is None:
+        gf_idx = 0
+
+    out_events: List[GoalEvent] = []
+    for idx, (_lbl, evts) in enumerate(tables):
+        kind = "GF" if idx == gf_idx or len(tables) == 1 else "GA"
+        for ev in evts:
+            ev.kind = kind
+            out_events.append(ev)
+
+    out_events.sort(key=lambda e: (e.period, e.t_sec))
+    return out_events
+
+
+def _rosters_from_goals_xlsx(
+    goals_xlsx: Path,
+) -> List[Tuple[Optional[str], List[Dict[str, Any]]]]:
+    """
+    Best-effort roster extraction from goals.xlsx (team-table variant).
+
+    This supports goals.xlsx layouts where the two teams are presented side-by-side, and each side
+    optionally contains a "Roster" section below the goal table with columns like:
+      - "#", "Name", "Pos"
+
+    Returns a list of (team_label_or_none, roster_records) entries where roster_records contains
+    dicts with keys: {jersey_number, name, position?}.
+    """
+    if not goals_xlsx.exists():
+        return []
+
+    df = pd.read_excel(goals_xlsx, header=None)
+    nrows, ncols = df.shape
+
+    def _norm_roster_header(v: Any) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        try:
+            s = str(v).strip().lower()
+        except Exception:
+            return ""
+        if not s:
+            return ""
+        # Preserve '#' for roster headers.
+        if s == "#":
+            return "#"
+        s = s.replace("\xa0", " ")
+        s = " ".join(s.split())
+        return re.sub(r"[^a-z0-9#]+", "", s)
+
+    def _infer_team_label(anchor_r: int, start_c: int, end_c: int) -> Optional[str]:
+        skip_norm = {
+            "period",
+            "time",
+            "scoreboard",
+            "scoreboardtime",
+            "videotime",
+            "goal",
+            "scorer",
+            "assist",
+            "assist1",
+            "assist2",
+            "roster",
+            "name",
+            "player",
+            "playername",
+            "pos",
+            "position",
+            "#",
+            "number",
+            "num",
+        }
+        for rr in range(anchor_r - 1, max(-1, anchor_r - 12), -1):
+            for cc in range(start_c, end_c + 1):
+                v = df.iat[rr, cc]
+                if pd.isna(v):
+                    continue
+                s = str(v).strip()
+                if not s:
+                    continue
+                if s.lower().startswith(("http://", "https://")):
+                    continue
+                if _normalize_header_label(s) in skip_norm or _norm_roster_header(s) in skip_norm:
+                    continue
+                return s
+        return None
+
+    # Identify team blocks by the first row that looks like a goals-table header row.
+    blocks: List[Tuple[int, int, int]] = []
+    for r in range(nrows):
+        norm_row = []
+        for c in range(ncols):
+            v = df.iat[r, c]
+            if pd.isna(v):
+                norm_row.append("")
+            else:
+                norm_row.append(_normalize_header_label(str(v)))
+
+        period_cols = [c for c, key in enumerate(norm_row) if key == "period"]
+        if not period_cols:
+            continue
+        period_cols = sorted(period_cols)
+        for idx, start_c in enumerate(period_cols):
+            next_c = period_cols[idx + 1] if idx + 1 < len(period_cols) else ncols
+            has_time = any(
+                norm_row[c] in {"time", "scoreboard", "scoreboardtime"}
+                for c in range(start_c, next_c)
+            )
+            if not has_time:
+                continue
+            blocks.append((r, start_c, next_c - 1))
+        if blocks:
+            break
+
+    if not blocks:
+        # Fallback: scan the full sheet for a roster table.
+        blocks = [(0, 0, max(0, ncols - 1))]
+
+    out: List[Tuple[Optional[str], List[Dict[str, Any]]]] = []
+    for header_r, start_c, end_c in blocks:
+        team_label = _infer_team_label(header_r, start_c, end_c)
+
+        roster_label_r: Optional[int] = None
+        for rr in range(header_r + 1, nrows):
+            found = False
+            for cc in range(start_c, end_c + 1):
+                v = df.iat[rr, cc]
+                if pd.isna(v):
+                    continue
+                if _normalize_header_label(str(v)) == "roster":
+                    roster_label_r = rr
+                    found = True
+                    break
+            if found:
+                break
+        if roster_label_r is None:
+            continue
+
+        roster_header_r: Optional[int] = None
+        jersey_col: Optional[int] = None
+        name_col: Optional[int] = None
+        pos_col: Optional[int] = None
+        for rr in range(roster_label_r + 1, min(nrows, roster_label_r + 8)):
+            normed = [_norm_roster_header(df.iat[rr, c]) for c in range(start_c, end_c + 1)]
+            if not any(normed):
+                continue
+            jersey_cols = [
+                cidx
+                for cidx, s in enumerate(normed)
+                if s and (("jersey" in s) or s in {"number", "num", "#"})
+            ]
+            name_cols = [
+                cidx
+                for cidx, s in enumerate(normed)
+                if s and (("name" in s) or s in {"player", "playername"})
+            ]
+            pos_cols = [
+                cidx
+                for cidx, s in enumerate(normed)
+                if s and (s in {"pos", "position"} or "position" in s)
+            ]
+            if not jersey_cols or not name_cols:
+                continue
+
+            best = None
+            for jc in jersey_cols:
+                for nc in name_cols:
+                    dist = abs(jc - nc)
+                    if best is None or dist < best[0]:
+                        best = (dist, jc, nc)
+            if best is None:
+                continue
+            _, jc, nc = best
+            roster_header_r = rr
+            jersey_col = start_c + jc
+            name_col = start_c + nc
+            pos_col = (start_c + pos_cols[0]) if pos_cols else None
+            break
+
+        if roster_header_r is None or jersey_col is None or name_col is None:
+            continue
+
+        roster: List[Dict[str, Any]] = []
+        seen_jerseys: set[str] = set()
+        blank_streak = 0
+        for rr in range(roster_header_r + 1, nrows):
+            jv = df.iat[rr, jersey_col] if jersey_col < ncols else None
+            nv = df.iat[rr, name_col] if name_col < ncols else None
+
+            j_blank = jv is None or (isinstance(jv, float) and pd.isna(jv)) or not str(jv).strip()
+            n_blank = nv is None or (isinstance(nv, float) and pd.isna(nv)) or not str(nv).strip()
+            if j_blank and n_blank:
+                blank_streak += 1
+                if blank_streak >= 3:
+                    break
+                continue
+            blank_streak = 0
+
+            # Stop if we hit another "Roster" marker.
+            if isinstance(jv, str) and _normalize_header_label(jv) == "roster":
+                break
+
+            jersey_norm = _normalize_jersey_number(jv)
+            name = str(nv).strip() if not n_blank else ""
+            if not jersey_norm or not name:
+                continue
+            if jersey_norm in seen_jerseys:
+                continue
+            seen_jerseys.add(jersey_norm)
+
+            rec: Dict[str, Any] = {"jersey_number": jersey_norm, "name": name}
+            if pos_col is not None and pos_col < ncols:
+                pv = df.iat[rr, pos_col]
+                if pv is not None and not (isinstance(pv, float) and pd.isna(pv)):
+                    ps = str(pv).strip()
+                    if ps:
+                        rec["position"] = ps
+            roster.append(rec)
+
+        if not roster:
+            continue
+        if team_label is None:
+            team_label = _infer_team_label(roster_header_r, start_c, end_c)
+        out.append((team_label, roster))
+
+    return out
 
 
 def goals_from_t2s(
@@ -5536,7 +6017,8 @@ def _extract_roster_tables_from_df(
             return ""
         s = s.replace("\xa0", " ")
         s = " ".join(s.split())
-        return re.sub(r"[^a-z0-9]+", "", s)
+        # Preserve '#' so roster headers like "#" can be detected.
+        return re.sub(r"[^a-z0-9#]+", "", s)
 
     def _scan_team_near(r: int) -> Optional[str]:
         # Look in the header row and a couple of rows above for Blue/White labels.
@@ -7143,7 +7625,9 @@ def _write_all_events_summary(
     ):
         period = int(getattr(ev, "period", 0) or 0)
         gs_i = int(getattr(ev, "t_sec", 0) or 0)
-        vs_i = _map_sb_to_video(period, gs_i)
+        vs_i = getattr(ev, "video_t_sec", None)
+        if vs_i is None:
+            vs_i = _map_sb_to_video(period, gs_i)
         kind = str(getattr(ev, "kind", "") or "").strip().upper()
         our_side_l = str(team_side or "").strip().lower()
         if our_side_l in {"home", "away"}:
@@ -11331,6 +11815,86 @@ def process_sheet(
     )
 
 
+def process_goals_only_xlsx(
+    *,
+    goals_xlsx: Path,
+    outdir: Path,
+    label: str,
+    team_side: Optional[str],
+    our_team_name: Optional[str],
+    write_events_summary: bool,
+) -> Tuple[
+    Path,
+    List[Dict[str, str]],
+    List[int],
+    Dict[str, Dict[str, List[GoalEvent]]],
+    List[Dict[str, Any]],
+]:
+    """
+    Process a goals-only game where no shift sheet exists and goals are provided via goals.xlsx.
+
+    Output is minimal: `stats/all_events_summary.csv` (and .xlsx) so the webapp can upsert
+    goal/assist events for an external game.
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Match process_sheet() directory structure so the webapp uploader finds the stats:
+    #   <outdir>/<Home|Away>/per_player/stats/*
+    side = str(team_side or "").strip().lower()
+    team_subdir = "Away" if side == "away" else "Home"
+    format_dir = "per_player"
+    (outdir / "Home").mkdir(parents=True, exist_ok=True)
+    (outdir / "Away").mkdir(parents=True, exist_ok=True)
+    outdir = outdir / team_subdir / format_dir
+    outdir.mkdir(parents=True, exist_ok=True)
+    stats_dir = outdir / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    goals = _goals_from_goals_xlsx(goals_xlsx, our_team_name=our_team_name)
+    goals_by_period: Dict[int, List[GoalEvent]] = {}
+    for ev in goals or []:
+        goals_by_period.setdefault(int(ev.period), []).append(ev)
+
+    periods = sorted({int(ev.period) for ev in goals or [] if int(ev.period) > 0})
+
+    if write_events_summary:
+        _write_all_events_summary(
+            stats_dir,
+            sb_pairs_by_player={},
+            goals=goals,
+            goals_by_period=goals_by_period,
+            event_log_context=None,
+            focus_team=None,
+            team_side=team_side,
+            t2s_game_id=None,
+            t2s_events=None,
+            conv_segments_by_period={},
+            spreadsheet_event_mapping_summary=None,
+        )
+
+    # Write game_stats.csv so the webapp can set the final score for external games.
+    try:
+        fake_sheet_path = Path(f"{str(label or 'game').strip() or 'game'}.xlsx")
+        _write_game_stats_files(
+            stats_dir,
+            xls_path=fake_sheet_path,
+            periods=periods,
+            goals=goals,
+            event_log_context=None,
+            focus_team=None,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[warn] goals-only: failed to write game_stats.csv for {label!r}: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+
+    stats_table_rows: List[Dict[str, str]] = []
+    per_player_goal_events: Dict[str, Dict[str, List[GoalEvent]]] = {}
+    pair_on_ice_rows: List[Dict[str, Any]] = []
+    return outdir, stats_table_rows, periods, per_player_goal_events, pair_on_ice_rows
+
+
 def process_long_only_sheets(
     *,
     long_xls_paths: List[Path],
@@ -11992,6 +12556,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--outdir", "-o", type=Path, default=Path("player_focus"), help="Output directory."
     )
     p.add_argument(
+        "--dump-events",
+        action="store_true",
+        help=(
+            "After processing each game, print the parsed per-game events (from stats/all_events_summary.csv) "
+            "to stdout. Implies writing all_events_summary even without --shifts/--upload-webapp."
+        ),
+    )
+    p.add_argument(
         "--keep-goalies",
         action="store_true",
         help="By default, rows like '(G) 37' are skipped. Use this flag to include them.",
@@ -12097,7 +12669,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--upload-webapp",
         action="store_true",
-        help="Upload per-game CSV outputs (player_stats/game_stats/all_events_summary) to the HockeyMOM webapp via REST.",
+        help="Upload per-game CSV outputs (all_events_summary and optional shift_rows) to the HockeyMOM webapp via REST.",
     )
     p.add_argument(
         "--corrections-yaml",
@@ -12160,6 +12732,89 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _dump_game_events_from_outdir(*, label: str, outdir: Path) -> None:
+    stats_dir = outdir / "stats"
+    csv_path = stats_dir / "all_events_summary.csv"
+    if not csv_path.exists():
+        print(
+            f"[dump-events] {label}: no all_events_summary.csv found at {csv_path}",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        df = pd.read_csv(csv_path)
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"[dump-events] {label}: failed to read {csv_path}: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        team_side = ""
+        try:
+            team_side = str(outdir.parent.name)
+        except Exception:
+            team_side = ""
+        hdr = f"[dump-events] {label}"
+        if team_side in {"Home", "Away"}:
+            hdr += f" ({team_side})"
+        print(hdr)
+
+        if df.empty:
+            print("  (no events)")
+            return
+
+        # Keep output readable by focusing on common, stable columns.
+        preferred_cols = [
+            "Event ID",
+            "Event Type",
+            "Team Side",
+            "Period",
+            "Game Time",
+            "Video Time",
+            "Attributed Players",
+            "Attributed Jerseys",
+            "Details",
+            "Source",
+        ]
+        cols = [c for c in preferred_cols if c in df.columns]
+        if "Event ID" in df.columns:
+            try:
+                df = df.sort_values(by=["Event ID"], kind="stable")
+            except Exception:
+                pass
+
+        for _, r in df[cols].iterrows():
+            d = r.to_dict()
+            event_id = str(d.get("Event ID") or "").strip()
+            etype = str(d.get("Event Type") or "").strip()
+            side = str(d.get("Team Side") or "").strip()
+            per = str(d.get("Period") or "").strip()
+            game_t = str(d.get("Game Time") or "").strip()
+            video_t = str(d.get("Video Time") or "").strip()
+            ap = str(d.get("Attributed Players") or "").strip()
+            aj = str(d.get("Attributed Jerseys") or "").strip()
+            details = str(d.get("Details") or "").strip()
+            src = str(d.get("Source") or "").strip()
+
+            attrib = aj or ap
+            extra = []
+            if attrib:
+                extra.append(f"attrib={attrib}")
+            if details:
+                extra.append(f"details={details}")
+            if src:
+                extra.append(f"src={src}")
+            extra_txt = f"  ({', '.join(extra)})" if extra else ""
+            print(
+                f"  {event_id:>3} {etype:<10} {side:<4} P{per} {game_t:<6} v{video_t:<6}{extra_txt}"
+            )
+    finally:
+        sys.stdout.flush()
+
+
 def _apply_event_corrections_to_webapp(
     *,
     webapp_url: str,
@@ -12213,6 +12868,50 @@ def _apply_event_corrections_to_webapp(
     return stats if isinstance(stats, dict) else {}
 
 
+def _apply_event_corrections_payload_to_webapp(
+    *,
+    webapp_url: str,
+    webapp_token: Optional[str],
+    corrections: list[dict[str, Any]],
+    create_missing_players: bool = False,
+) -> Dict[str, Any]:
+    try:
+        import requests  # type: ignore
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"requests is required to apply event corrections: {e}") from e
+
+    if not corrections:
+        return {}
+
+    headers: Dict[str, str] = {}
+    if webapp_token:
+        tok = str(webapp_token).strip()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+            headers["X-HM-Import-Token"] = tok
+
+    base = str(webapp_url or "").rstrip("/")
+    req_payload: Dict[str, Any] = {"corrections": list(corrections)}
+    if create_missing_players:
+        req_payload["create_missing_players"] = True
+    r = requests.post(
+        f"{base}/api/internal/apply_event_corrections",
+        json=req_payload,
+        headers=headers,
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"apply_event_corrections failed: {r.status_code}: {r.text}")
+    try:
+        payload = r.json()
+    except Exception:  # noqa: BLE001
+        payload = None
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise RuntimeError(f"apply_event_corrections failed: {payload!r}")
+    stats = payload.get("stats")
+    return stats if isinstance(stats, dict) else {}
+
+
 def _upload_shift_package_to_webapp(
     *,
     webapp_url: str,
@@ -12240,8 +12939,6 @@ def _upload_shift_package_to_webapp(
     roster_home: Optional[List[Dict[str, Any]]] = None,
     roster_away: Optional[List[Dict[str, Any]]] = None,
     create_missing_players: bool = False,
-    include_player_stats: bool = True,
-    include_game_stats: bool = True,
     include_events: bool = True,
     source_label_suffix: Optional[str] = None,
 ) -> None:
@@ -12258,63 +12955,10 @@ def _upload_shift_package_to_webapp(
             pass
         return ""
 
-    player_stats_csv = _read_text(stats_dir / "player_stats.csv") if include_player_stats else ""
-    game_stats_csv = _read_text(stats_dir / "game_stats.csv") if include_game_stats else ""
     events_csv = _read_text(stats_dir / "all_events_summary.csv") if include_events else ""
     shift_rows_csv = _read_text(stats_dir / "shift_rows.csv")
 
-    def _strip_shift_columns_from_player_stats_csv(text: str) -> str:
-        import csv  # local import
-        import io  # local import
-
-        if not text or not text.strip():
-            return text
-        f = io.StringIO(text)
-        reader = csv.DictReader(f)
-        if not reader.fieldnames:
-            return text
-
-        def _norm(s: str) -> str:
-            return re.sub(r"\s+", " ", str(s or "").strip()).casefold()
-
-        drop_exact = {
-            "shifts",
-            "toi",
-            "toi total",
-            "toi total (video)",
-            "toi (video)",
-            "average shift",
-            "median shift",
-            "longest shift",
-            "shortest shift",
-        }
-        keep_fields: list[str] = []
-        for fn in list(reader.fieldnames or []):
-            n = _norm(fn)
-            if n in drop_exact:
-                continue
-            if re.match(r"^period\s+\d+\s+(toi|shifts)$", n):
-                continue
-            keep_fields.append(fn)
-
-        if keep_fields == list(reader.fieldnames or []):
-            return text
-
-        out = io.StringIO()
-        w = csv.DictWriter(out, fieldnames=keep_fields)
-        w.writeheader()
-        for row in reader:
-            if not row:
-                continue
-            w.writerow({k: row.get(k, "") for k in keep_fields})
-        return out.getvalue()
-
-    # Do not send aggregated TOI/shift columns to the webapp; shift stats are derived from shift_rows_csv.
-    player_stats_csv = _strip_shift_columns_from_player_stats_csv(player_stats_csv)
-
     payload: Dict[str, Any] = {
-        "player_stats_csv": player_stats_csv,
-        "game_stats_csv": game_stats_csv,
         "events_csv": events_csv,
         "source_label": (
             f"parse_stats_inputs:{label}{str(source_label_suffix) if source_label_suffix else ''}"
@@ -12440,9 +13084,16 @@ def main() -> None:
         sys.exit(2)
     t2s_allow_remote = not t2s_cache_only
     t2s_allow_full_sync = bool(t2s_allow_remote and not t2s_scrape_only)
+    dump_events = bool(args.dump_events)
     create_scripts = not args.no_scripts
     include_shifts_in_stats = bool(getattr(args, "shifts", False))
-    write_events_summary = include_shifts_in_stats or bool(getattr(args, "upload_webapp", False))
+    if dump_events and not include_shifts_in_stats:
+        # Dumping events is usually a debug workflow; avoid writing clip scripts/timestamp files unless
+        # the user explicitly asked for shift outputs.
+        create_scripts = False
+    write_events_summary = (
+        include_shifts_in_stats or bool(getattr(args, "upload_webapp", False)) or dump_events
+    )
     if getattr(args, "corrections_yaml", None) and not getattr(args, "upload_webapp", False):
         print("Error: --corrections-yaml requires --upload-webapp.", file=sys.stderr)
         sys.exit(2)
@@ -12472,7 +13123,7 @@ def main() -> None:
     if args.file_list:
         try:
             file_list_path = args.file_list.expanduser()
-            base_dir = file_list_path.resolve().parent
+            base_dir = _stats_base_dir_from_env() or file_list_path.resolve().parent
             if file_list_path.suffix.lower() in {".yaml", ".yml"}:
                 input_entries.extend(
                     _load_input_entries_from_yaml_file_list(
@@ -12718,13 +13369,17 @@ def main() -> None:
                     "order": order_idx,
                     "t2s_id_only": int(entry.t2s_id),
                     "meta": {},
+                    "event_corrections": None,
                 },
             )
         else:
             if entry.path is None:
                 continue
             p = Path(entry.path)
-            label = str(entry.label or _base_label_from_path(p))
+            if p.stem.lower() == "goals":
+                label = str(entry.label or _label_from_goals_xlsx_path(p))
+            else:
+                label = str(entry.label or _base_label_from_path(p))
             existing_key = display_label_to_key.get(label)
             if existing_key is not None and existing_key != label:
                 print(
@@ -12743,6 +13398,7 @@ def main() -> None:
                     "side": None,
                     "order": order_idx,
                     "meta": {},
+                    "event_corrections": None,
                 },
             )
         if side:
@@ -12769,6 +13425,18 @@ def main() -> None:
                     sys.exit(2)
                 gm[kk] = vv
             g["meta"] = gm
+
+        event_corrections = getattr(entry, "event_corrections", None)
+        if event_corrections:
+            existing = g.get("event_corrections")
+            if existing is None:
+                g["event_corrections"] = event_corrections
+            elif existing != event_corrections:
+                print(
+                    f"Error: conflicting event_corrections for '{g.get('label')}'.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
         if entry.path is None:
             continue
@@ -12928,8 +13596,19 @@ def main() -> None:
         # If no t2s id was provided/inferred, fall back to goals.xlsx next to the input.
         if t2s_id is None:
             goals_xlsx = in_path.parent / "goals.xlsx"
+            our_jerseys: Optional[set[str]] = None
             try:
-                gx = _goals_from_goals_xlsx(goals_xlsx)
+                target_sheet = 0 if args.sheet is None else args.sheet
+                df_primary = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
+                roster_tables = _extract_roster_tables_from_df(df_primary)
+                jerseys = set()
+                for _team, roster in roster_tables:
+                    jerseys.update(str(x) for x in (roster or {}).keys())
+                our_jerseys = {str(x).strip() for x in jerseys if str(x).strip()}
+            except Exception:
+                our_jerseys = None
+            try:
+                gx = _goals_from_goals_xlsx(goals_xlsx, our_jerseys=our_jerseys)
             except Exception as e:  # noqa: BLE001
                 print(f"[goals.xlsx] Failed to parse {goals_xlsx}: {e}", file=sys.stderr)
                 gx = []
@@ -13044,6 +13723,9 @@ def main() -> None:
                 print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
             except Exception:
                 print("✅ Done.")
+
+            if dump_events:
+                _dump_game_events_from_outdir(label=label, outdir=final_outdir)
             continue
 
         primary_specs_raw = list(g.get("primaries") or [])
@@ -13062,6 +13744,55 @@ def main() -> None:
             primary_specs.append({"path": p0, "side": s.get("side")})
 
         multi_primary_processed = False
+        if (
+            len(primary_specs) == 1
+            and isinstance(primary_specs[0].get("path"), Path)
+            and str(primary_specs[0]["path"].stem).lower() == "goals"
+        ):
+            multi_primary_processed = True
+            goals_xlsx = Path(primary_specs[0]["path"])
+            label = str(g.get("label") or _label_from_goals_xlsx_path(goals_xlsx))
+            outdir = base_outdir if not multiple_inputs else base_outdir / label
+            meta = dict(g.get("meta") or {})
+
+            def _meta(*keys: str) -> Optional[str]:
+                for k in keys:
+                    v = meta.get(str(k).strip().lower())
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                return None
+
+            side_to_use: Optional[str] = g.get("side") or (
+                "home" if args.home else ("away" if args.away else None)
+            )
+            if side_to_use not in {"home", "away"}:
+                side_to_use = "home"
+
+            our_team_name = None
+            if side_to_use == "home":
+                our_team_name = _meta("home_team", "home_team_name", "home")
+            elif side_to_use == "away":
+                our_team_name = _meta("away_team", "away_team_name", "away")
+
+            (
+                final_outdir,
+                stats_rows,
+                periods,
+                per_player_events,
+                pair_on_ice_rows,
+            ) = process_goals_only_xlsx(
+                goals_xlsx=goals_xlsx,
+                outdir=outdir,
+                label=label,
+                team_side=side_to_use,
+                our_team_name=our_team_name,
+                write_events_summary=write_events_summary,
+            )
+            in_path = goals_xlsx
+            primary_path = goals_xlsx
+            long_paths: List[Path] = []
+            t2s_id = None
+
         if len(primary_specs) > 1:
             # Multi-primary game: process each primary sheet (HOME/AWAY) into its own subtree, sharing any long sheets.
             multi_primary_processed = True
@@ -13580,6 +14311,8 @@ def main() -> None:
             print(f"✅ Done. Wrote per-player files to: {final_outdir.resolve()}")
         except Exception:
             print("✅ Done.")
+        if dump_events:
+            _dump_game_events_from_outdir(label=label, outdir=final_outdir)
 
         if getattr(args, "upload_webapp", False):
             meta = dict(g.get("meta") or {})
@@ -13616,7 +14349,7 @@ def main() -> None:
             external_away = _meta("away_team", "away_team_name", "away")
             file_list_base_dir: Optional[Path] = None
             try:
-                file_list_base_dir = (
+                file_list_base_dir = _stats_base_dir_from_env() or (
                     args.file_list.expanduser().resolve().parent if args.file_list else None
                 )
             except Exception:
@@ -13689,6 +14422,84 @@ def main() -> None:
                 except Exception:
                     roster_home_payload = None
                     roster_away_payload = None
+
+            # Optional roster seed from goals.xlsx (external games / non-T2S goals-only games).
+            # This supports goals.xlsx variants where a "Roster" table appears under each team's goal table.
+            if roster_home_payload is None or roster_away_payload is None:
+                try:
+                    candidates: List[Path] = []
+                    if isinstance(primary_path, Path):
+                        candidates.append(primary_path)
+                        candidates.append(primary_path.parent / "goals.xlsx")
+                    if isinstance(in_path, Path):
+                        candidates.append(in_path)
+                        candidates.append(in_path.parent / "goals.xlsx")
+                    for lp in long_paths or []:
+                        try:
+                            candidates.append(Path(lp).parent / "goals.xlsx")
+                        except Exception:
+                            pass
+
+                    goals_xlsx_path: Optional[Path] = None
+                    for c in candidates:
+                        try:
+                            if c.name.lower() == "goals.xlsx" and c.exists() and c.is_file():
+                                goals_xlsx_path = c
+                                break
+                        except Exception:
+                            continue
+
+                    if goals_xlsx_path is not None:
+                        tables = _rosters_from_goals_xlsx(goals_xlsx_path)
+
+                        def _norm_team(s: Optional[str]) -> str:
+                            return re.sub(r"[^a-z0-9]+", "", str(s or "").strip().casefold())
+
+                        def _match_score(label: Optional[str], target: Optional[str]) -> int:
+                            a = _norm_team(label)
+                            b = _norm_team(target)
+                            if not a or not b:
+                                return 0
+                            if a == b:
+                                return 3
+                            if a in b or b in a:
+                                return 2
+                            return 0
+
+                        home_name = str(upload_home or "").strip() or None
+                        away_name = str(upload_away or "").strip() or None
+
+                        unassigned: List[Tuple[Optional[str], List[Dict[str, Any]]]] = []
+                        for team_label, roster in tables:
+                            if not roster:
+                                continue
+                            sh = _match_score(team_label, home_name)
+                            sa = _match_score(team_label, away_name)
+                            if sh > sa and sh > 0 and roster_home_payload is None:
+                                roster_home_payload = roster
+                            elif sa > sh and sa > 0 and roster_away_payload is None:
+                                roster_away_payload = roster
+                            else:
+                                unassigned.append((team_label, roster))
+
+                        # Fallback: if labels are missing/ambiguous, assign by order.
+                        if (
+                            roster_home_payload is None
+                            and roster_away_payload is None
+                            and len(unassigned) == 2
+                        ):
+                            roster_home_payload = unassigned[0][1]
+                            roster_away_payload = unassigned[1][1]
+                        elif len(unassigned) == 1:
+                            if roster_home_payload is None and roster_away_payload is None:
+                                roster_home_payload = unassigned[0][1]
+                            elif roster_home_payload is None:
+                                roster_home_payload = unassigned[0][1]
+                            elif roster_away_payload is None:
+                                roster_away_payload = unassigned[0][1]
+                except Exception:
+                    # Best-effort: roster extraction must not block uploads.
+                    pass
             if t2s_id is not None and not (
                 logo_fields.get("home_logo_b64") or logo_fields.get("away_logo_b64")
             ):
@@ -13706,7 +14517,7 @@ def main() -> None:
             try:
                 # If both Home/Away outputs exist (e.g., when long-sheet shift tables were used to
                 # generate both teams), upload both. To avoid overwriting the per-game raw CSV blobs
-                # and game/event stats, we only upload the non-primary side's player_stats.csv.
+                # and game/event stats, we only upload the non-primary side's shift rows (no events).
                 def _team_stats_dirs(final_out: Path) -> Dict[str, Path]:
                     # final_out is "<game>/<Home|Away>/<format_dir>"
                     root = final_out.parent.parent
@@ -13716,12 +14527,15 @@ def main() -> None:
                         "away": root / "Away" / format_dir / "stats",
                     }
 
-                def _has_player_stats(sd: Path) -> bool:
+                def _has_uploadable_stats(sd: Path) -> bool:
                     try:
-                        p = sd / "player_stats.csv"
-                        return p.exists() and p.is_file() and p.stat().st_size > 0
+                        for fn in ("all_events_summary.csv", "shift_rows.csv"):
+                            p = sd / fn
+                            if p.exists() and p.is_file() and p.stat().st_size > 0:
+                                return True
                     except Exception:
-                        return False
+                        pass
+                    return False
 
                 if t2s_id is not None:
                     dirs = _team_stats_dirs(final_outdir)
@@ -13729,7 +14543,7 @@ def main() -> None:
                     if primary_side not in {"home", "away"}:
                         primary_side = "home"
                     primary_stats = dirs.get(primary_side, final_outdir / "stats")
-                    if _has_player_stats(primary_stats):
+                    if _has_uploadable_stats(primary_stats):
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                             or "http://127.0.0.1:8008",
@@ -13764,11 +14578,49 @@ def main() -> None:
                             source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
+                        embedded = g.get("event_corrections")
+                        if embedded:
+                            corr_objs: list[dict[str, Any]] = []
+                            if isinstance(embedded, list):
+                                corr_objs = [{"patch": embedded}]
+                            elif isinstance(embedded, dict):
+                                corr_objs = [dict(embedded)]
+                            else:
+                                raise ValueError(
+                                    f"invalid event_corrections for {label!r} (must be list or mapping)"
+                                )
+                            for cobj in corr_objs:
+                                if not any(
+                                    cobj.get(k)
+                                    for k in (
+                                        "game_id",
+                                        "timetoscore_game_id",
+                                        "tts_game_id",
+                                        "external_game_key",
+                                        "external_key",
+                                        "label",
+                                    )
+                                ):
+                                    cobj["timetoscore_game_id"] = int(t2s_id)
+                            stats = _apply_event_corrections_payload_to_webapp(
+                                webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                                or "http://127.0.0.1:8008",
+                                webapp_token=(
+                                    getattr(args, "webapp_token", None)
+                                    or getattr(args, "import_token", None)
+                                    or None
+                                ),
+                                corrections=corr_objs,
+                                create_missing_players=False,
+                            )
+                            print(
+                                f"[webapp] Applied embedded event corrections for {label}: {stats}"
+                            )
 
                     other_side = "away" if primary_side == "home" else "home"
                     other_stats = dirs.get(other_side)
-                    if other_stats is not None and _has_player_stats(other_stats):
-                        # Avoid overwriting per-game blob tables (player_stats_csv/events/game_stats) and game_stats.
+                    if other_stats is not None and _has_uploadable_stats(other_stats):
+                        # Avoid overwriting per-game events: upload only the other side's shift rows (no events).
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                             or "http://127.0.0.1:8008",
@@ -13800,7 +14652,6 @@ def main() -> None:
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=False,
-                            include_game_stats=False,
                             include_events=False,
                             source_label_suffix=f":{other_side}",
                         )
@@ -13858,6 +14709,8 @@ def main() -> None:
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             home_logo_url=upload_home_logo_url,
                             away_logo_url=upload_away_logo_url,
+                            roster_home=roster_home_payload,
+                            roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             create_missing_players=bool(
                                 getattr(args, "webapp_create_missing_players", False)
@@ -13865,10 +14718,52 @@ def main() -> None:
                             source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
+                        embedded = g.get("event_corrections")
+                        if embedded:
+                            corr_objs: list[dict[str, Any]] = []
+                            if isinstance(embedded, list):
+                                corr_objs = [{"patch": embedded}]
+                            elif isinstance(embedded, dict):
+                                corr_objs = [dict(embedded)]
+                            else:
+                                raise ValueError(
+                                    f"invalid event_corrections for {label!r} (must be list or mapping)"
+                                )
+                            for cobj in corr_objs:
+                                if not any(
+                                    cobj.get(k)
+                                    for k in (
+                                        "game_id",
+                                        "timetoscore_game_id",
+                                        "tts_game_id",
+                                        "external_game_key",
+                                        "external_key",
+                                        "label",
+                                    )
+                                ):
+                                    cobj["external_game_key"] = str(label or "")
+                                    if owner_email:
+                                        cobj["owner_email"] = str(owner_email)
+                            stats = _apply_event_corrections_payload_to_webapp(
+                                webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
+                                or "http://127.0.0.1:8008",
+                                webapp_token=(
+                                    getattr(args, "webapp_token", None)
+                                    or getattr(args, "import_token", None)
+                                    or None
+                                ),
+                                corrections=corr_objs,
+                                create_missing_players=bool(
+                                    getattr(args, "webapp_create_missing_players", False)
+                                ),
+                            )
+                            print(
+                                f"[webapp] Applied embedded event corrections for {label}: {stats}"
+                            )
 
                         other_side = "away" if primary_side == "home" else "home"
                         other_stats = dirs.get(other_side)
-                        if other_stats is not None and _has_player_stats(other_stats):
+                        if other_stats is not None and _has_uploadable_stats(other_stats):
                             _upload_shift_package_to_webapp(
                                 webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
                                 or "http://127.0.0.1:8008",
@@ -13896,11 +14791,12 @@ def main() -> None:
                                 away_logo_content_type=logo_fields.get("away_logo_content_type"),
                                 home_logo_url=upload_home_logo_url,
                                 away_logo_url=upload_away_logo_url,
+                                roster_home=roster_home_payload,
+                                roster_away=roster_away_payload,
                                 game_video_url=_meta("game_video", "game_video_url", "video_url"),
                                 create_missing_players=bool(
                                     getattr(args, "webapp_create_missing_players", False)
                                 ),
-                                include_game_stats=False,
                                 include_events=False,
                                 source_label_suffix=f":{other_side}",
                             )

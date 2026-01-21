@@ -153,11 +153,33 @@ def client_and_models(monkeypatch, webapp_db):
         created_at=now,
         updated_at=None,
     )
-    m.PlayerStat.objects.create(
-        game_id=int(g1001.id), player_id=1, user_id=int(owner.id), team_id=int(t201.id)
+
+    ev_goal, _created = m.HkyEventType.objects.get_or_create(
+        key="goal", defaults={"name": "Goal", "created_at": now}
     )
-    m.PlayerStat.objects.create(
-        game_id=int(g1002.id), player_id=2, user_id=int(owner.id), team_id=int(t202.id)
+    m.HkyGameEventRow.objects.create(
+        game_id=int(g1001.id),
+        event_type_id=int(ev_goal.id),
+        import_key="g1001-goal-1",
+        team_id=int(t201.id),
+        player_id=1,
+        team_side="Home",
+        period=1,
+        game_seconds=10,
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(g1002.id),
+        event_type_id=int(ev_goal.id),
+        import_key="g1002-goal-1",
+        team_id=int(t202.id),
+        player_id=2,
+        team_side="Home",
+        period=1,
+        game_seconds=20,
+        created_at=now,
+        updated_at=None,
     )
 
     return Client(), m

@@ -87,9 +87,15 @@ Dev (repo)
 
 Import Shift Spreadsheet Stats
 ------------------------------
-To import the `stats/player_stats.csv` output written by `scripts/parse_stats_inputs.py` and view it per game/player/team:
+To import shift-spreadsheet stats from `scripts/parse_stats_inputs.py` into the webapp:
 
-- See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
+- Run `scripts/parse_stats_inputs.py` with `--upload-webapp ...` (or use `./import_webapp.sh`).
+- The script uploads `stats/all_events_summary.csv` as `events_csv` and `stats/shift_rows.csv` as `shift_rows_csv` to
+  `/api/import/hockey/shift_package`.
+- The webapp computes player/game/team stats at runtime from `hky_game_event_rows` and `hky_game_shift_rows`
+  (no `player_stats.csv` / `game_stats.csv` imports).
+
+See `tools/webapp/TUTORIAL_SHIFT_STATS.md`.
 
 ### Shift spreadsheet file-list YAML (`game_list_long.yaml`)
 
@@ -112,6 +118,9 @@ games:
       game_video: /home/colivier/RVideos/stockton-r2/game.mp4
       home_logo: /home/colivier/RVideos/stockton-r2/home_logo.png
       away_logo: /home/colivier/RVideos/stockton-r2/away_logo.png
+      # Alias keys (same behavior as home_logo/away_logo):
+      # home_team_icon: /home/colivier/RVideos/stockton-r2/home_logo.png
+      # away_team_icon: /home/colivier/RVideos/stockton-r2/away_logo.png
 
   # TimeToScore-only game (no spreadsheets)
   - t2s: 51602
@@ -125,42 +134,67 @@ Notes:
 - Relative paths are resolved relative to the YAML file’s directory.
 - `metadata:` is optional; you can also put metadata keys directly under the game mapping (e.g., `home_team: ...`).
 
-### Event correction YAML
+### Event Corrections
 
-To persist idempotent fixes (suppress bad imported events, and upsert corrected ones), use `scripts/parse_stats_inputs.py --corrections-yaml <file> --upload-webapp` (calls `POST /api/internal/apply_event_corrections`).
+The webapp supports idempotent event corrections (suppress bad imported events + upsert corrected ones). Corrected events render in **red** in the Player Events popup, and hover shows what changed (plus any note).
 
-Recommended structure:
+#### Inline in `--file-list` YAML (recommended)
+
+Add `event_corrections:` under a game entry in your file-list YAML. When you run `scripts/parse_stats_inputs.py --file-list <file>.yaml --upload-webapp ...`, corrections are applied automatically after that game uploads.
+
+```yaml
+games:
+  - label: utah-1
+    path: utah-1/stats
+    side: AWAY
+    metadata:
+      home_team: Texas Warriors 12AA
+      away_team: San Jose Jr Sharks 12AA-2
+      date: "2026-01-16"
+      game_video: "https://youtu.be/..."
+    event_corrections:
+      reason: "Swap scorer/assist for goal at P2 03:14"
+      patch:
+        - match:
+            event_type: Goal
+            period: 2
+            game_time: "03:14"
+            team_side: Away
+            jersey: "3"
+          set:
+            jersey: "13"
+            video_time: "10:20"
+          note: "see video"
+```
+
+#### Separate corrections file (`--corrections-yaml`)
+
+You can also apply corrections from a separate YAML file via `scripts/parse_stats_inputs.py --corrections-yaml <file> --upload-webapp` (calls `POST /api/internal/apply_event_corrections`).
+
+Recommended structure (patch format):
 
 ```yaml
 create_missing_players: true # optional
 corrections:
-  - timetoscore_game_id: 51602 # or: game_id: 123
-    reason: "Fix scorer/assists for goal at 1/12:34"
-    suppress:
-      - event_type: Goal
-        period: 1
-        game_time: "12:34"
-        team_side: Away
-        jersey: "12"
-    upsert:
-      - event_type: Goal
-        period: 1
-        game_time: "12:34"
-        team_side: Away
-        jersey: "91"
-        video_time: "1:02:03"
-        details: "Correction: scorer is #91"
-      - event_type: Assist
-        period: 1
-        game_time: "12:34"
-        team_side: Away
-        jersey: "15"
-        details: "Correction: primary assist is #15"
+  - external_game_key: utah-1 # or: timetoscore_game_id: 51602, or: game_id: 123
+    owner_email: you@example.com # recommended for external games
+    reason: "Fix scorer/assists for goal at P2 03:14"
+    patch:
+      - match:
+          event_type: Goal
+          period: 2
+          game_time: "03:14"
+          team_side: Away
+          jersey: "3"
+        set:
+          jersey: "13"
+          video_time: "10:20"
+        note: "see video"
 ```
 
 Notes:
-- Corrections are idempotent. Event identity is derived from the event spec fields (`event_type`, time, side, jersey, and optionally `details`/`event_id`).
-- If multiple events can exist at the same timestamp (e.g., stacked penalties), include `details` and/or `event_id` to disambiguate.
+- `match` identifies the existing event; `set` applies overrides. Use `details` and/or `event_id` to disambiguate if multiple events can exist at the same timestamp.
+- If `video_time` is present and the game has `metadata.game_video`, the Player Events popup can open the associated clip.
 
 Demo Data
 ---------

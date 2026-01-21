@@ -33,8 +33,9 @@ Usage: ./import_webapp.sh [--deploy-only] [--drop-db | --drop-db-only] [--spread
 Environment:
   WEBAPP_URL        Webapp base URL (default: http://127.0.0.1:8008)
   WEB_ACCESS_KEY    Optional token args passed through to import scripts
-  SHIFT_FILE_LIST   Shift spreadsheet file list (default: ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
+  SHIFT_FILE_LIST   Shift spreadsheet file list (default: $HOCKEYMOM_STATS_BASE_DIR/game_list_long.yaml if set, else ~/RVideos/game_list_long.yaml if present, else ~/Videos/game_list_long.yaml, else .txt)
   LEAGUE_NAME       League name to import into (default: CAHA)
+  HOCKEYMOM_STATS_BASE_DIR  Optional base directory for locating `game_list_long.{yaml,yml,txt}` and relative paths within it.
 
 Options:
   --deploy-only     Only redeploy/restart the webapp and exit (no reset/import/upload)
@@ -376,23 +377,37 @@ if [[ "${NO_SPREADSHEETS}" == "1" ]]; then
 else
   #echo "[i] Uploading shift spreadsheets"
   if [[ -z "${SHIFT_FILE_LIST}" ]]; then
-    if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
-      SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
-    elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
-    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
-  elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
-    SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
-  elif [[ -f "$HOME/Videos/game_list_long.yaml" ]]; then
-    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yaml"
-  elif [[ -f "$HOME/Videos/game_list_long.yml" ]]; then
-    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yml"
-  else
-    SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
+    STATS_BASE_DIR="${HOCKEYMOM_STATS_BASE_DIR:-}"
+    if [[ -n "${STATS_BASE_DIR}" ]]; then
+      STATS_BASE_DIR="${STATS_BASE_DIR/#\~/$HOME}"
+      if [[ -f "${STATS_BASE_DIR}/game_list_long.yaml" ]]; then
+        SHIFT_FILE_LIST="${STATS_BASE_DIR}/game_list_long.yaml"
+      elif [[ -f "${STATS_BASE_DIR}/game_list_long.yml" ]]; then
+        SHIFT_FILE_LIST="${STATS_BASE_DIR}/game_list_long.yml"
+      elif [[ -f "${STATS_BASE_DIR}/game_list_long.txt" ]]; then
+        SHIFT_FILE_LIST="${STATS_BASE_DIR}/game_list_long.txt"
+      fi
+    fi
+    if [[ -z "${SHIFT_FILE_LIST}" ]]; then
+      if [[ -f "$HOME/RVideos/game_list_long.yaml" ]]; then
+        SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yaml"
+      elif [[ -f "$HOME/RVideos/game_list_long.yml" ]]; then
+        SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.yml"
+      elif [[ -f "$HOME/RVideos/game_list_long.txt" ]]; then
+        SHIFT_FILE_LIST="$HOME/RVideos/game_list_long.txt"
+      elif [[ -f "$HOME/Videos/game_list_long.yaml" ]]; then
+        SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yaml"
+      elif [[ -f "$HOME/Videos/game_list_long.yml" ]]; then
+        SHIFT_FILE_LIST="$HOME/Videos/game_list_long.yml"
+      else
+        SHIFT_FILE_LIST="$HOME/Videos/game_list_long.txt"
+      fi
+    fi
   fi
-fi
-if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
-  echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
+  if [[ ! -f "${SHIFT_FILE_LIST}" ]]; then
+    echo "[!] SHIFT_FILE_LIST not found: ${SHIFT_FILE_LIST}" >&2
     echo "    Set it explicitly, e.g.: export SHIFT_FILE_LIST=~/RVideos/game_list_long.yaml" >&2
+    echo "    Or set a base dir, e.g.: export HOCKEYMOM_STATS_BASE_DIR=~/Videos" >&2
     exit 2
   fi
   SPREADSHEET_ARGS=()

@@ -105,11 +105,6 @@ urlpatterns = [
     path("schedule", v.schedule, name="schedule"),
     path("schedule/new", v.schedule_new, name="schedule_new"),
     path("hky/games/<int:game_id>", v.hky_game_detail, name="hky_game_detail"),
-    path(
-        "hky/games/<int:game_id>/import_shift_stats",
-        v.hky_game_import_shift_stats,
-        name="hky_game_import_shift_stats",
-    ),
     path("game_types", v.game_types, name="game_types"),
     # Leagues UI
     path("leagues", v.leagues_index, name="leagues_index"),

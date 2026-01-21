@@ -902,6 +902,13 @@ class hm_opts(object):
             help="scale showed image (ignored is --show-image is not specified)",
         )
         parser.add_argument(
+            "--scoreboard-scale",
+            dest="scoreboard_scale",
+            type=float,
+            default=None,
+            help="Scale factor applied to the extracted scoreboard image (maps to rink.scoreboard.scoreboard_scale)",
+        )
+        parser.add_argument(
             "--ice-rink-inference-scale",
             "--ice-rink-mask-scale",
             dest="ice_rink_inference_scale",
@@ -1367,6 +1374,14 @@ class hm_opts(object):
             ("end_zones", "aspen.apply_camera.end_zones"),
             ("show_image", "aspen.video_out.show_image"),
             ("show_scaled", "aspen.video_out.show_scaled"),
+            (
+                "output_width",
+                [
+                    "aspen.video_out.output_width",
+                    "aspen.plugins.video_out.params.output_width",
+                ],
+            ),
+            ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
             ("output_video_bit_rate", "aspen.video_out.bit_rate"),
             (
                 "checkerboard_input",
@@ -1410,6 +1425,7 @@ class hm_opts(object):
         "end_zones": {True: True},
         "show_image": bool,
         "debug_play_tracker": {True: True},
+        "scoreboard_scale": float,
         "plot_moving_boxes": {True: True},
         "plot_trajectories": {True: True},
         "plot_jersey_numbers": {True: True},
@@ -1477,7 +1493,11 @@ class hm_opts(object):
                             continue
                 if arg_name in setdefault_set and _has_nested_key(config, path):
                     continue
-                set_nested_value(config, path, mapped_value)
+                try:
+                    set_nested_value(config, path, mapped_value)
+                except Exception as ex:
+                    logger.error("Failed to set config value for %s: %s", path, ex)
+                    raise ex
                 changed = True
         return changed
 

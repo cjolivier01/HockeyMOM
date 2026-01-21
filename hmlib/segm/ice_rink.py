@@ -309,9 +309,9 @@ def find_ice_rink_masks(
     show: bool = False,
     inference_scale: Optional[float] = None,
 ) -> List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]]:
-    # if device is None:
-    #     device = torch.device("cuda:0")
-    device = torch.device("cpu")
+    if device is None:
+        device = torch.device("cuda:0")
+    # device = torch.device("cpu")
 
     was_list = isinstance(image, list)
     if not was_list:

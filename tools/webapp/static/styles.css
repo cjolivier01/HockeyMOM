@@ -21,8 +21,8 @@
   --row-odd: #f3f4f6;
   --row-even: #e5e7eb;
   --row-hover: #dbeafe; /* subtle light-blue highlight */
-  --thead-bg: #f8fafc;
-  --thead-text: #1f2937;
+  --thead-bg: #0b2a5b;   /* dark blue */
+  --thead-text: #ffd84d; /* yellow */
 }
 
 * { box-sizing: border-box; }
@@ -62,6 +62,27 @@ dialog::backdrop {
 .game-video-link, .game-video-link:visited { color: #7dd3fc; }
 .game-video-link:hover { color: #bae6fd; }
 
+.yt-quality-hint {
+  margin-top: 0.55rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+  align-items: flex-end;
+  font-weight: 800;
+  color: var(--warn);
+  line-height: 1.2;
+}
+.yt-quality-hint .yt-quality-text { flex: 1 1 auto; min-width: 0; text-align: right; }
+.yt-quality-hint .yt-quality-arrow {
+  flex: 0 0 auto;
+  margin-right: 120px; /* approx. below the YouTube "gear" control in the iframe */
+  font-size: 1.35rem;
+  line-height: 1;
+}
+@media (max-width: 520px) {
+  .yt-quality-hint .yt-quality-arrow { margin-right: 88px; }
+}
+
 .container { max-width: 1500px; margin: 0 auto; padding: 1.25rem; }
 .hero { padding: 3rem 0 2rem; text-align: center; }
 .hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
@@ -90,6 +111,18 @@ table a.btn.secondary:hover, table button.btn.secondary:hover {
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
 .card h3 { margin: 0 0 .5rem; }
 
+.card.partial-stats {
+  background: #7a6500; /* dark yellow */
+  border-color: #b91c1c; /* red */
+}
+.partial-stats-banner {
+  color: #b91c1c;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5rem;
+}
+
 form { margin: 1rem 0; }
 .form-row { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
 input[type=text], input[type=password], input[type=email], input[type=file], select, input[type=number], input[type=datetime-local] {
@@ -107,6 +140,10 @@ th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); bor
 th:last-child, td:last-child { border-right: none; }
 tbody tr:last-child td { border-bottom: none; }
 thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
+thead th { border-bottom-color: rgba(255, 255, 255, 0.12); border-right-color: rgba(255, 255, 255, 0.10); }
+thead th:last-child { border-right-color: rgba(255, 255, 255, 0.10); }
+thead .th-subnote, thead .muted { color: rgba(226, 232, 240, 0.95); }
+thead .th-subnote { font-weight: 600; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
 /* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
@@ -175,9 +212,14 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Allow newline rendering inside specific cells even in nowrap tables */
 td.cell-pre { white-space: pre-line !important; }
 
+/* Highlight corrected events in Player Events modal. */
+tr.event-corrected td { color: #ff8a8a; }
+tr.event-corrected td a { color: #ff8a8a; }
+
 /* Tables that should never wrap cell content (used with JS fit scaling). */
 .table-never-wrap th, .table-never-wrap td { white-space: nowrap !important; }
 .table-never-wrap td { overflow-wrap: normal !important; word-break: normal !important; }
+.table-never-wrap td.cell-pre { white-space: pre-line !important; }
 
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
 table[data-freeze-cols] { border-collapse: separate; border-spacing: 0; overflow: visible; }
@@ -205,6 +247,10 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 
 .muted { color: var(--muted); }
 .muted-strong { color: var(--muted-strong); }
+
+/* Team schedule: excluded games should still be visible/clickable, but visually de-emphasized. */
+tr.game-excluded { opacity: .55; }
+tr.game-excluded:hover { opacity: .85; }
 .spacer { height: 1rem; }
 
 .event-type-cell {
@@ -437,4 +483,30 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   body { font-size: 13px; }
   th, td { padding: .45rem .5rem; font-size: .8rem; }
   .btn { padding: .38rem .55rem; font-size: .9rem; }
+}
+
+.hm-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.btn .hm-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.hm-player-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  opacity: 0.92;
+  flex: 0 0 auto;
+}
+.hm-player-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.6;
 }

@@ -24,21 +24,23 @@ def _orm_modules(*, config_path: str):
 
 def wipe_all(m) -> dict:
     counts: dict = {}
-    counts["player_stats"] = int(m.PlayerStat.objects.count())
     counts["league_games"] = int(m.LeagueGame.objects.count())
     counts["hky_games"] = int(m.HkyGame.objects.count())
     counts["league_teams"] = int(m.LeagueTeam.objects.count())
     counts["players"] = int(m.Player.objects.count())
     counts["teams"] = int(m.Team.objects.count())
+    counts["hky_game_players"] = int(m.HkyGamePlayer.objects.count())
+    counts["hky_game_event_rows"] = int(m.HkyGameEventRow.objects.count())
+    counts["hky_game_shift_rows"] = int(m.HkyGameShiftRow.objects.count())
 
     from django.db import transaction
 
     with transaction.atomic():
         # Delete in FK-safe order (teams are referenced with ON DELETE RESTRICT from hky_games).
-        m.PlayerStat.objects.all().delete()
         m.PlayerPeriodStat.objects.all().delete()
         m.HkyGameEventSuppression.objects.all().delete()
         m.HkyGamePlayer.objects.all().delete()
+        m.HkyGameShiftRow.objects.all().delete()
         m.HkyGameEventRow.objects.all().delete()
         m.LeagueGame.objects.all().delete()
         m.HkyGame.objects.all().delete()

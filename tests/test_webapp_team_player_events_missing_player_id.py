@@ -87,24 +87,6 @@ def should_include_goal_events_when_player_id_missing_but_jersey_matches(webapp_
     m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(game1.id), sort_order=1)
     m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(game2.id), sort_order=2)
 
-    # Totals (what the team page shows): 5 goals across eligible games.
-    m.PlayerStat.objects.create(
-        user_id=int(owner.id),
-        team_id=int(team1.id),
-        game_id=int(game1.id),
-        player_id=int(player.id),
-        goals=3,
-        assists=0,
-    )
-    m.PlayerStat.objects.create(
-        user_id=int(owner.id),
-        team_id=int(team1.id),
-        game_id=int(game2.id),
-        player_id=int(player.id),
-        goals=2,
-        assists=0,
-    )
-
     et_goal, _created = m.HkyEventType.objects.get_or_create(
         key="goal", defaults={"name": "Goal", "created_at": now}
     )

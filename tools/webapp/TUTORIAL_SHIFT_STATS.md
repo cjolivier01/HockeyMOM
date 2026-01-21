@@ -1,57 +1,49 @@
-# HockeyMOM WebApp: Import and View Shift Spreadsheet Stats
+# HockeyMOM WebApp: Import and View Shift Spreadsheet Stats (Event-Driven)
 
-This tutorial shows how to take the `stats/` outputs produced by `scripts/parse_stats_inputs.py` (e.g. from `~/Videos/stockton-r3/stat` and `~/Videos/sharks-12-1-r2/stats`) and import them into the HockeyMOM WebApp so you can view them per game, per player, and aggregated on the team page.
+This tutorial shows how to take the `stats/` outputs produced by `scripts/parse_stats_inputs.py` and import them into the HockeyMOM webapp so you can view per-game events and aggregated player/team stats.
 
-## 1) Generate `stats/player_stats.csv`
+The webapp no longer imports `player_stats.csv` / `game_stats.csv` into DB tables; all scoring and aggregates are computed at runtime from imported event/shift rows.
+
+## 1) Generate `stats/all_events_summary.csv` and `stats/shift_rows.csv`
 
 Run `scripts/parse_stats_inputs.py` on your game sheet (or game directory) and confirm that the output directory contains:
 
-- `stats/player_stats.csv`
+- `stats/all_events_summary.csv` (the event log uploaded to the webapp as `events_csv`)
+- `stats/shift_rows.csv` (per-player shift intervals uploaded as `shift_rows_csv`)
 
 Notes:
-- If you want TOI/shifts columns in the outputs, run with `--shifts` (the script only writes TOI/shift columns when enabled).
-- The webapp importer expects the CSV headers produced by this script (e.g. `Player`, `Goals`, `Assists`, `TOI Total`, `SOG`, `xG`, `Controlled Entry For (On-Ice)`, etc.).
+- These files are used for webapp ingestion; `player_stats.csv` may still be written for convenience, but it is not imported.
 
-## 2) Create teams and players in the WebApp (UI)
+## 2) Create teams and players in the webapp (UI)
 
 1. Open the webapp and register/login.
-2. Go to `Teams` → `New team` and create your team (e.g. `Sharks`).
+2. Go to `Teams` → `New team` and create your team.
 3. Click into your team → `Add player` and add each player.
 
 Important:
-- Set each player’s `Jersey #` to match the jersey numbers shown in `player_stats.csv` (`Player` column starts with the jersey number).
-- Import matching is done by jersey number first; name matching is only a fallback.
+- Set each player’s `Jersey #` to match the jersey numbers used in your shift spreadsheets/events.
+- Matching is done by jersey number first; name matching is a fallback.
 
-## 3) Create the game (UI)
+## 3) Upload to the webapp
 
-1. Go to `Schedule` → `Add game`.
-2. Select your team as `Team 1` (or `Team 2`).
-3. If you don’t have the opponent team created, leave the other team blank and enter `Opponent name` to auto-create an external opponent.
-4. Save the game; you’ll be redirected to the game page.
-
-## 4) Import the stats (UI)
-
-1. Open the game page (`Schedule` → click the game).
-2. In **Import Shift Spreadsheet Stats**:
-   - Upload `stats/player_stats.csv`
-3. Click `Import stats`.
+Recommended options:
+- End-to-end local import: `./import_webapp.sh --spreadsheets-only` (uploads `events_csv` + `shift_rows_csv`).
+- Direct upload from the parser: run `scripts/parse_stats_inputs.py` with `--upload-webapp ...` for your file-list YAML or game directory.
 
 What happens:
-- The app upserts rows into `player_stats` for the matching players for that game.
-- Per-period rows (e.g. `Period 1 TOI`, `Period 1 Shifts`, `Period 1 GF/GA`) are stored in `player_period_stats` and shown on the game page.
-- Game stats tables are derived from `hky_game_event_rows` (goals, SOG, xG, etc.) rather than storing duplicate per-game aggregates.
+- The webapp upserts `hky_game_event_rows` from `events_csv` and `hky_game_shift_rows` from `shift_rows_csv`.
+- Player/game/team stats tables are computed from those event/shift tables at runtime (no `player_stats` table).
 
-## 5) Verify the stats
+## 4) Verify the stats
 
 - Game page:
-  - **Imported Shift/Video Stats (Read-only)** shows TOI, video TOI, shifts, SOG, xG, entries/exits, giveaways/takeaways, per-period splits, etc.
+  - **Game Events** shows the imported event rows.
+  - Player stats tables are derived from events (and shift rows when enabled for the league).
 - Team page:
-  - The Players table now includes aggregate totals for SOG, xG, TOI, shifts, and plus/minus (in addition to goals/assists/shots).
+  - The Players table aggregates across eligible games and is derived from events/shift rows.
 
 ## Troubleshooting
 
-- “Unmatched players” during import:
+- “Unmatched players”:
   - Ensure each player exists on the team in the webapp and has the correct jersey number.
-  - Re-import after fixing jersey numbers.
-- Missing TOI/shifts columns in the imported table:
-  - Re-run `scripts/parse_stats_inputs.py` with `--shifts` so it writes TOI/shift columns to `player_stats.csv`.
+  - Re-run the import after fixing jersey numbers.

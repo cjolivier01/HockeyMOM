@@ -294,24 +294,6 @@ def should_sort_api_hky_team_player_events_by_type_time_period_date(webapp_db):
     m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(game1.id), sort_order=1)
     m.LeagueGame.objects.create(league_id=int(league.id), game_id=int(game2.id), sort_order=2)
 
-    # Cap goal/assist events to match PlayerStat totals (what the team page shows).
-    m.PlayerStat.objects.create(
-        user_id=int(owner.id),
-        team_id=int(team1.id),
-        game_id=int(game1.id),
-        player_id=int(player.id),
-        goals=1,
-        assists=3,
-    )
-    m.PlayerStat.objects.create(
-        user_id=int(owner.id),
-        team_id=int(team1.id),
-        game_id=int(game2.id),
-        player_id=int(player.id),
-        goals=1,
-        assists=1,
-    )
-
     et_assist, _ = m.HkyEventType.objects.get_or_create(
         key="assist", defaults={"name": "Assist", "created_at": now}
     )

@@ -156,7 +156,9 @@ def should_compute_game_points_and_hide_blank_columns_in_game_player_stats_table
         1: {"goals": 1, "assists": 2},
         2: {"goals": 0, "assists": 1},
     }
-    imported_csv = "Jersey #,Player,Goals,Assists,Unused Blank\n9,Skater One,1,2,\n8,Skater Two,0,1,\n"
+    imported_csv = (
+        "Jersey #,Player,Goals,Assists,Unused Blank\n9,Skater One,1,2,\n8,Skater Two,0,1,\n"
+    )
 
     cols, cell_text_by_pid, _cell_conf_by_pid, warn = mod.build_game_player_stats_table(
         players=players, stats_by_pid=stats_by_pid, imported_csv_text=imported_csv
@@ -179,10 +181,7 @@ def should_build_game_player_stats_table_preserves_unknown_imported_columns():
         {"id": 1, "team_id": 10, "name": "Ethan L Olivier", "jersey_number": "1", "position": "F"},
     ]
     stats_by_pid = {1: {"goals": 0, "assists": 0}}
-    imported_csv = (
-        "Jersey #,Player,Goals,Assists,TOI,Shifts\n"
-        "1,Ethan L Olivier,1,0,12:34,18\n"
-    )
+    imported_csv = "Jersey #,Player,Goals,Assists,TOI,Shifts\n" "1,Ethan L Olivier,1,0,12:34,18\n"
     cols, cell_text_by_pid, _conf, warn = mod.build_game_player_stats_table(
         players=players, stats_by_pid=stats_by_pid, imported_csv_text=imported_csv
     )
@@ -365,12 +364,52 @@ def should_aggregate_player_totals_from_rows(webapp_db):
 
     p10 = m.Player.objects.create(id=10, user=user, team=team, name="Player 10", created_at=now)
     p11 = m.Player.objects.create(id=11, user=user, team=team, name="Player 11", created_at=now)
-    m.PlayerStat.objects.bulk_create(
-        [
-            m.PlayerStat(user=user, team=team, game=game, player=p10, goals=2, assists=1, pim=0, shots=5),
-            m.PlayerStat(user=user, team=team, game=game, player=p11, goals=0, assists=2, pim=2, shots=1),
-        ]
+
+    ev_goal, _created = m.HkyEventType.objects.get_or_create(
+        key="goal", defaults={"name": "Goal", "created_at": now}
     )
+    ev_assist, _created = m.HkyEventType.objects.get_or_create(
+        key="assist", defaults={"name": "Assist", "created_at": now}
+    )
+
+    # Player 10: 2G, 1A
+    for i in range(2):
+        m.HkyGameEventRow.objects.create(
+            game_id=int(game.id),
+            event_type_id=int(ev_goal.id),
+            import_key=f"p10-g-{i}",
+            team_id=int(team.id),
+            player_id=int(p10.id),
+            period=1,
+            game_seconds=10 + i,
+            created_at=now,
+            updated_at=None,
+        )
+    m.HkyGameEventRow.objects.create(
+        game_id=int(game.id),
+        event_type_id=int(ev_assist.id),
+        import_key="p10-a-0",
+        team_id=int(team.id),
+        player_id=int(p10.id),
+        period=1,
+        game_seconds=20,
+        created_at=now,
+        updated_at=None,
+    )
+
+    # Player 11: 0G, 2A
+    for i in range(2):
+        m.HkyGameEventRow.objects.create(
+            game_id=int(game.id),
+            event_type_id=int(ev_assist.id),
+            import_key=f"p11-a-{i}",
+            team_id=int(team.id),
+            player_id=int(p11.id),
+            period=1,
+            game_seconds=30 + i,
+            created_at=now,
+            updated_at=None,
+        )
 
     agg = mod.aggregate_players_totals(None, team_id=1, user_id=123)
     assert agg[10]["goals"] == 2 and agg[10]["assists"] == 1 and agg[10]["points"] == 3

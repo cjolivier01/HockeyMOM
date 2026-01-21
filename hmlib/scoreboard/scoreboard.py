@@ -45,6 +45,7 @@ class Scoreboard(torch.nn.Module):
         clip_box: Union[torch.Tensor, None] = None,
         device: Union[torch.device, None] = None,
         auto_aspect: bool = True,
+        scoreboard_scale: Optional[float] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -105,6 +106,10 @@ class Scoreboard(torch.nn.Module):
             else:
                 dest_height = dest_height_new
 
+        if scoreboard_scale is not None:
+            dest_width *= scoreboard_scale
+            dest_height *= scoreboard_scale
+
         self._dest_width = int(dest_width)
         self._dest_height = int(dest_height)
 
@@ -126,11 +131,11 @@ class Scoreboard(torch.nn.Module):
                 # TL
                 [0, 0],
                 # TR
-                [dest_width - 1, 0],
+                [self._dest_width - 1, 0],
                 # BR
-                [dest_width - 1, dest_height - 1],
+                [self._dest_width - 1, self._dest_height - 1],
                 # BL
-                [0, dest_height - 1],
+                [0, self._dest_height - 1],
             ],
             dtype=np.float32,
         )

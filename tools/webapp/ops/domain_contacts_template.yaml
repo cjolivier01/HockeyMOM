@@ -1,0 +1,10 @@
+allContacts:
+  email: "you@example.com"
+  phoneNumber: "+1.8005550123"
+  postalAddress:
+    regionCode: "US"
+    postalCode: "00000"
+    administrativeArea: "CA"
+    locality: "City"
+    addressLines: ["123 Main St"]
+    recipients: ["Your Name"]

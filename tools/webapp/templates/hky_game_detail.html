@@ -107,6 +107,10 @@
           ></iframe>
         </div>
       </div>
+      <div class="yt-quality-hint">
+        <span class="yt-quality-text">Click the gear icon and select Highest quality</span>
+        <span class="yt-quality-arrow" aria-hidden="true">↑</span>
+      </div>
       <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row, or open the timeline tooltip and press Video to view a clip (2/3 before, 1/3 after the event).</p>
     </div>
   {% endif %}
@@ -228,7 +232,7 @@
             {% for p in team1_roster %}
               <tr>
                 <td>{{ p.jersey_number|default_if_none:"" }}</td>
-                <td>{{ p.name|default_if_none:"" }}</td>
+                <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
                 <td>{{ p.position|default_if_none:"" }}</td>
               </tr>
             {% empty %}
@@ -251,7 +255,7 @@
             {% for p in team2_roster %}
               <tr>
                 <td>{{ p.jersey_number|default_if_none:"" }}</td>
-                <td>{{ p.name|default_if_none:"" }}</td>
+                <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
                 <td>{{ p.position|default_if_none:"" }}</td>
               </tr>
             {% empty %}
@@ -375,31 +379,7 @@
     </div>
     </form>
 
-    {% if can_edit %}
-      <div style="margin-top:1rem;">
-        <h3 style="margin:0 0 .25rem 0;">Import Shift Spreadsheet Stats</h3>
-        <p class="muted" style="margin-top:0">
-          Upload <code>stats/player_stats.csv</code> from
-          <code>scripts/parse_stats_inputs.py</code>.
-        </p>
-        {% url "hky_game_import_shift_stats" game_id=game.id as import_shift_stats_url %}
-        <form method="post" action="{{ import_shift_stats_url }}?return_to={{ return_to_enc }}" enctype="multipart/form-data">
-          {% csrf_token %}
-          <div class="grid" style="grid-template-columns: 1fr; gap: 1rem;">
-            <div class="form-row">
-              <label class="muted">player_stats.csv</label>
-              <input type="file" name="player_stats_csv" accept=".csv" required>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:1rem;">
-            <button class="btn" type="submit">Import stats</button>
-            {% if game.stats_imported_at %}
-              <span class="muted">Last import: {{ game.stats_imported_at|fmt_date }}</span>
-            {% endif %}
-          </div>
-        </form>
-      </div>
-    {% endif %}
+    {# Roster/stats imports are event-driven via the import endpoints; no per-game player_stats.csv uploads. #}
   {% endif %}
 </div>
 
@@ -657,7 +637,7 @@
                   w.searchParams.set("v", String(id));
                   w.searchParams.set("t", String(start) + "s");
                   w.searchParams.set("autoplay", "1");
-                  w.searchParams.set("vq", "hd1080");
+                  w.searchParams.set("vq", "highres");
                   return w.toString();
                 } catch (e) {
                   return null;
@@ -679,7 +659,7 @@
                 params.set("start", String(start));
                 params.set("end", String(end));
                 // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
-                params.set("vq", "hd1080");
+                params.set("vq", "highres");
                 params.set("rel", "0");
               params.set("modestbranding", "1");
               params.set("playsinline", "1");
@@ -750,7 +730,7 @@
                     var u2 = new URL(String(gameVideoUrl));
                     u2.searchParams.set("t", String(start2) + "s");
                     u2.searchParams.set("autoplay", "1");
-                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
+                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "highres");
                     window.open(u2.toString(), "_blank", "noopener");
                   } catch (e) {
                     window.open(String(gameVideoUrl), "_blank", "noopener");
@@ -2490,8 +2470,13 @@
         id="events-drilldown-video-iframe"
         title="Game video clip"
         style="border:0;width:100%;height:100%;background:#000;"
-        allow="autoplay; fullscreen; picture-in-picture"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
       ></iframe>
+    </div>
+    <div class="yt-quality-hint">
+      <span class="yt-quality-text">Click the gear icon and select Highest quality</span>
+      <span class="yt-quality-arrow" aria-hidden="true">↑</span>
     </div>
   </div>
   <div id="events-drilldown-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
@@ -2653,7 +2638,7 @@
       return null;
     }
 
-    function buildYoutubeWatchUrl(url, startSec) {
+      function buildYoutubeWatchUrl(url, startSec) {
       var id = extractYoutubeId(url);
       if (!id) return null;
       var start = Math.max(0, Math.floor(startSec || 0));
@@ -2662,7 +2647,7 @@
         w.searchParams.set("v", String(id));
         w.searchParams.set("t", String(start) + "s");
         w.searchParams.set("autoplay", "1");
-        w.searchParams.set("vq", "hd1080");
+        w.searchParams.set("vq", "highres");
         return w.toString();
       } catch (e) {
         return null;
@@ -2681,11 +2666,33 @@
       params.set("origin", String(window.location.origin || ""));
       params.set("start", String(start));
       params.set("end", String(end));
-      params.set("vq", "hd1080");
+      params.set("vq", "highres");
       params.set("rel", "0");
       params.set("modestbranding", "1");
       params.set("playsinline", "1");
       return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+    }
+
+    function requestYouTubeBestQuality(iframeEl) {
+      try {
+        if (!iframeEl || !iframeEl.contentWindow) return;
+        var cmds = [
+          { func: "setPlaybackQuality", args: ["highres"] },
+          { func: "setPlaybackQuality", args: ["hd2160"] },
+          { func: "setPlaybackQuality", args: ["hd1440"] },
+          { func: "setPlaybackQuality", args: ["hd1080"] },
+          { func: "setPlaybackQuality", args: ["hd720"] },
+          { func: "setPlaybackQuality", args: ["large"] },
+          { func: "setPlaybackQualityRange", args: ["highres", "highres"] },
+          { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+        ];
+        for (var i = 0; i < cmds.length; i++) {
+          iframeEl.contentWindow.postMessage(
+            JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+            "https://www.youtube-nocookie.com"
+          );
+        }
+      } catch (e) {}
     }
 
     function closeDrilldownVideo() {
@@ -2749,6 +2756,17 @@
       if (!embed) return false;
       iframe.src = embed;
       iframe.setAttribute("src", embed);
+      // Best-effort: request highest available quality after navigation.
+      try {
+        if (!iframe._hmYtQualityHookInstalled) {
+          iframe._hmYtQualityHookInstalled = true;
+          iframe.addEventListener("load", function () { requestYouTubeBestQuality(iframe); });
+        }
+        requestYouTubeBestQuality(iframe);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 250);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 800);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 1600);
+      } catch (e) {}
       if (meta) {
         var label = (opts.label ? String(opts.label) : "");
         var at = (opts.at ? String(opts.at) : "");
@@ -2790,6 +2808,93 @@
     }
     if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
 
+    var _assistsByTime = {};
+    var _assistsBySideTime = {};
+    function _pushUniqueAssist(list, jersey, name) {
+      if (!list) return;
+      var j = String(jersey || "").trim();
+      if (!j) return;
+      var nm = String(name || "").trim();
+      for (var i = 0; i < list.length; i++) {
+        var cur = list[i] || {};
+        if (String(cur.jersey || "") === j) {
+          if (!String(cur.name || "").trim() && nm) cur.name = nm;
+          return;
+        }
+      }
+      list.push({ jersey: j, name: nm });
+    }
+    eventsRows.forEach(function (row) {
+      if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "assist") return;
+      var period = rowPeriod(row);
+      if (period === null) return;
+      var gs = rowGameSeconds(row);
+      if (gs === null) return;
+      var jersey = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+      if (!jersey) return;
+      var assistName = String(getValue(row, ["Attributed Players", "AttributedPlayers"]) || "").trim();
+      var k0 = String(period) + "|" + String(gs);
+      if (!_assistsByTime[k0]) _assistsByTime[k0] = [];
+      _pushUniqueAssist(_assistsByTime[k0], jersey, assistName);
+      var side = rowSide(row);
+      if (side) {
+        var k1 = k0 + "|" + String(side);
+        if (!_assistsBySideTime[k1]) _assistsBySideTime[k1] = [];
+        _pushUniqueAssist(_assistsBySideTime[k1], jersey, assistName);
+      }
+    });
+
+    function _assistJerseysForGoalRow(row) {
+      var period = rowPeriod(row);
+      if (period === null) return [];
+      var gs = rowGameSeconds(row);
+      if (gs === null) return [];
+      var k0 = String(period) + "|" + String(gs);
+      var side = rowSide(row);
+      var k1 = side ? (k0 + "|" + String(side)) : "";
+      return (k1 && _assistsBySideTime[k1]) || _assistsByTime[k0] || [];
+    }
+
+    function _stripGoalScorerFromDetails(rawDetails, scorerName) {
+      var s = String(rawDetails || "").trim();
+      if (!s) return "";
+
+      // If this was prefixed by withDetailsTag("Goal"), keep the tag but operate on the base.
+      var tag = "";
+      if (s === "Goal") {
+        tag = "Goal";
+        s = "";
+      } else if (s.indexOf("Goal — ") === 0) {
+        tag = "Goal";
+        s = String(s.slice("Goal — ".length) || "").trim();
+      }
+
+      // Remove the common "(A: ...)" suffix from TimeToScore goals; assists are shown separately.
+      s = s.replace(/\(\s*A\s*:\s*[^)]*\)\s*$/i, "").trim();
+
+      var name = String(scorerName || "").trim();
+      if (name) {
+        var esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        // Handle strings like "#9 Ethan L Olivier" / "9Ethan L Olivier" / "#9Ethan L Olivier".
+        var reJerseyName = new RegExp("^#?\\s*\\d+\\s*" + esc + "(\\b|$)", "i");
+        if (reJerseyName.test(s)) {
+          s = String(s.replace(reJerseyName, "") || "").trim();
+          s = s.replace(/^[\\s\\-–—:]+/, "").trim();
+        }
+
+        var sLower = s.toLowerCase();
+        var nameLower = name.toLowerCase();
+        if (sLower === nameLower) s = "";
+        else if (sLower.indexOf(nameLower) === 0) {
+          s = String(s.slice(name.length) || "").trim();
+          s = s.replace(/^[\s\-–—:]+/, "").trim();
+        }
+      }
+
+      return tag ? (tag + (s ? (" — " + s) : "")) : s;
+    }
+
     var STAT_TO_EVENT_TYPE_KEYS = {
       goals: ["goal"],
       assists: ["assist"],
@@ -2823,6 +2928,7 @@
     }
 
     function buildEventsTable(container, rows) {
+      var tableCtx = arguments.length > 2 && arguments[2] ? arguments[2] : {};
       var wrap = document.createElement("div");
       wrap.className = "table-fit-wrap";
       var table = document.createElement("table");
@@ -2857,11 +2963,51 @@
                 vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
               }
             }
-            if (vs2 !== null && vs2 >= 0) {
+          if (vs2 !== null && vs2 >= 0) {
               tVideo = fmtSecondsToTime(vs2);
             }
           }
           var details = String(getValue(row, ["Details"]) || "").trim();
+          if (tableCtx && tableCtx.hideGoalScorer) {
+            var typeKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+            if (typeKey === "goal") {
+              var baseTag = "";
+              var baseDetails = details;
+              if (details === "Goal") {
+                baseTag = "Goal";
+                baseDetails = "";
+              } else if (details.indexOf("Goal — ") === 0) {
+                baseTag = "Goal";
+                baseDetails = String(details.slice("Goal — ".length) || "").trim();
+              }
+
+              var assists = _assistJerseysForGoalRow(row);
+              var assistLines = [];
+              function _fmtAssist(a) {
+                if (!a) return "";
+                var j = String(a.jersey || "").trim();
+                if (!j) return "";
+                var nm = String(a.name || "").trim();
+                return "#" + j + (nm ? (" " + nm) : "");
+              }
+              if (assists && assists.length === 1) assistLines.push("A: " + _fmtAssist(assists[0]));
+              else if (assists && assists.length >= 2) {
+                assistLines.push("A1: " + _fmtAssist(assists[0]));
+                assistLines.push("A2: " + _fmtAssist(assists[1]));
+              }
+
+              var extra = _stripGoalScorerFromDetails(baseDetails, tableCtx.scorerName || "");
+              if (extra && (extra === "Goal" || extra.indexOf("Goal — ") === 0)) {
+                // _stripGoalScorerFromDetails can re-apply a Goal tag; don't double-tag.
+                extra = String(extra.replace(/^Goal\s*(—\s*)?/, "") || "").trim();
+              }
+
+              var outLines = assistLines.slice();
+              if (extra) outLines.push(extra);
+              if (baseTag && outLines.length) outLines[0] = baseTag + " — " + outLines[0];
+              details = outLines.length ? outLines.join("\n") : (baseTag || "");
+            }
+          }
           var src = String(getValue(row, ["Source"]) || "").trim();
 
         var tdP = document.createElement("td");
@@ -2895,6 +3041,7 @@
 
         var tdD = document.createElement("td");
         tdD.textContent = details;
+        if (details.indexOf("\n") >= 0) tdD.className = "cell-pre";
         tr.appendChild(tdD);
 
         var tdS = document.createElement("td");
@@ -3128,16 +3275,16 @@
               var chain = buildShotChainTables(filtered);
               [
                 ["Goals", chain.goals],
+                ["Assists", chain.assists],
                 ["xG (Expected Goal)", chain.xg],
                 ["SOG", chain.sog],
                 ["Shot", chain.shot],
-                ["Assists", chain.assists],
               ].forEach(function (pair) {
                 var label = pair[0];
                 var rows = pair[1] || [];
                 if (!rows.length) return;
                 bodyEl.appendChild(makeEventsHeading("h4", label));
-                buildEventsTable(bodyEl, rows);
+                buildEventsTable(bodyEl, rows, { hideGoalScorer: true, scorerName: playerName });
               });
 
               var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
@@ -3151,32 +3298,32 @@
                 byType = moveGroupToEnd(byType, "completed pass");
                 byType.order.forEach(function (k) {
                   bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
-                  buildEventsTable(bodyEl, byType.groups[k].rows);
+                  buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
                 });
               }
             } else if (statKey === "expected_goals") {
               var xgRows = buildShotChainTables(filtered).xg;
               if (xgRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "xG (Expected Goal)"));
-                buildEventsTable(bodyEl, xgRows);
+                buildEventsTable(bodyEl, xgRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "sog") {
               var sogRows = buildShotChainTables(filtered).sog;
               if (sogRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "SOG"));
-                buildEventsTable(bodyEl, sogRows);
+                buildEventsTable(bodyEl, sogRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "shots") {
               var shotRows = buildShotChainTables(filtered).shot;
               if (shotRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "Shot"));
-                buildEventsTable(bodyEl, shotRows);
+                buildEventsTable(bodyEl, shotRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "goals") {
               var goalRows = buildShotChainTables(filtered).goals;
               if (goalRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "Goals"));
-                buildEventsTable(bodyEl, goalRows);
+                buildEventsTable(bodyEl, goalRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else {
               var byType = groupRows(filtered, function (r) {
@@ -3185,7 +3332,7 @@
               byType = moveGroupToEnd(byType, "completed pass");
               byType.order.forEach(function (k) {
                 bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
-                buildEventsTable(bodyEl, byType.groups[k].rows);
+                buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
               });
             }
           }
