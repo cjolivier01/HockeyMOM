@@ -2295,6 +2295,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
             "id",
             "game_id",
             "event_type__key",
+            "source",
             "team_id",
             "team_side",
             "for_against",
@@ -2461,7 +2462,109 @@ def _player_stat_rows_from_event_tables_for_team_games(
     pim_game_ids |= {int(gid) for gid in t2s_game_ids or []}
 
     # ----------------------------
-    # Create per-player/per-game rows (full grid so GP stays stable).
+    # Determine per-game participation ("played") for GP/denominators.
+    # ----------------------------
+    roster_link_pairs: set[tuple[int, int]] = set()
+    shift_pairs: set[tuple[int, int]] = set()
+    shift_game_ids: set[int] = set()
+    shifts_by_gid_period: dict[int, dict[int, list[tuple[int, int, int]]]] = {}
+
+    # Game roster (TimeToScore rosters + goals.xlsx rosters uploaded via shift_package).
+    try:
+        roster_link_pairs = {
+            (int(pid), int(gid))
+            for pid, gid in m.HkyGamePlayer.objects.filter(
+                game_id__in=game_ids,
+                team_id=int(team_id),
+                player_id__isnull=False,
+            )
+            .values_list("player_id", "game_id")
+            .distinct()
+        }
+    except Exception:
+        roster_link_pairs = set()
+
+    # Shift presence + shift intervals (for skater GP and on-ice GF/GA/+/-).
+    try:
+        for r0 in (
+            m.HkyGameShiftRow.objects.filter(
+                game_id__in=game_ids,
+                team_id=int(team_id),
+                player_id__isnull=False,
+            )
+            .exclude(period__isnull=True)
+            .exclude(game_seconds__isnull=True)
+            .exclude(game_seconds_end__isnull=True)
+            .values("game_id", "player_id", "period", "game_seconds", "game_seconds_end")
+        ):
+            try:
+                gid = int(r0.get("game_id") or 0)
+                pid = int(r0.get("player_id") or 0)
+                per = int(r0.get("period") or 0)
+                gs0 = int(r0.get("game_seconds") or 0)
+                gs1 = int(r0.get("game_seconds_end") or 0)
+            except Exception:
+                continue
+            if gid <= 0 or pid <= 0 or per <= 0:
+                continue
+            shift_game_ids.add(int(gid))
+            if pid not in roster_by_pid:
+                continue
+            shift_pairs.add((int(pid), int(gid)))
+            shifts_by_gid_period.setdefault(int(gid), {}).setdefault(int(per), []).append(
+                (int(pid), int(gs0), int(gs1))
+            )
+    except Exception:
+        shift_pairs = set()
+        shift_game_ids = set()
+        shifts_by_gid_period = {}
+
+    direct_event_pairs = {(int(pid), int(gid)) for (pid, gid) in (direct_counts or {}).keys()}
+    on_ice_pairs: set[tuple[int, int]] = set()
+    for r0 in event_rows or []:
+        gid = _int_or_none(r0.get("game_id")) or 0
+        if gid <= 0 or gid not in games_by_id:
+            continue
+        my_side = side_by_game_id.get(int(gid))
+        if my_side not in {"home", "away"}:
+            continue
+        raw = (
+            str(r0.get("on_ice_players_home") or "").strip()
+            if my_side == "home"
+            else str(r0.get("on_ice_players_away") or "").strip()
+        )
+        if not raw:
+            continue
+        for nm, jn in _parse_on_ice_list(raw):
+            pid = _pid_for_name_jersey(nm, jn)
+            if pid is None:
+                continue
+            on_ice_pairs.add((int(pid), int(gid)))
+
+    played_pairs: set[tuple[int, int]] = set()
+    for gid in game_ids:
+        has_shift_data = int(gid) in shift_game_ids
+        for pid, p0 in roster_by_pid.items():
+            pos = str(p0.get("position") or "").strip().upper()
+            is_goalie = pos == "G"
+            key = (int(pid), int(gid))
+            has_shift = key in shift_pairs
+            in_roster = key in roster_link_pairs
+            has_event = key in direct_event_pairs
+            has_on_ice = key in on_ice_pairs
+
+            if not is_goalie and has_shift_data:
+                # Primary/long spreadsheet semantics: skaters "played" when they have at least one shift.
+                # If shift rows are incomplete, allow an attributed event row to imply participation.
+                if has_shift or has_event or has_on_ice:
+                    played_pairs.add(key)
+            else:
+                # No shift data for this team/game: fall back to the per-game roster (T2S/goals.xlsx).
+                if in_roster or has_shift or has_event or has_on_ice:
+                    played_pairs.add(key)
+
+    # ----------------------------
+    # Create per-player/per-game rows (one row per played game).
     # ----------------------------
     by_key: dict[tuple[int, int], dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -2474,6 +2577,8 @@ def _player_stat_rows_from_event_tables_for_team_games(
             except Exception:
                 continue
             if pid <= 0:
+                continue
+            if (int(pid), int(gid)) not in played_pairs:
                 continue
             r: dict[str, Any] = {"player_id": int(pid), "game_id": int(gid)}
             for k in logic.PLAYER_STATS_SUM_KEYS:
@@ -2557,9 +2662,92 @@ def _player_stat_rows_from_event_tables_for_team_games(
                 row["shots"] = 0
 
     # ----------------------------
-    # On-ice goal stats (GF/GA counted and +/- when complete).
+    # On-ice goal stats (GF/GA and +/-).
+    #
+    # Prefer shift-derived on-ice attribution when shift rows exist for this team/game, even when
+    # the goal event rows lack explicit on-ice lists (e.g. TimeToScore-only goal streams).
     # ----------------------------
+    def _goal_seconds(row: dict[str, Any]) -> Optional[int]:
+        gs = _int_or_none(row.get("game_seconds"))
+        if gs is not None:
+            return int(gs)
+        return logic.parse_duration_seconds(row.get("game_time"))
+
+    def _shift_contains(*, t: int, start: int, end: int) -> bool:
+        lo = start if start <= end else end
+        hi = end if start <= end else start
+        if t < lo or t > hi:
+            return False
+        # Match scripts/parse_stats_inputs.py: don't count goals exactly at shift start.
+        return int(t) != int(start)
+
+    for gid in sorted(list(shift_game_ids)):
+        g2 = games_by_id.get(int(gid)) or {}
+        team1_id = _int_or_none(g2.get("team1_id")) or 0
+        team2_id = _int_or_none(g2.get("team2_id")) or 0
+        if team1_id <= 0 or team2_id <= 0:
+            continue
+
+        goals_all = list(goal_rows_by_game.get(int(gid), []) or [])
+        # Prefer TimeToScore goals when present to avoid duplicate goal streams.
+        if any("timetoscore" in str(r.get("source") or "").casefold() for r in goals_all):
+            goals_all = [
+                r for r in goals_all if "timetoscore" in str(r.get("source") or "").casefold()
+            ]
+
+        gf_by_pid: dict[int, int] = {}
+        ga_by_pid: dict[int, int] = {}
+
+        goals_seen = 0
+        goals_counted = 0
+        for gr in goals_all:
+            scoring_tid = _event_team_id(gr)
+            if scoring_tid not in {team1_id, team2_id}:
+                continue
+            per = _int_or_none(gr.get("period"))
+            t = _goal_seconds(gr)
+            if per is None or int(per) <= 0 or t is None:
+                continue
+            goals_seen += 1
+
+            period_shifts = shifts_by_gid_period.get(int(gid), {}).get(int(per), []) or []
+            on_ice: set[int] = set()
+            for pid, start, end in period_shifts:
+                if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                    on_ice.add(int(pid))
+
+            if not on_ice:
+                continue
+            goals_counted += 1
+            is_for_us = bool(int(scoring_tid) == int(team_id))
+            if is_for_us:
+                for pid in on_ice:
+                    gf_by_pid[int(pid)] = gf_by_pid.get(int(pid), 0) + 1
+            else:
+                for pid in on_ice:
+                    ga_by_pid[int(pid)] = ga_by_pid.get(int(pid), 0) + 1
+
+        # If we have goal events but couldn't map any of them to on-ice shifts, treat the
+        # on-ice goal stats as unknown for this game.
+        if goals_seen > 0 and goals_counted <= 0:
+            continue
+
+        # Only apply on-ice stats to players that have shift rows in this game.
+        for (pid, g0), row in list(by_key.items()):
+            if int(g0) != int(gid):
+                continue
+            if (int(pid), int(gid)) not in shift_pairs:
+                continue
+            gf = int(gf_by_pid.get(int(pid), 0) or 0)
+            ga = int(ga_by_pid.get(int(pid), 0) or 0)
+            row["gf_counted"] = int(gf)
+            row["ga_counted"] = int(ga)
+            row["plus_minus"] = int(gf) - int(ga)
+
+    # Fallback for games without shift rows: use goal event on-ice lists when present.
     for gid, goals in (goal_rows_by_game or {}).items():
+        if int(gid) in shift_game_ids:
+            continue
         g2 = games_by_id.get(int(gid)) or {}
         my_side = side_by_game_id.get(int(gid))
         if my_side not in {"home", "away"}:
