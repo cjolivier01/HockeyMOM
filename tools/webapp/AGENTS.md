@@ -103,6 +103,15 @@ Smoke UI validation (nginx front by default):
 - Webapp tests are in `tests/test_webapp_*.py`.
 - Run: `pytest -q tests/test_webapp_*.py`.
 
+### Golden regression fixtures (do not update without permission)
+- The repo includes a snapshot-based regression dataset for the Jr Sharks 2013 2025–2026 season:
+  - Tests: `tests/test_webapp_regression_jrsharks2013_2025_2026.py`
+  - Fixtures/expected output: `tests/data/webapp_regression/jrsharks2013_2025_2026/`
+- Policy: if the regression snapshots fail, fix the webapp code to restore the prior UI/stat output. Do **not**
+  change the fixture or expected snapshot data unless the user explicitly authorizes updating the golden data.
+- When the golden test fails: capture/present the diff (the test prints a unified diff), explain what changed and why,
+  and ask the user before changing any golden files so recent intentional UI changes aren’t accidentally overwritten.
+
 ### Django settings are process-global
 Django cannot be “reconfigured” once initialized in a Python process. To avoid flakes:
 - Prefer using the shared fixtures in `tests/conftest.py` (`webapp_db`, `webapp_db_reset`) which configure Django to use a

@@ -78,7 +78,7 @@
 <h3 style="margin-top:1.25rem;">Schedule</h3>
 <div class="card">
   <div>
-    <table class="table-no-scroll-mobile table-fit-always table-never-wrap">
+    <table id="team-schedule-table" class="table-no-scroll-mobile table-fit-always table-never-wrap table-schedule">
       <thead>
         <tr>
           {% if schedule_games and schedule_games.0.division_name %}<th>Division</th>{% endif %}
@@ -89,6 +89,7 @@
           <th>Type</th>
           <th>Location</th>
           <th>Score</th>
+          <th class="schedule-src-col">Src</th>
           <th>Video</th>
           <th></th>
         </tr>
@@ -111,7 +112,7 @@
             <td class="nowrap">{{ g.starts_at|fmt_time }}</td>
             <td>
               {% if g.can_view_summary %}<a href="{{ game_path }}?return_to={{ return_to|urlencode }}" style="text-decoration:none;color:inherit;">{% endif %}
-              <span style="display:inline-flex;align-items:center;gap:6px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;">
                 <img src="{{ team2_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
                 {% if s1 != None and s2 != None and s2 > s1 %}
                   <strong>{{ g.team2_name }}</strong>
@@ -123,7 +124,7 @@
             </td>
             <td>
               {% if g.can_view_summary %}<a href="{{ game_path }}?return_to={{ return_to|urlencode }}" style="text-decoration:none;color:inherit;">{% endif %}
-              <span style="display:inline-flex;align-items:center;gap:6px;">
+              <span style="display:inline-flex;align-items:center;gap:4px;">
                 <img src="{{ team1_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
                 {% if s1 != None and s2 != None and s1 > s2 %}
                   <strong>{{ g.team1_name }}</strong>
@@ -147,6 +148,17 @@
             <td>
               {% if s1 != None and s2 != None %}
                 {{ s2 }} - {{ s1 }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td class="schedule-src-col">
+              {% if g.stats_icons %}
+                <div class="schedule-stats-icons">
+                  {% for ic in g.stats_icons %}
+                    <span class="schedule-stats-icon schedule-stats-icon-{{ ic.key }}" title="{{ ic.title }}">{{ ic.text }}</span>
+                  {% endfor %}
+                </div>
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
@@ -177,9 +189,9 @@
           {% endwith %}
         {% empty %}
           {% if schedule_games and schedule_games.0.division_name %}
-            <tr><td colspan="9" class="muted">No games yet.</td></tr>
+            <tr><td colspan="11" class="muted">No games yet.</td></tr>
           {% else %}
-            <tr><td colspan="8" class="muted">No games yet.</td></tr>
+            <tr><td colspan="10" class="muted">No games yet.</td></tr>
           {% endif %}
         {% endfor %}
       </tbody>

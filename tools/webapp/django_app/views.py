@@ -52,6 +52,7 @@ def _require_login(request: HttpRequest) -> Optional[HttpResponse]:
 
 def _is_league_admin(league_id: int, user_id: int) -> bool:
     _django_orm, m = _orm_modules()
+    del _django_orm
     if m.League.objects.filter(id=int(league_id), owner_user_id=int(user_id)).exists():
         return True
     return m.LeagueMember.objects.filter(
@@ -6156,6 +6157,8 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             show_shift_data=bool(show_shift_data),
         )
 
+    _attach_schedule_stats_icons(schedule_games)
+
     league_name: Optional[str] = None
     if league_id:
         try:
@@ -6625,6 +6628,154 @@ def player_delete(request: HttpRequest, team_id: int, player_id: int) -> HttpRes
     return redirect(f"/teams/{team_id}")
 
 
+def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
+    """
+    Add `stats_icons` (+ optional `stats_note`) to schedule game dicts for UI badges.
+    """
+
+    def _compact_ws(v: Any) -> Any:
+        if v is None:
+            return None
+        s = str(v).replace("\xa0", " ").strip()
+        return " ".join(s.split())
+
+    for g in games or []:
+        for k in ("division_name", "team1_name", "team2_name", "game_type_name", "location"):
+            if k not in g:
+                continue
+            try:
+                g[k] = _compact_ws(g.get(k))
+            except Exception:
+                continue
+
+    gids: list[int] = []
+    for g in games or []:
+        try:
+            gid = int(g.get("id") or 0)
+        except Exception:
+            continue
+        if gid > 0:
+            gids.append(gid)
+    if not gids:
+        return
+    gids = sorted(set(gids))
+
+    _django_orm, m = _orm_modules()
+
+    types_by_gid: dict[int, set[str]] = {int(gid): set() for gid in gids}
+
+    try:
+        for gid, tts_id in m.HkyGame.objects.filter(id__in=gids).values_list(
+            "id", "timetoscore_game_id"
+        ):
+            try:
+                gid_i = int(gid or 0)
+            except Exception:
+                continue
+            if gid_i <= 0:
+                continue
+            if tts_id is not None:
+                types_by_gid.setdefault(int(gid_i), set()).add("timetoscore")
+    except Exception:
+        pass
+
+    # Shift rows imply at least "primary" spreadsheet stats are present.
+    try:
+        for gid in m.HkyGameShiftRow.objects.filter(game_id__in=gids).values_list(
+            "game_id", flat=True
+        ):
+            try:
+                gid_i = int(gid or 0)
+            except Exception:
+                continue
+            if gid_i <= 0:
+                continue
+            types_by_gid.setdefault(int(gid_i), set()).add("primary")
+    except Exception:
+        pass
+
+    # Event rows can come from multiple sources (CSV `Source` column is multi-valued).
+    try:
+        for gid0, src0 in (
+            m.HkyGameEventRow.objects.filter(game_id__in=gids)
+            .values_list("game_id", "source")
+            .distinct()
+        ):
+            try:
+                gid_i = int(gid0 or 0)
+            except Exception:
+                continue
+            if gid_i <= 0:
+                continue
+            src = str(src0 or "").strip()
+            if not src:
+                continue
+            recognized = False
+            for tok in re.split(r"[,+;/\\s]+", src):
+                k = logic.canon_event_source_key(tok)
+                if k == "shift_package":
+                    k = "primary"
+                if not k:
+                    continue
+                types_by_gid.setdefault(int(gid_i), set()).add(str(k))
+                recognized = True
+            if not recognized:
+                types_by_gid.setdefault(int(gid_i), set()).add("primary")
+    except Exception:
+        pass
+
+    icon_spec: list[tuple[str, str, str]] = [
+        ("timetoscore", "TimeToScore", "T2S"),
+        ("primary", "Primary", "P"),
+        ("long", "Long", "L"),
+        ("goals", "Goals", "G"),
+        ("yaml-only", "YAML-only", "Y"),
+    ]
+
+    for g in games or []:
+        try:
+            gid = int(g.get("id") or 0)
+        except Exception:
+            continue
+        if gid <= 0:
+            continue
+        types = set(types_by_gid.get(int(gid)) or set())
+        try:
+            if logic._extract_timetoscore_game_id_from_notes(g.get("notes")) is not None:
+                types.add("timetoscore")
+        except Exception:
+            pass
+        yaml_only = not types
+        if yaml_only:
+            types = {"yaml-only"}
+        stats_note: Optional[str] = None
+        try:
+            stats_note = logic._extract_game_stats_note_from_notes(g.get("notes"))
+        except Exception:
+            stats_note = None
+        g["stats_note"] = stats_note
+
+        icons: list[dict[str, Any]] = []
+        for key, label, text in icon_spec:
+            if key == "yaml-only":
+                if not yaml_only:
+                    continue
+            else:
+                if key not in types:
+                    continue
+            title = label
+            if stats_note:
+                title = f"{label}: {stats_note}"
+            icons.append(
+                {
+                    "key": key,
+                    "title": title,
+                    "text": text,
+                }
+            )
+        g["stats_icons"] = icons
+
+
 def schedule(request: HttpRequest) -> HttpResponse:
     r = _require_login(request)
     if r:
@@ -6834,6 +6985,7 @@ def schedule(request: HttpRequest) -> HttpResponse:
         except Exception:
             g2["can_edit"] = bool(is_league_admin)
 
+    _attach_schedule_stats_icons(games)
     games = logic.sort_games_schedule_order(games or [])
     league_page_views = None
     if league_id and is_league_owner:
@@ -8160,6 +8312,7 @@ def public_league_team_detail(
         except Exception:
             g2["game_video_url"] = None
     schedule_games = logic.sort_games_schedule_order(schedule_games or [])
+    _attach_schedule_stats_icons(schedule_games)
 
     ps_rows = _player_stat_rows_from_event_tables_for_team_games(
         team_id=int(team_id),
@@ -8658,6 +8811,7 @@ def public_league_schedule(
         )
         g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
         g2["can_edit"] = False
+    _attach_schedule_stats_icons(games)
     games = logic.sort_games_schedule_order(games or [])
 
     league_page_views = None
@@ -9409,6 +9563,52 @@ def _update_game_video_url_note(
             new_notes = existing
         else:
             new_notes = (existing + "\n" + suffix.strip()).strip() if existing else suffix.strip()
+
+    m.HkyGame.objects.filter(id=int(game_id)).update(notes=new_notes, updated_at=dt.datetime.now())
+
+
+def _update_game_stats_note(
+    game_id: int, stats_note: str, *, replace: bool, commit: bool = True
+) -> None:
+    del commit
+    del replace
+    note = str(stats_note or "").strip()
+    if not note:
+        return
+    note = " ".join(note.split())
+    if not note:
+        return
+    _django_orm, m = _orm_modules()
+    existing = str(
+        m.HkyGame.objects.filter(id=int(game_id)).values_list("notes", flat=True).first() or ""
+    ).strip()
+    existing_note = None
+    try:
+        existing_note = logic._extract_game_stats_note_from_notes(existing)
+    except Exception:
+        existing_note = None
+    if existing_note is not None and str(existing_note).strip() == note:
+        return
+
+    new_notes: str
+    try:
+        d = json.loads(existing) if existing else {}
+        if isinstance(d, dict):
+            d["stats_note"] = note
+            new_notes = json.dumps(d, sort_keys=True)
+        else:
+            raise ValueError("notes not dict")
+    except Exception:
+        lines = [ln for ln in str(existing or "").splitlines() if ln is not None]
+        replaced = False
+        for idx, ln in enumerate(lines):
+            if re.match(r"^\\s*(?:stats_note|schedule_note)\\s*[:=]", str(ln), flags=re.IGNORECASE):
+                lines[idx] = f"stats_note: {note}"
+                replaced = True
+                break
+        if not replaced:
+            lines.append(f"stats_note: {note}")
+        new_notes = "\n".join([ln for ln in lines if str(ln).strip()]).strip()
 
     m.HkyGame.objects.filter(id=int(game_id)).update(notes=new_notes, updated_at=dt.datetime.now())
 
@@ -10562,6 +10762,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         return JsonResponse(
             {"ok": False, "error": "team_side must be 'home' or 'away'"}, status=400
         )
+    stats_note: Optional[str] = None
+    raw_stats_note = payload.get("stats_note") or payload.get("schedule_note")
+    if isinstance(raw_stats_note, str) and raw_stats_note.strip():
+        stats_note = " ".join(str(raw_stats_note).strip().split()) or None
     if "create_missing_players" in payload:
         create_missing_players = bool(payload.get("create_missing_players"))
     else:
@@ -10868,6 +11072,8 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             notes_fields: dict[str, Any] = {"external_game_key": external_game_key}
             if tts_int is not None:
                 notes_fields["timetoscore_game_id"] = int(tts_int)
+            if stats_note:
+                notes_fields["stats_note"] = str(stats_note)
             resolved_game_id = _upsert_game_for_import(
                 owner_user_id=owner_user_id_for_create,
                 team1_id=team1_id,
@@ -10973,6 +11179,13 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         try:
             _update_game_video_url_note(
                 int(resolved_game_id), str(game_video_url), replace=replace, commit=False
+            )
+        except Exception:
+            pass
+    if stats_note:
+        try:
+            _update_game_stats_note(
+                int(resolved_game_id), str(stats_note), replace=replace, commit=False
             )
         except Exception:
             pass

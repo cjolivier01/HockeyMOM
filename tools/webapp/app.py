@@ -6564,6 +6564,28 @@ def _extract_game_video_url_from_notes(notes: Optional[str]) -> Optional[str]:
     return None
 
 
+def _extract_game_stats_note_from_notes(notes: Optional[str]) -> Optional[str]:
+    s = str(notes or "").strip()
+    if not s:
+        return None
+    try:
+        d = json.loads(s)
+        if isinstance(d, dict):
+            for k in ("stats_note", "schedule_note"):
+                v = d.get(k)
+                if v is not None and str(v).strip():
+                    return str(v).strip()
+    except Exception:
+        pass
+    m = re.search(r"(?:^|[\r\n])\s*stats_note\s*[:=]\s*([^\r\n]+)", s, flags=re.IGNORECASE)
+    if m:
+        return str(m.group(1)).strip()
+    m = re.search(r"(?:^|[\r\n])\s*schedule_note\s*[:=]\s*([^\r\n]+)", s, flags=re.IGNORECASE)
+    if m:
+        return str(m.group(1)).strip()
+    return None
+
+
 def _extract_timetoscore_game_id_from_notes(notes: Optional[str]) -> Optional[int]:
     s = str(notes or "").strip()
     if not s:

@@ -1229,6 +1229,7 @@ def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(clie
         {
             "timetoscore_game_id": 123,
             "game_video_url": "https://example.com/video",
+            "stats_note": "Example: missing long sheet",
             "source_label": "unit-test",
         },
     )
@@ -1240,6 +1241,8 @@ def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(clie
     schedule_html = client.get("/public/leagues/1/schedule").content.decode()
     assert 'href="https://example.com/video"' in schedule_html
     assert 'target="_blank"' in schedule_html
+    assert "schedule-stats-icon-timetoscore" in schedule_html
+    assert 'title="TimeToScore: Example: missing long sheet"' in schedule_html
 
 
 def should_create_external_game_via_shift_package_and_map_to_league(client_and_models):

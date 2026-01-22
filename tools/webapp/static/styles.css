@@ -253,6 +253,74 @@ tr.game-excluded { opacity: .55; }
 tr.game-excluded:hover { opacity: .85; }
 .spacer { height: 1rem; }
 
+.schedule-stats-icons {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  line-height: 1;
+}
+.schedule-stats-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.04);
+  color: rgba(15, 23, 42, 0.78);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  user-select: none;
+  white-space: nowrap;
+}
+.schedule-stats-icon-timetoscore {
+  background: rgba(29, 78, 216, 0.12);
+  border-color: rgba(29, 78, 216, 0.22);
+  color: rgba(29, 78, 216, 0.82);
+}
+.schedule-stats-icon-primary {
+  background: rgba(4, 120, 87, 0.12);
+  border-color: rgba(4, 120, 87, 0.22);
+  color: rgba(4, 120, 87, 0.82);
+}
+.schedule-stats-icon-long {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.22);
+  color: rgba(124, 58, 237, 0.82);
+}
+.schedule-stats-icon-goals {
+  background: rgba(180, 83, 9, 0.12);
+  border-color: rgba(180, 83, 9, 0.22);
+  color: rgba(180, 83, 9, 0.82);
+}
+.schedule-stats-icon-yaml-only {
+  background: rgba(55, 65, 81, 0.10);
+  border-color: rgba(55, 65, 81, 0.20);
+  color: rgba(55, 65, 81, 0.75);
+}
+
+table.table-schedule th.schedule-src-col,
+table.table-schedule td.schedule-src-col {
+  padding-left: .35rem;
+  padding-right: .35rem;
+  text-align: center;
+}
+table.table-schedule td.schedule-src-col {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Schedule tables: default `table { width: 100% }` applies (fill enclosing view). */
+
+@media (min-width: 721px) {
+  table.table-schedule { font-size: .82rem; }
+  table.table-schedule th, table.table-schedule td { padding: .5rem .55rem; }
+}
+
 .event-type-cell {
   display: inline-flex;
   align-items: center;
