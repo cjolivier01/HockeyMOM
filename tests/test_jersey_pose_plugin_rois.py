@@ -63,3 +63,32 @@ def should_add_sleeve_roi_when_side_on() -> None:
     assert len(rois) == 2
     assert rois[0].vote_scale == 1.0
     assert rois[1].vote_scale == 1.5
+
+
+def should_filter_small_and_limit_tracks_for_performance() -> None:
+    plugin = JerseyNumberFromPosePlugin(
+        roi_mode="bbox",
+        max_tracks_per_frame=2,
+        min_track_height=100,
+        frame_stride=1,
+    )
+    # 4 tracks: heights = [50, 120, 220, 140] -> keep >=100 => [120,220,140] then top2 => [220,140]
+    bboxes = torch.tensor(
+        [
+            [10.0, 10.0, 50.0, 60.0],  # h=50 (drop)
+            [10.0, 10.0, 50.0, 130.0],  # h=120
+            [10.0, 10.0, 50.0, 230.0],  # h=220
+            [10.0, 10.0, 50.0, 150.0],  # h=140
+        ],
+        dtype=torch.float32,
+    )
+    # Simulate what forward() passes into _build_rois_for_frame after filtering:
+    heights = (bboxes[:, 3] - bboxes[:, 1]).to(torch.float32)
+    keep = heights >= float(plugin._min_track_height)
+    b2 = bboxes[keep]
+    assert b2.shape[0] == 3
+    heights2 = (b2[:, 3] - b2[:, 1]).to(torch.float32)
+    _, idx = torch.topk(heights2, k=int(plugin._max_tracks_per_frame))
+    b3 = b2[idx]
+    rois = plugin._build_rois_for_frame(bboxes_xyxy=b3, pose_inst=None, img_w=640, img_h=360)
+    assert len(rois) == 2

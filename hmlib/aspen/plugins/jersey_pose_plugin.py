@@ -70,6 +70,10 @@ class JerseyNumberFromPosePlugin(Plugin):
         roi_mode: str = "pose",  # 'pose' or 'bbox'
         det_thresh: float = 0.5,
         rec_thresh: float = 0.8,
+        # Performance controls
+        frame_stride: int = 1,
+        max_tracks_per_frame: Optional[int] = 20,
+        min_track_height: int = 80,
         # BBox-based ROI fallback (if pose missing)
         roi_top: float = 0.25,
         roi_bottom: float = 0.95,
@@ -84,6 +88,11 @@ class JerseyNumberFromPosePlugin(Plugin):
         self._roi_mode = str(roi_mode)
         self._det_thresh = float(det_thresh)
         self._rec_thresh = float(rec_thresh)
+        self._frame_stride = max(1, int(frame_stride))
+        self._max_tracks_per_frame = (
+            None if max_tracks_per_frame is None else int(max_tracks_per_frame)
+        )
+        self._min_track_height = int(min_track_height)
         self._roi_top = float(roi_top)
         self._roi_bottom = float(roi_bottom)
         self._roi_side = float(roi_side)
@@ -440,6 +449,10 @@ class JerseyNumberFromPosePlugin(Plugin):
         original_images = _to_tensor(original_images)
 
         for frame_index, img_data_sample in enumerate(track_data_sample.video_data_samples):
+            if self._frame_stride > 1 and (frame_index % self._frame_stride) != 0:
+                all_jersey_results.append([])
+                continue
+
             pred_tracks: Optional[InstanceData] = getattr(
                 img_data_sample, "pred_track_instances", None
             )
@@ -451,12 +464,34 @@ class JerseyNumberFromPosePlugin(Plugin):
             bboxes_xyxy = pred_tracks.bboxes
             if not isinstance(bboxes_xyxy, torch.Tensor):
                 bboxes_xyxy = torch.as_tensor(bboxes_xyxy)
+            tracking_ids = pred_tracks.instances_id
+            if not isinstance(tracking_ids, torch.Tensor):
+                tracking_ids = torch.as_tensor(tracking_ids)
             track_mask = get_track_mask(pred_tracks)
             if isinstance(track_mask, torch.Tensor):
                 bboxes_xyxy = bboxes_xyxy[track_mask]
+                tracking_ids = tracking_ids[track_mask]
             if bboxes_xyxy.numel() == 0:
                 all_jersey_results.append([])
                 continue
+
+            # Reduce OCR load: keep largest/closest tracks only, and skip tiny tracks.
+            if bboxes_xyxy.ndim == 2 and bboxes_xyxy.shape[1] == 4:
+                heights = (bboxes_xyxy[:, 3] - bboxes_xyxy[:, 1]).to(torch.float32)
+                keep = heights >= float(self._min_track_height)
+                if keep.any():
+                    bboxes_xyxy = bboxes_xyxy[keep]
+                    tracking_ids = tracking_ids[keep]
+                if (
+                    self._max_tracks_per_frame is not None
+                    and bboxes_xyxy.shape[0] > self._max_tracks_per_frame
+                ):
+                    # Prefer large boxes (better chance of legible numbers).
+                    topk = int(self._max_tracks_per_frame)
+                    heights2 = (bboxes_xyxy[:, 3] - bboxes_xyxy[:, 1]).to(torch.float32)
+                    _, idx = torch.topk(heights2, k=topk)
+                    bboxes_xyxy = bboxes_xyxy[idx]
+                    tracking_ids = tracking_ids[idx]
 
             pose_inst = None
             if pose_results and frame_index < len(pose_results):
@@ -482,9 +517,6 @@ class JerseyNumberFromPosePlugin(Plugin):
             )
 
             jersey_results: List[TrackJerseyInfo] = []
-            tracking_ids = pred_tracks.instances_id
-            if isinstance(track_mask, torch.Tensor):
-                tracking_ids = tracking_ids[track_mask]
 
             best_by_tid: Dict[int, TrackJerseyInfo] = {}
             for text, x, y, det_w, score in text_and_centers:
