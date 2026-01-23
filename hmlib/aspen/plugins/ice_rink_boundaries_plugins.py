@@ -3,8 +3,8 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
-from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.cuda_graph import CudaGraphCallable
+from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
 
@@ -41,7 +41,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         )
         self._segm = None
         self._default_plot_ice_mask: bool = bool(plot_ice_mask)
-        self._cuda_graph_enabled = bool(cuda_graph)
+        self._cuda_graph_enabled = bool(cuda_graph) and not plot_ice_mask
         self._cg: Optional[CudaGraphCallable] = None
         self._cg_device: Optional[torch.device] = None
 

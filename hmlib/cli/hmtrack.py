@@ -170,7 +170,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "--no-stitch",
         "--no-force-stitching",
         "--no_force_stitching",
-        dest="force_stitching",
+        dest="no_force_stitching",
         action="store_true",
         help="force video stitching",
     )

@@ -232,10 +232,16 @@ class PlayTrackerPlugin(Plugin):
         if not self.enabled:
             return {}
         data: Dict[str, Any] = context.get("data", {})
+        # Prefer the per-frame original_images from `data` when available, since
+        # upstream trunks (e.g. IceRinkSegmBoundariesPlugin) may draw overlays
+        # such as the rink mask into `data["original_images"]`.
+        original_images = data.get("original_images")
+        if original_images is None:
+            original_images = context.get("original_images")
         # Build results dictionary expected by PlayTracker
         results: Dict[str, Any] = {
             "data_samples": data.get("data_samples"),
-            "original_images": context.get("original_images"),
+            "original_images": original_images,
         }
         # Optional per-frame annotations propagated if present
         for k in ("jersey_results", "action_results"):
