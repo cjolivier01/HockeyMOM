@@ -12936,6 +12936,7 @@ def _upload_shift_package_to_webapp(
     home_logo_url: Optional[str] = None,
     away_logo_url: Optional[str] = None,
     game_video_url: Optional[str] = None,
+    stats_note: Optional[str] = None,
     roster_home: Optional[List[Dict[str, Any]]] = None,
     roster_away: Optional[List[Dict[str, Any]]] = None,
     create_missing_players: bool = False,
@@ -13004,6 +13005,8 @@ def _upload_shift_package_to_webapp(
     payload["create_missing_players"] = bool(create_missing_players)
     if game_video_url:
         payload["game_video_url"] = str(game_video_url)
+    if stats_note:
+        payload["stats_note"] = str(stats_note)
     if shift_rows_csv and shift_rows_csv.strip():
         payload["shift_rows_csv"] = str(shift_rows_csv)
         payload["replace_shift_rows"] = True
@@ -14574,6 +14577,7 @@ def main() -> None:
                             roster_home=roster_home_payload,
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                            stats_note=_meta("stats_note", "schedule_note"),
                             create_missing_players=False,
                             source_label_suffix=f":{primary_side}",
                         )
@@ -14651,6 +14655,7 @@ def main() -> None:
                             roster_home=roster_home_payload,
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                            stats_note=_meta("stats_note", "schedule_note"),
                             create_missing_players=False,
                             include_events=False,
                             source_label_suffix=f":{other_side}",
@@ -14712,6 +14717,7 @@ def main() -> None:
                             roster_home=roster_home_payload,
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                            stats_note=_meta("stats_note", "schedule_note"),
                             create_missing_players=bool(
                                 getattr(args, "webapp_create_missing_players", False)
                             ),
@@ -14794,6 +14800,7 @@ def main() -> None:
                                 roster_home=roster_home_payload,
                                 roster_away=roster_away_payload,
                                 game_video_url=_meta("game_video", "game_video_url", "video_url"),
+                                stats_note=_meta("stats_note", "schedule_note"),
                                 create_missing_players=bool(
                                     getattr(args, "webapp_create_missing_players", False)
                                 ),

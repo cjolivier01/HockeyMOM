@@ -2,6 +2,7 @@ cython
 numpy
 imgaug
 pymysql
+h5py
 importlib-metadata
 rich
 av

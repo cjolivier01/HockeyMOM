@@ -74,6 +74,23 @@ class LeaguePageView(models.Model):
         ]
 
 
+class LeaguePageViewBaseline(models.Model):
+    league = models.ForeignKey(League, on_delete=models.CASCADE, related_name="page_view_baselines")
+    page_kind = models.CharField(max_length=32)
+    entity_id = models.IntegerField(default=0)
+    baseline_count = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "league_page_view_baselines"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["league", "page_kind", "entity_id"], name="uniq_page_view_baseline"
+            ),
+        ]
+
+
 class Game(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="games")
     name = models.CharField(max_length=255)

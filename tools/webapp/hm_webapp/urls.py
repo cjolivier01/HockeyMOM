@@ -32,6 +32,11 @@ urlpatterns = [
         v.api_league_page_views,
         name="api_league_page_views",
     ),
+    path(
+        "api/leagues/<int:league_id>/page_views/mark",
+        v.api_league_page_views_mark,
+        name="api_league_page_views_mark",
+    ),
     path("api/hky/games/<int:game_id>/events", v.api_hky_game_events, name="api_hky_game_events"),
     path(
         "api/hky/teams/<int:team_id>/players/<int:player_id>/events",

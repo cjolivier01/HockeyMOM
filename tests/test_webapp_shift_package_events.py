@@ -1229,6 +1229,7 @@ def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(clie
         {
             "timetoscore_game_id": 123,
             "game_video_url": "https://example.com/video",
+            "stats_note": "Example: missing long sheet",
             "source_label": "unit-test",
         },
     )
@@ -1240,6 +1241,8 @@ def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(clie
     schedule_html = client.get("/public/leagues/1/schedule").content.decode()
     assert 'href="https://example.com/video"' in schedule_html
     assert 'target="_blank"' in schedule_html
+    assert "schedule-stats-icon-timetoscore" in schedule_html
+    assert 'title="TimeToScore: Example: missing long sheet"' in schedule_html
 
 
 def should_create_external_game_via_shift_package_and_map_to_league(client_and_models):
@@ -1562,3 +1565,61 @@ def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_m
     assert opp_lt and str(opp_lt.get("division_name") or "") == "External"
     lg = m.LeagueGame.objects.filter(league_id=2, game_id=gid).values("division_name").first()
     assert lg and str(lg.get("division_name") or "") == "External"
+
+
+def should_apply_team_logos_on_existing_game_via_shift_package(
+    tmp_path, client_and_models, monkeypatch
+):
+    import base64
+    from pathlib import Path
+
+    from tools.webapp import app as logic
+
+    client, m = client_and_models
+
+    monkeypatch.setattr(logic, "INSTANCE_DIR", tmp_path, raising=False)
+
+    now = dt.datetime.now()
+    m.HkyGame.objects.create(
+        id=2002,
+        user_id=10,
+        team1_id=101,
+        team2_id=102,
+        game_type_id=None,
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key="ext-logos",
+        created_at=now,
+        updated_at=None,
+    )
+
+    png_bytes = b"\x89PNG\r\n\x1a\nFAKE"
+    b64 = base64.b64encode(png_bytes).decode("ascii")
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "external_game_key": "ext-logos",
+            "owner_email": "owner@example.com",
+            "home_logo_b64": b64,
+            "home_logo_content_type": "image/png",
+            "away_logo_b64": b64,
+            "away_logo_content_type": "image/png",
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    for tid in (101, 102):
+        logo_path = m.Team.objects.filter(id=int(tid)).values_list("logo_path", flat=True).first()
+        assert logo_path
+        p = Path(str(logo_path))
+        assert p.exists()
+        assert p.read_bytes() == png_bytes

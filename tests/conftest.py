@@ -62,6 +62,7 @@ def _reset_webapp_db(django_orm, m) -> None:
         m.LeagueGame.objects.all().delete()
         m.LeagueTeam.objects.all().delete()
         m.LeaguePageView.objects.all().delete()
+        m.LeaguePageViewBaseline.objects.all().delete()
         m.LeagueMember.objects.all().delete()
         m.PlayerPeriodStat.objects.all().delete()
         m.HkyGameEventSuppression.objects.all().delete()
