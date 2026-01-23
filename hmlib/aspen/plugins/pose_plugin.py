@@ -56,7 +56,7 @@ class PosePlugin(Plugin):
         self,
         enabled: bool = True,
         plot_pose: bool = False,
-        cuda_graph: bool = True,
+        cuda_graph: bool = False,
         cuda_graph_max_instances: int = 32,
     ):
         # Need to import in order to register
