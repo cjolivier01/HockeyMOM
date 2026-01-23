@@ -105,3 +105,11 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+py_test(
+    name = "test_show_scaled_implies_show",
+    srcs = ["test_show_scaled_implies_show.py"],
+    deps = [
+        requirement("pytest"),
+    ],
+)
