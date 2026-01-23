@@ -21,19 +21,31 @@
     <h2 style="margin:0">{{ team.name }}</h2>
     {% if team.is_external %}<p class="muted" style="margin:.25rem 0 0">External team</p>{% endif %}
   </div>
-  {% if league_page_views %}
-    <div
-      data-hm-league-pageviews="1"
-      data-league-id="{{ league_page_views.league_id }}"
-      data-kind="{{ league_page_views.kind }}"
-      data-entity-id="{{ league_page_views.entity_id }}"
-      class="muted"
-      style="margin-left:auto;font-size:.85rem;white-space:nowrap;"
-      title="Live page views (excluding your own views as league owner)"
-    >
-      Views: <span data-role="count">{{ league_page_views.count }}</span>
-    </div>
-  {% endif %}
+	  {% if league_page_views %}
+	    <div
+	      data-hm-league-pageviews="1"
+	      data-league-id="{{ league_page_views.league_id }}"
+	      data-kind="{{ league_page_views.kind }}"
+	      data-entity-id="{{ league_page_views.entity_id }}"
+	      class="muted"
+	      style="margin-left:auto;font-size:.85rem;white-space:nowrap;display:inline-flex;align-items:center;gap:.35rem;"
+	      title="Live page views (excluding your own views as league owner)"
+	    >
+	      <span>Views: <span data-role="count">{{ league_page_views.count }}</span></span>
+	      <span
+	        data-role="delta"
+	        class="muted"
+	        {% if league_page_views.delta_count != None %}style="display:inline;"{% else %}style="display:none;"{% endif %}
+	      >{% if league_page_views.delta_count != None %}(+{{ league_page_views.delta_count }}){% endif %}</span>
+	      <button
+	        type="button"
+	        data-role="mark"
+	        class="btn secondary"
+	        style="padding:.18rem .45rem;font-size:.75rem;line-height:1;box-shadow:none;"
+	        title="Mark current views as baseline"
+	      >Mark</button>
+	    </div>
+	  {% endif %}
 </div>
 
 {% if head_coaches or assistant_coaches %}

@@ -3267,6 +3267,15 @@ def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
         )
     except Exception as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    baseline_count = logic._get_league_page_view_baseline_count(
+        None, int(league_id), kind=kind, entity_id=entity_id
+    )
+    delta_count = None
+    if baseline_count is not None:
+        try:
+            delta_count = max(0, int(count) - int(baseline_count))
+        except Exception:
+            delta_count = 0
     return JsonResponse(
         {
             "ok": True,
@@ -3274,6 +3283,61 @@ def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
             "kind": kind,
             "entity_id": int(entity_id),
             "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
+        }
+    )
+
+
+def api_league_page_views_mark(request: HttpRequest, league_id: int) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    r = _require_login(request)
+    if r:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+    user_id = _session_user_id(request)
+    _django_orm, m = _orm_modules()
+    owner_id = (
+        m.League.objects.filter(id=int(league_id)).values_list("owner_user_id", flat=True).first()
+    )
+    owner_id_i = int(owner_id) if owner_id is not None else None
+    if owner_id_i is None:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    if int(owner_id_i) != int(user_id):
+        return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
+
+    kind = str(request.POST.get("kind") or "").strip()
+    entity_id_raw = request.POST.get("entity_id")
+    try:
+        entity_id = int(str(entity_id_raw or "0").strip() or "0")
+    except Exception:
+        entity_id = 0
+
+    try:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=kind, entity_id=entity_id
+        )
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    try:
+        ok = logic._set_league_page_view_baseline_count(
+            None, int(league_id), kind=kind, entity_id=entity_id, baseline_count=int(count)
+        )
+    except Exception:
+        ok = False
+    if not ok:
+        return JsonResponse({"ok": False, "error": "failed_to_mark"}, status=500)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "league_id": int(league_id),
+            "kind": kind,
+            "entity_id": int(entity_id),
+            "count": int(count),
+            "baseline_count": int(count),
+            "delta_count": 0,
         }
     )
 
@@ -5828,13 +5892,22 @@ def teams(request: HttpRequest) -> HttpResponse:
 
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAMS,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     return render(
         request,
@@ -6454,13 +6527,22 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
 
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
             "entity_id": int(team_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     excluded_games = [g2 for g2 in (schedule_games or []) if bool(g2.get("excluded_from_stats"))]
     return render(
@@ -6989,13 +7071,22 @@ def schedule(request: HttpRequest) -> HttpResponse:
     games = logic.sort_games_schedule_order(games or [])
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     return render(
         request,
@@ -7545,13 +7636,22 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
 
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_GAME,
             "entity_id": int(game_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
     shift_timeline_rows: list[dict[str, str]] = []
@@ -8116,13 +8216,22 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAMS,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     return render(
         request,
@@ -8609,13 +8718,22 @@ def public_league_team_detail(
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
             "entity_id": int(team_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     excluded_games = [g2 for g2 in (schedule_games or []) if bool(g2.get("excluded_from_stats"))]
     return render(
@@ -8816,13 +8934,22 @@ def public_league_schedule(
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
     return render(
@@ -9218,13 +9345,22 @@ def public_hky_game_detail(
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_GAME,
             "entity_id": int(game_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
     shift_timeline_rows: list[dict[str, str]] = []

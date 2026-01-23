@@ -81,6 +81,7 @@ def _all_models() -> list[Type]:
         m.League,
         m.LeagueMember,
         m.LeaguePageView,
+        m.LeaguePageViewBaseline,
         m.Game,
         m.Job,
         m.Reset,
