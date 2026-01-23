@@ -314,6 +314,7 @@ class JerseyNumberFromPosePlugin(Plugin):
             if index < len(rec_scores) and rec_scores[index] < rec_thresh:
                 continue
             try:
+                print(rec_texts)
                 bbox = poly2bbox(det_polygons[index])
                 cx = int((bbox[0] + bbox[2]) / 2)
                 cy = int((bbox[1] + bbox[3]) / 2)

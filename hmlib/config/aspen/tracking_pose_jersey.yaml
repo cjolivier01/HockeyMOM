@@ -236,14 +236,28 @@ aspen:
       params:
         debug_play_tracker: GLOBAL.plot.debug_play_tracker
         plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
-        plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_individual_player_tracking: false
         plot_tracking_circles: GLOBAL.plot.plot_tracking_circles
         plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_all_detections: null
+        plot_trajectories: false
+        plot_speed: GLOBAL.plot.plot_speed
+        plot_jersey_numbers: false
+        plot_actions: GLOBAL.plot.plot_actions
+
+    overlays:
+      class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
+      depends: [play_tracker, pose, jersey_numbers]
+      enabled: true
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_tracking: GLOBAL.plot.plot_individual_player_tracking
         plot_all_detections: GLOBAL.plot.plot_all_detections
         plot_trajectories: GLOBAL.plot.plot_trajectories
-        plot_speed: GLOBAL.plot.plot_speed
-        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
-        plot_actions: GLOBAL.plot.plot_actions
+        draw_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        # Debug aid: print what data is available when composing overlays.
+        print_available: true
 
     save_camera:
       class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
@@ -253,7 +267,7 @@ aspen:
 
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [play_tracker, load_camera]
+      depends: [overlays, load_camera]
       enabled: true
       params:
         video_out_pipeline: GLOBAL.aspen.video_out_pipeline

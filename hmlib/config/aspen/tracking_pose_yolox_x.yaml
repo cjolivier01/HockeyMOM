@@ -122,3 +122,16 @@ aspen:
       class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [pose]
       params: {}
+
+    overlays:
+      class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
+      depends: [pose]
+      enabled: true
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        draw_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        print_available: false

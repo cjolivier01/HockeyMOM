@@ -13,6 +13,7 @@ import torch
 import hmlib.vis.pt_text as ptt
 import hmlib.vis.pt_visualization as ptv
 from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.image import is_channels_last, make_channels_first, make_channels_last
 
 
 def tlwhs_to_tlbrs(tlwhs):
@@ -390,6 +391,9 @@ def my_put_text(
 ) -> Union[torch.Tensor, np.ndarray]:
     assert isinstance(text, str)
     if isinstance(img, torch.Tensor):
+        was_channels_last = is_channels_last(img)
+        if was_channels_last:
+            img = make_channels_first(img)
         img = ptt.draw_text(
             image=img,
             x=int(org[0]),
@@ -399,6 +403,8 @@ def my_put_text(
             color=color,
             position_is_text_bottom=True,
         )
+        if was_channels_last:
+            img = make_channels_last(img)
         return img
     img = to_cv2(img)
     cv2.putText(
