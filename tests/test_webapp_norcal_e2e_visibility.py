@@ -5,6 +5,21 @@ import time
 import pytest
 
 
+def _extract_csrf_token(html: str) -> str | None:
+    m = re.search(
+        r'name="csrfmiddlewaretoken"[^>]*value="(?P<tok>[^"]+)"', html or "", flags=re.IGNORECASE
+    )
+    return m.group("tok") if m else None
+
+
+def _get_csrf_token(sess, url: str) -> str:
+    r = sess.get(url, timeout=60)
+    assert r.status_code == 200
+    tok = _extract_csrf_token(r.text) or sess.cookies.get("csrftoken")
+    assert tok, f"Expected CSRF token from {url}"
+    return str(tok)
+
+
 @pytest.mark.skipif(
     not os.environ.get("HM_WEBAPP_E2E_URL"),
     reason="Set HM_WEBAPP_E2E_URL to run live webapp E2E checks",
@@ -19,16 +34,25 @@ def should_show_shared_caha_league_and_stats_for_all_users():
     uniq = f"{int(time.time())}-{os.getpid()}"
     email = f"e2e-caha-{uniq}@example.com"
     password = "test-password-123"
+    csrf = _get_csrf_token(sess, f"{base_url}/register")
     r = sess.post(
         f"{base_url}/register",
-        data={"email": email, "password": password, "name": f"E2E CAHA {uniq}"},
+        data={
+            "csrfmiddlewaretoken": csrf,
+            "email": email,
+            "password": password,
+            "name": f"E2E CAHA {uniq}",
+        },
+        headers={"Referer": f"{base_url}/register"},
         allow_redirects=True,
         timeout=60,
     )
     assert r.status_code == 200
 
     # Shared league must be visible to a brand-new user.
-    leagues_html = sess.get(f"{base_url}/leagues", timeout=60).text
+    leagues_resp = sess.get(f"{base_url}/leagues", timeout=60)
+    assert leagues_resp.status_code == 200
+    leagues_html = leagues_resp.text
     assert "CAHA" in leagues_html
 
     m = re.search(r'<option value="(?P<id>\d+)"[^>]*>\s*CAHA\s*<', leagues_html)
@@ -36,8 +60,14 @@ def should_show_shared_caha_league_and_stats_for_all_users():
     league_id = m.group("id")
 
     # Switch context to the shared league.
+    csrf = _extract_csrf_token(leagues_html) or sess.cookies.get("csrftoken")
+    assert csrf, "Expected CSRF token on /leagues page"
     r = sess.post(
-        f"{base_url}/league/select", data={"league_id": league_id}, allow_redirects=True, timeout=60
+        f"{base_url}/league/select",
+        data={"csrfmiddlewaretoken": csrf, "league_id": league_id},
+        headers={"Referer": f"{base_url}/leagues"},
+        allow_redirects=True,
+        timeout=60,
     )
     assert r.status_code == 200
 

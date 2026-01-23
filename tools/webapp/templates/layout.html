@@ -531,7 +531,32 @@
         var kind = String(el.getAttribute("data-kind") || "").trim();
         var entityId = String(el.getAttribute("data-entity-id") || "0").trim() || "0";
         var countEl = el.querySelector("[data-role='count']");
+        var deltaEl = el.querySelector("[data-role='delta']");
+        var markBtn = el.querySelector("[data-role='mark']");
         if (!leagueId || !kind || !countEl) return;
+
+        function getCookie(name) {
+          try {
+            var v = ("; " + document.cookie).split("; " + name + "=");
+            if (v.length === 2) return v.pop().split(";").shift();
+          } catch (e) {}
+          return null;
+        }
+
+        function applyCounts(j) {
+          if (!j || !j.ok) return;
+          if (typeof j.count !== "undefined") {
+            countEl.textContent = String(j.count);
+          }
+          if (!deltaEl) return;
+          if (j.delta_count === null || typeof j.delta_count === "undefined") {
+            deltaEl.textContent = "";
+            deltaEl.style.display = "none";
+            return;
+          }
+          deltaEl.textContent = "(+" + String(j.delta_count) + ")";
+          deltaEl.style.display = "";
+        }
 
         function refresh() {
           var url =
@@ -549,18 +574,65 @@
                 });
               })
               .then(function (j) {
-                if (j && j.ok && typeof j.count !== "undefined") {
-                  countEl.textContent = String(j.count);
-                }
+                applyCounts(j);
               })
               .catch(function () {});
           } catch (e) {}
+        }
+
+        function markBaseline() {
+          if (!markBtn) return;
+          var csrf = getCookie("csrftoken");
+          if (!csrf) return;
+          var url =
+            "/api/leagues/" + encodeURIComponent(leagueId) + "/page_views/mark";
+          var body =
+            "kind=" +
+            encodeURIComponent(kind) +
+            "&entity_id=" +
+            encodeURIComponent(entityId);
+          try {
+            markBtn.disabled = true;
+            fetch(url, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                "X-CSRFToken": csrf,
+              },
+              body: body,
+            })
+              .then(function (r) {
+                return r.json().catch(function () {
+                  return {};
+                });
+              })
+              .then(function (j) {
+                applyCounts(j);
+                refresh();
+              })
+              .catch(function () {})
+              .finally(function () {
+                markBtn.disabled = false;
+              });
+          } catch (e) {
+            markBtn.disabled = false;
+          }
         }
 
         refresh();
         try {
           window.setInterval(refresh, 5000);
         } catch (e) {}
+
+        if (markBtn) {
+          try {
+            markBtn.addEventListener("click", function (e) {
+              try { e.preventDefault(); } catch (e2) {}
+              markBaseline();
+            });
+          } catch (e) {}
+        }
       }
 
       if (document.readyState === "loading") {

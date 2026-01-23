@@ -52,6 +52,7 @@ def _require_login(request: HttpRequest) -> Optional[HttpResponse]:
 
 def _is_league_admin(league_id: int, user_id: int) -> bool:
     _django_orm, m = _orm_modules()
+    del _django_orm
     if m.League.objects.filter(id=int(league_id), owner_user_id=int(user_id)).exists():
         return True
     return m.LeagueMember.objects.filter(
@@ -2295,6 +2296,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
             "id",
             "game_id",
             "event_type__key",
+            "source",
             "team_id",
             "team_side",
             "for_against",
@@ -2461,7 +2463,109 @@ def _player_stat_rows_from_event_tables_for_team_games(
     pim_game_ids |= {int(gid) for gid in t2s_game_ids or []}
 
     # ----------------------------
-    # Create per-player/per-game rows (full grid so GP stays stable).
+    # Determine per-game participation ("played") for GP/denominators.
+    # ----------------------------
+    roster_link_pairs: set[tuple[int, int]] = set()
+    shift_pairs: set[tuple[int, int]] = set()
+    shift_game_ids: set[int] = set()
+    shifts_by_gid_period: dict[int, dict[int, list[tuple[int, int, int]]]] = {}
+
+    # Game roster (TimeToScore rosters + goals.xlsx rosters uploaded via shift_package).
+    try:
+        roster_link_pairs = {
+            (int(pid), int(gid))
+            for pid, gid in m.HkyGamePlayer.objects.filter(
+                game_id__in=game_ids,
+                team_id=int(team_id),
+                player_id__isnull=False,
+            )
+            .values_list("player_id", "game_id")
+            .distinct()
+        }
+    except Exception:
+        roster_link_pairs = set()
+
+    # Shift presence + shift intervals (for skater GP and on-ice GF/GA/+/-).
+    try:
+        for r0 in (
+            m.HkyGameShiftRow.objects.filter(
+                game_id__in=game_ids,
+                team_id=int(team_id),
+                player_id__isnull=False,
+            )
+            .exclude(period__isnull=True)
+            .exclude(game_seconds__isnull=True)
+            .exclude(game_seconds_end__isnull=True)
+            .values("game_id", "player_id", "period", "game_seconds", "game_seconds_end")
+        ):
+            try:
+                gid = int(r0.get("game_id") or 0)
+                pid = int(r0.get("player_id") or 0)
+                per = int(r0.get("period") or 0)
+                gs0 = int(r0.get("game_seconds") or 0)
+                gs1 = int(r0.get("game_seconds_end") or 0)
+            except Exception:
+                continue
+            if gid <= 0 or pid <= 0 or per <= 0:
+                continue
+            shift_game_ids.add(int(gid))
+            if pid not in roster_by_pid:
+                continue
+            shift_pairs.add((int(pid), int(gid)))
+            shifts_by_gid_period.setdefault(int(gid), {}).setdefault(int(per), []).append(
+                (int(pid), int(gs0), int(gs1))
+            )
+    except Exception:
+        shift_pairs = set()
+        shift_game_ids = set()
+        shifts_by_gid_period = {}
+
+    direct_event_pairs = {(int(pid), int(gid)) for (pid, gid) in (direct_counts or {}).keys()}
+    on_ice_pairs: set[tuple[int, int]] = set()
+    for r0 in event_rows or []:
+        gid = _int_or_none(r0.get("game_id")) or 0
+        if gid <= 0 or gid not in games_by_id:
+            continue
+        my_side = side_by_game_id.get(int(gid))
+        if my_side not in {"home", "away"}:
+            continue
+        raw = (
+            str(r0.get("on_ice_players_home") or "").strip()
+            if my_side == "home"
+            else str(r0.get("on_ice_players_away") or "").strip()
+        )
+        if not raw:
+            continue
+        for nm, jn in _parse_on_ice_list(raw):
+            pid = _pid_for_name_jersey(nm, jn)
+            if pid is None:
+                continue
+            on_ice_pairs.add((int(pid), int(gid)))
+
+    played_pairs: set[tuple[int, int]] = set()
+    for gid in game_ids:
+        has_shift_data = int(gid) in shift_game_ids
+        for pid, p0 in roster_by_pid.items():
+            pos = str(p0.get("position") or "").strip().upper()
+            is_goalie = pos == "G"
+            key = (int(pid), int(gid))
+            has_shift = key in shift_pairs
+            in_roster = key in roster_link_pairs
+            has_event = key in direct_event_pairs
+            has_on_ice = key in on_ice_pairs
+
+            if not is_goalie and has_shift_data:
+                # Primary/long spreadsheet semantics: skaters "played" when they have at least one shift.
+                # If shift rows are incomplete, allow an attributed event row to imply participation.
+                if has_shift or has_event or has_on_ice:
+                    played_pairs.add(key)
+            else:
+                # No shift data for this team/game: fall back to the per-game roster (T2S/goals.xlsx).
+                if in_roster or has_shift or has_event or has_on_ice:
+                    played_pairs.add(key)
+
+    # ----------------------------
+    # Create per-player/per-game rows (one row per played game).
     # ----------------------------
     by_key: dict[tuple[int, int], dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -2474,6 +2578,8 @@ def _player_stat_rows_from_event_tables_for_team_games(
             except Exception:
                 continue
             if pid <= 0:
+                continue
+            if (int(pid), int(gid)) not in played_pairs:
                 continue
             r: dict[str, Any] = {"player_id": int(pid), "game_id": int(gid)}
             for k in logic.PLAYER_STATS_SUM_KEYS:
@@ -2557,9 +2663,92 @@ def _player_stat_rows_from_event_tables_for_team_games(
                 row["shots"] = 0
 
     # ----------------------------
-    # On-ice goal stats (GF/GA counted and +/- when complete).
+    # On-ice goal stats (GF/GA and +/-).
+    #
+    # Prefer shift-derived on-ice attribution when shift rows exist for this team/game, even when
+    # the goal event rows lack explicit on-ice lists (e.g. TimeToScore-only goal streams).
     # ----------------------------
+    def _goal_seconds(row: dict[str, Any]) -> Optional[int]:
+        gs = _int_or_none(row.get("game_seconds"))
+        if gs is not None:
+            return int(gs)
+        return logic.parse_duration_seconds(row.get("game_time"))
+
+    def _shift_contains(*, t: int, start: int, end: int) -> bool:
+        lo = start if start <= end else end
+        hi = end if start <= end else start
+        if t < lo or t > hi:
+            return False
+        # Match scripts/parse_stats_inputs.py: don't count goals exactly at shift start.
+        return int(t) != int(start)
+
+    for gid in sorted(list(shift_game_ids)):
+        g2 = games_by_id.get(int(gid)) or {}
+        team1_id = _int_or_none(g2.get("team1_id")) or 0
+        team2_id = _int_or_none(g2.get("team2_id")) or 0
+        if team1_id <= 0 or team2_id <= 0:
+            continue
+
+        goals_all = list(goal_rows_by_game.get(int(gid), []) or [])
+        # Prefer TimeToScore goals when present to avoid duplicate goal streams.
+        if any("timetoscore" in str(r.get("source") or "").casefold() for r in goals_all):
+            goals_all = [
+                r for r in goals_all if "timetoscore" in str(r.get("source") or "").casefold()
+            ]
+
+        gf_by_pid: dict[int, int] = {}
+        ga_by_pid: dict[int, int] = {}
+
+        goals_seen = 0
+        goals_counted = 0
+        for gr in goals_all:
+            scoring_tid = _event_team_id(gr)
+            if scoring_tid not in {team1_id, team2_id}:
+                continue
+            per = _int_or_none(gr.get("period"))
+            t = _goal_seconds(gr)
+            if per is None or int(per) <= 0 or t is None:
+                continue
+            goals_seen += 1
+
+            period_shifts = shifts_by_gid_period.get(int(gid), {}).get(int(per), []) or []
+            on_ice: set[int] = set()
+            for pid, start, end in period_shifts:
+                if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                    on_ice.add(int(pid))
+
+            if not on_ice:
+                continue
+            goals_counted += 1
+            is_for_us = bool(int(scoring_tid) == int(team_id))
+            if is_for_us:
+                for pid in on_ice:
+                    gf_by_pid[int(pid)] = gf_by_pid.get(int(pid), 0) + 1
+            else:
+                for pid in on_ice:
+                    ga_by_pid[int(pid)] = ga_by_pid.get(int(pid), 0) + 1
+
+        # If we have goal events but couldn't map any of them to on-ice shifts, treat the
+        # on-ice goal stats as unknown for this game.
+        if goals_seen > 0 and goals_counted <= 0:
+            continue
+
+        # Only apply on-ice stats to players that have shift rows in this game.
+        for (pid, g0), row in list(by_key.items()):
+            if int(g0) != int(gid):
+                continue
+            if (int(pid), int(gid)) not in shift_pairs:
+                continue
+            gf = int(gf_by_pid.get(int(pid), 0) or 0)
+            ga = int(ga_by_pid.get(int(pid), 0) or 0)
+            row["gf_counted"] = int(gf)
+            row["ga_counted"] = int(ga)
+            row["plus_minus"] = int(gf) - int(ga)
+
+    # Fallback for games without shift rows: use goal event on-ice lists when present.
     for gid, goals in (goal_rows_by_game or {}).items():
+        if int(gid) in shift_game_ids:
+            continue
         g2 = games_by_id.get(int(gid)) or {}
         my_side = side_by_game_id.get(int(gid))
         if my_side not in {"home", "away"}:
@@ -3078,6 +3267,15 @@ def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
         )
     except Exception as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    baseline_count = logic._get_league_page_view_baseline_count(
+        None, int(league_id), kind=kind, entity_id=entity_id
+    )
+    delta_count = None
+    if baseline_count is not None:
+        try:
+            delta_count = max(0, int(count) - int(baseline_count))
+        except Exception:
+            delta_count = 0
     return JsonResponse(
         {
             "ok": True,
@@ -3085,6 +3283,61 @@ def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
             "kind": kind,
             "entity_id": int(entity_id),
             "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
+        }
+    )
+
+
+def api_league_page_views_mark(request: HttpRequest, league_id: int) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    r = _require_login(request)
+    if r:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+    user_id = _session_user_id(request)
+    _django_orm, m = _orm_modules()
+    owner_id = (
+        m.League.objects.filter(id=int(league_id)).values_list("owner_user_id", flat=True).first()
+    )
+    owner_id_i = int(owner_id) if owner_id is not None else None
+    if owner_id_i is None:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    if int(owner_id_i) != int(user_id):
+        return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
+
+    kind = str(request.POST.get("kind") or "").strip()
+    entity_id_raw = request.POST.get("entity_id")
+    try:
+        entity_id = int(str(entity_id_raw or "0").strip() or "0")
+    except Exception:
+        entity_id = 0
+
+    try:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=kind, entity_id=entity_id
+        )
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    try:
+        ok = logic._set_league_page_view_baseline_count(
+            None, int(league_id), kind=kind, entity_id=entity_id, baseline_count=int(count)
+        )
+    except Exception:
+        ok = False
+    if not ok:
+        return JsonResponse({"ok": False, "error": "failed_to_mark"}, status=500)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "league_id": int(league_id),
+            "kind": kind,
+            "entity_id": int(entity_id),
+            "count": int(count),
+            "baseline_count": int(count),
+            "delta_count": 0,
         }
     )
 
@@ -5639,13 +5892,22 @@ def teams(request: HttpRequest) -> HttpResponse:
 
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAMS,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     return render(
         request,
@@ -5968,6 +6230,8 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             show_shift_data=bool(show_shift_data),
         )
 
+    _attach_schedule_stats_icons(schedule_games)
+
     league_name: Optional[str] = None
     if league_id:
         try:
@@ -6263,13 +6527,22 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
 
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
             "entity_id": int(team_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     excluded_games = [g2 for g2 in (schedule_games or []) if bool(g2.get("excluded_from_stats"))]
     return render(
@@ -6435,6 +6708,154 @@ def player_delete(request: HttpRequest, team_id: int, player_id: int) -> HttpRes
     ).delete()
     messages.success(request, "Player deleted")
     return redirect(f"/teams/{team_id}")
+
+
+def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
+    """
+    Add `stats_icons` (+ optional `stats_note`) to schedule game dicts for UI badges.
+    """
+
+    def _compact_ws(v: Any) -> Any:
+        if v is None:
+            return None
+        s = str(v).replace("\xa0", " ").strip()
+        return " ".join(s.split())
+
+    for g in games or []:
+        for k in ("division_name", "team1_name", "team2_name", "game_type_name", "location"):
+            if k not in g:
+                continue
+            try:
+                g[k] = _compact_ws(g.get(k))
+            except Exception:
+                continue
+
+    gids: list[int] = []
+    for g in games or []:
+        try:
+            gid = int(g.get("id") or 0)
+        except Exception:
+            continue
+        if gid > 0:
+            gids.append(gid)
+    if not gids:
+        return
+    gids = sorted(set(gids))
+
+    _django_orm, m = _orm_modules()
+
+    types_by_gid: dict[int, set[str]] = {int(gid): set() for gid in gids}
+
+    try:
+        for gid, tts_id in m.HkyGame.objects.filter(id__in=gids).values_list(
+            "id", "timetoscore_game_id"
+        ):
+            try:
+                gid_i = int(gid or 0)
+            except Exception:
+                continue
+            if gid_i <= 0:
+                continue
+            if tts_id is not None:
+                types_by_gid.setdefault(int(gid_i), set()).add("timetoscore")
+    except Exception:
+        pass
+
+    # Shift rows imply at least "primary" spreadsheet stats are present.
+    try:
+        for gid in m.HkyGameShiftRow.objects.filter(game_id__in=gids).values_list(
+            "game_id", flat=True
+        ):
+            try:
+                gid_i = int(gid or 0)
+            except Exception:
+                continue
+            if gid_i <= 0:
+                continue
+            types_by_gid.setdefault(int(gid_i), set()).add("primary")
+    except Exception:
+        pass
+
+    # Event rows can come from multiple sources (CSV `Source` column is multi-valued).
+    try:
+        for gid0, src0 in (
+            m.HkyGameEventRow.objects.filter(game_id__in=gids)
+            .values_list("game_id", "source")
+            .distinct()
+        ):
+            try:
+                gid_i = int(gid0 or 0)
+            except Exception:
+                continue
+            if gid_i <= 0:
+                continue
+            src = str(src0 or "").strip()
+            if not src:
+                continue
+            recognized = False
+            for tok in re.split(r"[,+;/\s]+", src):
+                k = logic.canon_event_source_key(tok)
+                if k == "shift_package":
+                    k = "primary"
+                if not k:
+                    continue
+                types_by_gid.setdefault(int(gid_i), set()).add(str(k))
+                recognized = True
+            if not recognized:
+                types_by_gid.setdefault(int(gid_i), set()).add("primary")
+    except Exception:
+        pass
+
+    icon_spec: list[tuple[str, str, str]] = [
+        ("timetoscore", "TimeToScore", "T"),
+        ("primary", "Primary", "P"),
+        ("long", "Long", "L"),
+        ("goals", "Goals", "G"),
+        ("yaml-only", "YAML-only", "Y"),
+    ]
+
+    for g in games or []:
+        try:
+            gid = int(g.get("id") or 0)
+        except Exception:
+            continue
+        if gid <= 0:
+            continue
+        types = set(types_by_gid.get(int(gid)) or set())
+        try:
+            if logic._extract_timetoscore_game_id_from_notes(g.get("notes")) is not None:
+                types.add("timetoscore")
+        except Exception:
+            pass
+        yaml_only = not types
+        if yaml_only:
+            types = {"yaml-only"}
+        stats_note: Optional[str] = None
+        try:
+            stats_note = logic._extract_game_stats_note_from_notes(g.get("notes"))
+        except Exception:
+            stats_note = None
+        g["stats_note"] = stats_note
+
+        icons: list[dict[str, Any]] = []
+        for key, label, text in icon_spec:
+            if key == "yaml-only":
+                if not yaml_only:
+                    continue
+            else:
+                if key not in types:
+                    continue
+            title = label
+            if stats_note:
+                title = f"{label}: {stats_note}"
+            icons.append(
+                {
+                    "key": key,
+                    "title": title,
+                    "text": text,
+                }
+            )
+        g["stats_icons"] = icons
 
 
 def schedule(request: HttpRequest) -> HttpResponse:
@@ -6646,16 +7067,26 @@ def schedule(request: HttpRequest) -> HttpResponse:
         except Exception:
             g2["can_edit"] = bool(is_league_admin)
 
+    _attach_schedule_stats_icons(games)
     games = logic.sort_games_schedule_order(games or [])
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     return render(
         request,
@@ -7205,13 +7636,22 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
 
     league_page_views = None
     if league_id and is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_GAME,
             "entity_id": int(game_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
     shift_timeline_rows: list[dict[str, str]] = []
@@ -7776,13 +8216,22 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAMS,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     return render(
         request,
@@ -7972,6 +8421,7 @@ def public_league_team_detail(
         except Exception:
             g2["game_video_url"] = None
     schedule_games = logic.sort_games_schedule_order(schedule_games or [])
+    _attach_schedule_stats_icons(schedule_games)
 
     ps_rows = _player_stat_rows_from_event_tables_for_team_games(
         team_id=int(team_id),
@@ -8268,13 +8718,22 @@ def public_league_team_detail(
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
             "entity_id": int(team_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
     excluded_games = [g2 for g2 in (schedule_games or []) if bool(g2.get("excluded_from_stats"))]
     return render(
@@ -8470,17 +8929,27 @@ def public_league_schedule(
         )
         g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
         g2["can_edit"] = False
+    _attach_schedule_stats_icons(games)
     games = logic.sort_games_schedule_order(games or [])
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
             "entity_id": 0,
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE, entity_id=0
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
     return render(
@@ -8876,13 +9345,22 @@ def public_hky_game_detail(
 
     league_page_views = None
     if is_league_owner:
+        count = logic._get_league_page_view_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        baseline_count = logic._get_league_page_view_baseline_count(
+            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
+        )
+        delta_count = (
+            max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
+        )
         league_page_views = {
             "league_id": int(league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_GAME,
             "entity_id": int(game_id),
-            "count": logic._get_league_page_view_count(
-                None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
-            ),
+            "count": int(count),
+            "baseline_count": int(baseline_count) if baseline_count is not None else None,
+            "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
     shift_timeline_rows: list[dict[str, str]] = []
@@ -9221,6 +9699,52 @@ def _update_game_video_url_note(
             new_notes = existing
         else:
             new_notes = (existing + "\n" + suffix.strip()).strip() if existing else suffix.strip()
+
+    m.HkyGame.objects.filter(id=int(game_id)).update(notes=new_notes, updated_at=dt.datetime.now())
+
+
+def _update_game_stats_note(
+    game_id: int, stats_note: str, *, replace: bool, commit: bool = True
+) -> None:
+    del commit
+    del replace
+    note = str(stats_note or "").strip()
+    if not note:
+        return
+    note = " ".join(note.split())
+    if not note:
+        return
+    _django_orm, m = _orm_modules()
+    existing = str(
+        m.HkyGame.objects.filter(id=int(game_id)).values_list("notes", flat=True).first() or ""
+    ).strip()
+    existing_note = None
+    try:
+        existing_note = logic._extract_game_stats_note_from_notes(existing)
+    except Exception:
+        existing_note = None
+    if existing_note is not None and str(existing_note).strip() == note:
+        return
+
+    new_notes: str
+    try:
+        d = json.loads(existing) if existing else {}
+        if isinstance(d, dict):
+            d["stats_note"] = note
+            new_notes = json.dumps(d, sort_keys=True)
+        else:
+            raise ValueError("notes not dict")
+    except Exception:
+        lines = [ln for ln in str(existing or "").splitlines() if ln is not None]
+        replaced = False
+        for idx, ln in enumerate(lines):
+            if re.match(r"^\\s*(?:stats_note|schedule_note)\\s*[:=]", str(ln), flags=re.IGNORECASE):
+                lines[idx] = f"stats_note: {note}"
+                replaced = True
+                break
+        if not replaced:
+            lines.append(f"stats_note: {note}")
+        new_notes = "\n".join([ln for ln in lines if str(ln).strip()]).strip()
 
     m.HkyGame.objects.filter(id=int(game_id)).update(notes=new_notes, updated_at=dt.datetime.now())
 
@@ -10374,6 +10898,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         return JsonResponse(
             {"ok": False, "error": "team_side must be 'home' or 'away'"}, status=400
         )
+    stats_note: Optional[str] = None
+    raw_stats_note = payload.get("stats_note") or payload.get("schedule_note")
+    if isinstance(raw_stats_note, str) and raw_stats_note.strip():
+        stats_note = " ".join(str(raw_stats_note).strip().split()) or None
     if "create_missing_players" in payload:
         create_missing_players = bool(payload.get("create_missing_players"))
     else:
@@ -10680,6 +11208,8 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             notes_fields: dict[str, Any] = {"external_game_key": external_game_key}
             if tts_int is not None:
                 notes_fields["timetoscore_game_id"] = int(tts_int)
+            if stats_note:
+                notes_fields["stats_note"] = str(stats_note)
             resolved_game_id = _upsert_game_for_import(
                 owner_user_id=owner_user_id_for_create,
                 team1_id=team1_id,
@@ -10774,6 +11304,32 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     team2_id = int(game_row["team2_id"])
     owner_user_id = int(game_row.get("user_id") or 0)
 
+    # Team logos can be provided in shift_package payloads (e.g., from file-list YAML).
+    # Apply them even when the game already exists so rerunning imports can backfill missing icons.
+    try:
+        _ensure_team_logo_for_import(
+            team_id=int(team1_id),
+            logo_b64=payload.get("home_logo_b64"),
+            logo_content_type=payload.get("home_logo_content_type"),
+            logo_url=payload.get("home_logo_url"),
+            replace=replace,
+            commit=False,
+        )
+        _ensure_team_logo_for_import(
+            team_id=int(team2_id),
+            logo_b64=payload.get("away_logo_b64"),
+            logo_content_type=payload.get("away_logo_content_type"),
+            logo_url=payload.get("away_logo_url"),
+            replace=replace,
+            commit=False,
+        )
+    except Exception:
+        logger.warning(
+            "api_import_shift_package: failed to apply team logos (game_id=%s)",
+            int(resolved_game_id),
+            exc_info=True,
+        )
+
     events_csv = payload.get("events_csv")
     shift_rows_csv = payload.get("shift_rows_csv")
     replace_shift_rows_payload = payload.get("replace_shift_rows")
@@ -10785,6 +11341,13 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         try:
             _update_game_video_url_note(
                 int(resolved_game_id), str(game_video_url), replace=replace, commit=False
+            )
+        except Exception:
+            pass
+    if stats_note:
+        try:
+            _update_game_stats_note(
+                int(resolved_game_id), str(stats_note), replace=replace, commit=False
             )
         except Exception:
             pass
