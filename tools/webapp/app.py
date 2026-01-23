@@ -10737,7 +10737,7 @@ def _compute_team_player_stats_sources(
                 s = str(src or "").strip()
                 if not s:
                     continue
-                for tok in re.split(r"[,+;/\\s]+", s):
+                for tok in re.split(r"[,+;/\s]+", s):
                     _add(tok)
     except Exception:
         pass

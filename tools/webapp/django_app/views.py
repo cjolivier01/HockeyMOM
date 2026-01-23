@@ -6793,7 +6793,7 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
             if not src:
                 continue
             recognized = False
-            for tok in re.split(r"[,+;/\\s]+", src):
+            for tok in re.split(r"[,+;/\s]+", src):
                 k = logic.canon_event_source_key(tok)
                 if k == "shift_package":
                     k = "primary"
@@ -6807,7 +6807,7 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
         pass
 
     icon_spec: list[tuple[str, str, str]] = [
-        ("timetoscore", "TimeToScore", "T2S"),
+        ("timetoscore", "TimeToScore", "T"),
         ("primary", "Primary", "P"),
         ("long", "Long", "L"),
         ("goals", "Goals", "G"),

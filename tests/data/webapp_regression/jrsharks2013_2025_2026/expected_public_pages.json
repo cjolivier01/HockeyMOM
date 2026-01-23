@@ -57,7 +57,7 @@
           "Preseason",
           "San Jose Black",
           "4 - 6",
-          "T2S P",
+          "T P",
           "Video",
           "View"
         ],
@@ -70,7 +70,7 @@
           "Preseason",
           "San Jose Orange",
           "9 - 2",
-          "T2S P",
+          "T P",
           "Video",
           "View"
         ],
@@ -83,8 +83,8 @@
           "Preseason",
           "San Jose Orange",
           "6 - 2",
-          "T2S P",
-          "\u2014",
+          "T",
+          "—",
           "View"
         ],
         [
@@ -96,8 +96,8 @@
           "Preseason",
           "Stockton",
           "2 - 5",
-          "T2S P",
-          "\u2014",
+          "T",
+          "—",
           "View"
         ],
         [
@@ -109,7 +109,7 @@
           "Preseason",
           "San Jose Black",
           "3 - 3",
-          "T2S P",
+          "T P",
           "Video",
           "View"
         ],
@@ -122,7 +122,7 @@
           "Regular Season",
           "Stockton",
           "5 - 4",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -135,7 +135,7 @@
           "Tournament",
           "",
           "3 - 2",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -148,7 +148,7 @@
           "Tournament",
           "",
           "3 - 5",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -161,7 +161,7 @@
           "Tournament",
           "",
           "1 - 3",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -174,7 +174,7 @@
           "Regular Season",
           "Dublin",
           "4 - 13",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -187,7 +187,7 @@
           "Regular Season",
           "San Jose Orange",
           "9 - 2",
-          "T2S P L",
+          "T P L G",
           "Video",
           "View"
         ],
@@ -200,7 +200,7 @@
           "Regular Season",
           "San Jose Orange",
           "5 - 5",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -213,7 +213,7 @@
           "Tournament",
           "",
           "2 - 3",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -226,7 +226,7 @@
           "Tournament",
           "",
           "3 - 4",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -239,7 +239,7 @@
           "Tournament",
           "",
           "8 - 3",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -252,7 +252,7 @@
           "Tournament",
           "",
           "6 - 5",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -265,7 +265,7 @@
           "Regular Season",
           "San Jose Black",
           "8 - 3",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -278,8 +278,8 @@
           "Regular Season",
           "San Jose Orange",
           "5 - 6",
-          "T2S P",
-          "\u2014",
+          "T",
+          "—",
           "View"
         ],
         [
@@ -291,7 +291,7 @@
           "Regular Season",
           "San Jose Orange",
           "6 - 4",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -304,7 +304,7 @@
           "Regular Season",
           "San Jose Orange",
           "2 - 6",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -317,7 +317,7 @@
           "Regular Season",
           "San Jose Black",
           "5 - 2",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -330,7 +330,7 @@
           "Tournament",
           "",
           "5 - 3",
-          "P",
+          "G",
           "Video",
           "View"
         ],
@@ -343,8 +343,8 @@
           "Tournament",
           "",
           "4 - 13",
-          "P",
-          "\u2014",
+          "G",
+          "—",
           "View"
         ],
         [
@@ -356,7 +356,7 @@
           "Tournament",
           "",
           "1 - 4",
-          "P",
+          "G",
           "Video",
           "View"
         ],
@@ -369,7 +369,7 @@
           "Tournament",
           "",
           "5 - 4",
-          "P",
+          "G",
           "Video",
           "View"
         ],
@@ -381,10 +381,10 @@
           "San Jose Jr Sharks 12AA-1",
           "Regular Season",
           "San Jose Orange",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -394,10 +394,10 @@
           "Tri Valley Blue Devils 12AA-2",
           "Regular Season",
           "Dublin",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -407,10 +407,10 @@
           "San Jose Jr Sharks 12AA-2",
           "Regular Season",
           "San Jose Black",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -420,10 +420,10 @@
           "Tri Valley Blue Devils 12AA-2",
           "Regular Season",
           "Dublin",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -433,10 +433,10 @@
           "Stockton Colts 12AA",
           "Regular Season",
           "Stockton",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -446,10 +446,10 @@
           "San Jose Jr Sharks 12AA-2",
           "Regular Season",
           "San Jose Black",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -459,10 +459,10 @@
           "San Jose Jr Sharks 12AA-2",
           "Regular Season",
           "San Jose Orange",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ]
       ]
     }
@@ -1343,7 +1343,7 @@
           "Preseason",
           "San Jose Black",
           "4 - 6",
-          "T2S P",
+          "T P",
           "Video",
           "View"
         ],
@@ -1356,7 +1356,7 @@
           "Preseason",
           "San Jose Orange",
           "9 - 2",
-          "T2S P",
+          "T P",
           "Video",
           "View"
         ],
@@ -1369,8 +1369,8 @@
           "Preseason (excluded)",
           "San Jose Orange",
           "6 - 2",
-          "T2S P",
-          "\u2014",
+          "T",
+          "—",
           "View"
         ],
         [
@@ -1382,8 +1382,8 @@
           "Preseason",
           "Stockton",
           "2 - 5",
-          "T2S P",
-          "\u2014",
+          "T",
+          "—",
           "View"
         ],
         [
@@ -1395,7 +1395,7 @@
           "Preseason",
           "San Jose Black",
           "3 - 3",
-          "T2S P",
+          "T P",
           "Video",
           "View"
         ],
@@ -1408,7 +1408,7 @@
           "Regular Season",
           "Stockton",
           "5 - 4",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1421,7 +1421,7 @@
           "Tournament",
           "",
           "3 - 2",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1434,7 +1434,7 @@
           "Tournament",
           "",
           "3 - 5",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1447,7 +1447,7 @@
           "Tournament",
           "",
           "1 - 3",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1460,7 +1460,7 @@
           "Regular Season",
           "Dublin",
           "4 - 13",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1473,7 +1473,7 @@
           "Regular Season",
           "San Jose Orange",
           "9 - 2",
-          "T2S P L",
+          "T P L G",
           "Video",
           "View"
         ],
@@ -1486,7 +1486,7 @@
           "Regular Season",
           "San Jose Orange",
           "5 - 5",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1499,7 +1499,7 @@
           "Tournament",
           "",
           "2 - 3",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1512,7 +1512,7 @@
           "Tournament",
           "",
           "3 - 4",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1525,7 +1525,7 @@
           "Tournament",
           "",
           "8 - 3",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1538,7 +1538,7 @@
           "Tournament",
           "",
           "6 - 5",
-          "P",
+          "P G",
           "Video",
           "View"
         ],
@@ -1551,7 +1551,7 @@
           "Regular Season",
           "San Jose Black",
           "8 - 3",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1564,8 +1564,8 @@
           "Regular Season",
           "San Jose Orange",
           "5 - 6",
-          "T2S P",
-          "\u2014",
+          "T",
+          "—",
           "View"
         ],
         [
@@ -1577,7 +1577,7 @@
           "Regular Season",
           "San Jose Orange",
           "6 - 4",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1590,7 +1590,7 @@
           "Regular Season",
           "San Jose Orange",
           "2 - 6",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1603,7 +1603,7 @@
           "Regular Season",
           "San Jose Black",
           "5 - 2",
-          "T2S P L",
+          "T P L",
           "Video",
           "View"
         ],
@@ -1616,7 +1616,7 @@
           "Tournament",
           "",
           "5 - 3",
-          "P",
+          "G",
           "Video",
           "View"
         ],
@@ -1629,8 +1629,8 @@
           "Tournament (excluded)",
           "",
           "4 - 13",
-          "P",
-          "\u2014",
+          "G",
+          "—",
           "View"
         ],
         [
@@ -1642,7 +1642,7 @@
           "Tournament",
           "",
           "1 - 4",
-          "P",
+          "G",
           "Video",
           "View"
         ],
@@ -1655,7 +1655,7 @@
           "Tournament",
           "",
           "5 - 4",
-          "P",
+          "G",
           "Video",
           "View"
         ],
@@ -1667,10 +1667,10 @@
           "San Jose Jr Sharks 12AA-1",
           "Regular Season",
           "San Jose Orange",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -1680,10 +1680,10 @@
           "Tri Valley Blue Devils 12AA-2",
           "Regular Season",
           "Dublin",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -1693,10 +1693,10 @@
           "San Jose Jr Sharks 12AA-2",
           "Regular Season",
           "San Jose Black",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -1706,10 +1706,10 @@
           "Tri Valley Blue Devils 12AA-2",
           "Regular Season",
           "Dublin",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -1719,10 +1719,10 @@
           "Stockton Colts 12AA",
           "Regular Season",
           "Stockton",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -1732,10 +1732,10 @@
           "San Jose Jr Sharks 12AA-2",
           "Regular Season",
           "San Jose Black",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ],
         [
           "12 AA",
@@ -1745,10 +1745,10 @@
           "San Jose Jr Sharks 12AA-2",
           "Regular Season",
           "San Jose Orange",
-          "\u2014",
-          "T2S",
-          "\u2014",
-          "\u2014"
+          "—",
+          "T",
+          "—",
+          "—"
         ]
       ]
     }
