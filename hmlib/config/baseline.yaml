@@ -198,16 +198,16 @@ rink:
 
     # Resizing direction-change braking (size dampening)
     # Frames to brake to a stop on resize direction change
-    resizing_stop_on_dir_change_delay: 10
+    resizing_stop_on_dir_change_delay: 4
     # Cancel resizing brake when inputs flip opposite (true/false)
-    resizing_cancel_stop_on_opposite_dir: true
+    resizing_cancel_stop_on_opposite_dir: false
     # Consecutive opposite-direction frames required to cancel resize braking
-    resizing_stop_cancel_hysteresis_frames: 2
+    resizing_stop_cancel_hysteresis_frames: 4
     # Cooldown frames after a resize stop-delay finishes/cancels before another can start
     resizing_stop_delay_cooldown_frames: 2
     # When increasing size toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    resizing_time_to_dest_speed_limit_frames: 10
+    resizing_time_to_dest_speed_limit_frames: 6
     # When resize time-to-dest limiting is active, snap to zero below this speed (px/frame)
     resizing_time_to_dest_stop_speed_threshold: 0.25
 
