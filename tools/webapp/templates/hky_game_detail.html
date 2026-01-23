@@ -107,6 +107,10 @@
           ></iframe>
         </div>
       </div>
+      <div class="yt-quality-hint">
+        <span class="yt-quality-text">Click the gear icon and select Highest quality</span>
+        <span class="yt-quality-arrow" aria-hidden="true">↑</span>
+      </div>
       <p class="muted" style="margin:.75rem 0 0 0;">Tip: double-click an event row, or open the timeline tooltip and press Video to view a clip (2/3 before, 1/3 after the event).</p>
     </div>
   {% endif %}
@@ -228,7 +232,7 @@
             {% for p in team1_roster %}
               <tr>
                 <td>{{ p.jersey_number|default_if_none:"" }}</td>
-                <td>{{ p.name|default_if_none:"" }}</td>
+                <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
                 <td>{{ p.position|default_if_none:"" }}</td>
               </tr>
             {% empty %}
@@ -251,7 +255,7 @@
             {% for p in team2_roster %}
               <tr>
                 <td>{{ p.jersey_number|default_if_none:"" }}</td>
-                <td>{{ p.name|default_if_none:"" }}</td>
+                <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
                 <td>{{ p.position|default_if_none:"" }}</td>
               </tr>
             {% empty %}
@@ -375,31 +379,7 @@
     </div>
     </form>
 
-    {% if can_edit %}
-      <div style="margin-top:1rem;">
-        <h3 style="margin:0 0 .25rem 0;">Import Shift Spreadsheet Stats</h3>
-        <p class="muted" style="margin-top:0">
-          Upload <code>stats/player_stats.csv</code> from
-          <code>scripts/parse_stats_inputs.py</code>.
-        </p>
-        {% url "hky_game_import_shift_stats" game_id=game.id as import_shift_stats_url %}
-        <form method="post" action="{{ import_shift_stats_url }}?return_to={{ return_to_enc }}" enctype="multipart/form-data">
-          {% csrf_token %}
-          <div class="grid" style="grid-template-columns: 1fr; gap: 1rem;">
-            <div class="form-row">
-              <label class="muted">player_stats.csv</label>
-              <input type="file" name="player_stats_csv" accept=".csv" required>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:1rem;">
-            <button class="btn" type="submit">Import stats</button>
-            {% if game.stats_imported_at %}
-              <span class="muted">Last import: {{ game.stats_imported_at|fmt_date }}</span>
-            {% endif %}
-          </div>
-        </form>
-      </div>
-    {% endif %}
+    {# Roster/stats imports are event-driven via the import endpoints; no per-game player_stats.csv uploads. #}
   {% endif %}
 </div>
 
@@ -433,9 +413,11 @@
         <svg id="game-events-timeline-svg" class="events-timeline-svg" role="img" aria-label="Game events timeline"></svg>
       </div>
       <script type="application/json" id="game-events-timeline-data">{{ events_rows|tojson }}</script>
+      <script type="application/json" id="game-shifts-timeline-data">{{ shift_timeline_rows|tojson }}</script>
       <script>
         (function () {
           var dataEl = document.getElementById("game-events-timeline-data");
+          var shiftEl = document.getElementById("game-shifts-timeline-data");
           var svg = document.getElementById("game-events-timeline-svg");
           var legendEl = document.getElementById("game-events-timeline-legend");
           var clipControlsEl = document.getElementById("timeline-clip-controls");
@@ -443,6 +425,7 @@
           if (!dataEl || !svg || !legendEl) return;
           var userClipLenS = {{ user_video_clip_len_s|tojson }};
           var userIsLoggedIn = {{ user_is_logged_in|tojson }};
+          var showShiftData = {{ show_shift_data|tojson }};
 
             var homeTeamName = {{ game.team1_name|default:"Home"|tojson }};
             var awayTeamName = {{ game.team2_name|default:"Away"|tojson }};
@@ -470,7 +453,9 @@
           } catch (e) {
             eventsRows = [];
           }
-          if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
+          if (!Array.isArray(eventsRows)) eventsRows = [];
+          // Shift on-ice/off-ice events are intentionally not shown on the game events timeline.
+          if (eventsRows.length === 0) return;
 
           function parseTimeToSeconds(s) {
             s = (s || "").trim();
@@ -504,20 +489,19 @@
             return a * 60 + b;
           }
 
-            function getValue(row, keys) {
-            if (!row) return "";
-            for (var i = 0; i < keys.length; i++) {
-              var k = keys[i];
-              if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
-              var kl = String(k).toLowerCase();
-              for (var kk in row) {
-                if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
-                if (String(kk).toLowerCase() === kl) return row[kk];
-              }
-            }
-            return "";
-          }
-
+    function getValue(row, keys) {
+      if (!row) return "";
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (Object.prototype.hasOwnProperty.call(row, k)) return row[k];
+        var kl = String(k).toLowerCase();
+        for (var kk in row) {
+          if (!Object.prototype.hasOwnProperty.call(row, kk)) continue;
+          if (String(kk).toLowerCase() === kl) return row[kk];
+        }
+      }
+      return "";
+    }
           function parsePeriod(p) {
             var s = String(p || "").trim();
             if (!s) return null;
@@ -542,7 +526,10 @@
             if (sl === "penalty expired" || sl === "penaltyexpired") return "Penalty Expired";
             if (sl === "powerplay" || sl === "power play" || sl === "pp") return "Power Play";
             if (sl === "penaltykill" || sl === "penalty kill" || sl === "pk") return "Penalty Kill";
-            if (sl.indexOf("rush") >= 0) return "Odd-Man Rush";
+            if (sl === "completedpass" || sl === "completed pass" || sl === "completed passes") return "Completed Pass";
+            if (sl === "on-ice" || sl === "on ice" || sl === "playeronice") return "On-Ice";
+            if (sl === "off-ice" || sl === "off ice" || sl === "playeroffice") return "Off-Ice";
+            if (sl.indexOf("rush") >= 0) return "Odd-Man Rushes";
             if (sl === "controlledentry" || sl === "controlled entry") return "Controlled Entry";
             if (sl === "controlledexit" || sl === "controlled exit") return "Controlled Exit";
             if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "Turnovers (forced)";
@@ -556,6 +543,7 @@
             var sl = String(label || "").trim().toLowerCase();
             if (!sl) return "other";
             if (sl === "goal") return "goal";
+            if (sl === "assist") return "assist";
             if (sl === "xg" || sl === "expected goal" || sl === "expectedgoal" || sl === "expected goal (xg)" || sl.indexOf("xg") >= 0) return "xg";
             if (sl === "sog") return "sog";
             if (sl === "shot") return "shot";
@@ -565,6 +553,9 @@
             if (sl === "penalty kill" || sl === "pk") return "pk";
             if (sl === "controlled entry") return "controlled_entry";
             if (sl === "controlled exit") return "controlled_exit";
+            if (sl === "completed pass" || sl === "completed passes") return "completed_pass";
+            if (sl === "on-ice" || sl === "on ice") return "on_ice";
+            if (sl === "off-ice" || sl === "off ice") return "off_ice";
             if (sl.indexOf("rush") >= 0) return "odd_man_rush";
             if (sl.indexOf("turnovers") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
             if (sl.indexOf("created") >= 0 && sl.indexOf("turnovers") >= 0) return "turnover_created";
@@ -591,6 +582,8 @@
             if (iconKey === "penalty" || iconKey === "pp" || iconKey === "pk") return "special_teams";
             if (isFinishFamily(iconKey)) return "finish";
             if (iconKey === "controlled_entry" || iconKey === "controlled_exit") return "transition";
+            if (iconKey === "completed_pass") return "completed_pass";
+            if (iconKey === "on_ice" || iconKey === "off_ice") return "shift";
             return iconKey;
           }
 
@@ -644,7 +637,7 @@
                   w.searchParams.set("v", String(id));
                   w.searchParams.set("t", String(start) + "s");
                   w.searchParams.set("autoplay", "1");
-                  w.searchParams.set("vq", "hd1080");
+                  w.searchParams.set("vq", "highres");
                   return w.toString();
                 } catch (e) {
                   return null;
@@ -666,7 +659,7 @@
                 params.set("start", String(start));
                 params.set("end", String(end));
                 // Best-effort quality hint (YouTube may ignore based on bandwidth/device/player size).
-                params.set("vq", "hd1080");
+                params.set("vq", "highres");
                 params.set("rel", "0");
               params.set("modestbranding", "1");
               params.set("playsinline", "1");
@@ -693,23 +686,37 @@
                 }
               } catch (e) {}
             }
+
+            function normTypeKey(s) {
+              return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+            }
   
                 function openVideoClipForRow(row, opts) {
                   opts = opts || {};
                   if (!gameVideoUrl || !videoPane || !videoIframe) return false;
                   var vs2 = parseVideoSecondsFromRow(row);
                   if (vs2 === null || !isFinite(vs2)) return false;
-                var totalClipS = (function () {
-                  var v = 30;
-                  try {
-                    if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
-                  } catch (e) {}
-                  if (!isFinite(v) || v <= 0) v = 30;
-                  if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
-                  return v;
-                })();
-                var preS = Math.max(0, Math.round(totalClipS * 2 / 3));
-                var postS = Math.max(0, totalClipS - preS);
+                var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+                var totalClipS = 30;
+                var preS = 20;
+                var postS = 10;
+                if (etKey === "completedpass") {
+                  totalClipS = 10;
+                  preS = 5;
+                  postS = 5;
+                } else {
+                  totalClipS = (function () {
+                    var v = 30;
+                    try {
+                      if (clipLenEl && String(clipLenEl.value || "").trim()) v = parseInt(String(clipLenEl.value || ""), 10);
+                    } catch (e) {}
+                    if (!isFinite(v) || v <= 0) v = 30;
+                    if (v !== 15 && v !== 20 && v !== 30 && v !== 45 && v !== 60 && v !== 90) v = 30;
+                    return v;
+                  })();
+                  preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+                  postS = Math.max(0, totalClipS - preS);
+                }
                 var start2 = Math.max(0, Math.floor(vs2 - preS));
                 var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
                 var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
@@ -723,7 +730,7 @@
                     var u2 = new URL(String(gameVideoUrl));
                     u2.searchParams.set("t", String(start2) + "s");
                     u2.searchParams.set("autoplay", "1");
-                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "hd1080");
+                    u2.searchParams.set("vq", u2.searchParams.get("vq") || "highres");
                     window.open(u2.toString(), "_blank", "noopener");
                   } catch (e) {
                     window.open(String(gameVideoUrl), "_blank", "noopener");
@@ -866,6 +873,18 @@
               circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
               path("M13 12l8-6", "none", stroke, 2, "round", "round");
               path("M15 14l6-4", "none", stroke, 2, "round", "round");
+            } else if (icon === "assist") {
+              // Assist: simple hand.
+              var skin2 = "rgba(230,232,236,0.92)";
+              var edge2 = "rgba(0,0,0,0.42)";
+              // Palm + thumb.
+              rect(7.2, 10.2, 8.8, 9.0, 2.2, skin2, edge2, 1.0);
+              rect(5.0, 12.0, 3.0, 5.2, 1.6, skin2, edge2, 1.0);
+              // Fingers.
+              rect(7.0, 6.0, 2.2, 5.0, 1.1, skin2, edge2, 1.0);
+              rect(9.4, 5.6, 2.2, 5.4, 1.1, skin2, edge2, 1.0);
+              rect(11.8, 5.8, 2.2, 5.2, 1.1, skin2, edge2, 1.0);
+              rect(14.2, 6.4, 2.2, 4.6, 1.1, skin2, edge2, 1.0);
             } else if (icon === "penalty") {
               // Penalty: yellow striped box (transparent background).
               rect(6.3, 6.6, 11.4, 14.2, 2.2, "#fbbf24", "rgba(0,0,0,0.55)", 1.2);
@@ -882,6 +901,15 @@
               rect(4, 7, 4.5, 10, 2, "rgba(0,0,0,0.0)", "#43b3ff", 2.2);
               path("M9.5 12h10", "none", "#43b3ff", 3, "round", "round");
               path("M16.5 8.5l4 3.5-4 3.5", "none", "#43b3ff", 3, "round", "round");
+            } else if (icon === "completed_pass") {
+              // Completed pass: bold yellow "C".
+              text(12, 12, "C", "#fbbf24", 14, 900);
+            } else if (icon === "on_ice") {
+              // Shift: on-ice marker (green up triangle).
+              path("M12 5l7 10H5z", "#22c55e", "rgba(0,0,0,0.40)", 1.1, "round", "round");
+            } else if (icon === "off_ice") {
+              // Shift: off-ice marker (red down triangle).
+              path("M5 9h14L12 19z", "#ef4444", "rgba(0,0,0,0.40)", 1.1, "round", "round");
             } else if (icon === "odd_man_rush") {
               // 3 arrows rushing vs 2 defenders (dots): "3-on-2".
               path("M4 9h7", "none", "#f59e0b", 2.8, "round", "round");
@@ -928,27 +956,24 @@
               path("M12 8.2c-1.8 0-3.6-.3-5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
               path("M12 8.2c1.8 0 3.6-.3 5.0-1.0", "none", "#f7c6a5", 2.2, "round", "round");
             } else if (icon === "takeaway") {
-              // Hand picking up a shiny diamond (transparent background).
-              var skin = "rgba(230,232,236,0.92)";
-              var edge = "rgba(0,0,0,0.42)";
-              var shine = "rgba(255,255,255,0.85)";
-              // Fingers (pinch)
-              rect(4.0, 7.0, 9.4, 2.8, 1.4, skin, edge, 1.0);
-              rect(4.4, 10.0, 8.2, 2.8, 1.4, skin, edge, 1.0);
-              // Thumb curve approaching diamond
-              path("M13.2 11.2c2.2.4 3.7 1.5 4.6 3.2.8 1.5.9 3.1.2 4.6", "none", skin, 2.8, "round", "round");
-              path("M13.2 11.2c2.2.4 3.7 1.5 4.6 3.2.8 1.5.9 3.1.2 4.6", "none", edge, 1.0, "round", "round");
-              // Palm (top-right)
-              rect(12.4, 3.4, 8.8, 7.6, 3.8, skin, edge, 1.0);
-
-              // Diamond being picked up (near pinch)
-              path("M11.0 13.8l3.2 3.2L11.0 20.2 7.8 17.0z", "#a7f3d0", edge, 1.0, "round", "round");
-              path("M11.0 13.8l1.6 3.2-1.6 3.2-1.6-3.2z", "rgba(255,255,255,0.30)", "none", 0, "round", "round");
-              // Sparkle lines
-              path("M15.6 13.4h2.1", "none", shine, 1.8, "round", "round");
-              path("M14.9 11.9v2.1", "none", shine, 1.8, "round", "round");
-              path("M6.6 16.5h2.1", "none", shine, 1.6, "round", "round");
-              path("M7.6 15.5v2.1", "none", shine, 1.6, "round", "round");
+              // Takeaway: simple revolver pictogram (non-violent, no muzzle flash).
+              var gunFill = "rgba(230,232,236,0.92)";
+              var gunEdge = "rgba(0,0,0,0.42)";
+              // Frame/body.
+              rect(5.8, 9.4, 7.4, 4.6, 1.6, gunFill, gunEdge, 1.0);
+              // Cylinder.
+              circle(14.1, 11.7, 2.3, gunFill, gunEdge, 1.0);
+              circle(14.1, 11.7, 0.7, "rgba(255,255,255,0.35)", "none", 0);
+              // Barrel + muzzle.
+              rect(15.9, 10.5, 6.1, 2.4, 1.2, gunFill, gunEdge, 1.0);
+              rect(21.6, 10.9, 1.3, 1.6, 0.7, gunFill, gunEdge, 1.0);
+              // Hammer.
+              rect(8.1, 7.8, 3.2, 1.6, 0.8, gunFill, gunEdge, 1.0);
+              // Grip.
+              path("M7.2 14.0h4.7v7.1c0 .7-.6 1.3-1.3 1.3H8.5c-.7 0-1.3-.6-1.3-1.3z", gunFill, gunEdge, 1.0, "round", "round");
+              // Trigger guard + trigger (subtle outline).
+              path("M12.7 14.1c1.6.1 2.6 1.3 2.6 2.7 0 1.7-1.4 3.1-3.1 3.1h-1.0", "none", gunEdge, 1.0, "round", "round");
+              path("M13.0 15.8c-.4.5-.4 1.2 0 1.6", "none", gunEdge, 1.0, "round", "round");
             } else {
               rect(5.5, 5.5, 13, 13, 3, "rgba(0,0,0,0.0)", "rgba(255,255,255,0.35)", 1.2);
               var t = String(opts.label || "?").trim();
@@ -956,6 +981,14 @@
             }
             return g;
           }
+
+          // Reuse these icon helpers in other scripts on this page (e.g., Player Events headings).
+          try {
+            window.HM_EVENT_ICONS = window.HM_EVENT_ICONS || {};
+            window.HM_EVENT_ICONS.typeKey = typeKey;
+            window.HM_EVENT_ICONS.iconGroup = iconGroup;
+            window.HM_EVENT_ICONS.normalizeTypeLabel = normalizeTypeLabel;
+          } catch (e) {}
 
           function clearSvg(el) {
             while (el.firstChild) el.removeChild(el.firstChild);
@@ -1024,6 +1057,7 @@
 
               var side = parseSide(r);
               var ik = typeKey(label);
+              if (ik === "on_ice" || ik === "off_ice") continue; // never show shift markers on this timeline
               var ll = String(label).trim().toLowerCase();
               if (ll === "penalty expired") {
                 penaltyEnds.push({
@@ -1168,8 +1202,6 @@
               (function inferSpansFromPenalties() {
                 if (!penaltyStarts.length) return;
 
-                var startsByPS = {};
-                var endsByPS = {};
                 var penaltyWindowsByPS = {};
                 var goalsByPeriod = {};
 
@@ -1231,133 +1263,148 @@
                   return null;
                 }
 
-                for (var a0 = 0; a0 < penaltyStarts.length; a0++) {
-                  var st = penaltyStarts[a0];
-                  var k = keyPS(st.period, st.side);
-                  if (!startsByPS[k]) startsByPS[k] = [];
-                startsByPS[k].push(st);
-              }
-              for (var e0 = 0; e0 < penaltyEnds.length; e0++) {
-                var en = penaltyEnds[e0];
-                var k2 = keyPS(en.period, en.side);
-                  if (!endsByPS[k2]) endsByPS[k2] = [];
-                  endsByPS[k2].push(en);
-                }
+                var allPenaltyWindowsBuilt = false;
+                function buildAllPenaltyWindows() {
+                  if (allPenaltyWindowsBuilt) return;
+                  allPenaltyWindowsBuilt = true;
 
-                function buildPenaltyWindows(period, side) {
-                  var k = keyPS(period, side);
-                  if (penaltyWindowsByPS[k]) return penaltyWindowsByPS[k];
-                  var starts = (startsByPS[k] || []).slice();
-                  var ends = (endsByPS[k] || []).slice();
-                  for (var i = 0; i < starts.length; i++) starts[i]._startElapsed = withinToElapsed(period, starts[i].tWithin);
-                  for (var j = 0; j < ends.length; j++) ends[j]._endElapsed = withinToElapsed(period, ends[j].tWithin);
-                  starts.sort(function (a, b) { return a._startElapsed - b._startElapsed; });
-                  ends.sort(function (a, b) { return a._endElapsed - b._endElapsed; });
-
-                  var used = {};
-                  var wins = [];
-
-                  function firstUnusedEnd(afterElapsed, jersey) {
-                    for (var k0 = 0; k0 < ends.length; k0++) {
-                      if (used[k0]) continue;
-                    if (ends[k0]._endElapsed < afterElapsed) continue;
-                    if (jersey && ends[k0].jersey && String(ends[k0].jersey) !== String(jersey)) continue;
-                    used[k0] = true;
-                    return ends[k0];
+                  // Init empty lists for each period+side so callers can always rely on an array.
+                  for (var pInit = 1; pInit <= maxPeriod; pInit++) {
+                    penaltyWindowsByPS[keyPS(pInit, "Home")] = [];
+                    penaltyWindowsByPS[keyPS(pInit, "Away")] = [];
                   }
-                  return null;
-                }
 
-                  var d = durations[period - 1] || 1200;
-                  for (var s0 = 0; s0 < starts.length; s0++) {
-                    var st = starts[s0];
-                    var a = st._startElapsed;
-                    var b = null;
-                    var endWithin = null;
-                    var endRow = null;
+                  // Flatten goals to absolute game seconds so we can end penalties by goal even
+                  // when they carry over to the next period.
+                  var goalsAbs = [];
+                  for (var pG = 1; pG <= maxPeriod; pG++) {
+                    var arr = goalsByPeriod[pG] || [];
+                    for (var gi = 0; gi < arr.length; gi++) {
+                      var g = arr[gi];
+                      goalsAbs.push({ abs: (offsets[pG - 1] || 0) + (g.elapsed || 0), side: g.side });
+                    }
+                  }
+                  goalsAbs.sort(function (a, b) { return a.abs - b.abs; });
+
+                  function findGoalNearAbs(otherSide, abs, tolS) {
+                    tolS = tolS || 2.0;
+                    for (var i = 0; i < goalsAbs.length; i++) {
+                      var g = goalsAbs[i];
+                      if (g.side !== otherSide) continue;
+                      if (Math.abs(g.abs - abs) <= tolS) return true;
+                    }
+                    return false;
+                  }
+
+                  function firstGoalBetweenAbs(otherSide, aAbs, bAbs) {
+                    for (var i = 0; i < goalsAbs.length; i++) {
+                      var g = goalsAbs[i];
+                      if (g.side !== otherSide) continue;
+                      if (g.abs >= aAbs - 0.5 && g.abs <= bAbs + 0.5) return g.abs;
+                    }
+                    return null;
+                  }
+
+                  var gameEndAbs = offsets[maxPeriod] || totalDuration;
+
+                  for (var s0 = 0; s0 < penaltyStarts.length; s0++) {
+                    var st = penaltyStarts[s0];
                     var pRow = st.row || {};
                     var minutes = parsePenaltyMinutes(pRow);
+                    if (minutes === null || !isFinite(minutes)) continue;
+
+                    var startAbs = (offsets[st.period - 1] || 0) + withinToElapsed(st.period, st.tWithin);
+                    if (!isFinite(startAbs)) continue;
+                    if (startAbs < 0) startAbs = 0;
+
+                    var scheduledEndAbs = startAbs + minutes * 60;
+                    var endAbs = Math.min(gameEndAbs, scheduledEndAbs);
+                    var reason = "";
                     var affectsManpower = minutes === 2;
-                    if (st.endWithin !== null && isFinite(st.endWithin)) {
-                      b = withinToElapsed(period, st.endWithin);
-                      endWithin = st.endWithin;
-                    } else {
-                      var match = firstUnusedEnd(a, st.jersey || "");
-                      if (!match && (st.jersey || "")) match = firstUnusedEnd(a, "");
-                      if (match) {
-                        b = match._endElapsed;
-                        endWithin = match.tWithin;
-                        endRow = match.row || null;
+
+                    // Minor penalties end early on a goal by the other team (modelled approximately).
+                    if (affectsManpower) {
+                      var otherSide = st.side === "Home" ? "Away" : "Home";
+                      var gEndAbs = firstGoalBetweenAbs(otherSide, startAbs, endAbs);
+                      if (gEndAbs !== null && isFinite(gEndAbs) && gEndAbs < endAbs - 0.1) endAbs = Math.max(startAbs, gEndAbs);
+                      if (Math.abs(endAbs - scheduledEndAbs) <= 2) {
+                        reason = "Timed out";
+                      } else if (findGoalNearAbs(otherSide, endAbs, 2.0)) {
+                        reason = "Ended by goal";
+                      } else if (endAbs >= gameEndAbs - 1) {
+                        reason = "End of game";
+                      } else if (endAbs < scheduledEndAbs - 2) {
+                        reason = "Ended early";
                       }
+                    } else if (endAbs >= gameEndAbs - 1) {
+                      reason = "End of game";
+                    } else if (Math.abs(endAbs - scheduledEndAbs) <= 2) {
+                      reason = "Timed out";
                     }
-                    if ((b === null || !isFinite(b)) && minutes !== null) {
-                      b = a + minutes * 60;
-                      endWithin = elapsedToWithin(period, b);
-                    }
-                    if (b === null || !isFinite(b)) continue;
-                    var lo = Math.max(0, Math.min(d, Math.min(a, b)));
-                    var hi = Math.max(0, Math.min(d, Math.max(a, b)));
-                    if (hi <= lo) continue;
+
+                    if (!isFinite(endAbs) || endAbs <= startAbs + 0.1) continue;
+
                     var infraction = parsePenaltyInfraction(pRow);
                     var player = String(getValue(pRow, ["Attributed Players", "Player", "Name"]) || "").trim();
                     var jersey = String(st.jersey || extractPenaltyJersey(pRow) || "").trim();
-                    var expectedEnd = minutes !== null ? (lo + minutes * 60) : null;
-                    var reason = "";
-                    if (minutes !== null && expectedEnd !== null) {
-                      var otherSide2 = side === "Home" ? "Away" : "Home";
-                      var desiredHi = Math.min(d, expectedEnd);
-                      if (affectsManpower) {
-                        var gEnd = firstGoalBetween(period, otherSide2, lo, desiredHi);
-                        if (gEnd !== null && isFinite(gEnd) && gEnd < desiredHi - 0.1) desiredHi = Math.max(lo, Math.min(d, gEnd));
-                      }
-                      if (Math.abs((hi - lo) - minutes * 60) > 5) {
-                        hi = desiredHi;
-                        endWithin = elapsedToWithin(period, hi);
-                      }
+
+                    // Split across periods so PP/PK spans visually carry over.
+                    for (var p = st.period; p <= maxPeriod; p++) {
+                      var pStartAbs = offsets[p - 1] || 0;
+                      var pEndAbs = offsets[p] || (pStartAbs + (durations[p - 1] || 1200));
+                      if (endAbs <= pStartAbs + 1e-6) break;
+
+                      var segStartAbs = Math.max(startAbs, pStartAbs);
+                      var segEndAbs = Math.min(endAbs, pEndAbs);
+                      if (segEndAbs <= segStartAbs + 1e-6) continue;
+
+                      var lo = segStartAbs - pStartAbs;
+                      var hi = segEndAbs - pStartAbs;
+                      if (hi <= lo + 1e-6) continue;
+
+                      var startWithin = elapsedToWithin(p, lo);
+                      var endWithin = elapsedToWithin(p, hi);
+                      var segReason = segEndAbs < endAbs - 0.5 ? "Carryover" : reason;
+
+                      var startLabel = secondsToLabel(startWithin);
+                      var endLabel = secondsToLabel(endWithin);
+                      var lineParts = [];
+                      if (jersey) lineParts.push("#" + jersey);
+                      if (player) lineParts.push(player);
+                      if (infraction) lineParts.push("— " + infraction);
+                      lineParts.push("(" + minutes + "m)");
+                      lineParts.push(startLabel + "–" + endLabel);
+                      lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
+                      if (segReason) lineParts.push("[" + segReason + "]");
+
+                      penaltyWindowsByPS[keyPS(p, st.side)].push({
+                        period: p,
+                        side: st.side,
+                        lo: lo,
+                        hi: hi,
+                        startWithin: startWithin,
+                        endWithin: endWithin,
+                        affectsManpower: affectsManpower,
+                        row: pRow,
+                        endRow: null,
+                        line: lineParts.join(" "),
+                      });
                     }
-                    if (minutes !== null && expectedEnd !== null) {
-                      if (Math.abs(hi - expectedEnd) <= 2) {
-                        reason = "Timed out";
-                      } else if (hi < expectedEnd - 2) {
-                        var otherSide = side === "Home" ? "Away" : "Home";
-                        if (findGoalNear(period, otherSide, hi, 2.0)) {
-                          reason = "Ended by goal";
-                        } else if (hi >= d - 1) {
-                          reason = period === maxPeriod ? "End of game" : "End of period";
-                        } else {
-                          reason = "Ended early";
-                        }
-                      } else if (hi >= d - 1) {
-                        reason = period === maxPeriod ? "End of game" : "End of period";
-                      }
-                    } else if (hi >= d - 1) {
-                      reason = period === maxPeriod ? "End of game" : "End of period";
-                    }
-                    var startLabel = secondsToLabel(st.tWithin);
-                    var endLabel = endWithin !== null && isFinite(endWithin) ? secondsToLabel(endWithin) : secondsToLabel(elapsedToWithin(period, hi));
-                    var lineParts = [];
-                    if (jersey) lineParts.push("#" + jersey);
-                    if (player) lineParts.push(player);
-                    if (infraction) lineParts.push("— " + infraction);
-                    if (minutes !== null) lineParts.push("(" + minutes + "m)");
-                    lineParts.push(startLabel + "–" + endLabel);
-                    lineParts.push("dur " + secondsToLabel(Math.max(0, hi - lo)));
-                    if (reason) lineParts.push("[" + reason + "]");
-                    wins.push({
-                      period: period,
-                      side: side,
-                      lo: lo,
-                      hi: hi,
-                      startWithin: st.tWithin,
-                      endWithin: endWithin,
-                      affectsManpower: affectsManpower,
-                      row: pRow,
-                      endRow: endRow,
-                      line: lineParts.join(" "),
+                  }
+
+                  for (var pSort = 1; pSort <= maxPeriod; pSort++) {
+                    ["Home", "Away"].forEach(function (s) {
+                      var k = keyPS(pSort, s);
+                      var wins = penaltyWindowsByPS[k] || [];
+                      wins.sort(function (a, b) { return a.lo - b.lo; });
                     });
                   }
-                  penaltyWindowsByPS[k] = wins;
-                  return wins;
+                }
+
+                function buildPenaltyWindows(period, side) {
+                  buildAllPenaltyWindows();
+                  var k = keyPS(period, side);
+                  return penaltyWindowsByPS[k] || [];
                 }
 
                 function buildIntervals(period, side) {
@@ -1472,6 +1519,8 @@
               "special_teams",
               "finish",
               "transition",
+              "completed_pass",
+              "shift",
               "odd_man_rush",
               "takeaway",
               "giveaway",
@@ -1487,6 +1536,9 @@
               "shot",
               "controlled_entry",
               "controlled_exit",
+              "completed_pass",
+              "on_ice",
+              "off_ice",
               "odd_man_rush",
               "takeaway",
               "giveaway",
@@ -2280,6 +2332,56 @@
             } else {
               attachEventsTableVideoHandlers();
             }
+
+            function decorateEventTypeCells() {
+              var tbl = document.getElementById("game-events-table");
+              if (!tbl) return;
+              var headRow = tbl.querySelector("thead tr");
+              if (!headRow) return;
+              var ths = headRow.querySelectorAll("th");
+              var targetIdx = -1;
+              for (var i = 0; i < ths.length; i++) {
+                var txt = (ths[i].textContent || "").trim().toLowerCase();
+                if (txt === "event type" || txt === "event" || txt === "type") {
+                  targetIdx = i;
+                  break;
+                }
+              }
+              if (targetIdx === -1) return;
+              var rows = tbl.querySelectorAll("tbody tr");
+              for (var r = 0; r < rows.length; r++) {
+                var cells = rows[r].children;
+                if (targetIdx >= cells.length) continue;
+                var cell = cells[targetIdx];
+                if (!cell || cell.getAttribute("data-iconified") === "1") continue;
+                var label = (cell.textContent || "").trim();
+                if (!label) continue;
+                var normalizedLabel = normalizeTypeLabel(label) || label;
+                var iconKey = typeKey(normalizedLabel);
+                var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute("viewBox", "0 0 24 24");
+                svg.setAttribute("aria-hidden", "true");
+                svg.classList.add("event-type-icon");
+                var gWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                gWrap.setAttribute("transform", "translate(12,12)");
+                gWrap.appendChild(iconGroup(iconKey, { size: 20, label: normalizedLabel }));
+                svg.appendChild(gWrap);
+                var wrap = document.createElement("div");
+                wrap.className = "event-type-cell";
+                wrap.appendChild(svg);
+                var txtNode = document.createElement("span");
+                txtNode.textContent = normalizedLabel;
+                wrap.appendChild(txtNode);
+                while (cell.firstChild) cell.removeChild(cell.firstChild);
+                cell.appendChild(wrap);
+                cell.setAttribute("data-iconified", "1");
+              }
+            }
+            if (document.readyState === "loading") {
+              document.addEventListener("DOMContentLoaded", decorateEventTypeCells);
+            } else {
+              decorateEventTypeCells();
+            }
           })();
         </script>
     </div>
@@ -2340,11 +2442,42 @@
 
 <dialog id="events-drilldown-modal" style="max-width:900px;width:95vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
   <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
-    <div>
-      <div id="events-drilldown-title" style="font-weight:700;"></div>
-      <div id="events-drilldown-subtitle" class="muted" style="font-size:.9rem;"></div>
+	    <div>
+	      <div id="events-drilldown-title" style="font-weight:700;"></div>
+	      <div id="events-drilldown-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="events-drilldown-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="events-drilldown-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.12);">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-weight:600;">Video clip</span>
+        <span id="events-drilldown-video-meta" class="muted" style="margin-left:.5rem;"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <a
+          id="events-drilldown-video-open-link"
+          class="btn secondary"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display:none;"
+        >Open</a>
+        <button type="button" class="btn" id="events-drilldown-video-close">Close</button>
+      </div>
     </div>
-    <button id="events-drilldown-close" class="btn" type="button">Close</button>
+    <div style="margin-top:10px;aspect-ratio:16/9;max-width:100%;">
+      <iframe
+        id="events-drilldown-video-iframe"
+        title="Game video clip"
+        style="border:0;width:100%;height:100%;background:#000;"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowfullscreen
+      ></iframe>
+    </div>
+    <div class="yt-quality-hint">
+      <span class="yt-quality-text">Click the gear icon and select Highest quality</span>
+      <span class="yt-quality-arrow" aria-hidden="true">↑</span>
+    </div>
   </div>
   <div id="events-drilldown-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
@@ -2401,7 +2534,7 @@
         }
         return String(m) + ":" + (s < 10 ? "0" + String(s) : String(s));
       }
-      function getValue(row, keys) {
+    function getValue(row, keys) {
         if (!row) return "";
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
@@ -2413,6 +2546,241 @@
         }
       }
       return "";
+    }
+
+    function headingIconKey(label) {
+      var sl = String(label || "").trim().toLowerCase();
+      if (!sl) return "other";
+      if (sl.indexOf("goals") === 0 || sl.indexOf("goal") === 0) return "goal";
+      if (sl.indexOf("xg") === 0) return "xg";
+      if (sl.indexOf("sog") === 0) return "sog";
+      if (sl.indexOf("shot") === 0) return "shot";
+      if (sl.indexOf("assists") === 0 || sl === "assist") return "assist";
+      if (sl.indexOf("completed pass") === 0) return "completed_pass";
+      if (sl.indexOf("controlled entry") === 0) return "controlled_entry";
+      if (sl.indexOf("controlled exit") === 0) return "controlled_exit";
+      if (sl.indexOf("odd-man") === 0 || sl.indexOf("odd man") === 0 || sl.indexOf("rush") >= 0) return "odd_man_rush";
+      if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+      if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "turnover_created";
+      if (sl.indexOf("giveaway") === 0) return "giveaway";
+      if (sl.indexOf("takeaway") === 0) return "takeaway";
+      if (sl.indexOf("penalty expired") === 0) return "penalty_expired";
+      if (sl.indexOf("penalty") === 0) return "penalty";
+      var icons = window.HM_EVENT_ICONS || {};
+      if (typeof icons.typeKey === "function") return icons.typeKey(label);
+      return "other";
+    }
+
+    function makeHeadingIcon(label) {
+      var icons = window.HM_EVENT_ICONS || {};
+      if (typeof icons.iconGroup !== "function") return null;
+      var iconKey = headingIconKey(label);
+      if (!iconKey) return null;
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      svg.classList.add("event-type-icon");
+      var gWrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      gWrap.setAttribute("transform", "translate(12,12)");
+      gWrap.appendChild(icons.iconGroup(iconKey, { size: 18, label: label }));
+      svg.appendChild(gWrap);
+      return svg;
+    }
+
+    function makeEventsHeading(tagName, label) {
+      var h = document.createElement(tagName || "h4");
+      h.style.margin = "0.75rem 0 0.35rem 0";
+      var wrap = document.createElement("span");
+      wrap.className = "event-type-cell";
+      var icon = makeHeadingIcon(label);
+      if (icon) wrap.appendChild(icon);
+      var txt = document.createElement("span");
+      txt.textContent = String(label || "");
+      wrap.appendChild(txt);
+      h.appendChild(wrap);
+      return h;
+    }
+    var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
+    var drilldownClipLenEl = document.getElementById("timeline-clip-len");
+
+    function parseVideoSecondsFromRow(row) {
+      var vsTxt = String(
+        getValue(row, ["Video Seconds", "VideoSeconds", "Video S", "VideoS"]) || ""
+      ).trim();
+      if (vsTxt) {
+        if (vsTxt.match(/^-?\d+(\.\d+)?$/)) {
+          var f = parseFloat(vsTxt);
+          return isFinite(f) ? Math.floor(f) : null;
+        }
+        var t = parseTimeToSeconds(vsTxt);
+        if (t !== null && isFinite(t)) return Math.floor(t);
+      }
+      var vt = String(getValue(row, ["Video Time", "VideoTime"]) || "").trim();
+      var vtS = parseTimeToSeconds(vt);
+      return vtS !== null && isFinite(vtS) ? Math.floor(vtS) : null;
+    }
+
+    function extractYoutubeId(url) {
+      if (!url) return null;
+      try {
+        var u = new URL(String(url), window.location.origin);
+        var host = String(u.hostname || "").toLowerCase();
+        if (host === "youtu.be") {
+          var p = String(u.pathname || "").replace(/^\//, "");
+          return p ? p.split("/")[0] : null;
+        }
+        var v = u.searchParams.get("v");
+        if (v) return v;
+        var path = String(u.pathname || "");
+        var m = path.match(/\/embed\/([^/?#]+)/) || path.match(/\/shorts\/([^/?#]+)/);
+        return m ? m[1] : null;
+      } catch (e) {}
+      return null;
+    }
+
+      function buildYoutubeWatchUrl(url, startSec) {
+      var id = extractYoutubeId(url);
+      if (!id) return null;
+      var start = Math.max(0, Math.floor(startSec || 0));
+      try {
+        var w = new URL("https://www.youtube.com/watch");
+        w.searchParams.set("v", String(id));
+        w.searchParams.set("t", String(start) + "s");
+        w.searchParams.set("autoplay", "1");
+        w.searchParams.set("vq", "highres");
+        return w.toString();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function buildYoutubeEmbedUrl(url, startSec, endSec) {
+      var id = extractYoutubeId(url);
+      if (!id) return null;
+      var start = Math.max(0, Math.floor(startSec || 0));
+      var end = Math.max(start + 1, Math.floor(endSec || 0));
+      var params = new URLSearchParams();
+      params.set("autoplay", "1");
+      params.set("mute", "1");
+      params.set("enablejsapi", "1");
+      params.set("origin", String(window.location.origin || ""));
+      params.set("start", String(start));
+      params.set("end", String(end));
+      params.set("vq", "highres");
+      params.set("rel", "0");
+      params.set("modestbranding", "1");
+      params.set("playsinline", "1");
+      return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+    }
+
+    function requestYouTubeBestQuality(iframeEl) {
+      try {
+        if (!iframeEl || !iframeEl.contentWindow) return;
+        var cmds = [
+          { func: "setPlaybackQuality", args: ["highres"] },
+          { func: "setPlaybackQuality", args: ["hd2160"] },
+          { func: "setPlaybackQuality", args: ["hd1440"] },
+          { func: "setPlaybackQuality", args: ["hd1080"] },
+          { func: "setPlaybackQuality", args: ["hd720"] },
+          { func: "setPlaybackQuality", args: ["large"] },
+          { func: "setPlaybackQualityRange", args: ["highres", "highres"] },
+          { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+        ];
+        for (var i = 0; i < cmds.length; i++) {
+          iframeEl.contentWindow.postMessage(
+            JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+            "https://www.youtube-nocookie.com"
+          );
+        }
+      } catch (e) {}
+    }
+
+    function closeDrilldownVideo() {
+      var pane = document.getElementById("events-drilldown-video-pane");
+      var iframe = document.getElementById("events-drilldown-video-iframe");
+      var meta = document.getElementById("events-drilldown-video-meta");
+      var open = document.getElementById("events-drilldown-video-open-link");
+      if (iframe) iframe.src = "";
+      if (open) {
+        open.href = "";
+        open.style.display = "none";
+      }
+      if (pane) pane.style.display = "none";
+      if (meta) meta.textContent = "";
+    }
+
+    var drilldownVideoClose = document.getElementById("events-drilldown-video-close");
+    if (drilldownVideoClose) {
+      drilldownVideoClose.addEventListener("click", closeDrilldownVideo);
+    }
+
+    function openDrilldownVideoClipForRow(row, opts) {
+      opts = opts || {};
+      if (!gameVideoUrl) return false;
+      var pane = document.getElementById("events-drilldown-video-pane");
+      var iframe = document.getElementById("events-drilldown-video-iframe");
+      var meta = document.getElementById("events-drilldown-video-meta");
+      var open = document.getElementById("events-drilldown-video-open-link");
+      if (!pane || !iframe) return false;
+      var vs2 = parseVideoSecondsFromRow(row);
+      if (vs2 === null || !isFinite(vs2)) return false;
+
+      var totalClipS = 30;
+      try {
+        var v = parseInt(String(drilldownClipLenEl && drilldownClipLenEl.value || "").trim(), 10);
+        if (isFinite(v) && v > 0) totalClipS = v;
+      } catch (e) {}
+      var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+      var preS = 20;
+      var postS = 10;
+      if (etKey === "completedpass") {
+        totalClipS = 10;
+        preS = 5;
+        postS = 5;
+      } else {
+        if (totalClipS !== 15 && totalClipS !== 20 && totalClipS !== 30 && totalClipS !== 45 && totalClipS !== 60 && totalClipS !== 90) {
+          totalClipS = 30;
+        }
+        preS = Math.max(0, Math.round(totalClipS * 2 / 3));
+        postS = Math.max(0, totalClipS - preS);
+      }
+      var start2 = Math.max(0, Math.floor(vs2 - preS));
+      var end2 = Math.max(start2 + 1, Math.floor(vs2 + postS));
+
+      var watchUrl = buildYoutubeWatchUrl(gameVideoUrl, start2);
+      if (open) {
+        open.href = watchUrl || "";
+        open.style.display = watchUrl ? "" : "none";
+      }
+      var embed = buildYoutubeEmbedUrl(gameVideoUrl, start2, end2);
+      if (!embed) return false;
+      iframe.src = embed;
+      iframe.setAttribute("src", embed);
+      // Best-effort: request highest available quality after navigation.
+      try {
+        if (!iframe._hmYtQualityHookInstalled) {
+          iframe._hmYtQualityHookInstalled = true;
+          iframe.addEventListener("load", function () { requestYouTubeBestQuality(iframe); });
+        }
+        requestYouTubeBestQuality(iframe);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 250);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 800);
+        window.setTimeout(function () { requestYouTubeBestQuality(iframe); }, 1600);
+      } catch (e) {}
+      if (meta) {
+        var label = (opts.label ? String(opts.label) : "");
+        var at = (opts.at ? String(opts.at) : "");
+        var metaTxt = [];
+        if (label) metaTxt.push(label);
+        if (at) metaTxt.push(at);
+        metaTxt.push(totalClipS + "s clip (" + preS + "s before, " + postS + "s after)");
+        meta.textContent = metaTxt.join(" • ");
+      }
+      pane.style.display = "block";
+      try {
+        pane.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) {}
+      return true;
     }
     function rowSide(row) {
       var s = String(getValue(row, ["Team Side", "TeamSide", "Side", "Team Rel", "TeamRel", "Team"])).trim().toLowerCase();
@@ -2440,16 +2808,109 @@
     }
     if (!Array.isArray(eventsRows) || eventsRows.length === 0) return;
 
+    var _assistsByTime = {};
+    var _assistsBySideTime = {};
+    function _pushUniqueAssist(list, jersey, name) {
+      if (!list) return;
+      var j = String(jersey || "").trim();
+      if (!j) return;
+      var nm = String(name || "").trim();
+      for (var i = 0; i < list.length; i++) {
+        var cur = list[i] || {};
+        if (String(cur.jersey || "") === j) {
+          if (!String(cur.name || "").trim() && nm) cur.name = nm;
+          return;
+        }
+      }
+      list.push({ jersey: j, name: nm });
+    }
+    eventsRows.forEach(function (row) {
+      if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "assist") return;
+      var period = rowPeriod(row);
+      if (period === null) return;
+      var gs = rowGameSeconds(row);
+      if (gs === null) return;
+      var jersey = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+      if (!jersey) return;
+      var assistName = String(getValue(row, ["Attributed Players", "AttributedPlayers"]) || "").trim();
+      var k0 = String(period) + "|" + String(gs);
+      if (!_assistsByTime[k0]) _assistsByTime[k0] = [];
+      _pushUniqueAssist(_assistsByTime[k0], jersey, assistName);
+      var side = rowSide(row);
+      if (side) {
+        var k1 = k0 + "|" + String(side);
+        if (!_assistsBySideTime[k1]) _assistsBySideTime[k1] = [];
+        _pushUniqueAssist(_assistsBySideTime[k1], jersey, assistName);
+      }
+    });
+
+    function _assistJerseysForGoalRow(row) {
+      var period = rowPeriod(row);
+      if (period === null) return [];
+      var gs = rowGameSeconds(row);
+      if (gs === null) return [];
+      var k0 = String(period) + "|" + String(gs);
+      var side = rowSide(row);
+      var k1 = side ? (k0 + "|" + String(side)) : "";
+      return (k1 && _assistsBySideTime[k1]) || _assistsByTime[k0] || [];
+    }
+
+    function _stripGoalScorerFromDetails(rawDetails, scorerName) {
+      var s = String(rawDetails || "").trim();
+      if (!s) return "";
+
+      // If this was prefixed by withDetailsTag("Goal"), keep the tag but operate on the base.
+      var tag = "";
+      if (s === "Goal") {
+        tag = "Goal";
+        s = "";
+      } else if (s.indexOf("Goal — ") === 0) {
+        tag = "Goal";
+        s = String(s.slice("Goal — ".length) || "").trim();
+      }
+
+      // Remove the common "(A: ...)" suffix from TimeToScore goals; assists are shown separately.
+      s = s.replace(/\(\s*A\s*:\s*[^)]*\)\s*$/i, "").trim();
+
+      var name = String(scorerName || "").trim();
+      if (name) {
+        var esc = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        // Handle strings like "#9 Ethan L Olivier" / "9Ethan L Olivier" / "#9Ethan L Olivier".
+        var reJerseyName = new RegExp("^#?\\s*\\d+\\s*" + esc + "(\\b|$)", "i");
+        if (reJerseyName.test(s)) {
+          s = String(s.replace(reJerseyName, "") || "").trim();
+          s = s.replace(/^[\\s\\-–—:]+/, "").trim();
+        }
+
+        var sLower = s.toLowerCase();
+        var nameLower = name.toLowerCase();
+        if (sLower === nameLower) s = "";
+        else if (sLower.indexOf(nameLower) === 0) {
+          s = String(s.slice(name.length) || "").trim();
+          s = s.replace(/^[\s\-–—:]+/, "").trim();
+        }
+      }
+
+      return tag ? (tag + (s ? (" — " + s) : "")) : s;
+    }
+
     var STAT_TO_EVENT_TYPE_KEYS = {
       goals: ["goal"],
       assists: ["assist"],
-      expected_goals: ["expectedgoal", "goal"],
-      sog: ["sog", "expectedgoal", "goal"],
-      shots: ["shot", "sog", "expectedgoal", "goal"],
+      expected_goals: ["xg", "expectedgoal", "goal"],
+      sog: ["sog", "xg", "expectedgoal", "goal"],
+      shots: ["shot", "sog", "xg", "expectedgoal", "goal"],
       pim: ["penalty"],
+      completed_passes: ["completedpass"],
       plus_minus: ["goal"],
       gf_counted: ["goal"],
       ga_counted: ["goal"],
+    };
+    var PLAYER_EVENT_TYPE_EXCLUDE = {
+      controlledentry: true,
+      controlledexit: true,
+      oddmanrush: true,
     };
 
     var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
@@ -2467,6 +2928,7 @@
     }
 
     function buildEventsTable(container, rows) {
+      var tableCtx = arguments.length > 2 && arguments[2] ? arguments[2] : {};
       var wrap = document.createElement("div");
       wrap.className = "table-fit-wrap";
       var table = document.createElement("table");
@@ -2501,11 +2963,51 @@
                 vs2 = t !== null && isFinite(t) ? Math.floor(t) : null;
               }
             }
-            if (vs2 !== null && vs2 >= 0) {
+          if (vs2 !== null && vs2 >= 0) {
               tVideo = fmtSecondsToTime(vs2);
             }
           }
           var details = String(getValue(row, ["Details"]) || "").trim();
+          if (tableCtx && tableCtx.hideGoalScorer) {
+            var typeKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+            if (typeKey === "goal") {
+              var baseTag = "";
+              var baseDetails = details;
+              if (details === "Goal") {
+                baseTag = "Goal";
+                baseDetails = "";
+              } else if (details.indexOf("Goal — ") === 0) {
+                baseTag = "Goal";
+                baseDetails = String(details.slice("Goal — ".length) || "").trim();
+              }
+
+              var assists = _assistJerseysForGoalRow(row);
+              var assistLines = [];
+              function _fmtAssist(a) {
+                if (!a) return "";
+                var j = String(a.jersey || "").trim();
+                if (!j) return "";
+                var nm = String(a.name || "").trim();
+                return "#" + j + (nm ? (" " + nm) : "");
+              }
+              if (assists && assists.length === 1) assistLines.push("A: " + _fmtAssist(assists[0]));
+              else if (assists && assists.length >= 2) {
+                assistLines.push("A1: " + _fmtAssist(assists[0]));
+                assistLines.push("A2: " + _fmtAssist(assists[1]));
+              }
+
+              var extra = _stripGoalScorerFromDetails(baseDetails, tableCtx.scorerName || "");
+              if (extra && (extra === "Goal" || extra.indexOf("Goal — ") === 0)) {
+                // _stripGoalScorerFromDetails can re-apply a Goal tag; don't double-tag.
+                extra = String(extra.replace(/^Goal\s*(—\s*)?/, "") || "").trim();
+              }
+
+              var outLines = assistLines.slice();
+              if (extra) outLines.push(extra);
+              if (baseTag && outLines.length) outLines[0] = baseTag + " — " + outLines[0];
+              details = outLines.length ? outLines.join("\n") : (baseTag || "");
+            }
+          }
           var src = String(getValue(row, ["Source"]) || "").trim();
 
         var tdP = document.createElement("td");
@@ -2517,7 +3019,7 @@
         tr.appendChild(tdT);
 
         var tdV = document.createElement("td");
-        if (tVideo && typeof window.hmOpenVideoClipForRow === "function") {
+        if (tVideo && typeof openDrilldownVideoClipForRow === "function") {
           var btn = document.createElement("button");
           btn.type = "button";
           btn.className = "btn secondary";
@@ -2529,7 +3031,7 @@
             var atTxt = "";
             if (period) atTxt = "P" + period + (tGame ? (" " + tGame) : "");
             else if (tGame) atTxt = tGame;
-            try { window.hmOpenVideoClipForRow(row, { label: et, at: atTxt }); } catch (e) {}
+            try { openDrilldownVideoClipForRow(row, { label: et, at: atTxt }); } catch (e) {}
           });
           tdV.appendChild(btn);
         } else {
@@ -2539,6 +3041,7 @@
 
         var tdD = document.createElement("td");
         tdD.textContent = details;
+        if (details.indexOf("\n") >= 0) tdD.className = "cell-pre";
         tr.appendChild(tdD);
 
         var tdS = document.createElement("td");
@@ -2596,6 +3099,24 @@
         return { order: order, groups: groups };
       }
 
+      function moveGroupToEnd(grouped, labelLower) {
+        try {
+          if (!grouped || !grouped.order || !grouped.groups) return grouped;
+          var k = String(labelLower || "").trim().toLowerCase();
+          if (!k) return grouped;
+          if (!grouped.groups[k]) return grouped;
+          var out = [];
+          for (var i = 0; i < grouped.order.length; i++) {
+            if (grouped.order[i] !== k) out.push(grouped.order[i]);
+          }
+          out.push(k);
+          grouped.order = out;
+          return grouped;
+        } catch (e) {
+          return grouped;
+        }
+      }
+
       function withDetailsTag(row, tag) {
         var copy = Object.assign({}, row);
         var base = String(getValue(row, ["Details"]) || "").trim();
@@ -2620,7 +3141,7 @@
             shot.push(withDetailsTag(row, "Goal"));
           } else if (k === "assist") {
             assists.push(row);
-          } else if (k === "expectedgoal") {
+          } else if (k === "xg" || k === "expectedgoal") {
             xg.push(withDetailsTag(row, "xG"));
             sog.push(withDetailsTag(row, "xG"));
             shot.push(withDetailsTag(row, "xG"));
@@ -2677,6 +3198,12 @@
             if (rs && rs !== side) return false;
           }
           var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
+          if (PLAYER_EVENT_TYPE_EXCLUDE[etKey]) return false;
+          // Only show Completed Passes from shift spreadsheets (not TimeToScore) on the per-game page.
+          if (etKey === "completedpass") {
+            var src = String(getValue(row, ["Source", "source"]) || "").trim().toLowerCase();
+            if (src && src.indexOf("shift") < 0 && src.indexOf("long") < 0) return false;
+          }
           if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
 
           var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
@@ -2735,6 +3262,7 @@
       var pLabel = playerName + (playerJersey ? " (#" + extractJersey(playerJersey) + ")" : "");
       subtitleEl.textContent = statLabel ? (pLabel + " • " + statLabel) : pLabel;
       bodyEl.innerHTML = "";
+      closeDrilldownVideo();
 
       if (!filtered.length && !onIceGoals.length) {
         var p = document.createElement("p");
@@ -2755,14 +3283,11 @@
                 var label = pair[0];
                 var rows = pair[1] || [];
                 if (!rows.length) return;
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = label;
-                bodyEl.appendChild(h);
-                buildEventsTable(bodyEl, rows);
+                bodyEl.appendChild(makeEventsHeading("h4", label));
+                buildEventsTable(bodyEl, rows, { hideGoalScorer: true, scorerName: playerName });
               });
 
-              var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
+              var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
               var remaining = filtered.filter(function (row) {
                 return !chainKeys[normTypeKey(getValue(row, ["Event Type", "Event"]))];
               });
@@ -2770,60 +3295,44 @@
                 var byType = groupRows(remaining, function (r) {
                   return getValue(r, ["Event Type", "Event"]);
                 });
+                byType = moveGroupToEnd(byType, "completed pass");
                 byType.order.forEach(function (k) {
-                  var h = document.createElement("h4");
-                  h.style.margin = "0.75rem 0 0.35rem 0";
-                  h.textContent = byType.groups[k].label;
-                  bodyEl.appendChild(h);
-                  buildEventsTable(bodyEl, byType.groups[k].rows);
+                  bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
+                  buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
                 });
               }
             } else if (statKey === "expected_goals") {
               var xgRows = buildShotChainTables(filtered).xg;
               if (xgRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "xG (Expected Goal)";
-                bodyEl.appendChild(h);
-                buildEventsTable(bodyEl, xgRows);
+                bodyEl.appendChild(makeEventsHeading("h4", "xG (Expected Goal)"));
+                buildEventsTable(bodyEl, xgRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "sog") {
               var sogRows = buildShotChainTables(filtered).sog;
               if (sogRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "SOG";
-                bodyEl.appendChild(h);
-                buildEventsTable(bodyEl, sogRows);
+                bodyEl.appendChild(makeEventsHeading("h4", "SOG"));
+                buildEventsTable(bodyEl, sogRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "shots") {
               var shotRows = buildShotChainTables(filtered).shot;
               if (shotRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "Shot";
-                bodyEl.appendChild(h);
-                buildEventsTable(bodyEl, shotRows);
+                bodyEl.appendChild(makeEventsHeading("h4", "Shot"));
+                buildEventsTable(bodyEl, shotRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else if (statKey === "goals") {
               var goalRows = buildShotChainTables(filtered).goals;
               if (goalRows.length) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = "Goals";
-                bodyEl.appendChild(h);
-                buildEventsTable(bodyEl, goalRows);
+                bodyEl.appendChild(makeEventsHeading("h4", "Goals"));
+                buildEventsTable(bodyEl, goalRows, { hideGoalScorer: true, scorerName: playerName });
               }
             } else {
               var byType = groupRows(filtered, function (r) {
                 return getValue(r, ["Event Type", "Event"]);
               });
+              byType = moveGroupToEnd(byType, "completed pass");
               byType.order.forEach(function (k) {
-                var h = document.createElement("h4");
-                h.style.margin = "0.75rem 0 0.35rem 0";
-                h.textContent = byType.groups[k].label;
-                bodyEl.appendChild(h);
-                buildEventsTable(bodyEl, byType.groups[k].rows);
+                bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
+                buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
               });
             }
           }
@@ -2836,18 +3345,12 @@
           });
           ["goals for", "goals against"].forEach(function (k) {
             if (!byFA.groups[k]) return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
+            bodyEl.appendChild(makeEventsHeading("h4", byFA.groups[k].label));
             buildEventsTable(bodyEl, byFA.groups[k].rows);
           });
           byFA.order.forEach(function (k) {
             if (k === "goals for" || k === "goals against") return;
-            var h = document.createElement("h4");
-            h.style.margin = "0.75rem 0 0.35rem 0";
-            h.textContent = byFA.groups[k].label;
-            bodyEl.appendChild(h);
+            bodyEl.appendChild(makeEventsHeading("h4", byFA.groups[k].label));
             buildEventsTable(bodyEl, byFA.groups[k].rows);
           });
         }
@@ -2865,8 +3368,13 @@
       closeBtn.addEventListener("click", function () {
         var dlg = document.getElementById("events-drilldown-modal");
         if (!dlg) return;
+        closeDrilldownVideo();
         try { dlg.close(); } catch (e) { dlg.open = false; }
       });
+    }
+    var drilldownDlg = document.getElementById("events-drilldown-modal");
+    if (drilldownDlg) {
+      drilldownDlg.addEventListener("close", closeDrilldownVideo);
     }
 
     document.querySelectorAll('table[data-player-stats-table="1"]').forEach(function (table) {

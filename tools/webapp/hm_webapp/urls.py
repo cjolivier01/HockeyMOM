@@ -26,6 +26,7 @@ urlpatterns = [
     path("league/select", v.league_select, name="league_select"),
     # API
     path("api/user/video_clip_len", v.api_user_video_clip_len, name="api_user_video_clip_len"),
+    path("api/xlsx/table", v.api_export_table_xlsx, name="api_export_table_xlsx"),
     path(
         "api/leagues/<int:league_id>/page_views",
         v.api_league_page_views,
@@ -36,6 +37,11 @@ urlpatterns = [
         "api/hky/teams/<int:team_id>/players/<int:player_id>/events",
         v.api_hky_team_player_events,
         name="api_hky_team_player_events",
+    ),
+    path(
+        "api/hky/teams/<int:team_id>/pair_on_ice",
+        v.api_hky_team_pair_on_ice,
+        name="api_hky_team_pair_on_ice",
     ),
     path(
         "api/hky/teams/<int:team_id>/goalies/<int:player_id>/stats",
@@ -99,11 +105,6 @@ urlpatterns = [
     path("schedule", v.schedule, name="schedule"),
     path("schedule/new", v.schedule_new, name="schedule_new"),
     path("hky/games/<int:game_id>", v.hky_game_detail, name="hky_game_detail"),
-    path(
-        "hky/games/<int:game_id>/import_shift_stats",
-        v.hky_game_import_shift_stats,
-        name="hky_game_import_shift_stats",
-    ),
     path("game_types", v.game_types, name="game_types"),
     # Leagues UI
     path("leagues", v.leagues_index, name="leagues_index"),

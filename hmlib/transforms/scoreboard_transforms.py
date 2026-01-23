@@ -60,8 +60,10 @@ class HmConfigureScoreboard:
 class HmCaptureScoreboard:
     def __init__(
         self,
+        scoreboard_scale: float = 1.0,
     ):
         self._scoreboard = None
+        self._scoreboard_scale = scoreboard_scale
 
     def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
         scoreboard = results.get("scoreboard_cfg")
@@ -89,6 +91,7 @@ class HmCaptureScoreboard:
                 src_pts=scoreboard["scoreboard_points"],
                 dest_width=int(dest_width),
                 dest_height=int(dest_height),
+                scoreboard_scale=self._scoreboard_scale,
                 dtype=torch.float,
                 device=img.device,
             )

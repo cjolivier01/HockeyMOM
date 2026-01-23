@@ -17,21 +17,44 @@ Use --delete to remove the VM and firewall rule created by this script.
 from __future__ import annotations
 
 import argparse
+import json
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 
 
 DEFAULT_ACCOUNT_EMAIL = "cjolivier01@gmail.com"
+DEFAULT_DOMAIN_CANDIDATES = ("californiahockey.org", "californiayouthhockey.org")
 GCLOUD_FALLBACKS = (
     "/snap/google-cloud-sdk/current/bin/gcloud",
     "/snap/google-cloud-sdk/632/bin/gcloud",
 )
 GCLOUD_BIN = "gcloud"
+
+# Do not upload local build artifacts / caches / secrets to the VM.
+WEBAPP_UPLOAD_IGNORE_PATTERNS = (
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coverage",
+    ".DS_Store",
+    # Local secret/config state.
+    "instance",
+    # Common local data artifacts.
+    "*.sqlite3",
+    "*.db",
+    "*.log",
+)
 
 
 @dataclass(frozen=True)
@@ -44,7 +67,9 @@ class GcpNames:
 def _resolve_gcloud_bin() -> str:
     def _works(path: str) -> bool:
         try:
-            cp = subprocess.run([path, "--version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            cp = subprocess.run(
+                [path, "--version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
         except Exception:
             return False
         if cp.returncode != 0:
@@ -68,22 +93,32 @@ def _resolve_gcloud_bin() -> str:
     )
 
 
-def _run(cmd: list[str], *, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run(
+    cmd: list[str], *, capture: bool = False, check: bool = True, cwd: str | None = None
+) -> subprocess.CompletedProcess[str]:
     print(f"+ {shlex.join(cmd)}", flush=True)
     return subprocess.run(
         cmd,
         text=True,
+        cwd=cwd,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
         check=check,
     )
 
 
-def _gcloud(cmd: list[str], *, project: str | None, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _gcloud(
+    cmd: list[str],
+    *,
+    project: str | None,
+    capture: bool = False,
+    check: bool = True,
+    cwd: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     base = [GCLOUD_BIN, "--quiet"]
     if project:
         base += ["--project", project]
-    return _run(base + cmd, capture=capture, check=check)
+    return _run(base + cmd, capture=capture, check=check, cwd=cwd)
 
 
 def _require_gcloud() -> None:
@@ -94,7 +129,9 @@ def _require_gcloud() -> None:
 def _default_project() -> str | None:
     # `gcloud config get-value project` prints "(unset)" if unset.
     try:
-        p = _run([GCLOUD_BIN, "config", "get-value", "project"], capture=True, check=True).stdout.strip()
+        p = _run(
+            [GCLOUD_BIN, "config", "get-value", "project"], capture=True, check=True
+        ).stdout.strip()
     except Exception:
         return None
     if not p or p == "(unset)":
@@ -126,6 +163,196 @@ def _resource_exists(project: str, gcloud_args: list[str]) -> bool:
     return cp.returncode == 0
 
 
+def _domain_register_params(project: str, domain: str) -> dict:
+    cp = _gcloud(
+        ["domains", "registrations", "get-register-parameters", domain, "--format=json"],
+        project=project,
+        capture=True,
+        check=True,
+    )
+    try:
+        return json.loads(cp.stdout or "{}")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Failed to parse gcloud output for domain {domain!r}: {e}") from e
+
+
+def _domain_yearly_price(params: dict) -> str:
+    price = params.get("yearlyPrice") or {}
+    currency = price.get("currencyCode") or "USD"
+    units = int(price.get("units") or 0)
+    nanos = int(price.get("nanos") or 0)
+    value = units + nanos / 1_000_000_000
+    return f"{value:.2f} {currency}"
+
+
+def _select_domain(project: str, preferred_domains: list[str]) -> tuple[str, dict]:
+    errors: list[str] = []
+    for domain in preferred_domains:
+        domain = domain.strip()
+        if not domain:
+            continue
+        try:
+            params = _domain_register_params(project, domain)
+        except Exception as e:
+            errors.append(f"{domain}: {e}")
+            continue
+        if (params.get("availability") or "").upper() == "AVAILABLE":
+            return domain, params
+        errors.append(f"{domain}: availability={params.get('availability')!r}")
+    msg = "No preferred domains appear to be available."
+    if errors:
+        msg += "\n" + "\n".join(errors)
+    raise RuntimeError(msg)
+
+
+def _default_cloud_dns_zone_name(domain: str) -> str:
+    # Cloud DNS managed-zone name: lower-case letters, digits, hyphen. Keep it simple.
+    return domain.lower().replace(".", "-")
+
+
+def _ensure_cloud_dns_zone(project: str, zone_name: str, domain: str) -> None:
+    if _resource_exists(project, ["dns", "managed-zones", "describe", zone_name]):
+        return
+    dns_name = domain if domain.endswith(".") else f"{domain}."
+    _gcloud(
+        [
+            "dns",
+            "managed-zones",
+            "create",
+            zone_name,
+            "--dns-name",
+            dns_name,
+            "--description",
+            f"Public DNS zone for {domain}",
+        ],
+        project=project,
+        check=True,
+    )
+
+
+def _upsert_a_record(project: str, zone_name: str, fqdn: str, ipv4: str, ttl_s: int = 300) -> None:
+    fqdn = fqdn if fqdn.endswith(".") else f"{fqdn}."
+    existing_cp = _gcloud(
+        [
+            "dns",
+            "record-sets",
+            "list",
+            "--zone",
+            zone_name,
+            "--name",
+            fqdn,
+            "--type",
+            "A",
+            "--format=json",
+        ],
+        project=project,
+        capture=True,
+        check=True,
+    )
+    try:
+        records = json.loads(existing_cp.stdout or "[]")
+    except json.JSONDecodeError:
+        records = []
+    existing_rrdatas: list[str] = []
+    existing_ttl: int | None = None
+    if records:
+        r0 = records[0] or {}
+        existing_rrdatas = list(r0.get("rrdatas") or [])
+        existing_ttl = r0.get("ttl")
+
+    if existing_rrdatas == [ipv4] and (existing_ttl is None or int(existing_ttl) == ttl_s):
+        return
+
+    with tempfile.TemporaryDirectory(prefix="hm-gcp-dns-") as td:
+        _gcloud(
+            ["dns", "record-sets", "transaction", "start", "--zone", zone_name],
+            project=project,
+            check=True,
+            cwd=td,
+        )
+        if existing_rrdatas:
+            _gcloud(
+                [
+                    "dns",
+                    "record-sets",
+                    "transaction",
+                    "remove",
+                    "--zone",
+                    zone_name,
+                    "--name",
+                    fqdn,
+                    "--type",
+                    "A",
+                    "--ttl",
+                    str(existing_ttl or ttl_s),
+                    *existing_rrdatas,
+                ],
+                project=project,
+                check=True,
+                cwd=td,
+            )
+        _gcloud(
+            [
+                "dns",
+                "record-sets",
+                "transaction",
+                "add",
+                "--zone",
+                zone_name,
+                "--name",
+                fqdn,
+                "--type",
+                "A",
+                "--ttl",
+                str(ttl_s),
+                ipv4,
+            ],
+            project=project,
+            check=True,
+            cwd=td,
+        )
+        _gcloud(
+            ["dns", "record-sets", "transaction", "execute", "--zone", zone_name],
+            project=project,
+            check=True,
+            cwd=td,
+        )
+
+
+def _register_domain(
+    project: str,
+    domain: str,
+    *,
+    contact_yaml: str,
+    contact_privacy: str,
+    cloud_dns_zone: str,
+    validate_only: bool,
+) -> None:
+    params = _domain_register_params(project, domain)
+    if (params.get("availability") or "").upper() != "AVAILABLE":
+        raise RuntimeError(
+            f"Domain {domain!r} is not available (availability={params.get('availability')!r})."
+        )
+    yearly_price = _domain_yearly_price(params)
+    cmd = [
+        "domains",
+        "registrations",
+        "register",
+        domain,
+        "--contact-data-from-file",
+        contact_yaml,
+        "--contact-privacy",
+        contact_privacy,
+        "--yearly-price",
+        yearly_price,
+        "--cloud-dns-zone",
+        cloud_dns_zone,
+    ]
+    if validate_only:
+        cmd += ["--validate-only"]
+    _gcloud(cmd, project=project, check=True)
+
+
 def _detect_instance_zone(project: str, instance: str) -> str | None:
     cp = _gcloud(
         ["compute", "instances", "list", "--filter", f"name=({instance})", "--format=value(zone)"],
@@ -154,7 +381,9 @@ def _wait_for_ssh(project: str, instance: str, zone: str, timeout_s: int = 300) 
             return
         if time.time() > deadline:
             stderr = (cp.stderr or "").strip()
-            raise RuntimeError(f"Timed out waiting for SSH to {instance} in {zone}. Last error:\n{stderr}")
+            raise RuntimeError(
+                f"Timed out waiting for SSH to {instance} in {zone}. Last error:\n{stderr}"
+            )
         time.sleep(5)
 
 
@@ -188,12 +417,26 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
     if not active:
         raise RuntimeError("No active gcloud account. Run `gcloud auth login` (and `gcloud init`).")
     if args.account_email and active != args.account_email:
-        print(f"Note: active account is {active!r} (requested {args.account_email!r}).", file=sys.stderr)
+        print(
+            f"Note: active account is {active!r} (requested {args.account_email!r}).",
+            file=sys.stderr,
+        )
 
     print("Enabling Compute Engine API (best-effort)...")
     _gcloud(["services", "enable", "compute.googleapis.com"], project=project, check=False)
+    wants_domains = (
+        args.domain_register
+        or args.domain_configure_dns
+        or (args.enable_https and args.domains.strip().upper() == "AUTO")
+    )
+    if wants_domains:
+        print("Enabling Cloud Domains + Cloud DNS APIs (best-effort)...")
+        _gcloud(["services", "enable", "domains.googleapis.com"], project=project, check=False)
+        _gcloud(["services", "enable", "dns.googleapis.com"], project=project, check=False)
 
-    if not _resource_exists(project, ["compute", "firewall-rules", "describe", names.firewall_rule]):
+    if not _resource_exists(
+        project, ["compute", "firewall-rules", "describe", names.firewall_rule]
+    ):
         allowed = f"tcp:80,tcp:{args.app_port}"
         if args.enable_https:
             allowed = f"{allowed},tcp:443"
@@ -252,7 +495,9 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
                 check=True,
             )
 
-    if not _resource_exists(project, ["compute", "instances", "describe", names.instance, "--zone", zone]):
+    if not _resource_exists(
+        project, ["compute", "instances", "describe", names.instance, "--zone", zone]
+    ):
         print(f"Creating instance {names.instance!r} in {zone!r} ({args.machine_type})...")
         _gcloud(
             [
@@ -293,26 +538,37 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
             "--zone",
             zone,
             "--command",
-            "mkdir -p /tmp/hm/tools",
+            "rm -rf /tmp/hm/tools/webapp && mkdir -p /tmp/hm/tools",
         ],
         project=project,
         check=True,
     )
 
-    print("Copying `tools/webapp` to the VM...")
-    _gcloud(
-        [
-            "compute",
-            "scp",
-            "--recurse",
-            "tools/webapp",
-            f"{names.instance}:/tmp/hm/tools",
-            "--zone",
-            zone,
-        ],
-        project=project,
-        check=True,
-    )
+    print("Copying `tools/webapp` to the VM (excluding caches/bytecode)...")
+    repo_root = Path(__file__).resolve().parents[3]
+    src_webapp_dir = repo_root / "tools" / "webapp"
+    if not src_webapp_dir.exists():
+        raise RuntimeError(f"Missing webapp source dir: {src_webapp_dir}")
+    with tempfile.TemporaryDirectory(prefix="hm_webapp_gcp_stage_") as td:
+        stage_dir = Path(td) / "webapp"
+        shutil.copytree(
+            src_webapp_dir,
+            stage_dir,
+            ignore=shutil.ignore_patterns(*WEBAPP_UPLOAD_IGNORE_PATTERNS),
+        )
+        _gcloud(
+            [
+                "compute",
+                "scp",
+                "--recurse",
+                str(stage_dir),
+                f"{names.instance}:/tmp/hm/tools",
+                "--zone",
+                zone,
+            ],
+            project=project,
+            check=True,
+        )
 
     server_name = args.server_name
     if server_name == "AUTO":
@@ -356,12 +612,53 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
 
     if args.enable_https:
         if not args.domains:
-            raise RuntimeError("--enable-https requires --domains (e.g. --domains jrsharks2013.org,www.jrsharks2013.org)")
+            raise RuntimeError(
+                "--enable-https requires --domains "
+                "(e.g. --domains jrsharks2013.org,www.jrsharks2013.org or --domains AUTO)"
+            )
         if not args.https_email:
             raise RuntimeError("--enable-https requires --https-email")
-        domains = [d.strip() for d in args.domains.split(",") if d.strip()]
+        preferred = [d.strip() for d in args.domains_auto_candidates.split(",") if d.strip()]
+        if not preferred:
+            preferred = list(DEFAULT_DOMAIN_CANDIDATES)
+
+        if args.domains.strip().upper() == "AUTO":
+            apex, params = _select_domain(project, preferred)
+            domains = [apex, f"www.{apex}"]
+            print(f"Selected domain: {apex} (yearly price: {_domain_yearly_price(params)})")
+        else:
+            domains = [d.strip() for d in args.domains.split(",") if d.strip()]
         if not domains:
             raise RuntimeError("--domains must not be empty")
+
+        apex_domain = next((d for d in domains if not d.lower().startswith("www.")), domains[0])
+        cloud_dns_zone = args.domain_cloud_dns_zone or _default_cloud_dns_zone_name(apex_domain)
+
+        if args.domain_register:
+            if not args.domain_contact_yaml:
+                raise RuntimeError("--domain-register requires --domain-contact-yaml")
+            print(f"Registering domain (Cloud Domains): {apex_domain}")
+            _ensure_cloud_dns_zone(project, cloud_dns_zone, apex_domain)
+            _register_domain(
+                project,
+                apex_domain,
+                contact_yaml=args.domain_contact_yaml,
+                contact_privacy=args.domain_contact_privacy,
+                cloud_dns_zone=cloud_dns_zone,
+                validate_only=args.domain_register_validate_only,
+            )
+
+        if args.domain_configure_dns:
+            ip_for_dns = _instance_external_ip(project, names.instance, zone)
+            if not ip_for_dns:
+                raise RuntimeError(
+                    "Could not determine instance external IP for DNS A record setup."
+                )
+            print(f"Configuring Cloud DNS A records in zone {cloud_dns_zone!r} -> {ip_for_dns} ...")
+            _ensure_cloud_dns_zone(project, cloud_dns_zone, apex_domain)
+            _upsert_a_record(project, cloud_dns_zone, apex_domain, ip_for_dns)
+            _upsert_a_record(project, cloud_dns_zone, f"www.{apex_domain}", ip_for_dns)
+
         server_names = " ".join(domains)
         certbot_cmd = (
             "set -euo pipefail; "
@@ -467,7 +764,9 @@ def _deploy(args: argparse.Namespace, names: GcpNames) -> None:
         print(f"SSH: gcloud compute ssh {names.instance} --zone {zone} --project {project}")
     else:
         print("Deployed, but could not determine external IP. Use:")
-        print(f"  gcloud compute instances describe {names.instance} --zone {zone} --project {project}")
+        print(
+            f"  gcloud compute instances describe {names.instance} --zone {zone} --project {project}"
+        )
 
 
 def _delete(args: argparse.Namespace, names: GcpNames) -> None:
@@ -476,7 +775,9 @@ def _delete(args: argparse.Namespace, names: GcpNames) -> None:
 
     _best_effort_set_account(project, args.account_email)
 
-    if zone and _resource_exists(project, ["compute", "instances", "describe", names.instance, "--zone", zone]):
+    if zone and _resource_exists(
+        project, ["compute", "instances", "describe", names.instance, "--zone", zone]
+    ):
         print(f"Deleting instance {names.instance!r} in {zone!r}...")
         _gcloud(
             ["compute", "instances", "delete", names.instance, "--zone", zone],
@@ -488,7 +789,11 @@ def _delete(args: argparse.Namespace, names: GcpNames) -> None:
 
     if _resource_exists(project, ["compute", "firewall-rules", "describe", names.firewall_rule]):
         print(f"Deleting firewall rule {names.firewall_rule!r}...")
-        _gcloud(["compute", "firewall-rules", "delete", names.firewall_rule], project=project, check=True)
+        _gcloud(
+            ["compute", "firewall-rules", "delete", names.firewall_rule],
+            project=project,
+            check=True,
+        )
     else:
         print(f"Firewall rule {names.firewall_rule!r} not found; skipping.")
 
@@ -501,14 +806,24 @@ def _delete(args: argparse.Namespace, names: GcpNames) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Deploy tools/webapp to Google Cloud (smallest GCE instance).")
+    ap = argparse.ArgumentParser(
+        description="Deploy tools/webapp to Google Cloud (smallest GCE instance)."
+    )
     ap.add_argument(
         "--gcloud",
         default="",
         help="Path to gcloud binary (optional). If unset, auto-detects and may fall back to snap locations.",
     )
-    ap.add_argument("--project", default=None, help="GCP project id (defaults to `gcloud config get-value project`).")
-    ap.add_argument("--account-email", default=DEFAULT_ACCOUNT_EMAIL, help="GCP account email (best-effort select).")
+    ap.add_argument(
+        "--project",
+        default=None,
+        help="GCP project id (defaults to `gcloud config get-value project`).",
+    )
+    ap.add_argument(
+        "--account-email",
+        default=DEFAULT_ACCOUNT_EMAIL,
+        help="GCP account email (best-effort select).",
+    )
     ap.add_argument("--name", default="hm-webapp", help="Resource name prefix (instance/firewall).")
     ap.add_argument("--zone", default="us-central1-a", help="Compute Engine zone.")
     ap.add_argument("--network", default="default", help="VPC network name (default: 'default').")
@@ -518,7 +833,9 @@ def main() -> int:
     ap.add_argument("--boot-disk-size", default="10GB", help="Boot disk size, e.g. 10GB.")
 
     ap.add_argument("--watch-root", default="/data/incoming", help="Upload/watch directory.")
-    ap.add_argument("--app-port", type=int, default=8008, help="Local gunicorn port (nginx listens on 80).")
+    ap.add_argument(
+        "--app-port", type=int, default=8008, help="Local gunicorn port (nginx listens on 80)."
+    )
     ap.add_argument(
         "--bind-address",
         default="0.0.0.0",
@@ -539,12 +856,63 @@ def main() -> int:
         help="If set, require this bearer token for /api/import/* endpoints (send via Authorization: Bearer ...).",
     )
 
-    ap.add_argument("--enable-https", action="store_true", help="Enable HTTPS via certbot (requires DNS pointing at VM).")
-    ap.add_argument("--domains", default="", help="Comma-separated domains for the cert, e.g. example.com,www.example.com")
-    ap.add_argument("--https-email", default="", help="Email address for Let's Encrypt registration.")
+    ap.add_argument(
+        "--enable-https",
+        action="store_true",
+        help="Enable HTTPS via certbot (requires DNS pointing at VM).",
+    )
+    ap.add_argument(
+        "--domains",
+        default="",
+        help="Comma-separated domains for the cert, e.g. jrsharks2013.org,www.jrsharks2013.org (or AUTO).",
+    )
+    ap.add_argument(
+        "--domains-auto-candidates",
+        default=",".join(DEFAULT_DOMAIN_CANDIDATES),
+        help="Comma-separated domain candidates (used when --domains=AUTO).",
+    )
+    ap.add_argument(
+        "--https-email", default="", help="Email address for Let's Encrypt registration."
+    )
 
-    ap.add_argument("--ssh-timeout-s", type=int, default=300, help="Seconds to wait for SSH readiness.")
-    ap.add_argument("--delete", action="store_true", help="Delete the created resources instead of deploying.")
+    ap.add_argument(
+        "--domain-register",
+        action="store_true",
+        help="If set, register the apex domain via Cloud Domains before enabling HTTPS (requires --domain-contact-yaml).",
+    )
+    ap.add_argument(
+        "--domain-register-validate-only",
+        action="store_true",
+        help="Validate domain registration args without actually purchasing/registering the domain.",
+    )
+    ap.add_argument(
+        "--domain-contact-yaml",
+        default="",
+        help="Contact YAML for gcloud domains registrations register (template: tools/webapp/ops/domain_contacts_template.yaml).",
+    )
+    ap.add_argument(
+        "--domain-contact-privacy",
+        default="redacted-contact-data",
+        help="Contact privacy for the domain registration (e.g. redacted-contact-data, public-contact-data).",
+    )
+    ap.add_argument(
+        "--domain-cloud-dns-zone",
+        default="",
+        help="Cloud DNS managed-zone name to use (defaults to apex domain with dots replaced).",
+    )
+    ap.add_argument(
+        "--domain-configure-dns",
+        dest="domain_configure_dns",
+        action="store_true",
+        help="If set, create/update Cloud DNS A records for apex + www to point at the VM external IP.",
+    )
+
+    ap.add_argument(
+        "--ssh-timeout-s", type=int, default=300, help="Seconds to wait for SSH readiness."
+    )
+    ap.add_argument(
+        "--delete", action="store_true", help="Delete the created resources instead of deploying."
+    )
     args = ap.parse_args()
 
     global GCLOUD_BIN

@@ -60,6 +60,21 @@
   </div>
 {% endif %}
 
+<div class="card" style="margin-top:1.25rem;">
+  <p class="muted" style="margin:0">
+    Season/team/player statistics exclude certain outlier games to keep rate stats and comparisons representative of normal league play.
+  </p>
+  <ul class="muted" style="margin:.5rem 0 0 1.2rem;">
+    {% if show_caha_preseason_exclusion_note %}
+      <li>League Preseason games played in a different division than the team’s final CAHA division placement (evaluation games before relegation/promotion).</li>
+    {% endif %}
+    <li>Tournament games with goal differential ≥ 7 (often mismatched and can skew averages).</li>
+  </ul>
+  {% if excluded_schedule_games_count %}
+    <p class="muted" style="margin:.5rem 0 0">Excluded games are shown grayed out in the schedule but remain clickable.</p>
+  {% endif %}
+</div>
+
 <h3 style="margin-top:1.25rem;">Schedule</h3>
 <div class="card">
   <div>
@@ -90,7 +105,7 @@
             {% url "media_team_logo" team_id=g.team2_id as team2_logo %}
           {% endif %}
           {% with s1=g.team1_score s2=g.team2_score %}
-          <tr>
+          <tr{% if g.excluded_from_stats %} class="game-excluded" title="{{ g.excluded_from_stats_reason }}"{% endif %}>
             {% if schedule_games and schedule_games.0.division_name %}<td>{{ g.division_name|default_if_none:"" }}</td>{% endif %}
             <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
             <td class="nowrap">{{ g.starts_at|fmt_time }}</td>
@@ -123,6 +138,9 @@
                 {{ g.game_type_name }}
               {% elif g.division_name|is_external_division %}
                 Tournament
+              {% endif %}
+              {% if g.excluded_from_stats %}
+                <span class="muted" title="{{ g.excluded_from_stats_reason }}"> (excluded)</span>
               {% endif %}
             </td>
             <td>{{ g.location|default_if_none:"" }}</td>
@@ -201,7 +219,7 @@
           {% for p in roster_players %}
             <tr>
               <td>{{ p.jersey_number|default_if_none:"" }}</td>
-              <td>{{ p.name|default_if_none:"" }}</td>
+              <td><span class="hm-player-name">{% include "_player_icon.html" with position=p.position %}<span>{{ p.name|default_if_none:"" }}</span></span></td>
               <td>{{ p.position|default_if_none:"" }}</td>
               {% if editable %}
                 <td>
@@ -230,9 +248,14 @@
 {% endif %}
 
 <h3>Player Stats (Skaters)</h3>
-<div class="card">
-  {% if game_type_filter_options %}
+<div class="card{% if select_games_partial %} partial-stats{% endif %}">
+  {% if select_games_partial %}
+    <div class="partial-stats-banner">Partial Statistics</div>
+  {% endif %}
+
+  {% if game_type_filter_options or select_games_options %}
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.5rem;">
+      {% if game_type_filter_options %}
       <details id="player-stats-game-type-filter" style="position:relative;">
         <summary class="btn">Game Types: {{ game_type_filter_label|default:"All" }}</summary>
         <div style="position:absolute;z-index:50;top:calc(100% + 6px);left:0;min-width:240px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:.6rem;opacity:1;">
@@ -249,6 +272,33 @@
           </div>
         </div>
       </details>
+      {% endif %}
+
+      {% if select_games_options %}
+        <details id="player-stats-game-select" style="position:relative;">
+          <summary class="btn">Select Games: {{ select_games_label|default:"All" }}</summary>
+          <div style="position:absolute;z-index:50;top:calc(100% + 6px);left:0;min-width:320px;max-width:520px;max-height:340px;overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:.6rem;opacity:1;">
+            <div class="muted" style="font-size:.85rem;margin-bottom:.35rem;">Filter player stats by games</div>
+            <label style="display:flex;align-items:center;gap:.5rem;padding:.2rem 0;">
+              <input class="gs-filter-all" type="checkbox" />
+              <span>All</span>
+            </label>
+            <div style="margin-top:.35rem;">
+              {% for opt in select_games_options %}
+                <label style="display:flex;align-items:flex-start;gap:.5rem;padding:.2rem 0;">
+                  <input class="gs-filter-cb" type="checkbox" value="{{ opt.id }}" {% if opt.checked %}checked{% endif %} />
+                  <span>{{ opt.label }}</span>
+                </label>
+              {% endfor %}
+            </div>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;">
+              <button type="button" class="btn" id="gs-filter-apply">Apply</button>
+              <button type="button" class="btn" id="gs-filter-all">All</button>
+            </div>
+          </div>
+        </details>
+      {% endif %}
+
       <span class="muted">Applies to player stats tables only</span>
     </div>
     <script>
@@ -267,6 +317,8 @@
           var all = cbs.map(function (cb) { return String(cb.value || "").trim(); }).filter(Boolean);
           var u = new URL(window.location.href);
           u.searchParams.delete("gt");
+          // Changing Game Types invalidates a specific game selection.
+          u.searchParams.delete("gid");
           // None checked or all checked => default to "All" (no filter param).
           if (checked.length > 0 && checked.length < all.length) {
             checked.forEach(function (v) { u.searchParams.append("gt", v); });
@@ -277,6 +329,72 @@
         if (allBtn) allBtn.addEventListener("click", function (e) { e.preventDefault(); applySelection("all"); try { root.open = false; } catch (e2) {} });
       })();
     </script>
+    <script>
+      (function () {
+        var root = document.getElementById("player-stats-game-select");
+        if (!root) return;
+        var applyBtn = document.getElementById("gs-filter-apply");
+        var allBtn = document.getElementById("gs-filter-all");
+        var allCb = root.querySelector("input.gs-filter-all");
+
+        function getCbs() {
+          return Array.prototype.slice.call(root.querySelectorAll("input.gs-filter-cb") || []);
+        }
+
+        function syncAllCheckbox() {
+          if (!allCb) return;
+          var cbs = getCbs();
+          var checked = cbs.filter(function (cb) { return !!cb.checked; }).length;
+          allCb.indeterminate = (checked > 0 && checked < cbs.length);
+          allCb.checked = (cbs.length > 0 && checked === cbs.length);
+        }
+
+        function setAll(val) {
+          var cbs = getCbs();
+          cbs.forEach(function (cb) { cb.checked = !!val; });
+          syncAllCheckbox();
+        }
+
+        var lastIdx = null;
+        function attachShiftRangeHandlers() {
+          var cbs = getCbs();
+          cbs.forEach(function (cb, idx) {
+            cb.addEventListener("click", function (e) {
+              if (e.shiftKey && lastIdx !== null && lastIdx !== undefined) {
+                var start = Math.min(lastIdx, idx);
+                var end = Math.max(lastIdx, idx);
+                var val = !!cb.checked;
+                for (var i = start; i <= end; i++) cbs[i].checked = val;
+              }
+              lastIdx = idx;
+              syncAllCheckbox();
+            });
+          });
+        }
+
+        function applySelection(mode) {
+          var cbs = getCbs();
+          if (mode === "all") cbs.forEach(function (cb) { cb.checked = true; });
+          syncAllCheckbox();
+          var checked = cbs.filter(function (cb) { return !!cb.checked; }).map(function (cb) { return String(cb.value || "").trim(); }).filter(Boolean);
+          var all = cbs.map(function (cb) { return String(cb.value || "").trim(); }).filter(Boolean);
+          var u = new URL(window.location.href);
+          u.searchParams.delete("gid");
+          // None checked or all checked => default to "All" (no filter param).
+          if (checked.length > 0 && checked.length < all.length) {
+            checked.forEach(function (v) { u.searchParams.append("gid", v); });
+          }
+          window.location.href = u.toString();
+        }
+
+        if (allCb) allCb.addEventListener("change", function () { setAll(!!allCb.checked); });
+        if (applyBtn) applyBtn.addEventListener("click", function (e) { e.preventDefault(); applySelection("apply"); try { root.open = false; } catch (e2) {} });
+        if (allBtn) allBtn.addEventListener("click", function (e) { e.preventDefault(); applySelection("all"); try { root.open = false; } catch (e2) {} });
+
+        attachShiftRangeHandlers();
+        syncAllCheckbox();
+      })();
+    </script>
   {% endif %}
 
   <p class="muted" style="margin:.25rem 0 0 0;">
@@ -285,9 +403,6 @@
   {% if player_stats_coverage_total_games != None %}
     <p class="muted" style="margin:.35rem 0 .75rem 0;">
       Stats may be incomplete. This selection has <strong>{{ player_stats_coverage_total_games }}</strong> completed games; column headers show <strong>(N)</strong> when a stat is available for only <strong>N</strong> of those games.
-      {% if player_stats_recent_coverage_total_games != None and recent_n != None %}
-        Recent table counts are over the last <strong>{{ player_stats_recent_coverage_total_games }}</strong> completed games (requested {{ recent_n }}).
-      {% endif %}
     </p>
   {% endif %}
 
@@ -297,7 +412,6 @@
         <tr>
           <th>#</th>
           <th>Name</th>
-          <th>Pos</th>
           {% for col in player_stats_columns %}
             <th>
               <div>{{ col.label }}</div>
@@ -321,109 +435,52 @@
                   data-scope="all"
                   data-scope-label="{{ game_type_filter_label|default:'All' }}"
                   title="Show underlying events"
-                >{{ r.name|default_if_none:"" }}</button>
+                ><span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span></button>
               {% else %}
-                {{ r.name|default_if_none:"" }}
+                <span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span>
               {% endif %}
             </td>
-            <td>{{ r.position|default_if_none:"" }}</td>
             {% for col in player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
+              {% with denom=r|get_item:"_per_game_denoms"|get_item:col.key %}
+                {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_toi }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% else %}
+                  <td>
+                    {{ r|get_item:col.key|fmt_stat }}
+                    {% if col.show_count and denom and denom < col.n_games %}
+                      {% if col.key == "ppg" or col.key|slice:"-9:" == "_per_game" %}
+                        <span class="muted">({{ denom }} games)</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                {% endif %}
+              {% endwith %}
             {% endfor %}
           </tr>
         {% empty %}
-          <tr><td colspan="{{ player_stats_columns|length|add:'3' }}" class="muted">No player stats yet.</td></tr>
+          <tr><td colspan="{{ player_stats_columns|length|add:'2' }}" class="muted">No player stats yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</div>
-
-<h3 style="margin-top:1.25rem;">Recent Player Stats  -- Are They On a Roll?</h3>
-<div class="card">
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.75rem;">
-    <span class="muted">Last</span>
-    <select onchange="window.location=this.value" style="max-width:170px;">
-      <option value="{% url_with_args recent_n=1 %}" {% if recent_n == 1 %}selected{% endif %}>1 games</option>
-      <option value="{% url_with_args recent_n=2 %}" {% if recent_n == 2 %}selected{% endif %}>2 games</option>
-      <option value="{% url_with_args recent_n=3 %}" {% if recent_n == 3 %}selected{% endif %}>3 games</option>
-      <option value="{% url_with_args recent_n=4 %}" {% if recent_n == 4 %}selected{% endif %}>4 games</option>
-      <option value="{% url_with_args recent_n=5 %}" {% if recent_n == 5 %}selected{% endif %}>5 games</option>
-      <option value="{% url_with_args recent_n=6 %}" {% if recent_n == 6 %}selected{% endif %}>6 games</option>
-      <option value="{% url_with_args recent_n=7 %}" {% if recent_n == 7 %}selected{% endif %}>7 games</option>
-      <option value="{% url_with_args recent_n=8 %}" {% if recent_n == 8 %}selected{% endif %}>8 games</option>
-      <option value="{% url_with_args recent_n=9 %}" {% if recent_n == 9 %}selected{% endif %}>9 games</option>
-      <option value="{% url_with_args recent_n=10 %}" {% if recent_n == 10 %}selected{% endif %}>10 games</option>
-    </select>
-    <span class="muted">per player</span>
-  </div>
-
-  <div class="table-scroll">
-    <table class="table-nowrap table-grid" data-freeze-cols="2">
-      <thead>
-        <tr>
-          {% sort_toggle_url "jersey_number" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "jersey_number" "#" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
-
-          {% sort_toggle_url "name" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "name" "Name" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
-
-          {% sort_toggle_url "position" sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-          {% sort_label recent_sort recent_dir "position" "Pos" as sort_txt %}
-          <th><a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a></th>
-
-          {% for col in recent_player_stats_columns %}
-            {% sort_toggle_url col.key sort_key=recent_sort sort_dir=recent_dir as sort_href %}
-            {% sort_label recent_sort recent_dir col.key col.label as sort_txt %}
-            <th>
-              <a href="{{ sort_href }}" style="text-decoration:none;color:inherit;">{{ sort_txt }}</a>
-              {% if col.show_count %}
-                <div class="th-subnote">({{ col.n_games }} Games)</div>
-              {% endif %}
-            </th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in recent_player_stats_rows %}
-          <tr>
-            <td>{{ r.jersey_number|default_if_none:"" }}</td>
-            <td>
-              {% if r.has_events %}
-                <button
-                  type="button"
-                  class="btn secondary player-events-link"
-                  data-player-id="{{ r.player_id }}"
-                  data-scope="recent"
-                  data-recent-n="{{ recent_n|default:'5' }}"
-                  data-scope-label="Last {{ recent_n|default:'5' }} Games"
-                  title="Show underlying events"
-                >{{ r.name|default_if_none:"" }}</button>
-              {% else %}
-                {{ r.name|default_if_none:"" }}
-              {% endif %}
-            </td>
-            <td>{{ r.position|default_if_none:"" }}</td>
-            {% for col in recent_player_stats_columns %}
-              {% if col.key == "toi_seconds" or col.key == "toi_seconds_per_game" %}
-                <td>{{ r|get_item:col.key|fmt_toi }}</td>
-              {% else %}
-                <td>{{ r|get_item:col.key|fmt_stat }}</td>
-              {% endif %}
-            {% endfor %}
-          </tr>
-        {% empty %}
-          <tr><td colspan="{{ recent_player_stats_columns|length|add:'3' }}" class="muted">No recent stats.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% if has_pair_on_ice_all %}
+    <div style="margin-top:.75rem;">
+      <button
+        type="button"
+        class="btn secondary player-pairings-link"
+        data-scope="all"
+        data-scope-label="{{ game_type_filter_label|default:'All' }}"
+        title="Show pair on-ice overlap and goal-based pairing stats"
+      >Associated Player Pairing</button>
+    </div>
+  {% endif %}
 </div>
 
 {% if recent_goalie_stats_has_sog %}
@@ -455,9 +512,9 @@
                   data-recent-n="{{ recent_n|default:'5' }}"
                   data-scope-label="Last {{ recent_n|default:'5' }} Games"
                   title="Show underlying games"
-                >{{ g.name|default_if_none:"" }}</button>
+                ><span class="hm-player-name">{% include "_player_icon.html" with position="G" %}<span>{{ g.name|default_if_none:"" }}</span></span></button>
               {% else %}
-                {{ g.name|default_if_none:"" }}
+                <span class="hm-player-name">{% include "_player_icon.html" with position="G" %}<span>{{ g.name|default_if_none:"" }}</span></span>
               {% endif %}
             </td>
             <td>{{ g.gp|fmt_stat }}</td>
@@ -510,9 +567,9 @@
                   data-scope="all"
                   data-scope-label="All Games"
                   title="Show underlying games"
-                >{{ g.name|default_if_none:"" }}</button>
+                ><span class="hm-player-name">{% include "_player_icon.html" with position="G" %}<span>{{ g.name|default_if_none:"" }}</span></span></button>
               {% else %}
-                {{ g.name|default_if_none:"" }}
+                <span class="hm-player-name">{% include "_player_icon.html" with position="G" %}<span>{{ g.name|default_if_none:"" }}</span></span>
               {% endif %}
             </td>
             <td>{{ g.gp|fmt_stat }}</td>
@@ -538,25 +595,25 @@
 
 <dialog id="team-goalie-stats-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
   <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
-    <div>
-      <div id="team-goalie-stats-title" style="font-weight:700;"></div>
-      <div id="team-goalie-stats-subtitle" class="muted" style="font-size:.9rem;"></div>
-    </div>
-    <button id="team-goalie-stats-close" class="btn" type="button">Close</button>
-  </div>
-  <div id="team-goalie-stats-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+	    <div>
+	      <div id="team-goalie-stats-title" style="font-weight:700;"></div>
+	      <div id="team-goalie-stats-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-goalie-stats-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-goalie-stats-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
 </dialog>
 {% endif %}
 
 <dialog id="team-player-events-modal" style="max-width:960px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
   <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
-    <div>
-      <div id="team-player-events-title" style="font-weight:700;"></div>
-      <div id="team-player-events-subtitle" class="muted" style="font-size:.9rem;"></div>
-    </div>
-    <button id="team-player-events-close" class="btn" type="button">Close</button>
-  </div>
-  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
+	    <div>
+	      <div id="team-player-events-title" style="font-weight:700;"></div>
+	      <div id="team-player-events-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-player-events-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
       <div>
         <strong>Video Clip</strong>
@@ -586,9 +643,24 @@
         ></iframe>
       </div>
     </div>
+    <div class="yt-quality-hint">
+      <span class="yt-quality-text">Click the gear icon and select Highest quality</span>
+      <span class="yt-quality-arrow" aria-hidden="true">↑</span>
+    </div>
     <p class="muted" style="margin:.75rem 0 0 0;">Tip: goals/assists show 20s before and 10s after; other events show 10s before and 10s after.</p>
   </div>
   <div id="team-player-events-body" style="padding:12px 14px;max-height:70vh;overflow:auto;"></div>
+</dialog>
+
+<dialog id="team-player-pairings-modal" style="max-width:1100px;width:96vw;border:none;border-radius:16px;padding:0;box-shadow:0 20px 80px rgba(0,0,0,.35);">
+  <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(0,0,0,.18);">
+	    <div>
+	      <div id="team-player-pairings-title" style="font-weight:700;"></div>
+	      <div id="team-player-pairings-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
+	    </div>
+	    <button id="team-player-pairings-close" class="btn" type="button">Close</button>
+	  </div>
+	  <div id="team-player-pairings-body" tabindex="0" style="padding:12px 14px;overflow:visible;overscroll-behavior:contain;"></div>
 </dialog>
 
 <style>
@@ -596,6 +668,49 @@
   #team-player-events-body table.team-player-events-table td {
     padding: .45rem .65rem;
     font-size: .88rem;
+  }
+
+  #team-player-pairings-body table.team-player-pairings-table th,
+  #team-player-pairings-body table.team-player-pairings-table td {
+    padding: .45rem .65rem;
+    font-size: .88rem;
+  }
+  #team-player-pairings-body table.team-player-pairings-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    /* Allow sticky header/columns to key off the scroll wrapper, not the table itself. */
+    overflow: visible;
+  }
+
+  #team-player-pairings-body table.team-player-pairings-table th.pair-jersey-col,
+  #team-player-pairings-body table.team-player-pairings-table td.pair-jersey-col {
+    min-width: 46px;
+    width: 46px;
+    max-width: 46px;
+    text-align: right;
+    padding-left: .5rem;
+    padding-right: .5rem;
+  }
+
+  @media (max-width: 720px), (pointer: coarse) and (max-width: 980px) {
+    #team-player-pairings-body table.team-player-pairings-table th,
+    #team-player-pairings-body table.team-player-pairings-table td {
+      font-size: calc(.88rem * 0.85);
+    }
+  }
+
+  /* Keep the pairings header visible while scrolling within the modal. */
+  #team-player-pairings-body .table-scroll-y {
+    max-height: 62vh;
+    overscroll-behavior: contain;
+  }
+  #team-player-pairings-body .table-scroll-y thead th {
+    /* Stay above body cells. */
+    z-index: 50;
+  }
+  #team-player-pairings-body .table-scroll-y thead th.sticky-col {
+    /* Stay above other header cells so they scroll "behind" the frozen columns. */
+    z-index: 70;
   }
 </style>
 
@@ -663,12 +778,12 @@
               w.searchParams.set("v", String(id));
               w.searchParams.set("t", String(sec) + "s");
               w.searchParams.set("autoplay", "1");
-              w.searchParams.set("vq", "hd1080");
+              w.searchParams.set("vq", "highres");
               return w.toString();
             }
             u.searchParams.set("t", String(sec) + "s");
             u.searchParams.set("autoplay", "1");
-            u.searchParams.set("vq", "hd1080");
+            u.searchParams.set("vq", "highres");
             return u.toString();
           }
           u.hash = "t=" + String(sec);
@@ -687,16 +802,181 @@
           else node.setAttribute(k, String(attrs[k]));
         });
       }
-      if (text !== undefined && text !== null) node.textContent = String(text);
+      if (text && text.nodeType) {
+        node.appendChild(text);
+      } else if (text !== undefined && text !== null) {
+        node.textContent = String(text);
+      }
       return node;
     }
 
-    function addRow(tbody, cols) {
+    function headingIconKey(label) {
+      var sl = String(label || "").trim().toLowerCase();
+      if (!sl) return "other";
+      if (sl.indexOf("goals") === 0 || sl.indexOf("goal") === 0) return "goal";
+      if (sl.indexOf("xg") === 0) return "xg";
+      if (sl.indexOf("sog") === 0) return "sog";
+      if (sl.indexOf("shot") === 0) return "shot";
+      if (sl.indexOf("assists") === 0 || sl === "assist") return "assist";
+      if (sl.indexOf("completed pass") === 0) return "completed_pass";
+      if (sl.indexOf("giveaway") === 0) return "giveaway";
+      if (sl.indexOf("takeaway") === 0) return "takeaway";
+      if (sl.indexOf("penalty expired") === 0) return "penalty_expired";
+      if (sl.indexOf("penalty") === 0) return "penalty";
+      if (sl.indexOf("controlled entry") === 0) return "controlled_entry";
+      if (sl.indexOf("controlled exit") === 0) return "controlled_exit";
+      if (sl.indexOf("odd-man") === 0 || sl.indexOf("odd man") === 0 || sl.indexOf("rush") >= 0) return "odd_man_rush";
+      if (sl.indexOf("turnover") >= 0 && sl.indexOf("forced") >= 0) return "turnover_forced";
+      if (sl.indexOf("created") >= 0 && sl.indexOf("turnover") >= 0) return "turnover_created";
+      return normTypeKey(sl);
+    }
+
+    function makeHeadingIcon(label) {
+      var icon = headingIconKey(label);
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      svg.classList.add("event-type-icon");
+      var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      svg.appendChild(g);
+
+      function svgEl(tag, attrs) {
+        var el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        if (attrs) {
+          Object.keys(attrs).forEach(function (k) {
+            el.setAttribute(k, String(attrs[k]));
+          });
+        }
+        return el;
+      }
+      function path(d, fill, st, sw, lc, lj) {
+        g.appendChild(svgEl("path", { d: d, fill: fill || "none", stroke: st || "none", "stroke-width": sw || 0, "stroke-linecap": lc || "round", "stroke-linejoin": lj || "round" }));
+      }
+      function circle(cx, cy, r, fill, st, sw) {
+        g.appendChild(svgEl("circle", { cx: cx, cy: cy, r: r, fill: fill || "none", stroke: st || "none", "stroke-width": sw || 0 }));
+      }
+      function rect(x, y, w, h, rx, fill, st, sw) {
+        g.appendChild(svgEl("rect", { x: x, y: y, width: w, height: h, rx: rx || 0, fill: fill || "none", stroke: st || "none", "stroke-width": sw || 0 }));
+      }
+      function text(x, y, txt, fill, fs, fw) {
+        var t = svgEl("text", { x: x, y: y, fill: fill || "#fff", "font-size": fs || 10, "font-weight": fw || 800, "text-anchor": "middle", "dominant-baseline": "central", "font-family": "Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial" });
+        t.appendChild(document.createTextNode(txt));
+        g.appendChild(t);
+      }
+
+      if (icon === "goal") {
+        rect(4.5, 10, 15, 10.5, 5.2, "#ff2d2d", "rgba(0,0,0,0.30)", 1);
+        path("M8 10a4 4 0 0 1 8 0v2H8z", "#ff2d2d", "rgba(0,0,0,0.30)", 1, "round", "round");
+        path("M9 10a3 3 0 0 1 6 0", "none", "#ffe2e2", 2.4, "round", "round");
+        rect(10.8, 7.6, 2.4, 3.4, 1.2, "#ffe2e2", "none", 0);
+      } else if (icon === "xg") {
+        var ch = "rgba(255,255,255,0.85)";
+        var sw = 2.0;
+        path("M12 3.8V7.0", "none", ch, sw, "round", "round");
+        path("M12 17.0V20.2", "none", ch, sw, "round", "round");
+        path("M3.8 12H7.0", "none", ch, sw, "round", "round");
+        path("M17.0 12H20.2", "none", ch, sw, "round", "round");
+        circle(12, 12, 4.2, "none", ch, sw);
+        path("M8.8 8.8l6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
+        path("M15.2 8.8l-6.4 6.4", "none", "#7c4dff", 2.8, "round", "round");
+      } else if (icon === "sog") {
+        var ch2 = "rgba(255,255,255,0.85)";
+        var sw2 = 2.0;
+        path("M12 3.8V7.0", "none", ch2, sw2, "round", "round");
+        path("M12 17.0V20.2", "none", ch2, sw2, "round", "round");
+        path("M3.8 12H7.0", "none", ch2, sw2, "round", "round");
+        path("M17.0 12H20.2", "none", ch2, sw2, "round", "round");
+        circle(12, 12, 4.2, "none", ch2, sw2);
+      } else if (icon === "shot") {
+        var stroke = "rgba(255,255,255,0.9)";
+        circle(9.5, 14.5, 3.8, "#111827", "rgba(255,255,255,0.2)", 1);
+        path("M13 12l8-6", "none", stroke, 2, "round", "round");
+        path("M15 14l6-4", "none", stroke, 2, "round", "round");
+      } else if (icon === "assist") {
+        var skin2 = "rgba(230,232,236,0.92)";
+        var edge2 = "rgba(0,0,0,0.42)";
+        rect(7.2, 10.2, 8.8, 9.0, 2.2, skin2, edge2, 1.0);
+        rect(5.0, 12.0, 3.0, 5.2, 1.6, skin2, edge2, 1.0);
+        rect(7.0, 6.0, 2.2, 5.0, 1.1, skin2, edge2, 1.0);
+        rect(9.4, 5.6, 2.2, 5.4, 1.1, skin2, edge2, 1.0);
+        rect(11.8, 5.8, 2.2, 5.2, 1.1, skin2, edge2, 1.0);
+        rect(14.2, 6.4, 2.2, 4.6, 1.1, skin2, edge2, 1.0);
+      } else if (icon === "completed_pass") {
+        text(12, 12, "C", "#fbbf24", 14, 900);
+      } else if (icon === "penalty") {
+        rect(6.3, 6.6, 11.4, 14.2, 2.2, "#fbbf24", "rgba(0,0,0,0.55)", 1.2);
+      } else if (icon === "giveaway") {
+        rect(6.3, 11.0, 11.4, 9.6, 1.6, "#ff4d7a", "rgba(0,0,0,0.55)", 1.2);
+        rect(6.0, 9.3, 12.0, 2.6, 1.2, "#ff6b93", "rgba(0,0,0,0.55)", 1.2);
+        rect(11.0, 9.3, 2.0, 11.3, 1.0, "#f7c6a5", "rgba(0,0,0,0.45)", 1.0);
+      } else if (icon === "takeaway") {
+        // Takeaway: simple revolver pictogram (non-violent, no muzzle flash).
+        var gunFill = "rgba(230,232,236,0.92)";
+        var gunEdge = "rgba(0,0,0,0.42)";
+        rect(5.8, 9.4, 7.4, 4.6, 1.6, gunFill, gunEdge, 1.0); // frame/body
+        circle(14.1, 11.7, 2.3, gunFill, gunEdge, 1.0); // cylinder
+        circle(14.1, 11.7, 0.7, "rgba(255,255,255,0.35)", "none", 0); // cylinder hub
+        rect(15.9, 10.5, 6.1, 2.4, 1.2, gunFill, gunEdge, 1.0); // barrel
+        rect(21.6, 10.9, 1.3, 1.6, 0.7, gunFill, gunEdge, 1.0); // muzzle
+        rect(8.1, 7.8, 3.2, 1.6, 0.8, gunFill, gunEdge, 1.0); // hammer
+        path("M7.2 14.0h4.7v7.1c0 .7-.6 1.3-1.3 1.3H8.5c-.7 0-1.3-.6-1.3-1.3z", gunFill, gunEdge, 1.0, "round", "round"); // grip
+        path("M12.7 14.1c1.6.1 2.6 1.3 2.6 2.7 0 1.7-1.4 3.1-3.1 3.1h-1.0", "none", gunEdge, 1.0, "round", "round"); // trigger guard
+        path("M13.0 15.8c-.4.5-.4 1.2 0 1.6", "none", gunEdge, 1.0, "round", "round"); // trigger
+      } else {
+        rect(5.5, 5.5, 13, 13, 3, "rgba(0,0,0,0.0)", "rgba(255,255,255,0.35)", 1.2);
+        var t = String(label || "?").trim();
+        text(12, 12.2, t ? t.slice(0, 1).toUpperCase() : "?", "#ffffff", 12, 900);
+      }
+      return svg;
+    }
+
+    function _uniqueGamesCount(rows) {
+      var seen = {};
+      var n = 0;
+      (rows || []).forEach(function (r) {
+        if (!r) return;
+        var gid = (r.game_id !== undefined && r.game_id !== null) ? String(r.game_id) : "";
+        if (!gid) return;
+        if (!seen[gid]) {
+          seen[gid] = true;
+          n += 1;
+        }
+      });
+      return n;
+    }
+
+    function makeEventsHeading(tagName, label, styleText, gamesCount) {
+      var h = document.createElement(tagName || "h5");
+      if (styleText) h.setAttribute("style", styleText);
+      var wrap = el("span", { className: "event-type-cell" });
+      wrap.appendChild(makeHeadingIcon(label));
+      wrap.appendChild(document.createTextNode(String(label || "")));
+      var n = null;
+      try { n = (gamesCount === undefined || gamesCount === null) ? null : parseInt(String(gamesCount), 10); } catch (e) { n = null; }
+      if (n !== null && isFinite(n) && n > 0) {
+        wrap.appendChild(el("span", { className: "muted-strong", style: "font-size:.9em;font-weight:600;" }, " (" + String(n) + " " + (n === 1 ? "game" : "games") + ")"));
+      }
+      h.appendChild(wrap);
+      return h;
+    }
+
+    function addRow(tbody, cols, rowOpts) {
       var tr = document.createElement("tr");
+      var rowTitle = rowOpts && rowOpts.title ? String(rowOpts.title) : "";
+      if (rowOpts && rowOpts.className) tr.className = String(rowOpts.className);
       cols.forEach(function (c) {
         var td = document.createElement("td");
-        if (c && c.nodeType) td.appendChild(c);
-        else td.textContent = String(c || "");
+        if (rowTitle) td.title = rowTitle;
+        if (c && c.nodeType) {
+          td.appendChild(c);
+        } else if (c && typeof c === "object") {
+          if (c.className) td.className = String(c.className);
+          if (c.title) td.title = String(c.title);
+          if (c.node && c.node.nodeType) td.appendChild(c.node);
+          else td.textContent = String(c.text || "");
+        } else {
+          td.textContent = String(c || "");
+        }
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -756,21 +1036,75 @@
           videoCell = btn;
         }
 
-        addRow(
-          tbody,
-          opts.rowCells(r, {
-            dateText: dateText,
-            opponentCell: opponentCell,
-            typeText: typeText,
-            videoCell: videoCell,
-          })
-        );
+        var spec = opts.rowCells(r, {
+          dateText: dateText,
+          opponentCell: opponentCell,
+          typeText: typeText,
+          videoCell: videoCell,
+        });
+        if (Array.isArray(spec)) {
+          addRow(tbody, spec);
+          return;
+        }
+        if (spec && typeof spec === "object") {
+          addRow(tbody, spec.cells || [], { className: spec.rowClassName, title: spec.rowTitle });
+          return;
+        }
+        addRow(tbody, []);
       });
       table.appendChild(tbody);
       wrap.appendChild(table);
       container.appendChild(wrap);
       queueTableFit();
     }
+
+      function _correctionTooltip(r) {
+        if (!r) return "";
+        var c = r.correction;
+        if (!c || typeof c !== "object") return "";
+        var lines = ["Corrected event"];
+        var etKey = normTypeKey(r.event_type_key || r.event_type);
+        var changeLabel = function (field) {
+          if (field === "jersey") {
+            if (etKey === "goal") return "Scorer";
+            if (etKey === "assist") return "Assist";
+            return "Jersey";
+          }
+          if (field === "player_name") return "Player";
+          if (field === "event_type") return "Type";
+          if (field === "team_side") return "Side";
+          if (field === "game_time") return "Time";
+          if (field === "video_time") return "Video";
+          if (field === "details") return "Details";
+          if (field === "period") return "Period";
+          return String(field || "Field");
+        };
+        var fmt = function (v, field) {
+          if (v === null || v === undefined || String(v).trim() === "") return "—";
+          if (field === "jersey" && String(v).trim()) return "#" + String(v).trim();
+          return String(v);
+        };
+        var changes = Array.isArray(c.changes) ? c.changes : [];
+        changes.forEach(function (ch) {
+          if (!ch || typeof ch !== "object") return;
+          var field = String(ch.field || "").trim();
+          if (!field) return;
+          lines.push(
+            changeLabel(field) + ": " + fmt(ch.from, field) + " → " + fmt(ch.to, field)
+          );
+        });
+        var note = String(c.note || "").trim();
+        var reason = String(c.reason || "").trim();
+        if (note) lines.push("Note: " + note);
+        if (reason) lines.push("Reason: " + reason);
+        var videoSeconds =
+          r.video_seconds !== undefined && r.video_seconds !== null ? r.video_seconds : parseTimeToSeconds(r.video_time);
+        var hasVideoTime =
+          videoSeconds !== null && videoSeconds !== undefined && isFinite(parseInt(String(videoSeconds), 10));
+        var clip = (r.video_url && hasVideoTime) ? ("yes (" + (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) + ")") : "no";
+        lines.push("Video clip: " + clip);
+        return lines.join("\n");
+      }
 
       function groupRows(rows, keyFn) {
         var order = [];
@@ -823,7 +1157,7 @@
           w.searchParams.set("v", String(id));
           w.searchParams.set("t", String(start) + "s");
           w.searchParams.set("autoplay", "1");
-          w.searchParams.set("vq", "hd1080");
+          w.searchParams.set("vq", "highres");
           return w.toString();
         } catch (e) {
           return null;
@@ -842,11 +1176,33 @@
         params.set("origin", String(window.location.origin || ""));
         params.set("start", String(start));
         params.set("end", String(end));
-        params.set("vq", "hd1080");
+        params.set("vq", "highres");
         params.set("rel", "0");
         params.set("modestbranding", "1");
         params.set("playsinline", "1");
         return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) + "?" + params.toString();
+      }
+
+      function requestYouTubeBestQuality(iframeEl) {
+        try {
+          if (!iframeEl || !iframeEl.contentWindow) return;
+          var cmds = [
+            { func: "setPlaybackQuality", args: ["highres"] },
+            { func: "setPlaybackQuality", args: ["hd2160"] },
+            { func: "setPlaybackQuality", args: ["hd1440"] },
+            { func: "setPlaybackQuality", args: ["hd1080"] },
+            { func: "setPlaybackQuality", args: ["hd720"] },
+            { func: "setPlaybackQuality", args: ["large"] },
+            { func: "setPlaybackQualityRange", args: ["highres", "highres"] },
+            { func: "setPlaybackQualityRange", args: ["highres", "hd1080"] },
+          ];
+          for (var i = 0; i < cmds.length; i++) {
+            iframeEl.contentWindow.postMessage(
+              JSON.stringify({ event: "command", func: cmds[i].func, args: cmds[i].args || [] }),
+              "https://www.youtube-nocookie.com"
+            );
+          }
+        } catch (e) {}
       }
 
       function clipTimingForEvent(r) {
@@ -885,6 +1241,17 @@
         }
         videoIframe.src = embed;
         videoIframe.setAttribute("src", embed);
+        // Best-effort: request highest available quality after navigation.
+        try {
+          if (!videoIframe._hmYtQualityHookInstalled) {
+            videoIframe._hmYtQualityHookInstalled = true;
+            videoIframe.addEventListener("load", function () { requestYouTubeBestQuality(videoIframe); });
+          }
+          requestYouTubeBestQuality(videoIframe);
+          window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 250);
+          window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 800);
+          window.setTimeout(function () { requestYouTubeBestQuality(videoIframe); }, 1600);
+        } catch (e) {}
         if (videoMeta) {
           var tLabel = timing.kindKey ? timing.kindKey.toUpperCase() : "";
           var at = (String(r.video_time || "").trim() || fmtSecondsToTime(vs));
@@ -935,15 +1302,16 @@
       bodyEl.appendChild(p);
     }
 
-    function buildApiUrl(playerId, opts) {
-      opts = opts || {};
-      var api = new URL("/api/hky/teams/" + String(teamId) + "/players/" + String(playerId) + "/events", window.location.origin);
-      var cur = new URL(window.location.href);
-      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
-      var rn = null;
-      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
-      if (rn !== null && isFinite(rn) && rn > 0) {
-        rn = Math.max(1, Math.min(10, rn));
+      function buildApiUrl(playerId, opts) {
+        opts = opts || {};
+        var api = new URL("/api/hky/teams/" + String(teamId) + "/players/" + String(playerId) + "/events", window.location.origin);
+        var cur = new URL(window.location.href);
+        cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+        cur.searchParams.getAll("gid").forEach(function (v) { api.searchParams.append("gid", v); });
+        var rn = null;
+        try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+        if (rn !== null && isFinite(rn) && rn > 0) {
+          rn = Math.max(1, Math.min(10, rn));
         api.searchParams.set("recent_n", String(rn));
       }
       if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
@@ -992,7 +1360,8 @@
               bodyEl.appendChild(el("h4", { style: "margin:1rem 0 .5rem 0;" }, "Attributed Events"));
               var filtered = attributed.filter(function (r) {
                 var k = normTypeKey(r.event_type_key || r.event_type);
-                return k !== "penaltyexpired";
+                // Completed Passes are per-game shift-sheet events; don't include them in multi-game views.
+                return k !== "penaltyexpired" && k !== "completedpass";
               });
 
               var goals = [];
@@ -1009,7 +1378,7 @@
                   shot.push(withDetailsTag(r, "Goal"));
                 } else if (k === "assist") {
                   assists.push(r);
-                } else if (k === "expectedgoal") {
+                } else if (k === "xg" || k === "expectedgoal") {
                   xg.push(withDetailsTag(r, "xG"));
                   sog.push(withDetailsTag(r, "xG"));
                   shot.push(withDetailsTag(r, "xG"));
@@ -1031,25 +1400,31 @@
                 var label = pair[0];
                 var rows = pair[1] || [];
                 if (!rows.length) return;
-                bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, label));
+                bodyEl.appendChild(makeEventsHeading("h5", label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(rows)));
                 renderEventsTable(bodyEl, rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                   rowCells: function (r, ctx) {
-                    return [
-                      ctx.dateText,
-                      ctx.opponentCell,
-                      ctx.typeText,
-                      String(r.period || ""),
-                      String(r.game_time || ""),
-                      ctx.videoCell,
-                      String(r.details || ""),
-                      String(r.source || ""),
-                    ];
+                    var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                    var tip = isCorrected ? _correctionTooltip(r) : "";
+                    return {
+                      rowClassName: isCorrected ? "event-corrected" : "",
+                      rowTitle: tip,
+                      cells: [
+                        ctx.dateText,
+                        ctx.opponentCell,
+                        ctx.typeText,
+                        String(r.period || ""),
+                        String(r.game_time || ""),
+                        ctx.videoCell,
+                        { text: String(r.details || ""), className: "cell-pre" },
+                        String(r.source || ""),
+                      ],
+                    };
                   },
                 });
               });
 
-              var chainKeys = { goal: true, assist: true, expectedgoal: true, sog: true, shot: true };
+              var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
               var remaining = filtered.filter(function (r) {
                 var k = normTypeKey(r.event_type_key || r.event_type);
                 return !chainKeys[k];
@@ -1058,20 +1433,26 @@
                 var eg = groupRows(remaining, function (r) { return r.event_type; });
                 eg.order.forEach(function (k) {
                   var g = eg.groups[k];
-                  bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+                  bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(g.rows)));
                   renderEventsTable(bodyEl, g.rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                     rowCells: function (r, ctx) {
-                      return [
-                        ctx.dateText,
-                        ctx.opponentCell,
-                        ctx.typeText,
-                        String(r.period || ""),
-                        String(r.game_time || ""),
-                        ctx.videoCell,
-                        String(r.details || ""),
-                        String(r.source || ""),
-                      ];
+                      var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                      var tip = isCorrected ? _correctionTooltip(r) : "";
+                      return {
+                        rowClassName: isCorrected ? "event-corrected" : "",
+                        rowTitle: tip,
+                        cells: [
+                          ctx.dateText,
+                          ctx.opponentCell,
+                          ctx.typeText,
+                          String(r.period || ""),
+                          String(r.game_time || ""),
+                          ctx.videoCell,
+                          { text: String(r.details || ""), className: "cell-pre" },
+                          String(r.source || ""),
+                        ],
+                      };
                     },
                   });
                 });
@@ -1089,20 +1470,26 @@
             });
             og.order.forEach(function (k) {
               var g = og.groups[k];
-              bodyEl.appendChild(el("h5", { style: "margin:.75rem 0 .35rem 0;" }, g.label));
+              bodyEl.appendChild(makeEventsHeading("h5", g.label, "margin:.75rem 0 .35rem 0;", _uniqueGamesCount(g.rows)));
               renderEventsTable(bodyEl, g.rows, {
                 headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
-                  return [
-                    ctx.dateText,
-                    ctx.opponentCell,
-                    ctx.typeText,
-                    String(r.period || ""),
-                    String(r.game_time || ""),
-                    ctx.videoCell,
-                    String(r.details || ""),
-                    String(r.source || ""),
-                  ];
+                  var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                  var tip = isCorrected ? _correctionTooltip(r) : "";
+                  return {
+                    rowClassName: isCorrected ? "event-corrected" : "",
+                    rowTitle: tip,
+                    cells: [
+                      ctx.dateText,
+                      ctx.opponentCell,
+                      ctx.typeText,
+                      String(r.period || ""),
+                      String(r.game_time || ""),
+                      ctx.videoCell,
+                      { text: String(r.details || ""), className: "cell-pre" },
+                      String(r.source || ""),
+                    ],
+                  };
                 },
               });
             });
@@ -1125,6 +1512,302 @@
           scope: a.getAttribute("data-scope"),
         });
       });
+    });
+
+    // ----------------------------
+    // Pair on-ice (player pairing) modal
+    // ----------------------------
+    var pairDlg = document.getElementById("team-player-pairings-modal");
+    var pairTitleEl = document.getElementById("team-player-pairings-title");
+    var pairSubtitleEl = document.getElementById("team-player-pairings-subtitle");
+    var pairBodyEl = document.getElementById("team-player-pairings-body");
+    var pairCloseBtn = document.getElementById("team-player-pairings-close");
+    var pairingsTableEl = null;
+    var _pairScrollLock = null;
+
+    function lockBackgroundScrollForPairModal() {
+      if (_pairScrollLock) return;
+      try {
+        _pairScrollLock = {
+          htmlOverflow: document.documentElement.style.overflow,
+          bodyOverflow: document.body.style.overflow,
+        };
+        document.documentElement.style.overflow = "hidden";
+        document.body.style.overflow = "hidden";
+      } catch (e) {
+        _pairScrollLock = {};
+      }
+    }
+
+    function unlockBackgroundScrollForPairModal() {
+      if (!_pairScrollLock) return;
+      try {
+        if (_pairScrollLock.htmlOverflow !== undefined) {
+          document.documentElement.style.overflow = _pairScrollLock.htmlOverflow;
+        } else {
+          document.documentElement.style.overflow = "";
+        }
+        if (_pairScrollLock.bodyOverflow !== undefined) {
+          document.body.style.overflow = _pairScrollLock.bodyOverflow;
+        } else {
+          document.body.style.overflow = "";
+        }
+      } catch (e) {}
+      _pairScrollLock = null;
+    }
+
+    function closePairModal() {
+      if (!pairDlg) return;
+      if (pairBodyEl) pairBodyEl.innerHTML = "";
+      pairingsTableEl = null;
+      try { pairDlg.close(); } catch (e) { pairDlg.open = false; }
+      unlockBackgroundScrollForPairModal();
+    }
+    function showPairModal() {
+      if (!pairDlg) return;
+      lockBackgroundScrollForPairModal();
+      try { pairDlg.showModal(); } catch (e) { pairDlg.open = true; }
+      try {
+        window.requestAnimationFrame(function () {
+          if (pairBodyEl && typeof pairBodyEl.focus === "function") pairBodyEl.focus();
+        });
+      } catch (e) {}
+    }
+    if (pairCloseBtn) pairCloseBtn.addEventListener("click", closePairModal);
+    if (pairDlg) {
+      pairDlg.addEventListener("close", unlockBackgroundScrollForPairModal);
+      pairDlg.addEventListener("cancel", function (e) {
+        try { e.preventDefault(); } catch (e2) {}
+        closePairModal();
+      });
+    }
+
+      function buildPairingsApiUrl(opts) {
+        opts = opts || {};
+        var api = new URL("/api/hky/teams/" + String(teamId) + "/pair_on_ice", window.location.origin);
+        var cur = new URL(window.location.href);
+        cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+        cur.searchParams.getAll("gid").forEach(function (v) { api.searchParams.append("gid", v); });
+        var rn = null;
+        try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+        if (rn !== null && isFinite(rn) && rn > 0) {
+          rn = Math.max(1, Math.min(10, rn));
+        api.searchParams.set("recent_n", String(rn));
+      }
+      if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      return api;
+    }
+
+    function blankIfZero(v) {
+      if (v === null || v === undefined) return "";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v);
+      if (n === 0) return "";
+      if (Math.floor(n) === n) return String(n);
+      return String(v);
+    }
+
+    function fmtPct(v) {
+      if (v === null || v === undefined) return "0.0";
+      var n = Number(v);
+      if (!isFinite(n)) return String(v || "");
+      return n.toFixed(1);
+    }
+
+    function thClampLabel(label) {
+      var txt = String(label || "").trim();
+      var wrap = document.createElement("div");
+      wrap.className = "th-clamp";
+      if (!txt) return wrap;
+      var parts = txt.split(/\\s+/);
+      if (parts.length <= 2) {
+        wrap.textContent = txt;
+        return wrap;
+      }
+      wrap.appendChild(document.createTextNode(parts.slice(0, 2).join(" ")));
+      wrap.appendChild(document.createElement("br"));
+      wrap.appendChild(document.createTextNode(parts.slice(2).join(" ")));
+      return wrap;
+    }
+
+    function cellWithGamesNote(value, games, maxGames) {
+      var txt = String(value || "");
+      var g = null;
+      try { g = parseInt(String(games || "").trim(), 10); } catch (e) { g = null; }
+      var mx = null;
+      try { mx = parseInt(String(maxGames || "").trim(), 10); } catch (e) { mx = null; }
+      if (g === null || !isFinite(g) || g <= 0) return txt;
+      if (mx !== null && isFinite(mx) && mx > 0 && g >= mx) return txt;
+      var wrap = document.createElement("span");
+      wrap.appendChild(document.createTextNode(txt));
+      wrap.appendChild(el("span", { className: "muted", style: "margin-left:4px;font-size:.86em;" }, "(" + String(g) + " games)"));
+      return wrap;
+    }
+
+    function applyPairingsFrozenColumns(table) {
+      if (!table || !table.tHead || !table.tHead.rows || !table.tHead.rows[0]) return;
+      var headerCells = Array.from(table.tHead.rows[0].cells || []);
+      if (headerCells.length < 2) return;
+      var w0 = headerCells[0].getBoundingClientRect().width;
+      var lefts = [0, w0];
+      table.querySelectorAll("[data-sticky-col]").forEach(function (cell) {
+        var idx = parseInt(String(cell.getAttribute("data-sticky-col") || "0"), 10);
+        if (!isFinite(idx) || idx < 0 || idx > 1) return;
+        cell.classList.add("sticky-col");
+        cell.style.left = lefts[idx] + "px";
+        cell.style.zIndex = (cell.tagName === "TH") ? String(70 - idx) : String(40 - idx);
+      });
+    }
+
+    function loadPairings(opts) {
+      opts = opts || {};
+      if (!pairDlg || !pairTitleEl || !pairSubtitleEl || !pairBodyEl) return;
+      var scopeLabel = normScopeLabel(opts.scopeLabel);
+      pairTitleEl.textContent = "Associated Player Pairing — " + scopeLabel;
+      pairSubtitleEl.textContent = "";
+      pairBodyEl.innerHTML = "<p class=\"muted\">Loading…</p>";
+      showPairModal();
+
+      var api = buildPairingsApiUrl(opts);
+      fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
+        return resp.json().then(function (data) {
+          if (!resp.ok || !data || !data.ok) {
+            var err = (data && data.error) ? String(data.error) : ("HTTP " + String(resp.status || ""));
+            pairBodyEl.innerHTML = "";
+            pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + err + ")."));
+            return;
+          }
+          var eligible = Number(data.eligible_games || 0);
+          var shiftGames = Number(data.shift_games || 0);
+          pairSubtitleEl.textContent = "Eligible games: " + String(eligible) + " • Games with shift data: " + String(shiftGames);
+          pairBodyEl.innerHTML = "";
+
+          var rows = Array.isArray(data.rows) ? data.rows : [];
+          if (!rows.length) {
+            pairBodyEl.appendChild(el("p", { className: "muted" }, "No pairing data for the selected games."));
+            return;
+          }
+
+          var wrap = document.createElement("div");
+          wrap.className = "table-scroll table-scroll-y";
+          wrap.tabIndex = 0;
+          wrap.style.outline = "none";
+          var table = document.createElement("table");
+          table.className = "table-nowrap table-grid team-player-pairings-table";
+          var thead = document.createElement("thead");
+          var trh = document.createElement("tr");
+          var shiftNote = (isFinite(eligible) && isFinite(shiftGames) && eligible > shiftGames && shiftGames > 0);
+          var shiftNoteText = shiftNote ? ("(" + String(shiftGames) + " games)") : "";
+          function th(label, idx, opts) {
+            opts = opts || {};
+            var attrs = {};
+            if (idx === 0 || idx === 1) attrs["data-sticky-col"] = String(idx);
+            if (idx === 0 || idx === 2) attrs.className = "pair-jersey-col";
+            var thEl = el("th", attrs, null);
+            thEl.appendChild(thClampLabel(label));
+            if (opts.shiftNote && shiftNoteText) {
+              thEl.appendChild(el("div", { className: "th-subnote" }, shiftNoteText));
+            }
+            trh.appendChild(thEl);
+          }
+          th("#", 0);
+          th("Player", 1);
+          th("#", 2);
+          th("Teammate", 3);
+          th("Games with Data", 4);
+          th("Overlap %", 5, { shiftNote: true });
+          th("GF Together", 6, { shiftNote: true });
+          th("GA Together", 7, { shiftNote: true });
+          th("Player Goals (On Ice Together)", 8, { shiftNote: true });
+          th("Player Assists (On Ice Together)", 9, { shiftNote: true });
+          th("Goals Collaborated", 10, { shiftNote: true });
+          th("Assists Collaborated", 11, { shiftNote: true });
+          th("+/- Together", 12, { shiftNote: true });
+          th("Player Total +/-", 13, { shiftNote: true });
+          th("Teammate Total +/-", 14, { shiftNote: true });
+          thead.appendChild(trh);
+          table.appendChild(thead);
+          var tbody = document.createElement("tbody");
+          // Group rows by player and use rowspan to avoid repeating player/name for each teammate.
+          var byPid = {};
+          var pidOrder = [];
+          rows.forEach(function (r) {
+            var pidKey = String((r && r.player_id) || "");
+            if (!pidKey) pidKey = String(r.player_name || "") + "|" + String(r.player_jersey || "");
+            if (!byPid[pidKey]) { byPid[pidKey] = []; pidOrder.push(pidKey); }
+            byPid[pidKey].push(r);
+          });
+          pidOrder.forEach(function (pidKey) {
+            var group = byPid[pidKey] || [];
+            group.forEach(function (r, idx) {
+              var tr = document.createElement("tr");
+              function td(txt, attrs) { tr.appendChild(el("td", attrs || null, txt)); }
+              if (idx === 0) {
+                td(String(r.player_jersey || ""), { rowspan: String(group.length), style: "vertical-align: middle;", className: "pair-jersey-col", "data-sticky-col": "0" });
+                td(String(r.player_name || ""), { rowspan: String(group.length), style: "vertical-align: middle;", "data-sticky-col": "1" });
+              }
+              td(String(r.teammate_jersey || ""), { className: "pair-jersey-col" });
+              td(String(r.teammate_name || ""));
+              td(String(r.shift_games || 0));
+              td(fmtPct(r.overlap_pct));
+              td(String(r.gf_together || 0));
+              td(String(r.ga_together || 0));
+              td(blankIfZero(r.player_goals_on_ice_together));
+              td(blankIfZero(r.player_assists_on_ice_together));
+              td(blankIfZero(r.goals_collab_with_teammate));
+              td(blankIfZero(r.assists_collab_with_teammate));
+              td(String(r.plus_minus_together || 0));
+              td(cellWithGamesNote(String(r.player_total_plus_minus || 0), r.player_shift_games, shiftGames));
+              td(cellWithGamesNote(String(r.teammate_total_plus_minus || 0), r.teammate_shift_games, shiftGames));
+              tbody.appendChild(tr);
+            });
+          });
+          table.appendChild(tbody);
+          wrap.appendChild(table);
+          pairBodyEl.appendChild(wrap);
+          pairingsTableEl = table;
+          try {
+            window.requestAnimationFrame(function () {
+              applyPairingsFrozenColumns(table);
+              window.requestAnimationFrame(function () {
+                applyPairingsFrozenColumns(table);
+                window.setTimeout(function () { applyPairingsFrozenColumns(table); }, 0);
+              });
+            });
+          } catch (e) {
+            applyPairingsFrozenColumns(table);
+          }
+          try {
+            window.requestAnimationFrame(function () {
+              if (typeof wrap.focus === "function") wrap.focus();
+            });
+          } catch (e) {}
+        }).catch(function (e) {
+          pairBodyEl.innerHTML = "";
+          pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
+        });
+      }).catch(function (e) {
+        pairBodyEl.innerHTML = "";
+        pairBodyEl.appendChild(el("p", { className: "muted" }, "Unable to load pairings (" + String(e || "error") + ")."));
+      });
+    }
+
+    document.querySelectorAll(".player-pairings-link").forEach(function (a) {
+      a.style.cursor = "pointer";
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        loadPairings({
+          recentN: a.getAttribute("data-recent-n"),
+          scopeLabel: a.getAttribute("data-scope-label"),
+          scope: a.getAttribute("data-scope"),
+        });
+      });
+    });
+    window.addEventListener("resize", function () {
+      if (!pairingsTableEl) return;
+      try {
+        applyPairingsFrozenColumns(pairingsTableEl);
+      } catch (e) {}
     });
 
     // ----------------------------
@@ -1157,15 +1840,16 @@
     }
     if (goalieCloseBtn) goalieCloseBtn.addEventListener("click", closeGoalieModal);
 
-    function buildGoalieApiUrl(goalieId, opts) {
-      opts = opts || {};
-      var api = new URL("/api/hky/teams/" + String(teamId) + "/goalies/" + String(goalieId) + "/stats", window.location.origin);
-      var cur = new URL(window.location.href);
-      cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
-      var rn = null;
-      try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
-      if (rn !== null && isFinite(rn) && rn > 0) {
-        rn = Math.max(1, Math.min(10, rn));
+      function buildGoalieApiUrl(goalieId, opts) {
+        opts = opts || {};
+        var api = new URL("/api/hky/teams/" + String(teamId) + "/goalies/" + String(goalieId) + "/stats", window.location.origin);
+        var cur = new URL(window.location.href);
+        cur.searchParams.getAll("gt").forEach(function (v) { api.searchParams.append("gt", v); });
+        cur.searchParams.getAll("gid").forEach(function (v) { api.searchParams.append("gid", v); });
+        var rn = null;
+        try { rn = parseInt(String(opts.recentN || "").trim(), 10); } catch (e) { rn = null; }
+        if (rn !== null && isFinite(rn) && rn > 0) {
+          rn = Math.max(1, Math.min(10, rn));
         api.searchParams.set("recent_n", String(rn));
       }
       if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));

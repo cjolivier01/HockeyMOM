@@ -4,7 +4,7 @@
 This script scrapes TimeToScore directly via `hmlib.time2score` and upserts:
 - teams (as external teams owned by the specified user)
 - games (hky_games)
-- players + player_stats (goals/assists derived from TimeToScore game pages)
+- players + per-row game events (hky_game_event_rows)
 
 By default it targets CAHA youth (TimeToScore `league=3`). SharksIce (adult, league=1) is also supported.
 """
@@ -604,8 +604,8 @@ def _ensure_team_logo(
 def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
     """Fix bogus players created from numeric scorer ids (e.g. name='88').
 
-    Migrate any player_stats rows from bogus numeric-name players to the real player
-    matching jersey_number, then delete the bogus player records if unused.
+    Migrate any game-event rows / game-player links from bogus numeric-name players to the real
+    player matching jersey_number, then delete the bogus player records if unused.
     """
     del conn
     _django_orm, m = _orm_modules()
@@ -635,17 +635,52 @@ def _cleanup_numeric_named_players(conn, *, user_id: int, team_id: int) -> int:
             if real_id is None:
                 continue
 
-            bogus_stats = list(
-                m.PlayerStat.objects.filter(player_id=int(bogus_id)).values_list("id", "game_id")
+            # Move event rows to the real player_id (best-effort).
+            event_ids = list(
+                m.HkyGameEventRow.objects.filter(player_id=int(bogus_id)).values_list(
+                    "id", flat=True
+                )
             )
-            for ps_id, gid in bogus_stats:
-                if m.PlayerStat.objects.filter(game_id=int(gid), player_id=int(real_id)).exists():
-                    m.PlayerStat.objects.filter(id=int(ps_id)).delete()
+            if event_ids:
+                moved += int(
+                    m.HkyGameEventRow.objects.filter(id__in=[int(x) for x in event_ids]).update(
+                        player_id=int(real_id)
+                    )
+                    or 0
+                )
+
+            # Move shift rows to the real player_id (best-effort).
+            shift_ids = list(
+                m.HkyGameShiftRow.objects.filter(player_id=int(bogus_id)).values_list(
+                    "id", flat=True
+                )
+            )
+            if shift_ids:
+                moved += int(
+                    m.HkyGameShiftRow.objects.filter(id__in=[int(x) for x in shift_ids]).update(
+                        player_id=int(real_id)
+                    )
+                    or 0
+                )
+
+            # Move game-player links (dedupe per game).
+            bogus_links = list(
+                m.HkyGamePlayer.objects.filter(player_id=int(bogus_id)).values_list("id", "game_id")
+            )
+            for link_id, gid in bogus_links:
+                if m.HkyGamePlayer.objects.filter(
+                    game_id=int(gid), player_id=int(real_id)
+                ).exists():
+                    m.HkyGamePlayer.objects.filter(id=int(link_id)).delete()
                 else:
-                    m.PlayerStat.objects.filter(id=int(ps_id)).update(player_id=int(real_id))
+                    m.HkyGamePlayer.objects.filter(id=int(link_id)).update(player_id=int(real_id))
                     moved += 1
 
-            if not m.PlayerStat.objects.filter(player_id=int(bogus_id)).exists():
+            if (
+                not m.HkyGameEventRow.objects.filter(player_id=int(bogus_id)).exists()
+                and not m.HkyGameShiftRow.objects.filter(player_id=int(bogus_id)).exists()
+                and not m.HkyGamePlayer.objects.filter(player_id=int(bogus_id)).exists()
+            ):
                 m.Player.objects.filter(id=int(bogus_id)).delete()
 
     return moved
@@ -807,7 +842,29 @@ def upsert_hky_game(
 def ensure_player(
     conn, *, user_id: int, team_id: int, name: str, jersey: Optional[str], position: Optional[str]
 ) -> int:
-    nm = (name or "").strip()
+    def _norm_jersey(val: Any) -> Optional[str]:
+        s = str(val or "").strip()
+        if not s:
+            return None
+        m = re.search(r"(\\d+)", s)
+        return m.group(1) if m else None
+
+    def _strip_jersey_from_name(raw: str, jersey_number: Optional[str]) -> str:
+        nm = str(raw or "").strip()
+        if not nm:
+            return ""
+        jersey_norm = _norm_jersey(jersey_number) if jersey_number else None
+        if jersey_norm:
+            tail = re.sub(rf"\s*[\(#]?\s*{re.escape(jersey_norm)}\s*\)?\s*$", "", nm).strip()
+            if tail:
+                nm = tail
+            head = re.sub(rf"^#?\s*{re.escape(jersey_norm)}\s+", "", nm).strip()
+            if head:
+                nm = head
+        return nm
+
+    raw_name = str(name or "").strip()
+    nm = _strip_jersey_from_name(raw_name, jersey)
     if not nm:
         nm = "UNKNOWN"
     del conn
@@ -815,6 +872,12 @@ def ensure_player(
     now = dt.datetime.now()
 
     p = m.Player.objects.filter(user_id=int(user_id), team_id=int(team_id), name=str(nm)).first()
+    if not p and raw_name and raw_name != nm:
+        p = m.Player.objects.filter(
+            user_id=int(user_id), team_id=int(team_id), name=str(raw_name)
+        ).first()
+        if p:
+            m.Player.objects.filter(id=p.id).update(name=str(nm), updated_at=now)
     if p:
         updates: dict[str, Any] = {}
         if jersey and not str(p.jersey_number or "").strip():
@@ -847,7 +910,6 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
     """
     del conn
     _django_orm, m = _orm_modules()
-    from django.db import transaction
 
     league_name = str(payload.get("league_name") or "").strip()
     if not league_name:
@@ -1124,86 +1186,49 @@ def apply_games_batch_payload_to_db(conn, payload: dict[str, Any]) -> dict[str, 
                 pid = _ensure_player_for_import(int(tid), nm, jersey, pos)
                 roster_player_ids_by_team[int(tid)].add(int(pid))
 
-        # Minimal goals/assists stats.
-        stats_rows = game.get("player_stats") or []
-
+        events_csv = game.get("events_csv")
         played = (
             bool(game.get("is_final"))
             or (team1_score is not None and team2_score is not None)
-            or (isinstance(stats_rows, list) and bool(stats_rows))
+            or (isinstance(events_csv, str) and events_csv.strip())
         )
         if played:
+            now = dt.datetime.now()
             to_create = []
             for tid, pids in roster_player_ids_by_team.items():
                 for pid in sorted(pids):
                     to_create.append(
-                        m.PlayerStat(
-                            user_id=int(owner_user_id),
-                            team_id=int(tid),
+                        m.HkyGamePlayer(
                             game_id=int(gid),
                             player_id=int(pid),
+                            team_id=int(tid),
+                            created_at=now,
+                            updated_at=None,
                         )
                     )
             if to_create:
-                m.PlayerStat.objects.bulk_create(to_create, ignore_conflicts=True)
+                m.HkyGamePlayer.objects.bulk_create(to_create, ignore_conflicts=True)
 
-        if isinstance(stats_rows, list):
-            for srow in stats_rows:
-                if not isinstance(srow, dict):
-                    continue
-                pname = str(srow.get("name") or "").strip()
-                if not pname:
-                    continue
-                goals = int(srow.get("goals") or 0)
-                assists = int(srow.get("assists") or 0)
-                if goals == 0 and assists == 0:
-                    continue
+        if isinstance(events_csv, str) and events_csv.strip():
+            try:
+                from tools.webapp.django_app import views as web_views  # type: ignore
+            except Exception:  # pragma: no cover
+                from django_app import views as web_views  # type: ignore
 
-                pid1 = (
-                    m.Player.objects.filter(
-                        user_id=int(owner_user_id), team_id=int(team1_id), name=str(pname)
-                    )
-                    .values_list("id", flat=True)
-                    .first()
-                )
-                pid2 = (
-                    m.Player.objects.filter(
-                        user_id=int(owner_user_id), team_id=int(team2_id), name=str(pname)
-                    )
-                    .values_list("id", flat=True)
-                    .first()
-                )
-                team_ref = team1_id
-                pid = int(pid1) if pid1 is not None else (int(pid2) if pid2 is not None else None)
-                if pid2 is not None and pid1 is None:
-                    team_ref = team2_id
-                if pid is None:
-                    pid = _ensure_player_for_import(int(team_ref), pname, None, None)
-
-                with transaction.atomic():
-                    ps, created = m.PlayerStat.objects.get_or_create(
-                        game_id=int(gid),
-                        player_id=int(pid),
-                        defaults={
-                            "user_id": int(owner_user_id),
-                            "team_id": int(team_ref),
-                            "goals": int(goals),
-                            "assists": int(assists),
-                        },
-                    )
-                    if not created:
-                        if replace:
-                            m.PlayerStat.objects.filter(id=ps.id).update(
-                                goals=int(goals), assists=int(assists)
-                            )
-                        else:
-                            updates3: dict[str, Any] = {}
-                            if ps.goals is None:
-                                updates3["goals"] = int(goals)
-                            if ps.assists is None:
-                                updates3["assists"] = int(assists)
-                            if updates3:
-                                m.PlayerStat.objects.filter(id=ps.id).update(**updates3)
+            web_views._upsert_game_event_rows_from_events_csv(
+                game_id=int(gid),
+                events_csv=str(events_csv),
+                replace=bool(replace),
+                create_missing_players=False,
+                incoming_source_label=str(payload.get("source") or "timetoscore"),
+                prefer_incoming_for_event_types={
+                    "goal",
+                    "assist",
+                    "penalty",
+                    "penaltyexpired",
+                    "goaliechange",
+                },
+            )
 
         results.append({"game_id": int(gid), "team1_id": int(team1_id), "team2_id": int(team2_id)})
 
@@ -1281,7 +1306,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Create user if missing (requires --password-hash)",
     )
 
-    ap.add_argument("--replace", action="store_true", help="Overwrite existing scores/player_stats")
+    ap.add_argument("--replace", action="store_true", help="Overwrite existing scores/events")
     ap.add_argument(
         "--no-import-logos", action="store_true", help="Skip downloading and saving team logos"
     )
@@ -2740,12 +2765,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         if t2_score is None and (fb or {}).get("awayGoals") is not None:
             t2_score = tts_norm.parse_int_or_none((fb or {}).get("awayGoals"))
 
-        ga_rows = [
-            agg
-            for agg in tts_norm.aggregate_goals_assists(stats)
-            if str(agg.get("name") or "").strip()
-        ]
-
         # Build a basic events timeline from TimeToScore data (goals + penalties + PP/PK spans)
         # so the webapp can show game events even before any spreadsheets are uploaded.
         def _side_label(side: str) -> str:
@@ -3056,32 +3075,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         events_csv_text = _to_csv_text(events_headers, events_rows)
 
-        # Merge per-player stats: goals/assists (when present) + PIM (when present).
-        stats_by_name: dict[str, dict[str, int]] = {}
-        for r in ga_rows:
-            nm = str(r.get("name") or "").strip()
-            if not nm:
-                continue
-            stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
-            stats_by_name[nm]["goals"] = int(r.get("goals") or 0)
-            stats_by_name[nm]["assists"] = int(r.get("assists") or 0)
-        for nm, pim in pim_by_player_name.items():
-            if not nm:
-                continue
-            stats_by_name.setdefault(nm, {"goals": 0, "assists": 0, "pim": 0})
-            stats_by_name[nm]["pim"] = int(pim or 0)
-        player_stats_out = [
-            {
-                "name": nm,
-                "goals": int(v.get("goals") or 0),
-                "assists": int(v.get("assists") or 0),
-                "pim": int(v.get("pim") or 0),
-            }
-            for nm, v in stats_by_name.items()
-            if (int(v.get("goals") or 0) + int(v.get("assists") or 0) + int(v.get("pim") or 0)) > 0
-        ]
-        player_stats_out.sort(key=lambda r: str(r.get("name") or "").casefold())
-
         if rest_mode:
             # Prefer mapping tournament games involving an External division to that External division,
             # otherwise keep the team's primary division.
@@ -3160,7 +3153,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "away_logo_content_type": away_logo_ct,
                     "home_roster": list(tts_norm.extract_roster(stats, "home")),
                     "away_roster": list(tts_norm.extract_roster(stats, "away")),
-                    "player_stats": player_stats_out,
                     "events_csv": events_csv_text,
                 }
             )
@@ -3282,8 +3274,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
         # Rosters (optional for schedule-only rows)
+        roster_pids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
         for row in tts_norm.extract_roster(stats, "home"):
-            ensure_player(
+            pid = ensure_player(
                 conn,
                 user_id=user_id,
                 team_id=team1_id,
@@ -3291,8 +3284,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 jersey=row["number"],
                 position=row["position"],
             )
+            roster_pids_by_team[int(team1_id)].add(int(pid))
         for row in tts_norm.extract_roster(stats, "away"):
-            ensure_player(
+            pid = ensure_player(
                 conn,
                 user_id=user_id,
                 team_id=team2_id,
@@ -3300,6 +3294,25 @@ def main(argv: Optional[list[str]] = None) -> int:
                 jersey=row["number"],
                 position=row["position"],
             )
+            roster_pids_by_team[int(team2_id)].add(int(pid))
+
+        # Credit GP (roster presence).
+        if roster_pids_by_team:
+            now = dt.datetime.now()
+            links = []
+            for tid, pids in roster_pids_by_team.items():
+                for pid in sorted(pids):
+                    links.append(
+                        m.HkyGamePlayer(
+                            game_id=int(game_db_id),
+                            player_id=int(pid),
+                            team_id=int(tid),
+                            created_at=now,
+                            updated_at=None,
+                        )
+                    )
+            if links:
+                m.HkyGamePlayer.objects.bulk_create(links, ignore_conflicts=True)
         if not args.no_cleanup_bogus_players:
             if int(team1_id) not in cleaned_team_ids:
                 _cleanup_numeric_named_players(None, user_id=user_id, team_id=int(team1_id))
@@ -3308,63 +3321,26 @@ def main(argv: Optional[list[str]] = None) -> int:
                 _cleanup_numeric_named_players(None, user_id=user_id, team_id=int(team2_id))
                 cleaned_team_ids.add(int(team2_id))
 
-        # Minimal player stats (goals/assists). If we couldn't load boxscore stats, this will be empty.
-        for agg in tts_norm.aggregate_goals_assists(stats):
-            pname = str(agg.get("name") or "").strip()
-            if not pname:
-                continue
-            goals = int(agg.get("goals") or 0)
-            assists = int(agg.get("assists") or 0)
-            if goals == 0 and assists == 0:
-                continue
+        if str(events_csv_text or "").strip():
+            try:
+                from tools.webapp.django_app import views as web_views  # type: ignore
+            except Exception:  # pragma: no cover
+                from django_app import views as web_views  # type: ignore
 
-            # Prefer matching by name within each team roster.
-            pid1 = (
-                m.Player.objects.filter(
-                    user_id=int(user_id), team_id=int(team1_id), name=str(pname)
-                )
-                .values_list("id", flat=True)
-                .first()
-            )
-            pid2 = (
-                m.Player.objects.filter(
-                    user_id=int(user_id), team_id=int(team2_id), name=str(pname)
-                )
-                .values_list("id", flat=True)
-                .first()
-            )
-            team_ref = team1_id
-            pid = int(pid1) if pid1 is not None else (int(pid2) if pid2 is not None else None)
-            if pid2 is not None and pid1 is None:
-                team_ref = team2_id
-            if pid is None:
-                pid = ensure_player(
-                    None, user_id=user_id, team_id=team_ref, name=pname, jersey=None, position=None
-                )
-
-            ps, created = m.PlayerStat.objects.get_or_create(
+            web_views._upsert_game_event_rows_from_events_csv(
                 game_id=int(game_db_id),
-                player_id=int(pid),
-                defaults={
-                    "user_id": int(user_id),
-                    "team_id": int(team_ref),
-                    "goals": int(goals),
-                    "assists": int(assists),
+                events_csv=str(events_csv_text),
+                replace=bool(args.replace),
+                create_missing_players=False,
+                incoming_source_label="timetoscore",
+                prefer_incoming_for_event_types={
+                    "goal",
+                    "assist",
+                    "penalty",
+                    "penaltyexpired",
+                    "goaliechange",
                 },
             )
-            if not created:
-                if args.replace:
-                    m.PlayerStat.objects.filter(id=ps.id).update(
-                        goals=int(goals), assists=int(assists)
-                    )
-                else:
-                    updates4: dict[str, Any] = {}
-                    if ps.goals is None:
-                        updates4["goals"] = int(goals)
-                    if ps.assists is None:
-                        updates4["assists"] = int(assists)
-                    if updates4:
-                        m.PlayerStat.objects.filter(id=ps.id).update(**updates4)
 
         count += 1
         if count % 25 == 0 or count == total:

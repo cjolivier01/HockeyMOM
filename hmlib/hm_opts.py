@@ -902,6 +902,13 @@ class hm_opts(object):
             help="scale showed image (ignored is --show-image is not specified)",
         )
         parser.add_argument(
+            "--scoreboard-scale",
+            dest="scoreboard_scale",
+            type=float,
+            default=None,
+            help="Scale factor applied to the extracted scoreboard image (maps to rink.scoreboard.scoreboard_scale)",
+        )
+        parser.add_argument(
             "--ice-rink-inference-scale",
             "--ice-rink-mask-scale",
             dest="ice_rink_inference_scale",
@@ -1362,6 +1369,20 @@ class hm_opts(object):
             ("video_encoder_backend", "aspen.video_out.encoder_backend"),
             ("output_file", "aspen.plugins.video_out.params.output_video_path"),
             ("save_frame_dir", "aspen.plugins.video_out.params.save_frame_dir"),
+            ("crop_play_box", "aspen.apply_camera.crop_play_box"),
+            ("no_crop", "aspen.apply_camera.crop_output_image"),
+            ("end_zones", "aspen.apply_camera.end_zones"),
+            ("show_image", "aspen.video_out.show_image"),
+            ("show_scaled", "aspen.video_out.show_scaled"),
+            (
+                "output_width",
+                [
+                    "aspen.video_out.output_width",
+                    "aspen.plugins.video_out.params.output_width",
+                ],
+            ),
+            ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
+            ("output_video_bit_rate", "aspen.video_out.bit_rate"),
             (
                 "checkerboard_input",
                 ["debug.rgb_stats_check.enable", "aspen.stitching.capture_rgb_stats"],
@@ -1399,7 +1420,12 @@ class hm_opts(object):
         "fp16_stitch": {True: "float16"},
         "skip_final_video_save": {True: True},
         "checkerboard_input": {True: True},
+        "crop_play_box": bool,
+        "no_crop": {True: False},
+        "end_zones": {True: True},
+        "show_image": bool,
         "debug_play_tracker": {True: True},
+        "scoreboard_scale": float,
         "plot_moving_boxes": {True: True},
         "plot_trajectories": {True: True},
         "plot_jersey_numbers": {True: True},
@@ -1467,7 +1493,11 @@ class hm_opts(object):
                             continue
                 if arg_name in setdefault_set and _has_nested_key(config, path):
                     continue
-                set_nested_value(config, path, mapped_value)
+                try:
+                    set_nested_value(config, path, mapped_value)
+                except Exception as ex:
+                    logger.error("Failed to set config value for %s: %s", path, ex)
+                    raise ex
                 changed = True
         return changed
 

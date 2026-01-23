@@ -88,10 +88,10 @@ def _all_models() -> list[Type]:
         m.Player,
         m.GameType,
         m.HkyGame,
-        m.PlayerStat,
         m.PlayerPeriodStat,
         m.HkyEventType,
         m.HkyGameEventRow,
+        m.HkyGameShiftRow,
         m.HkyGamePlayer,
         m.HkyGameEventSuppression,
         m.LeagueTeam,
@@ -220,12 +220,6 @@ def merge_hky_games(*, keep_id: int, drop_id: int) -> None:
         )
         if not keep or not drop:
             return
-
-        keep_has_ps = set(
-            m.PlayerStat.objects.filter(game_id=int(keep_id)).values_list("player_id", flat=True)
-        )
-        m.PlayerStat.objects.filter(game_id=int(drop_id), player_id__in=keep_has_ps).delete()
-        m.PlayerStat.objects.filter(game_id=int(drop_id)).update(game_id=int(keep_id))
 
         keep_has_pps = set(
             m.PlayerPeriodStat.objects.filter(game_id=int(keep_id)).values_list(

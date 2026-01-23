@@ -162,10 +162,29 @@ def _stable_state(m) -> dict[str, Any]:
         .values("league__name", "team__name", "division_name")
         .order_by("league__name", "team__name")
     )
-    player_stats = list(
-        m.PlayerStat.objects.select_related("player", "team", "game")
-        .values("game_id", "player__name", "team__name", "goals", "assists", "shots")
+    game_players = list(
+        m.HkyGamePlayer.objects.select_related("player", "team")
+        .values("game_id", "team__name", "player__name")
         .order_by("game_id", "team__name", "player__name")
+    )
+    shift_rows = list(
+        m.HkyGameShiftRow.objects.values(
+            "game_id",
+            "import_key",
+            "team_id",
+            "player_id",
+            "team_side",
+            "period",
+            "game_seconds",
+            "game_seconds_end",
+        ).order_by(
+            "game_id",
+            "team_side",
+            "period",
+            "game_seconds",
+            "game_seconds_end",
+            "import_key",
+        )
     )
     event_rows = list(
         m.HkyGameEventRow.objects.select_related("event_type")
@@ -190,7 +209,8 @@ def _stable_state(m) -> dict[str, Any]:
         "games": games,
         "league_games": league_games,
         "players": players,
-        "player_stats": player_stats,
+        "game_players": game_players,
+        "shift_rows": shift_rows,
         "event_rows": event_rows,
     }
 
@@ -372,6 +392,9 @@ def should_run_games_batch_plus_shift_package_twice_and_keep_stable_state(client
         "Goal,Away,1,300,21,103,shift_package,,\n"
         "Penalty,Home,1,400,9,,shift_package,Tripping,430\n"
     )
+    shift_rows_csv = (
+        "Player,Period,Game Seconds,Game Seconds End,Source\n" "9 Alice,1,500,520,shift_package\n"
+    )
 
     games_payload = {
         "league_name": "CAHA",
@@ -410,10 +433,7 @@ def should_run_games_batch_plus_shift_package_twice_and_keep_stable_state(client
         "team_side": "home",
         "replace": False,
         "events_csv": events_csv_shift,
-        "player_stats_csv": (
-            "Jersey #,Player,Goals,Assists,Shots\n" "9,Alice,1,0,2\n" "21,Bob,2,0,3\n"
-        ),
-        "game_stats_csv": "Stat,Game 1\nShots (Home),5\nShots (Away),7\n",
+        "shift_rows_csv": shift_rows_csv,
     }
 
     def _run_once() -> tuple[int, int, int]:

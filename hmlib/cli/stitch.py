@@ -308,15 +308,13 @@ def stitch_videos(
 
         # For stitching we want to preserve the full panorama resolution, so
         # disable cropping in the camera pipeline by default.
-        cam_args = argparse.Namespace(
-            crop_output_image=False,
-            crop_play_box=False,
-        )
-        if args is not None:
-            # Thread through basic display flags so VideoOutPlugin can honor them.
-            setattr(cam_args, "show_image", bool(getattr(args, "show_image", False)))
-            setattr(cam_args, "show_scaled", getattr(args, "show_scaled", None))
-            setattr(cam_args, "output_video_bit_rate", getattr(args, "output_video_bit_rate", None))
+        apply_camera_spec = plugins_cfg.get("apply_camera", {}) or {}
+        apply_camera_params = apply_camera_spec.get("params", {}) or {}
+        apply_camera_params.setdefault("crop_output_image", False)
+        apply_camera_params.setdefault("crop_play_box", False)
+        apply_camera_params.setdefault("end_zones", False)
+        apply_camera_spec["params"] = apply_camera_params
+        plugins_cfg["apply_camera"] = apply_camera_spec
 
         work_dir = os.path.join(".", "output_workdirs", (game_id or "stitch"))
         if args is not None and hasattr(args, "work_dir") and args.work_dir:
@@ -325,7 +323,6 @@ def stitch_videos(
 
         aspen_shared: Dict[str, Any] = {
             "device": encoder_device,
-            "cam_args": cam_args,
             "work_dir": work_dir,
         }
         if profiler is not None:

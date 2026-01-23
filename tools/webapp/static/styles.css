@@ -1,9 +1,12 @@
 /* Simple modern UI inspired by Hudl aesthetics (no branding assets) */
-	:root {
+:root {
   --bg: #0f1115;
   --panel: #171a21;
   --text: #e6e8ec;
   --muted: #9aa4b2;
+  --muted-strong: #b8c1ce;
+  /* Used when muted text appears on light/white surfaces (e.g., table cells). */
+  --muted-on-light: #4b5563;
   --accent: #ff6a13; /* vibrant orange */
   --accent-2: #ff8a4c;
   --success: #28a745;
@@ -11,16 +14,16 @@
   --warn: #ffc107;
   --border: #242835;
 
-	  /* Tables: white background + gray zebra striping. */
-	  --table-bg: #ffffff;
-	  --table-text: #111827;
-	  --table-border: #d0d7de;
-	  --row-odd: #f3f4f6;
-	  --row-even: #e5e7eb;
-	  --row-hover: #dbeafe; /* subtle light-blue highlight */
-	  --thead-bg: #f8fafc;
-	  --thead-text: #1f2937;
-	}
+  /* Tables: white background + gray zebra striping. */
+  --table-bg: #ffffff;
+  --table-text: #111827;
+  --table-border: #d0d7de;
+  --row-odd: #f3f4f6;
+  --row-even: #e5e7eb;
+  --row-hover: #dbeafe; /* subtle light-blue highlight */
+  --thead-bg: #0b2a5b;   /* dark blue */
+  --thead-text: #ffd84d; /* yellow */
+}
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -31,6 +34,14 @@ body {
   color: var(--text);
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   line-height: 1.5;
+}
+
+dialog {
+  background: var(--panel);
+  color: var(--text);
+}
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
 }
 
 .site-header {
@@ -51,15 +62,38 @@ body {
 .game-video-link, .game-video-link:visited { color: #7dd3fc; }
 .game-video-link:hover { color: #bae6fd; }
 
+.yt-quality-hint {
+  margin-top: 0.55rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+  align-items: flex-end;
+  font-weight: 800;
+  color: var(--warn);
+  line-height: 1.2;
+}
+.yt-quality-hint .yt-quality-text { flex: 1 1 auto; min-width: 0; text-align: right; }
+.yt-quality-hint .yt-quality-arrow {
+  flex: 0 0 auto;
+  margin-right: 120px; /* approx. below the YouTube "gear" control in the iframe */
+  font-size: 1.35rem;
+  line-height: 1;
+}
+@media (max-width: 520px) {
+  .yt-quality-hint .yt-quality-arrow { margin-right: 88px; }
+}
+
 .container { max-width: 1500px; margin: 0 auto; padding: 1.25rem; }
 .hero { padding: 3rem 0 2rem; text-align: center; }
 .hero h1 { font-size: 2.1rem; margin: 0 0 .5rem; }
 .hero p { color: var(--muted); margin: 0 0 1rem; }
 
-.btn { display: inline-block; background: #1f2430; color: var(--text); border: 1px solid var(--border); padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; }
-.btn:hover { filter: brightness(1.1); }
+.btn { display: inline-block; background: #313e56; color: var(--text); border: 1px solid #51607a; padding: .6rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 700; transition: .15s; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.07) inset, 0 6px 18px rgba(0, 0, 0, 0.35); cursor: pointer; }
+.btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn:active { filter: brightness(1.06); transform: translateY(0); }
+.btn:focus-visible { outline: 2px solid rgba(255, 106, 19, 0.6); outline-offset: 2px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #101114; }
-.btn.secondary { background: #1c212c; }
+.btn.secondary { background: #2b3850; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #101114; }
 
 /* In tables (white background), render "secondary" buttons as slightly darker than the row background. */
@@ -67,6 +101,7 @@ table a.btn.secondary, table button.btn.secondary {
   background: rgba(0, 0, 0, 0.06);
   border-color: rgba(0, 0, 0, 0.14);
   color: var(--table-text);
+  box-shadow: none;
 }
 table a.btn.secondary:hover, table button.btn.secondary:hover {
   background: rgba(0, 0, 0, 0.09);
@@ -75,6 +110,18 @@ table a.btn.secondary:hover, table button.btn.secondary:hover {
 .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
 .card h3 { margin: 0 0 .5rem; }
+
+.card.partial-stats {
+  background: #7a6500; /* dark yellow */
+  border-color: #b91c1c; /* red */
+}
+.partial-stats-banner {
+  color: #b91c1c;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5rem;
+}
 
 form { margin: 1rem 0; }
 .form-row { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .75rem; }
@@ -88,16 +135,20 @@ button { cursor: pointer; }
 .flash.error { background: #31161a; border: 1px solid #4a1a22; color: #ffb3be; }
 .flash.success { background: #14291d; border: 1px solid #1f3b2a; color: #abf5c0; }
 
-table { width: 100%; border-collapse: collapse; background: var(--table-bg); color: var(--table-text); border: 1px solid var(--table-border); border-radius: 12px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; background: var(--table-bg); color: var(--table-text); border: 1px solid var(--table-border); border-radius: 12px; overflow: hidden; --muted: var(--muted-on-light); }
 th, td { padding: .75rem 1rem; border-bottom: 1px solid var(--table-border); border-right: 1px solid var(--table-border); text-align: left; }
 th:last-child, td:last-child { border-right: none; }
 tbody tr:last-child td { border-bottom: none; }
 thead th { background: var(--thead-bg); color: var(--thead-text); font-weight: 800; }
+thead th { border-bottom-color: rgba(255, 255, 255, 0.12); border-right-color: rgba(255, 255, 255, 0.10); }
+thead th:last-child { border-right-color: rgba(255, 255, 255, 0.10); }
+thead .th-subnote, thead .muted { color: rgba(226, 232, 240, 0.95); }
+thead .th-subnote { font-weight: 600; }
 tbody tr:nth-child(odd) { background: var(--row-odd); }
 tbody tr:nth-child(even) { background: var(--row-even); }
-	/* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
-	tbody tr:hover td { background: var(--row-hover); }
-	tbody tr:hover td.sticky-col { background: var(--row-hover); }
+/* Row hover highlight (apply to cells so it doesn't conflict with sticky/frozen columns). */
+tbody tr:hover td { background: var(--row-hover); }
+tbody tr:hover td.sticky-col { background: var(--row-hover); }
 
 /* Clamp header label height to <= 2 lines (wrapping allowed, but no tall header rows). */
 .th-clamp {
@@ -138,6 +189,21 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 .table-scroll-y { overflow-y: auto; max-height: 50vh; position: relative; }
 .table-scroll-y thead th { position: sticky; top: 0; z-index: 4; }
 
+/* Table export */
+.table-export-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.15rem 0 0.35rem 0;
+}
+.table-export-link {
+  font-size: 0.9rem;
+  color: var(--muted-strong);
+  text-decoration: underline;
+}
+.table-export-link:hover {
+  color: #e5e7eb;
+}
+
 /* Sortable tables */
 .table-sortable th { cursor: pointer; user-select: none; }
 .table-sortable th.sorted-asc::after { content: " ▲"; font-size: .85em; color: var(--muted); }
@@ -146,9 +212,14 @@ td.nowrap, th.nowrap { white-space: nowrap; }
 /* Allow newline rendering inside specific cells even in nowrap tables */
 td.cell-pre { white-space: pre-line !important; }
 
+/* Highlight corrected events in Player Events modal. */
+tr.event-corrected td { color: #ff8a8a; }
+tr.event-corrected td a { color: #ff8a8a; }
+
 /* Tables that should never wrap cell content (used with JS fit scaling). */
 .table-never-wrap th, .table-never-wrap td { white-space: nowrap !important; }
 .table-never-wrap td { overflow-wrap: normal !important; word-break: normal !important; }
+.table-never-wrap td.cell-pre { white-space: pre-line !important; }
 
 /* Freeze left columns (JS sets left offsets; CSS provides layering + row-matched backgrounds) */
 table[data-freeze-cols] { border-collapse: separate; border-spacing: 0; overflow: visible; }
@@ -175,7 +246,23 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 .status-FAILED, .status-CANCELLED, .status-TIMEOUT { background: rgba(220,53,69,.12); color: #ff9aa7; border: 1px solid rgba(220,53,69,.3); }
 
 .muted { color: var(--muted); }
+.muted-strong { color: var(--muted-strong); }
+
+/* Team schedule: excluded games should still be visible/clickable, but visually de-emphasized. */
+tr.game-excluded { opacity: .55; }
+tr.game-excluded:hover { opacity: .85; }
 .spacer { height: 1rem; }
+
+.event-type-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+.event-type-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
 
 /* Game events timeline */
 .events-timeline {
@@ -396,4 +483,30 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
   body { font-size: 13px; }
   th, td { padding: .45rem .5rem; font-size: .8rem; }
   .btn { padding: .38rem .55rem; font-size: .9rem; }
+}
+
+.hm-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.btn .hm-player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.hm-player-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  opacity: 0.92;
+  flex: 0 0 auto;
+}
+.hm-player-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.6;
 }

@@ -84,7 +84,7 @@ def youtube_best_quality_url(url: Any) -> str:
         if not is_youtube:
             return s
         q = dict(parse_qsl(u.query or "", keep_blank_values=True))
-        q.setdefault("vq", "hd1080")
+        q.setdefault("vq", "highres")
         new_u = u._replace(query=urlencode(q, doseq=True))
         return urlunparse(new_u)
     except Exception:

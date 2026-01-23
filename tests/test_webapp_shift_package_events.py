@@ -1045,6 +1045,33 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "table-scroll-y" in html
 
 
+def should_credit_roster_players_via_shift_package_when_only_events_provided(client_and_models):
+    client, m = client_and_models
+    assert not m.HkyGamePlayer.objects.filter(game_id=1001).exists()
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": "Period,Time,Team,Event Type\n1,12:00,Home,Shot\n",
+            "roster_home": [
+                {"jersey_number": "9", "name": "Alice"},
+                {"jersey_number": "37", "name": "Goalie A", "position": "G"},
+            ],
+            "roster_away": [{"jersey_number": "12", "name": "Bob"}],
+            "source_label": "unit-test",
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    assert m.HkyGamePlayer.objects.filter(game_id=1001, player_id=501).exists()
+    assert m.HkyGamePlayer.objects.filter(game_id=1001, player_id=502).exists()
+    assert m.HkyGamePlayer.objects.filter(game_id=1001, player__name="Goalie A").exists()
+
+
 def should_compute_on_ice_gfga_from_goal_event_on_ice_lists(client_and_models):
     client, m = client_and_models
     _upsert_event_rows_from_csv(
@@ -1157,29 +1184,6 @@ def should_not_overwrite_events_without_replace(client_and_models):
     )
 
 
-def should_import_player_stats_via_shift_package_and_render_public_game_page(client_and_models):
-    client, m = client_and_models
-    player_stats_csv = "Player,Goals,Assists,GF Counted,GA Counted,Goal +/-\n9 Alice,1,0,2,1,1\n"
-    r = _post_json(
-        client,
-        "/api/import/hockey/shift_package",
-        {
-            "timetoscore_game_id": 123,
-            "player_stats_csv": player_stats_csv,
-            "source_label": "unit-test",
-        },
-    )
-    assert r.status_code == 200
-    assert json.loads(r.content)["ok"] is True
-    assert m.PlayerStat.objects.filter(game_id=1001, player_id=501).exists()
-
-    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
-    assert "Imported Player Stats" not in html
-    assert "GF Counted" in html
-    assert "GA Counted" in html
-    assert "Goal +/-" in html
-
-
 def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(client_and_models):
     client, m = client_and_models
     _upsert_event_rows_from_csv(
@@ -1240,9 +1244,12 @@ def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(clie
 
 def should_create_external_game_via_shift_package_and_map_to_league(client_and_models):
     client, m = client_and_models
-    player_stats_csv = "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n"
-    game_stats_csv = "Stat,chicago-4\nGoals For,2\nGoals Against,1\n"
-    events_csv = "Period,Time,Team,Event Type\n1,12:00,Home,Shot\n"
+    events_csv = (
+        "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source\n"
+        "Goal,Home,1,10,13,shift_package\n"
+        "Goal,Home,1,20,13,shift_package\n"
+        "Goal,Away,1,30,99,shift_package\n"
+    )
 
     r = _post_json(
         client,
@@ -1256,8 +1263,7 @@ def should_create_external_game_via_shift_package_and_map_to_league(client_and_m
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Opponent X",
-            "player_stats_csv": player_stats_csv,
-            "game_stats_csv": game_stats_csv,
+            "roster_home": [{"name": "Charlie", "jersey_number": "13", "position": "F"}],
             "events_csv": events_csv,
             "replace": False,
         },
@@ -1379,7 +1385,6 @@ def should_reuse_existing_league_team_by_name_and_preserve_division(client_and_m
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Opponent X",
-            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
     )
     assert r.status_code == 200
@@ -1449,7 +1454,6 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
             "team_side": "home",
             "home_team_name": "SAN JOSE JR. SHARKS 12AA–1",
             "away_team_name": "Opponent X",
-            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
     )
     assert r.status_code == 200
@@ -1463,7 +1467,7 @@ def should_match_league_team_names_case_and_punctuation_insensitive(client_and_m
     assert after_div and str(after_div["division_name"]) == "12AA"
     gid = int(out["game_id"])
     lg = m.LeagueGame.objects.filter(league_id=2, game_id=gid).values("division_name").first()
-    assert lg and str(lg.get("division_name") or "") == "External"
+    assert lg and str(lg.get("division_name") or "") == "External 12 AA"
 
 
 def should_not_create_duplicate_external_teams_for_name_variants(client_and_models):
@@ -1480,7 +1484,6 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Arizona Coyotes 12AA",
-            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
     )
     assert r1.status_code == 200
@@ -1497,7 +1500,6 @@ def should_not_create_duplicate_external_teams_for_name_variants(client_and_mode
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "ARIZONA COYOTES 12AA",
-            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
     )
     assert r2.status_code == 200
@@ -1543,7 +1545,6 @@ def should_match_team_names_even_when_db_has_division_suffix_parens(client_and_m
             "team_side": "home",
             "home_team_name": "Team A",
             "away_team_name": "Opponent X",
-            "player_stats_csv": "Jersey #,Player,Goals,Assists\n13,Charlie,1,0\n",
         },
     )
     assert r.status_code == 200

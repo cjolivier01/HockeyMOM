@@ -16,7 +16,9 @@ def _load_webapp_module():
 
 
 def _load_importer_module():
-    spec = importlib.util.spec_from_file_location("import_time2score_mod", "tools/webapp/scripts/import_time2score.py")
+    spec = importlib.util.spec_from_file_location(
+        "import_time2score_mod", "tools/webapp/scripts/import_time2score.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(mod)  # type: ignore
@@ -43,21 +45,35 @@ def _snapshot_state(m) -> dict[str, object]:
             return val.strftime("%Y-%m-%d %H:%M:%S")
         return str(val)
 
-    leagues = list(m.League.objects.values("name", "is_shared", "source", "external_key", "owner_user__email"))
+    leagues = list(
+        m.League.objects.values("name", "is_shared", "source", "external_key", "owner_user__email")
+    )
     leagues.sort(key=lambda r: str(r["name"]))
 
     teams = list(m.Team.objects.values("user__email", "name", "is_external"))
     teams.sort(key=lambda r: (str(r["user__email"]), str(r["name"])))
 
     league_teams = list(
-        m.LeagueTeam.objects.values("league__name", "team__name", "division_name", "division_id", "conference_id")
+        m.LeagueTeam.objects.values(
+            "league__name", "team__name", "division_name", "division_id", "conference_id"
+        )
     )
     league_teams.sort(key=lambda r: (str(r["league__name"]), str(r["team__name"])))
 
-    league_games = list(m.LeagueGame.objects.select_related("game").values("league__name", "game__notes", "division_name"))
+    league_games = list(
+        m.LeagueGame.objects.select_related("game").values(
+            "league__name", "game__notes", "division_name"
+        )
+    )
     lg2 = []
     for r in league_games:
-        lg2.append((str(r["league__name"]), _tts_id(r.get("game__notes")), str(r.get("division_name") or "")))
+        lg2.append(
+            (
+                str(r["league__name"]),
+                _tts_id(r.get("game__notes")),
+                str(r.get("division_name") or ""),
+            )
+        )
     lg2.sort()
 
     games = list(
@@ -84,31 +100,66 @@ def _snapshot_state(m) -> dict[str, object]:
         )
     g2.sort()
 
-    players = list(m.Player.objects.select_related("team").values("team__name", "name", "jersey_number", "position"))
-    p2 = [(str(r.get("team__name") or ""), str(r.get("name") or ""), str(r.get("jersey_number") or "")) for r in players]
+    players = list(
+        m.Player.objects.select_related("team").values(
+            "team__name", "name", "jersey_number", "position"
+        )
+    )
+    p2 = [
+        (
+            str(r.get("team__name") or ""),
+            str(r.get("name") or ""),
+            str(r.get("jersey_number") or ""),
+        )
+        for r in players
+    ]
     p2.sort()
 
-    pstats = list(
-        m.PlayerStat.objects.select_related("player", "team", "game").values(
+    game_players = list(
+        m.HkyGamePlayer.objects.select_related("game", "team", "player").values(
             "game__notes",
             "team__name",
             "player__name",
-            "goals",
-            "assists",
+            "player__jersey_number",
         )
     )
-    ps2 = []
-    for r in pstats:
-        ps2.append(
+    gp2: list[tuple[object, ...]] = []
+    for r in game_players:
+        gp2.append(
             (
                 _tts_id(r.get("game__notes")),
                 str(r.get("team__name") or ""),
                 str(r.get("player__name") or ""),
-                int(r.get("goals") or 0),
-                int(r.get("assists") or 0),
+                str(r.get("player__jersey_number") or ""),
             )
         )
-    ps2.sort()
+    gp2.sort()
+
+    events = list(
+        m.HkyGameEventRow.objects.select_related("game", "event_type", "player").values(
+            "game__notes",
+            "event_type__key",
+            "team_side",
+            "period",
+            "game_seconds",
+            "player__name",
+            "player__jersey_number",
+        )
+    )
+    ev2: list[tuple[object, ...]] = []
+    for r in events:
+        ev2.append(
+            (
+                _tts_id(r.get("game__notes")),
+                str(r.get("event_type__key") or ""),
+                str(r.get("team_side") or ""),
+                int(r.get("period") or 0),
+                int(r.get("game_seconds") or 0),
+                str(r.get("player__name") or ""),
+                str(r.get("player__jersey_number") or ""),
+            )
+        )
+    ev2.sort()
 
     return {
         "leagues": leagues,
@@ -117,7 +168,8 @@ def _snapshot_state(m) -> dict[str, object]:
         "league_games": lg2,
         "games": g2,
         "players": p2,
-        "player_stats": ps2,
+        "game_players": gp2,
+        "events": ev2,
     }
 
 
@@ -129,7 +181,9 @@ def modules(monkeypatch, webapp_db):
     return _load_webapp_module(), _load_importer_module()
 
 
-def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch, modules, webapp_db_reset, webapp_orm_modules):
+def should_import_time2score_direct_and_rest_end_in_equivalent_state(
+    monkeypatch, modules, webapp_db_reset, webapp_orm_modules
+):
     webapp_mod, importer_mod = modules
     _django_orm, m = webapp_orm_modules
 
@@ -164,7 +218,7 @@ def should_import_time2score_direct_and_rest_end_in_equivalent_state(monkeypatch
                 "season_id": 31,
                 "home_roster": [{"name": "Alice", "number": "9", "position": "F"}],
                 "away_roster": [{"name": "Bob", "number": "12", "position": "D"}],
-                "player_stats": [{"name": "Alice", "goals": 1, "assists": 0}],
+                "events_csv": "Event Type,Team Side,Period,Game Seconds,Player\\nGoal,Home,1,10,9 Alice\\n",
             }
         ],
     }

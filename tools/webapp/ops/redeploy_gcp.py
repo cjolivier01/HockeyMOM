@@ -14,9 +14,29 @@ If you changed Python dependencies or system packages, rerun `tools/webapp/ops/d
 from __future__ import annotations
 
 import argparse
+import shutil
 import textwrap
 import shlex
 import subprocess
+import tempfile
+from pathlib import Path
+
+
+WEBAPP_UPLOAD_IGNORE_PATTERNS = (
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coverage",
+    ".DS_Store",
+    "instance",
+    "*.sqlite3",
+    "*.db",
+    "*.log",
+)
 
 
 def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -44,24 +64,35 @@ def main() -> int:
             "--zone",
             args.zone,
             "--command",
-            "mkdir -p /tmp/hm/tools",
+            "rm -rf /tmp/hm/tools/webapp && mkdir -p /tmp/hm/tools",
         ]
     )
-    _run(
-        [
-            "gcloud",
-            "--quiet",
-            "--project",
-            args.project,
-            "compute",
-            "scp",
-            "--recurse",
-            "tools/webapp",
-            f"{args.instance}:/tmp/hm/tools",
-            "--zone",
-            args.zone,
-        ]
-    )
+    repo_root = Path(__file__).resolve().parents[3]
+    src_webapp_dir = repo_root / "tools" / "webapp"
+    if not src_webapp_dir.exists():
+        raise SystemExit(f"Missing webapp source dir: {src_webapp_dir}")
+    with tempfile.TemporaryDirectory(prefix="hm_webapp_gcp_stage_") as td:
+        stage_dir = Path(td) / "webapp"
+        shutil.copytree(
+            src_webapp_dir,
+            stage_dir,
+            ignore=shutil.ignore_patterns(*WEBAPP_UPLOAD_IGNORE_PATTERNS),
+        )
+        _run(
+            [
+                "gcloud",
+                "--quiet",
+                "--project",
+                args.project,
+                "compute",
+                "scp",
+                "--recurse",
+                str(stage_dir),
+                f"{args.instance}:/tmp/hm/tools",
+                "--zone",
+                args.zone,
+            ]
+        )
     _run(
         [
             "gcloud",
@@ -80,6 +111,9 @@ def main() -> int:
 
                 if ! /opt/hm-webapp/venv/bin/python -c 'import django' >/dev/null 2>&1; then
                   sudo /opt/hm-webapp/venv/bin/python -m pip install django
+                fi
+                if ! /opt/hm-webapp/venv/bin/python -c 'import openpyxl' >/dev/null 2>&1; then
+                  sudo /opt/hm-webapp/venv/bin/python -m pip install openpyxl
                 fi
 
                 sudo mkdir -p /opt/hm-webapp/app/templates /opt/hm-webapp/app/static
