@@ -11304,6 +11304,32 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     team2_id = int(game_row["team2_id"])
     owner_user_id = int(game_row.get("user_id") or 0)
 
+    # Team logos can be provided in shift_package payloads (e.g., from file-list YAML).
+    # Apply them even when the game already exists so rerunning imports can backfill missing icons.
+    try:
+        _ensure_team_logo_for_import(
+            team_id=int(team1_id),
+            logo_b64=payload.get("home_logo_b64"),
+            logo_content_type=payload.get("home_logo_content_type"),
+            logo_url=payload.get("home_logo_url"),
+            replace=replace,
+            commit=False,
+        )
+        _ensure_team_logo_for_import(
+            team_id=int(team2_id),
+            logo_b64=payload.get("away_logo_b64"),
+            logo_content_type=payload.get("away_logo_content_type"),
+            logo_url=payload.get("away_logo_url"),
+            replace=replace,
+            commit=False,
+        )
+    except Exception:
+        logger.warning(
+            "api_import_shift_package: failed to apply team logos (game_id=%s)",
+            int(resolved_game_id),
+            exc_info=True,
+        )
+
     events_csv = payload.get("events_csv")
     shift_rows_csv = payload.get("shift_rows_csv")
     replace_shift_rows_payload = payload.get("replace_shift_rows")
