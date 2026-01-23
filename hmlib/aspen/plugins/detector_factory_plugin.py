@@ -8,6 +8,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.config import prepend_root_dir
+from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.utils.nms import DetectorNMS
 from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 
@@ -947,12 +948,16 @@ class _TorchDetectorWrapper(_ProfilerMixin):
         nms_backend: str = "trt",
         nms_test: bool = False,
         nms_plugin: str = "batched",
+        cuda_graph: bool = True,
     ):
         super().__init__(profiler=profiler, label="torch_predictor")
         self.model = model
         self._nms_backend: str = str(nms_backend or "trt").lower()
         self._nms_test: bool = bool(nms_test)
         self._nms_plugin: str = str(nms_plugin or "batched")
+        self._cuda_graph_enabled: bool = bool(cuda_graph)
+        self._cg: Optional[CudaGraphCallable] = None
+        self._cg_device: Optional[torch.device] = None
         compare_backends: List[str] = []
         if self._nms_test and self._nms_backend == "trt":
             compare_backends.append("torchvision")
@@ -974,10 +979,84 @@ class _TorchDetectorWrapper(_ProfilerMixin):
 
             results: List[Any] = []
             with torch.inference_mode():
+                # CUDA graph fast path: batch=1, TensorRT NMS backend, and CUDA inputs.
+                if (
+                    self._cuda_graph_enabled
+                    and imgs.is_cuda
+                    and N == 1
+                    and self._nms_backend == "trt"
+                    and not self._nms_test
+                ):
+                    meta0 = getattr(data_samples[0], "metainfo", {}) or {}
+
+                    def _fn(x: torch.Tensor):
+                        feats = self.model.extract_feat(x)
+                        head_out = self.model.bbox_head(feats)
+                        if isinstance(head_out, (list, tuple)) and len(head_out) == 2:
+                            cls_scores, bbox_preds = head_out
+                            objectnesses = None
+                        elif isinstance(head_out, (list, tuple)) and len(head_out) == 3:
+                            cls_scores, bbox_preds, objectnesses = head_out
+                        else:
+                            raise RuntimeError(
+                                f"Unexpected bbox_head output shape: {type(head_out)}"
+                            )
+                        inst_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                            cls_scores=cls_scores,
+                            bbox_preds=bbox_preds,
+                            objectnesses=objectnesses,
+                            batch_img_metas=[meta0],
+                            cfg=None,
+                            rescale=True,
+                            with_nms=False,
+                        )
+                        inst0 = inst_list[0]
+                        out_list = self._nms._run_trt([inst0], [meta0])  # type: ignore[attr-defined]
+                        out0 = out_list[0]
+                        num_valid = getattr(out0, "num_valid_after_nms", None)
+                        if not isinstance(num_valid, torch.Tensor):
+                            num_valid = torch.as_tensor(
+                                int(getattr(out0, "num_valid", 0) or 0),
+                                device=out0.bboxes.device,
+                                dtype=torch.int32,
+                            )
+                        return out0.bboxes, out0.scores, out0.labels, num_valid
+
+                    if self._cg is None or self._cg_device != imgs.device:
+                        self._cg = CudaGraphCallable(_fn, (imgs[:1].to(dev),), name="detector")
+                        self._cg_device = imgs.device
+
+                    bboxes, scores, labels, num_valid = self._cg(imgs[:1].to(dev))
+
+                    inst = InstanceData()
+                    inst.bboxes = bboxes
+                    inst.scores = scores
+                    inst.labels = labels
+                    inst.set_metainfo(
+                        dict(
+                            num_valid_after_nms=num_valid,
+                            max_detections=int(bboxes.shape[0]),
+                        )
+                    )
+
+                    class _Wrap:
+                        def __init__(self, inst_):
+                            self.pred_instances = inst_
+
+                    results.append(_Wrap(_strip_static_padding(inst, strip=False)))
+                    return results
+
                 with self._profile_scope("backbone"):
                     feats = self.model.extract_feat(imgs.to(device=dev, non_blocking=True))
                 with self._profile_scope("head"):
-                    cls_scores, bbox_preds, objectnesses = self.model.bbox_head(feats)
+                    head_out = self.model.bbox_head(feats)
+                    if isinstance(head_out, (list, tuple)) and len(head_out) == 2:
+                        cls_scores, bbox_preds = head_out
+                        objectnesses = None
+                    elif isinstance(head_out, (list, tuple)) and len(head_out) == 3:
+                        cls_scores, bbox_preds, objectnesses = head_out
+                    else:
+                        raise RuntimeError(f"Unexpected bbox_head output type: {type(head_out)}")
                     metas: List[Dict[str, Any]] = []
                     for i in range(N):
                         try:
