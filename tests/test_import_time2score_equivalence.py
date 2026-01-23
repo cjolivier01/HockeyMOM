@@ -224,16 +224,17 @@ def should_import_time2score_direct_and_rest_end_in_equivalent_state(
     }
 
     # REST import path: hit the webapp endpoint.
-    app = webapp_mod.create_app()
-    app.testing = True
-    client = app.test_client()
+    from django.test import Client
+
+    client = Client()
     r = client.post(
         "/api/import/hockey/games_batch",
-        json=payload,
-        headers={"X-HM-Import-Token": "sekret"},
+        data=json.dumps(payload),
+        content_type="application/json",
+        HTTP_X_HM_IMPORT_TOKEN="sekret",
     )
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert json.loads(r.content.decode())["ok"] is True
     snap_rest = _snapshot_state(m)
 
     # Direct-DB import path: apply the same payload via the importer helper.
