@@ -9,7 +9,6 @@ av
 PyNvVideoCodec
 html5lib
 typeguard
-flask
 django
 terminaltables
 seaborn

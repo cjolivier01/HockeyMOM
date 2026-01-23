@@ -436,18 +436,36 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not home_name or not away_name:
             continue
 
-        team1_id = web_views._ensure_external_team_for_import(
-            int(owner_user_id), home_name, commit=False
-        )
-        team2_id = web_views._ensure_external_team_for_import(
-            int(owner_user_id), away_name, commit=False
-        )
-        web_views._map_team_to_league_for_import(
-            int(league_id), int(team1_id), division_name=g.get("division_name"), commit=False
-        )
-        web_views._map_team_to_league_for_import(
-            int(league_id), int(team2_id), division_name=g.get("division_name"), commit=False
-        )
+        home_ph = web_views.logic.parse_seed_placeholder_name(home_name)
+        away_ph = web_views.logic.parse_seed_placeholder_name(away_name)
+        is_home_placeholder = bool(home_ph is not None)
+        is_away_placeholder = bool(away_ph is not None)
+
+        if is_home_placeholder:
+            team1_id = web_views.logic.ensure_seed_placeholder_team_for_import(
+                int(owner_user_id), commit=False
+            )
+        else:
+            team1_id = web_views._ensure_external_team_for_import(
+                int(owner_user_id), home_name, commit=False
+            )
+        if is_away_placeholder:
+            team2_id = web_views.logic.ensure_seed_placeholder_team_for_import(
+                int(owner_user_id), commit=False
+            )
+        else:
+            team2_id = web_views._ensure_external_team_for_import(
+                int(owner_user_id), away_name, commit=False
+            )
+
+        if not is_home_placeholder:
+            web_views._map_team_to_league_for_import(
+                int(league_id), int(team1_id), division_name=g.get("division_name"), commit=False
+            )
+        if not is_away_placeholder:
+            web_views._map_team_to_league_for_import(
+                int(league_id), int(team2_id), division_name=g.get("division_name"), commit=False
+            )
 
         game_type_id = web_views._ensure_game_type_id_for_import(g.get("game_type_name"))
         notes_fields = {
@@ -457,6 +475,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             "caha_schedule_group": g.get("caha_schedule_group"),
             "caha_schedule_game_number": g.get("caha_schedule_game_number"),
         }
+        if is_home_placeholder or is_away_placeholder:
+            seed_placeholders: dict[str, Any] = {}
+            if home_ph is not None:
+                seed_placeholders["team1"] = {
+                    "seed": int(home_ph.seed),
+                    "division_token": str(home_ph.division_token),
+                    "raw": str(home_ph.raw),
+                    "division_name_hint": str(g.get("division_name") or ""),
+                }
+            if away_ph is not None:
+                seed_placeholders["team2"] = {
+                    "seed": int(away_ph.seed),
+                    "division_token": str(away_ph.division_token),
+                    "raw": str(away_ph.raw),
+                    "division_name_hint": str(g.get("division_name") or ""),
+                }
+            notes_fields["seed_placeholders"] = seed_placeholders
         notes_fields = {k: v for k, v in notes_fields.items() if v is not None}
 
         gid = web_views._upsert_game_for_import(

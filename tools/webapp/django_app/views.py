@@ -5750,6 +5750,10 @@ def teams(request: HttpRequest) -> HttpResponse:
         for r0 in rows_raw:
             tid = int(r0["team_id"])
             name = str(r0.get("team__name") or "")
+            if name.strip() == logic.SEED_PLACEHOLDER_TEAM_NAME or logic.is_seed_placeholder_name(
+                name
+            ):
+                continue
             if (
                 schedule_team_ids is not None
                 and "girls" in name.lower()
@@ -5884,9 +5888,14 @@ def teams(request: HttpRequest) -> HttpResponse:
             grouped.setdefault(dn, []).append(t)
         divisions = []
         for dn in sorted(grouped.keys(), key=logic.division_sort_key):
+            ranked_ids = logic.division_standings_team_ids(int(league_id), str(dn))
+            order = {int(tid): i for i, tid in enumerate(ranked_ids)}
             teams_sorted = sorted(
                 grouped[dn],
-                key=lambda tr: logic.sort_key_team_standings(tr, stats.get(int(tr["id"]), {})),
+                key=lambda tr: (
+                    order.get(int(tr["id"]), 10**9),
+                    str(tr.get("name") or "").casefold(),
+                ),
             )
             divisions.append({"name": dn, "teams": teams_sorted})
 
@@ -6858,6 +6867,125 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
         g["stats_icons"] = icons
 
 
+def _extract_seed_placeholder_spec(
+    *, notes: Optional[str], side: str, team_name: Optional[str]
+) -> Optional[dict[str, Any]]:
+    """
+    Return a seed placeholder spec for "team1"/"team2" if present, otherwise None.
+
+    Supports:
+      - New imports: JSON notes field "seed_placeholders".
+      - Legacy data: team name matches "<division> Seed <n>".
+    """
+    side_key = str(side or "").strip()
+    if side_key not in {"team1", "team2"}:
+        return None
+
+    if notes:
+        try:
+            d = json.loads(notes)
+        except Exception:
+            d = None
+        if isinstance(d, dict):
+            sp = d.get("seed_placeholders")
+            if isinstance(sp, dict):
+                raw = sp.get(side_key)
+                if isinstance(raw, dict) and raw.get("seed") is not None:
+                    return dict(raw)
+
+    ph = logic.parse_seed_placeholder_name(str(team_name or ""))
+    if ph is None:
+        return None
+    return {"seed": int(ph.seed), "division_token": str(ph.division_token), "raw": str(ph.raw)}
+
+
+def _resolve_seed_placeholders_in_schedule_games(
+    *, league_id: int, games: list[dict[str, Any]]
+) -> None:
+    """
+    Mutate `games` in-place: replace "<division> Seed <n>" placeholders with the current
+    team occupying that seed in the division standings.
+    """
+    if not league_id or not games:
+        return
+
+    # Collect placeholder requests grouped by division.
+    needed: dict[str, set[int]] = {}
+    spec_by_game_side: dict[tuple[int, str], dict[str, Any]] = {}
+    for g in games:
+        gid = int(g.get("id") or 0)
+        if gid <= 0:
+            continue
+        for side in ("team1", "team2"):
+            spec = _extract_seed_placeholder_spec(
+                notes=g.get("notes"),
+                side=side,
+                team_name=(g.get(f"{side}_name") if side in {"team1", "team2"} else None),
+            )
+            if spec is None:
+                continue
+            try:
+                seed_i = int(spec.get("seed"))
+            except Exception:
+                continue
+            if seed_i <= 0:
+                continue
+            div_hint = str(spec.get("division_name_hint") or "").strip()
+            if not div_hint:
+                div_hint = str(g.get("division_name") or "").strip()
+            if not div_hint:
+                continue
+            needed.setdefault(div_hint, set()).add(seed_i)
+            spec_by_game_side[(gid, side)] = spec
+
+    if not needed:
+        return
+
+    _django_orm, m = _orm_modules()
+
+    ranked_by_div: dict[str, list[int]] = {}
+    resolved_ids: set[int] = set()
+    for div_name, seeds in needed.items():
+        ranked = logic.division_standings_team_ids(int(league_id), str(div_name))
+        ranked_by_div[str(div_name)] = list(ranked)
+        for seed_i in seeds:
+            if seed_i <= 0 or seed_i > len(ranked):
+                continue
+            tid = int(ranked[seed_i - 1])
+            resolved_ids.add(tid)
+
+    name_by_id = {
+        int(r["id"]): str(r.get("name") or "")
+        for r in m.Team.objects.filter(id__in=sorted(resolved_ids)).values("id", "name")
+    }
+
+    for g in games:
+        gid = int(g.get("id") or 0)
+        if gid <= 0:
+            continue
+        for side in ("team1", "team2"):
+            spec = spec_by_game_side.get((gid, side))
+            if spec is None:
+                continue
+            try:
+                seed_i = int(spec.get("seed"))
+            except Exception:
+                continue
+            div_hint = (
+                str(spec.get("division_name_hint") or "").strip()
+                or str(g.get("division_name") or "").strip()
+            )
+            ranked = ranked_by_div.get(div_hint) or []
+            if 0 < seed_i <= len(ranked):
+                tid = int(ranked[seed_i - 1])
+                g[f"{side}_id"] = tid
+                g[f"{side}_name"] = name_by_id.get(tid) or g.get(f"{side}_name")
+            else:
+                # Fall back to a readable placeholder string instead of the generic placeholder team.
+                if spec.get("raw"):
+                    g[f"{side}_name"] = str(spec.get("raw"))
+
+
 def schedule(request: HttpRequest) -> HttpResponse:
     r = _require_login(request)
     if r:
@@ -6891,7 +7019,6 @@ def schedule(request: HttpRequest) -> HttpResponse:
     divisions: list[Any] = []
     league_teams: list[dict[str, Any]] = []
     _django_orm, m = _orm_modules()
-    from django.db.models import Q
 
     games: list[dict[str, Any]] = []
     if league_id:
@@ -6920,6 +7047,12 @@ def schedule(request: HttpRequest) -> HttpResponse:
                 .order_by("name")
                 .values("id", "name")
             )
+        league_teams = [
+            t
+            for t in league_teams
+            if str(t.get("name") or "").strip() != logic.SEED_PLACEHOLDER_TEAM_NAME
+            and not logic.is_seed_placeholder_name(str(t.get("name") or ""))
+        ]
         if team_id_i is not None and not any(int(t["id"]) == int(team_id_i) for t in league_teams):
             team_id_i = None
             selected_team_id = ""
@@ -6927,10 +7060,6 @@ def schedule(request: HttpRequest) -> HttpResponse:
         lg_qs = m.LeagueGame.objects.filter(league_id=int(league_id))
         if selected_division:
             lg_qs = lg_qs.filter(division_name=str(selected_division))
-        if team_id_i is not None:
-            lg_qs = lg_qs.filter(
-                Q(game__team1_id=int(team_id_i)) | Q(game__team2_id=int(team_id_i))
-            )
 
         league_team_div_map = {
             int(tid): (str(dn).strip() if dn is not None else None)
@@ -6989,6 +7118,14 @@ def schedule(request: HttpRequest) -> HttpResponse:
                     "team2_league_division_name": league_team_div_map.get(t2),
                 }
             )
+        _resolve_seed_placeholders_in_schedule_games(league_id=int(league_id), games=games)
+        if team_id_i is not None:
+            games = [
+                g
+                for g in games
+                if int(g.get("team1_id") or 0) == int(team_id_i)
+                or int(g.get("team2_id") or 0) == int(team_id_i)
+            ]
     else:
         rows = list(
             m.HkyGame.objects.filter(user_id=_session_user_id(request))
@@ -8099,11 +8236,14 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
     )
     rows: list[dict[str, Any]] = []
     for r0 in rows_raw:
+        nm = str(r0.get("team__name") or "")
+        if nm.strip() == logic.SEED_PLACEHOLDER_TEAM_NAME or logic.is_seed_placeholder_name(nm):
+            continue
         rows.append(
             {
                 "id": int(r0["team_id"]),
                 "user_id": int(r0["team__user_id"]),
-                "name": r0.get("team__name"),
+                "name": nm,
                 "logo_path": r0.get("team__logo_path"),
                 "is_external": bool(r0.get("team__is_external")),
                 "created_at": r0.get("team__created_at"),
@@ -8208,9 +8348,14 @@ def public_league_teams(request: HttpRequest, league_id: int) -> HttpResponse:  
         grouped.setdefault(dn, []).append(t)
     divisions = []
     for dn in sorted(grouped.keys(), key=logic.division_sort_key):
+        ranked_ids = logic.division_standings_team_ids(int(league_id), str(dn))
+        order = {int(tid): i for i, tid in enumerate(ranked_ids)}
         teams_sorted = sorted(
             grouped[dn],
-            key=lambda tr: logic.sort_key_team_standings(tr, stats.get(int(tr["id"]), {})),
+            key=lambda tr: (
+                order.get(int(tr["id"]), 10**9),
+                str(tr.get("name") or "").casefold(),
+            ),
         )
         divisions.append({"name": dn, "teams": teams_sorted})
 
@@ -8836,17 +8981,19 @@ def public_league_schedule(
             .order_by("name")
             .values("id", "name")
         )
+    league_teams = [
+        t
+        for t in league_teams
+        if str(t.get("name") or "").strip() != logic.SEED_PLACEHOLDER_TEAM_NAME
+        and not logic.is_seed_placeholder_name(str(t.get("name") or ""))
+    ]
     if team_id_i is not None and not any(int(t["id"]) == int(team_id_i) for t in league_teams):
         team_id_i = None
         selected_team_id = ""
 
-    from django.db.models import Q
-
     lg_qs = m.LeagueGame.objects.filter(league_id=int(league_id))
     if selected_division:
         lg_qs = lg_qs.filter(division_name=str(selected_division))
-    if team_id_i is not None:
-        lg_qs = lg_qs.filter(Q(game__team1_id=int(team_id_i)) | Q(game__team2_id=int(team_id_i)))
 
     league_team_div_map = {
         int(tid): (str(dn).strip() if dn is not None else None)
@@ -8906,6 +9053,14 @@ def public_league_schedule(
                 "team2_league_division_name": league_team_div_map.get(t2),
             }
         )
+    _resolve_seed_placeholders_in_schedule_games(league_id=int(league_id), games=games)
+    if team_id_i is not None:
+        games = [
+            g
+            for g in games
+            if int(g.get("team1_id") or 0) == int(team_id_i)
+            or int(g.get("team2_id") or 0) == int(team_id_i)
+        ]
     games = list(games or [])
     now_dt = dt.datetime.now()
     for g2 in games or []:
@@ -9562,6 +9717,10 @@ def _ensure_game_type_id_for_import(game_type_name: Any) -> Optional[int]:
 
 def _ensure_external_team_for_import(owner_user_id: int, name: str, *, commit: bool = True) -> int:
     del commit
+
+    ph = logic.parse_seed_placeholder_name(str(name or ""))
+    if ph is not None:
+        return logic.ensure_seed_placeholder_team_for_import(int(owner_user_id), commit=False)
 
     def _norm_team_name(s: str) -> str:
         t = str(s or "").replace("\xa0", " ").strip()
@@ -10333,6 +10492,11 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
             {"ok": False, "error": "home_name and away_name are required"}, status=400
         )
 
+    home_ph = logic.parse_seed_placeholder_name(home_name)
+    away_ph = logic.parse_seed_placeholder_name(away_name)
+    is_home_placeholder = bool(home_ph is not None)
+    is_away_placeholder = bool(away_ph is not None)
+
     division_name = str(game.get("division_name") or "").strip() or None
     home_division_name = str(game.get("home_division_name") or division_name or "").strip() or None
     away_division_name = str(game.get("away_division_name") or division_name or "").strip() or None
@@ -10379,36 +10543,49 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
     except Exception:
         away_conference_id = conference_id
 
-    team1_id = _ensure_external_team_for_import(owner_user_id, home_name)
-    team2_id = _ensure_external_team_for_import(owner_user_id, away_name)
-    _map_team_to_league_for_import(
-        league_id,
-        team1_id,
-        division_name=home_division_name,
-        division_id=home_division_id,
-        conference_id=home_conference_id,
-    )
-    _map_team_to_league_for_import(
-        league_id,
-        team2_id,
-        division_name=away_division_name,
-        division_id=away_division_id,
-        conference_id=away_conference_id,
-    )
-    _ensure_team_logo_for_import(
-        team_id=int(team1_id),
-        logo_b64=game.get("home_logo_b64") or game.get("team1_logo_b64"),
-        logo_content_type=game.get("home_logo_content_type") or game.get("team1_logo_content_type"),
-        logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
-        replace=replace,
-    )
-    _ensure_team_logo_for_import(
-        team_id=int(team2_id),
-        logo_b64=game.get("away_logo_b64") or game.get("team2_logo_b64"),
-        logo_content_type=game.get("away_logo_content_type") or game.get("team2_logo_content_type"),
-        logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
-        replace=replace,
-    )
+    if is_home_placeholder:
+        team1_id = logic.ensure_seed_placeholder_team_for_import(int(owner_user_id))
+    else:
+        team1_id = _ensure_external_team_for_import(owner_user_id, home_name)
+    if is_away_placeholder:
+        team2_id = logic.ensure_seed_placeholder_team_for_import(int(owner_user_id))
+    else:
+        team2_id = _ensure_external_team_for_import(owner_user_id, away_name)
+
+    if not is_home_placeholder:
+        _map_team_to_league_for_import(
+            league_id,
+            team1_id,
+            division_name=home_division_name,
+            division_id=home_division_id,
+            conference_id=home_conference_id,
+        )
+    if not is_away_placeholder:
+        _map_team_to_league_for_import(
+            league_id,
+            team2_id,
+            division_name=away_division_name,
+            division_id=away_division_id,
+            conference_id=away_conference_id,
+        )
+    if not is_home_placeholder:
+        _ensure_team_logo_for_import(
+            team_id=int(team1_id),
+            logo_b64=game.get("home_logo_b64") or game.get("team1_logo_b64"),
+            logo_content_type=game.get("home_logo_content_type")
+            or game.get("team1_logo_content_type"),
+            logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
+            replace=replace,
+        )
+    if not is_away_placeholder:
+        _ensure_team_logo_for_import(
+            team_id=int(team2_id),
+            logo_b64=game.get("away_logo_b64") or game.get("team2_logo_b64"),
+            logo_content_type=game.get("away_logo_content_type")
+            or game.get("team2_logo_content_type"),
+            logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
+            replace=replace,
+        )
 
     starts_at = game.get("starts_at")
     starts_at_s = str(starts_at) if starts_at else None
@@ -10436,6 +10613,23 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
         notes_fields["timetoscore_type"] = str(game.get("game_type_name"))
     elif game.get("type") is not None:
         notes_fields["timetoscore_type"] = str(game.get("type"))
+    if is_home_placeholder or is_away_placeholder:
+        seed_placeholders: dict[str, Any] = {}
+        if home_ph is not None:
+            seed_placeholders["team1"] = {
+                "seed": int(home_ph.seed),
+                "division_token": str(home_ph.division_token),
+                "raw": str(home_ph.raw),
+                "division_name_hint": str(home_division_name or division_name or ""),
+            }
+        if away_ph is not None:
+            seed_placeholders["team2"] = {
+                "seed": int(away_ph.seed),
+                "division_token": str(away_ph.division_token),
+                "raw": str(away_ph.raw),
+                "division_name_hint": str(away_division_name or division_name or ""),
+            }
+        notes_fields["seed_placeholders"] = seed_placeholders
 
     game_type_id = _ensure_game_type_id_for_import(
         game.get("game_type_name")
@@ -10474,7 +10668,12 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
     )
 
     roster_player_ids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
-    for side_key, tid in (("home", team1_id), ("away", team2_id)):
+    for side_key, tid, is_placeholder in (
+        ("home", team1_id, is_home_placeholder),
+        ("away", team2_id, is_away_placeholder),
+    ):
+        if is_placeholder:
+            continue
         roster = game.get(f"{side_key}_roster") or []
         if isinstance(roster, list):
             for row in roster:
@@ -10506,21 +10705,53 @@ def api_import_game(request: HttpRequest) -> JsonResponse:
     from django.db import transaction
 
     with transaction.atomic():
+        events_csv = game.get("events_csv")
+        played = (
+            bool(game.get("is_final"))
+            or (t1s is not None and t2s is not None)
+            or (isinstance(events_csv, str) and events_csv.strip())
+        )
         now = dt.datetime.now()
         to_create_links = []
-        for tid, pids in roster_player_ids_by_team.items():
-            for pid in sorted(pids):
-                to_create_links.append(
-                    m2.HkyGamePlayer(
-                        game_id=int(gid),
-                        player_id=int(pid),
-                        team_id=int(tid),
-                        created_at=now,
-                        updated_at=None,
+        if played and roster_player_ids_by_team:
+            for tid, pids in roster_player_ids_by_team.items():
+                for pid in sorted(pids):
+                    to_create_links.append(
+                        m2.HkyGamePlayer(
+                            game_id=int(gid),
+                            player_id=int(pid),
+                            team_id=int(tid),
+                            created_at=now,
+                            updated_at=None,
+                        )
                     )
+            if to_create_links:
+                m2.HkyGamePlayer.objects.bulk_create(to_create_links, ignore_conflicts=True)
+
+        if isinstance(events_csv, str) and events_csv.strip():
+            try:
+                _upsert_game_event_rows_from_events_csv(
+                    game_id=int(gid),
+                    events_csv=str(events_csv),
+                    replace=bool(replace),
+                    create_missing_players=False,
+                    incoming_source_label="timetoscore",
+                    prefer_incoming_for_event_types={
+                        "goal",
+                        "assist",
+                        "penalty",
+                        "penaltyexpired",
+                        "goaliechange",
+                    },
                 )
-        if to_create_links:
-            m2.HkyGamePlayer.objects.bulk_create(to_create_links, ignore_conflicts=True)
+            except Exception:
+                logger.warning(
+                    "api_import_game: failed to upsert event rows (game_id=%s, replace=%s)",
+                    int(gid),
+                    bool(replace),
+                    exc_info=True,
+                )
+                raise
 
     return JsonResponse(
         {
@@ -10659,42 +10890,62 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
             except Exception:
                 away_conference_id = conference_id
 
-            team1_id = _ensure_external_team_for_import(owner_user_id, home_name, commit=False)
-            team2_id = _ensure_external_team_for_import(owner_user_id, away_name, commit=False)
-            _map_team_to_league_for_import(
-                league_id,
-                team1_id,
-                division_name=home_division_name,
-                division_id=home_division_id,
-                conference_id=home_conference_id,
-                commit=False,
-            )
-            _map_team_to_league_for_import(
-                league_id,
-                team2_id,
-                division_name=away_division_name,
-                division_id=away_division_id,
-                conference_id=away_conference_id,
-                commit=False,
-            )
-            _ensure_team_logo_for_import(
-                team_id=int(team1_id),
-                logo_b64=game.get("home_logo_b64") or game.get("team1_logo_b64"),
-                logo_content_type=game.get("home_logo_content_type")
-                or game.get("team1_logo_content_type"),
-                logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
-                replace=game_replace,
-                commit=False,
-            )
-            _ensure_team_logo_for_import(
-                team_id=int(team2_id),
-                logo_b64=game.get("away_logo_b64") or game.get("team2_logo_b64"),
-                logo_content_type=game.get("away_logo_content_type")
-                or game.get("team2_logo_content_type"),
-                logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
-                replace=game_replace,
-                commit=False,
-            )
+            home_ph = logic.parse_seed_placeholder_name(home_name)
+            away_ph = logic.parse_seed_placeholder_name(away_name)
+            is_home_placeholder = bool(home_ph is not None)
+            is_away_placeholder = bool(away_ph is not None)
+
+            if is_home_placeholder:
+                team1_id = logic.ensure_seed_placeholder_team_for_import(
+                    int(owner_user_id), commit=False
+                )
+            else:
+                team1_id = _ensure_external_team_for_import(owner_user_id, home_name, commit=False)
+            if is_away_placeholder:
+                team2_id = logic.ensure_seed_placeholder_team_for_import(
+                    int(owner_user_id), commit=False
+                )
+            else:
+                team2_id = _ensure_external_team_for_import(owner_user_id, away_name, commit=False)
+
+            if not is_home_placeholder:
+                _map_team_to_league_for_import(
+                    league_id,
+                    team1_id,
+                    division_name=home_division_name,
+                    division_id=home_division_id,
+                    conference_id=home_conference_id,
+                    commit=False,
+                )
+            if not is_away_placeholder:
+                _map_team_to_league_for_import(
+                    league_id,
+                    team2_id,
+                    division_name=away_division_name,
+                    division_id=away_division_id,
+                    conference_id=away_conference_id,
+                    commit=False,
+                )
+            if not is_home_placeholder:
+                _ensure_team_logo_for_import(
+                    team_id=int(team1_id),
+                    logo_b64=game.get("home_logo_b64") or game.get("team1_logo_b64"),
+                    logo_content_type=game.get("home_logo_content_type")
+                    or game.get("team1_logo_content_type"),
+                    logo_url=game.get("home_logo_url") or game.get("team1_logo_url"),
+                    replace=game_replace,
+                    commit=False,
+                )
+            if not is_away_placeholder:
+                _ensure_team_logo_for_import(
+                    team_id=int(team2_id),
+                    logo_b64=game.get("away_logo_b64") or game.get("team2_logo_b64"),
+                    logo_content_type=game.get("away_logo_content_type")
+                    or game.get("team2_logo_content_type"),
+                    logo_url=game.get("away_logo_url") or game.get("team2_logo_url"),
+                    replace=game_replace,
+                    commit=False,
+                )
 
             starts_at = game.get("starts_at")
             starts_at_s = str(starts_at) if starts_at else None
@@ -10741,6 +10992,23 @@ def api_import_games_batch(request: HttpRequest) -> JsonResponse:
                     )
                 except Exception:
                     pass
+            if is_home_placeholder or is_away_placeholder:
+                seed_placeholders: dict[str, Any] = {}
+                if home_ph is not None:
+                    seed_placeholders["team1"] = {
+                        "seed": int(home_ph.seed),
+                        "division_token": str(home_ph.division_token),
+                        "raw": str(home_ph.raw),
+                        "division_name_hint": str(home_division_name or division_name or ""),
+                    }
+                if away_ph is not None:
+                    seed_placeholders["team2"] = {
+                        "seed": int(away_ph.seed),
+                        "division_token": str(away_ph.division_token),
+                        "raw": str(away_ph.raw),
+                        "division_name_hint": str(away_division_name or division_name or ""),
+                    }
+                notes_fields["seed_placeholders"] = seed_placeholders
 
             game_type_id = _ensure_game_type_id_for_import(
                 game.get("game_type_name")

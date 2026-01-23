@@ -7,7 +7,7 @@ This subtree contains the HockeyMOM webapp plus its admin/import scripts. The we
 
 - `tools/webapp/manage.py`: Django management entrypoint (devserver/admin tasks).
 - `tools/webapp/hm_webapp/`: Django project package (`settings.py`, `urls.py`, `wsgi.py`).
-- `tools/webapp/app.py`: Shared hockey/league webapp logic (Django runtime + legacy Flask factory for tests).
+- `tools/webapp/app.py`: Shared hockey/league webapp logic used by the Django runtime.
 - `tools/webapp/django_app/views.py`: Django views (MVT) and REST endpoints.
 - `tools/webapp/templates/`, `tools/webapp/static/`: UI templates/assets.
 - `tools/webapp/hm_webapp/settings.py`: Minimal Django settings module (DB config + installed apps).
