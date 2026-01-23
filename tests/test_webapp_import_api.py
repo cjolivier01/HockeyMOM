@@ -700,44 +700,63 @@ def webapp_mod(monkeypatch, webapp_db):
     return mod, m
 
 
+@pytest.fixture()
+def client(monkeypatch, webapp_db):
+    _django_orm, _m = webapp_db
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    from django.test import Client
+
+    return Client()
+
+
+def _resp_json(resp) -> dict[str, Any]:
+    return json.loads(resp.content.decode() or "{}")
+
+
 def _post(
     client,
     path: str,
     payload: dict[str, Any],
     *,
-    token: Optional[str] = None,
+    bearer_token: Optional[str] = None,
+    import_token: Optional[str] = None,
     environ: Optional[dict] = None,
 ):
-    headers = {}
-    if token is not None:
-        headers["Authorization"] = f"Bearer {token}"
-    return client.post(path, json=payload, headers=headers, environ_base=environ or {})
+    extra = dict(environ or {})
+    if bearer_token is not None:
+        extra["HTTP_AUTHORIZATION"] = f"Bearer {bearer_token}"
+    if import_token is not None:
+        extra["HTTP_X_HM_IMPORT_TOKEN"] = str(import_token)
+    return client.post(path, data=json.dumps(payload), content_type="application/json", **extra)
 
 
-def should_require_token_when_configured(webapp_mod, monkeypatch):
-    mod, _m = webapp_mod
+def should_require_token_when_configured(webapp_mod, client, monkeypatch):
+    _mod, _m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     r = _post(client, "/api/import/hockey/ensure_league", {"league_name": "CAHA"})
     assert r.status_code == 401
-    r2 = _post(client, "/api/import/hockey/ensure_league", {"league_name": "CAHA"}, token="wrong")
+    r2 = _post(
+        client,
+        "/api/import/hockey/ensure_league",
+        {"league_name": "CAHA"},
+        bearer_token="wrong",
+    )
     assert r2.status_code == 401
-    r3 = _post(client, "/api/import/hockey/ensure_league", {"league_name": "CAHA"}, token="sekret")
+    r3 = _post(
+        client,
+        "/api/import/hockey/ensure_league",
+        {"league_name": "CAHA"},
+        bearer_token="sekret",
+    )
     assert r3.status_code == 200
-    assert r3.get_json()["ok"] is True
+    assert _resp_json(r3)["ok"] is True
 
 
-def should_deny_remote_import_without_token(webapp_mod, monkeypatch):
-    mod, _m = webapp_mod
+def should_deny_remote_import_without_token(webapp_mod, client, monkeypatch):
+    _mod, _m = webapp_mod
     monkeypatch.delenv("HM_WEBAPP_IMPORT_TOKEN", raising=False)
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     r = _post(
         client,
@@ -746,31 +765,28 @@ def should_deny_remote_import_without_token(webapp_mod, monkeypatch):
         environ={"REMOTE_ADDR": "10.0.0.1"},
     )
     assert r.status_code == 403
-    assert r.get_json()["error"] == "import_token_required"
+    assert _resp_json(r)["error"] == "import_token_required"
     r2 = client.post(
         "/api/import/hockey/ensure_league",
-        json={"league_name": "CAHA"},
-        headers={"X-Forwarded-For": "1.2.3.4"},
-        environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        data=json.dumps({"league_name": "CAHA"}),
+        content_type="application/json",
+        HTTP_X_FORWARDED_FOR="1.2.3.4",
+        REMOTE_ADDR="127.0.0.1",
     )
     assert r2.status_code == 403
 
 
-def should_create_and_update_shared_league(webapp_mod, monkeypatch):
-    mod, m = webapp_mod
+def should_create_and_update_shared_league(webapp_mod, client, monkeypatch):
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     r = _post(
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": True, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
-    data = r.get_json()
+    data = _resp_json(r)
     assert data["ok"] is True
     lid = int(data["league_id"])
     owner_user_id = int(data["owner_user_id"])
@@ -788,27 +804,23 @@ def should_create_and_update_shared_league(webapp_mod, monkeypatch):
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": False, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
-    assert int(r2.get_json()["league_id"]) == lid
+    assert int(_resp_json(r2)["league_id"]) == lid
     league2 = m.League.objects.filter(id=lid).values("is_shared").first()
     assert league2 is not None
     assert bool(league2["is_shared"]) is False
 
 
-def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkeypatch):
-    mod, m = webapp_mod
+def should_import_game_and_be_non_destructive_without_replace(webapp_mod, client, monkeypatch):
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     _post(
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": True, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
 
     payload = {
@@ -836,9 +848,9 @@ def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkey
         "external_key": "sharksice:77",
     }
 
-    r = _post(client, "/api/import/hockey/game", payload, token="sekret")
+    r = _post(client, "/api/import/hockey/game", payload, bearer_token="sekret")
     assert r.status_code == 200
-    out = r.get_json()
+    out = _resp_json(r)
     assert out["ok"] is True
 
     gid = int(out["game_id"])
@@ -867,9 +879,9 @@ def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkey
         "Event Type,Team Side,Period,Game Seconds,Attributed Jerseys,Source,Details\n"
         "Goal,Home,1,100,9,timetoscore,Second import\n"
     )
-    r2 = _post(client, "/api/import/hockey/game", payload2, token="sekret")
+    r2 = _post(client, "/api/import/hockey/game", payload2, bearer_token="sekret")
     assert r2.status_code == 200
-    gid2 = int(r2.get_json()["game_id"])
+    gid2 = int(_resp_json(r2)["game_id"])
     assert gid2 == gid
 
     g2 = m.HkyGame.objects.filter(id=gid2).values("team1_score", "team2_score").first()
@@ -893,22 +905,18 @@ def should_import_game_and_be_non_destructive_without_replace(webapp_mod, monkey
     assert str(ev.get("details") or "").strip() == "Second import"
 
 
-def should_persist_division_metadata_on_import(webapp_mod, monkeypatch):
-    mod, m = webapp_mod
+def should_persist_division_metadata_on_import(webapp_mod, client, monkeypatch):
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     r = _post(
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": True, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
     assert r.status_code == 200
-    lid = int(r.get_json()["league_id"])
+    lid = int(_resp_json(r)["league_id"])
 
     payload = {
         "league_name": "CAHA",
@@ -935,12 +943,12 @@ def should_persist_division_metadata_on_import(webapp_mod, monkeypatch):
         "source": "timetoscore",
         "external_key": "caha:0",
     }
-    r2 = _post(client, "/api/import/hockey/game", payload, token="sekret")
+    r2 = _post(client, "/api/import/hockey/game", payload, bearer_token="sekret")
     assert r2.status_code == 200
-    gid = int(r2.get_json()["game_id"])
+    gid = int(_resp_json(r2)["game_id"])
 
-    team1_id = int(r2.get_json()["team1_id"])
-    team2_id = int(r2.get_json()["team2_id"])
+    team1_id = int(_resp_json(r2)["team1_id"])
+    team2_id = int(_resp_json(r2)["team2_id"])
     lt1 = (
         m.LeagueTeam.objects.filter(league_id=lid, team_id=team1_id).values("division_name").first()
     )
@@ -959,7 +967,7 @@ def should_persist_division_metadata_on_import(webapp_mod, monkeypatch):
     payload2["game"].pop("division_name", None)
     payload2["game"].pop("division_id", None)
     payload2["game"].pop("conference_id", None)
-    r3 = _post(client, "/api/import/hockey/game", payload2, token="sekret")
+    r3 = _post(client, "/api/import/hockey/game", payload2, bearer_token="sekret")
     assert r3.status_code == 200
     lt1b = (
         m.LeagueTeam.objects.filter(league_id=lid, team_id=team1_id).values("division_name").first()
@@ -968,19 +976,15 @@ def should_persist_division_metadata_on_import(webapp_mod, monkeypatch):
     assert str(lt1b.get("division_name")) == "10U A"
 
 
-def should_overwrite_with_replace(webapp_mod, monkeypatch):
-    mod, m = webapp_mod
+def should_overwrite_with_replace(webapp_mod, client, monkeypatch):
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     _post(
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": True, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
     payload = {
         "league_name": "CAHA",
@@ -1005,9 +1009,9 @@ def should_overwrite_with_replace(webapp_mod, monkeypatch):
             ),
         },
     }
-    r = _post(client, "/api/import/hockey/game", payload, token="sekret")
+    r = _post(client, "/api/import/hockey/game", payload, bearer_token="sekret")
     assert r.status_code == 200
-    out = r.get_json()
+    out = _resp_json(r)
     gid = int(out["game_id"])
 
     g = m.HkyGame.objects.filter(id=gid).values("team1_score").first()
@@ -1036,21 +1040,17 @@ def should_overwrite_with_replace(webapp_mod, monkeypatch):
     )
 
 
-def should_match_existing_game_by_timetoscore_id_when_no_starts_at(webapp_mod, monkeypatch):
-    mod, m = webapp_mod
+def should_match_existing_game_by_timetoscore_id_when_no_starts_at(webapp_mod, client, monkeypatch):
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     r = _post(
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": True, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
-    owner_user_id = int(r.get_json()["owner_user_id"])
+    owner_user_id = int(_resp_json(r)["owner_user_id"])
 
     now = dt.datetime.now()
     home = m.Team.objects.create(
@@ -1095,9 +1095,9 @@ def should_match_existing_game_by_timetoscore_id_when_no_starts_at(webapp_mod, m
             "player_stats": [],
         },
     }
-    r2 = _post(client, "/api/import/hockey/game", payload, token="sekret")
+    r2 = _post(client, "/api/import/hockey/game", payload, bearer_token="sekret")
     assert r2.status_code == 200
-    gid2 = int(r2.get_json()["game_id"])
+    gid2 = int(_resp_json(r2)["game_id"])
     assert gid2 == existing_gid
     g = m.HkyGame.objects.filter(id=gid2).values("team1_score", "team2_score").first()
     assert g is not None
@@ -1105,19 +1105,15 @@ def should_match_existing_game_by_timetoscore_id_when_no_starts_at(webapp_mod, m
     assert int(g["team2_score"]) == 0
 
 
-def should_update_player_roster_fields_without_replace(webapp_mod, monkeypatch):
-    mod, m = webapp_mod
+def should_update_player_roster_fields_without_replace(webapp_mod, client, monkeypatch):
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     _post(
         client,
         "/api/import/hockey/ensure_league",
         {"league_name": "CAHA", "shared": True, "owner_email": "owner@example.com"},
-        token="sekret",
+        bearer_token="sekret",
     )
     payload = {
         "league_name": "CAHA",
@@ -1138,8 +1134,8 @@ def should_update_player_roster_fields_without_replace(webapp_mod, monkeypatch):
             "player_stats": [],
         },
     }
-    r1 = _post(client, "/api/import/hockey/game", payload, token="sekret")
-    out = r1.get_json()
+    r1 = _post(client, "/api/import/hockey/game", payload, bearer_token="sekret")
+    out = _resp_json(r1)
     owner_user_id = int(out["owner_user_id"])
     team1_id = int(out["team1_id"])
 
@@ -1154,7 +1150,7 @@ def should_update_player_roster_fields_without_replace(webapp_mod, monkeypatch):
     payload2 = dict(payload)
     payload2["game"] = dict(payload["game"])
     payload2["game"]["home_roster"] = [{"name": "Alice", "number": "12", "position": "F"}]
-    _post(client, "/api/import/hockey/game", payload2, token="sekret")
+    _post(client, "/api/import/hockey/game", payload2, bearer_token="sekret")
 
     alice2 = (
         m.Player.objects.filter(id=int(alice["id"])).values("jersey_number", "position").first()
@@ -1165,14 +1161,10 @@ def should_update_player_roster_fields_without_replace(webapp_mod, monkeypatch):
 
 
 def should_not_map_games_or_teams_into_external_when_division_is_external_but_team_exists(
-    webapp_mod, monkeypatch
+    webapp_mod, client, monkeypatch
 ):
-    mod, m = webapp_mod
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     payload1 = {
         "league_name": "CAHA",
@@ -1197,11 +1189,11 @@ def should_not_map_games_or_teams_into_external_when_division_is_external_but_te
             }
         ],
     }
-    r1 = _post(client, "/api/import/hockey/games_batch", payload1, token="sekret")
+    r1 = _post(client, "/api/import/hockey/games_batch", payload1, bearer_token="sekret")
     assert r1.status_code == 200
-    assert r1.get_json()["ok"] is True
-    league_id = int(r1.get_json()["league_id"])
-    owner_user_id = int(r1.get_json()["owner_user_id"])
+    assert _resp_json(r1)["ok"] is True
+    league_id = int(_resp_json(r1)["league_id"])
+    owner_user_id = int(_resp_json(r1)["owner_user_id"])
 
     assert m.Team.objects.filter(user_id=owner_user_id, is_external=True).count() == 2
 
@@ -1228,13 +1220,13 @@ def should_not_map_games_or_teams_into_external_when_division_is_external_but_te
             }
         ],
     }
-    r2 = _post(client, "/api/import/hockey/games_batch", payload2, token="sekret")
+    r2 = _post(client, "/api/import/hockey/games_batch", payload2, bearer_token="sekret")
     assert r2.status_code == 200
-    assert r2.get_json()["ok"] is True
+    assert _resp_json(r2)["ok"] is True
 
     assert m.Team.objects.filter(user_id=owner_user_id, is_external=True).count() == 2
 
-    gid2 = int(r2.get_json()["results"][0]["game_id"])
+    gid2 = int(_resp_json(r2)["results"][0]["game_id"])
     lg2 = (
         m.LeagueGame.objects.filter(league_id=league_id, game_id=gid2)
         .values("division_name")
@@ -1257,13 +1249,9 @@ def should_not_map_games_or_teams_into_external_when_division_is_external_but_te
     assert [str(r.get("division_name")) for r in lt_rows] == ["12AA", "12AA"]
 
 
-def should_upsert_games_batch_by_external_game_key(webapp_mod, monkeypatch) -> None:
-    mod, m = webapp_mod
+def should_upsert_games_batch_by_external_game_key(webapp_mod, client, monkeypatch) -> None:
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     ext_key = "caha:schedule_pl:y2025:d14:gm16001"
     payload1 = {
@@ -1289,9 +1277,9 @@ def should_upsert_games_batch_by_external_game_key(webapp_mod, monkeypatch) -> N
             }
         ],
     }
-    r1 = _post(client, "/api/import/hockey/games_batch", payload1, token="sekret")
+    r1 = _post(client, "/api/import/hockey/games_batch", payload1, bearer_token="sekret")
     assert r1.status_code == 200
-    assert r1.get_json()["ok"] is True
+    assert _resp_json(r1)["ok"] is True
 
     assert m.HkyGame.objects.filter(external_game_key=ext_key).count() == 1
     row = (
@@ -1309,9 +1297,9 @@ def should_upsert_games_batch_by_external_game_key(webapp_mod, monkeypatch) -> N
     payload2["games"] = [dict(payload1["games"][0])]
     payload2["games"][0]["home_score"] = 4
     payload2["games"][0]["away_score"] = 1
-    r2 = _post(client, "/api/import/hockey/games_batch", payload2, token="sekret")
+    r2 = _post(client, "/api/import/hockey/games_batch", payload2, bearer_token="sekret")
     assert r2.status_code == 200
-    assert r2.get_json()["ok"] is True
+    assert _resp_json(r2)["ok"] is True
 
     assert m.HkyGame.objects.filter(external_game_key=ext_key).count() == 1
     row2 = (
@@ -1476,14 +1464,10 @@ def _snapshot_import_state(m) -> dict[str, Any]:
 
 
 def should_import_games_batch_and_match_individual_imports(
-    webapp_mod, webapp_db_reset, monkeypatch
+    webapp_mod, client, webapp_db_reset, monkeypatch
 ):
-    mod, m = webapp_mod
+    _mod, m = webapp_mod
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     game1 = {
         "home_name": "Home A",
@@ -1531,34 +1515,32 @@ def should_import_games_batch_and_match_individual_imports(
         "external_key": "caha:77",
     }
 
-    _post(client, "/api/import/hockey/game", dict(payload, game=game1), token="sekret")
-    _post(client, "/api/import/hockey/game", dict(payload, game=game2), token="sekret")
+    _post(client, "/api/import/hockey/game", dict(payload, game=game1), bearer_token="sekret")
+    _post(client, "/api/import/hockey/game", dict(payload, game=game2), bearer_token="sekret")
     snap_individual = _snapshot_import_state(m)
 
     webapp_db_reset()
-    app2 = mod.create_app()
-    app2.testing = True
-    client2 = app2.test_client()
 
     batch_payload = dict(payload)
     batch_payload["games"] = [game1, game2]
-    r = _post(client2, "/api/import/hockey/games_batch", batch_payload, token="sekret")
+    r = _post(client, "/api/import/hockey/games_batch", batch_payload, bearer_token="sekret")
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
-    assert int(r.get_json()["imported"]) == 2
+    assert _resp_json(r)["ok"] is True
+    assert int(_resp_json(r)["imported"]) == 2
     snap_batch = _snapshot_import_state(m)
 
     assert snap_batch == snap_individual
 
 
-def should_import_team_logos_from_urls_in_games_batch(tmp_path, webapp_db, monkeypatch):
+def should_import_team_logos_from_urls_in_games_batch(tmp_path, webapp_db, client, monkeypatch):
     _django_orm, m = webapp_db
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
 
-    mod = _load_app_module()
-    monkeypatch.setattr(mod, "INSTANCE_DIR", tmp_path, raising=False)
+    from tools.webapp.django_app import views as web_views
+
+    monkeypatch.setattr(web_views.logic, "INSTANCE_DIR", tmp_path, raising=False)
 
     class _Resp:
         def __init__(self, content: bytes, headers: dict[str, str]) -> None:
@@ -1579,10 +1561,6 @@ def should_import_team_logos_from_urls_in_games_batch(tmp_path, webapp_db, monke
             return _Resp(b"PNGDATA", {"Content-Type": "image/png"})
 
     monkeypatch.setitem(sys.modules, "requests", _Requests)
-
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
 
     batch_payload = {
         "league_name": "CAHA",
@@ -1611,9 +1589,9 @@ def should_import_team_logos_from_urls_in_games_batch(tmp_path, webapp_db, monke
             }
         ],
     }
-    r = _post(client, "/api/import/hockey/games_batch", batch_payload, token="sekret")
+    r = _post(client, "/api/import/hockey/games_batch", batch_payload, bearer_token="sekret")
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert _resp_json(r)["ok"] is True
 
     assert got["headers"].get("User-Agent") == "Mozilla/5.0"
     assert "Referer" in got["headers"]
@@ -1629,7 +1607,7 @@ def should_import_team_logos_from_urls_in_games_batch(tmp_path, webapp_db, monke
 
 
 def should_import_team_logos_from_b64_in_games_batch_without_requests(
-    tmp_path, webapp_db, monkeypatch
+    tmp_path, webapp_db, client, monkeypatch
 ):
     import base64
 
@@ -1638,13 +1616,10 @@ def should_import_team_logos_from_b64_in_games_batch_without_requests(
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
     monkeypatch.setenv("HM_WEBAPP_IMPORT_TOKEN", "sekret")
 
-    mod = _load_app_module()
-    monkeypatch.setattr(mod, "INSTANCE_DIR", tmp_path, raising=False)
-    monkeypatch.setitem(sys.modules, "requests", None)
+    from tools.webapp.django_app import views as web_views
 
-    app = mod.create_app()
-    app.testing = True
-    client = app.test_client()
+    monkeypatch.setattr(web_views.logic, "INSTANCE_DIR", tmp_path, raising=False)
+    monkeypatch.setitem(sys.modules, "requests", None)
 
     png_bytes = b"\x89PNG\r\n\x1a\nFAKE"
     b64 = base64.b64encode(png_bytes).decode("ascii")
@@ -1678,9 +1653,9 @@ def should_import_team_logos_from_b64_in_games_batch_without_requests(
             }
         ],
     }
-    r = _post(client, "/api/import/hockey/games_batch", batch_payload, token="sekret")
+    r = _post(client, "/api/import/hockey/games_batch", batch_payload, bearer_token="sekret")
     assert r.status_code == 200
-    assert r.get_json()["ok"] is True
+    assert _resp_json(r)["ok"] is True
 
     teams = list(m.Team.objects.order_by("id").values("logo_path"))
     assert len(teams) == 2

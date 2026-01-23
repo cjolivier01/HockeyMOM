@@ -125,6 +125,7 @@ def main() -> int:
                 sudo cp /tmp/hm/tools/webapp/wsgi.py /opt/hm-webapp/app/wsgi.py
                 sudo cp -r /tmp/hm/tools/webapp/django_app /opt/hm-webapp/app/
                 sudo cp -r /tmp/hm/tools/webapp/hm_webapp /opt/hm-webapp/app/
+                sudo cp -r /tmp/hm/tools/webapp/core /opt/hm-webapp/app/
                 sudo cp /tmp/hm/tools/webapp/hockey_rankings.py /opt/hm-webapp/app/hockey_rankings.py
                 sudo cp /tmp/hm/tools/webapp/scripts/recalc_div_ratings.py /opt/hm-webapp/app/recalc_div_ratings.py
                 sudo cp -r /tmp/hm/tools/webapp/templates/. /opt/hm-webapp/app/templates/
@@ -183,7 +184,7 @@ def main() -> int:
                   sudo systemctl reload nginx || sudo systemctl restart nginx
                 fi
 
-                # Upgrade old Flask-based systemd service to Django (idempotent).
+                # Upgrade old systemd service entrypoint to Django (idempotent).
                 if sudo test -f /etc/systemd/system/hm-webapp.service && sudo grep -Fq "app:app" /etc/systemd/system/hm-webapp.service; then
                   sudo sed -i 's|Description=HockeyMOM WebApp (Flask via gunicorn)|Description=HockeyMOM WebApp (Django via gunicorn)|g' /etc/systemd/system/hm-webapp.service || true
                   sudo sed -i 's|app:app|wsgi:application|g' /etc/systemd/system/hm-webapp.service

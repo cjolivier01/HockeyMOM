@@ -15,26 +15,11 @@ def should_import_webapp_without_db_init():
     os.environ["HM_WEBAPP_SKIP_DB_INIT"] = "1"
     os.environ["HM_WATCH_ROOT"] = "/tmp/hm-incoming-test"
     mod = _load_app_module()
-    assert hasattr(mod, "create_app")
-    app = mod.create_app()
-    # Ensure key routes are registered
-    paths = {str(r) for r in app.url_map.iter_rules()}
-    expected = {
-        "/",
-        "/teams",
-        "/teams/new",
-        "/teams/<int:team_id>",
-        "/teams/<int:team_id>/edit",
-        "/teams/<int:team_id>/players/new",
-        "/teams/<int:team_id>/players/<int:player_id>/edit",
-        "/teams/<int:team_id>/players/<int:player_id>/delete",
-        "/schedule",
-        "/schedule/new",
-        "/hky/games/<int:game_id>",
-        "/game_types",
-        "/media/team_logo/<int:team_id>",
-    }
-    assert expected.issubset(paths)
+    assert not hasattr(mod, "create_app")
+    # Smoke-check that key helpers remain importable without DB init.
+    assert callable(mod.parse_dt_or_none)
+    assert callable(mod.compute_team_stats_league)
+    assert callable(mod.normalize_game_events_csv)
 
 
 def should_parse_date_formats():

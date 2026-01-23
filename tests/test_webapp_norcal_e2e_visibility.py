@@ -83,7 +83,8 @@ def should_show_shared_caha_league_and_stats_for_all_users():
             continue
         if "No players yet." in html:
             continue
-        if "<h3>Players</h3>" in html:
+        # Roster section is present when the team has players.
+        if "Roster" in html and "hm-player-name" in html:
             found_team_with_players = True
             break
     assert (
@@ -91,16 +92,17 @@ def should_show_shared_caha_league_and_stats_for_all_users():
     ), "Expected at least one CAHA team to have players visible to a non-owner user"
 
     schedule_html = sess.get(f"{base_url}/schedule", timeout=60).text
-    game_ids = sorted({int(x) for x in re.findall(r'href="/hky/games/(\d+)"', schedule_html)})
+    game_ids = sorted(
+        {int(x) for x in re.findall(r'href="/hky/games/(\d+)(?:\\?|")', schedule_html)}
+    )
     assert len(game_ids) >= 10, f"Expected many games in CAHA schedule, got {len(game_ids)}"
 
-    # Find a game page that renders roster inputs (player list) for a non-owner user.
+    # Find a game page that renders player stats rows for a non-owner user.
     found_game_with_players = False
     for gid in game_ids[:50]:
         html = sess.get(f"{base_url}/hky/games/{gid}", timeout=60).text
-        if "Read-only" not in html:
-            continue
-        if re.search(r'name="ps_goals_\d+"', html):
+        # Read-only pages don't render form inputs; detect the presence of player stats tables/rows.
+        if 'data-player-stats-table="1"' in html and "hm-player-name" in html:
             found_game_with_players = True
             break
     assert (

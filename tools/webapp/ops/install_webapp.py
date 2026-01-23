@@ -55,7 +55,7 @@ def _ensure_port_available_for_nginx(listen_port: int, *, disable_apache2: bool)
         "",
         "Fix options:",
         f"- Stop/disable the service using port {listen_port} (common culprit: apache2).",
-        f"- Or re-run this installer with `--nginx-port <other-port>`.",
+        "- Or re-run this installer with `--nginx-port <other-port>`.",
         "",
     ]
     if '("apache2",' in listeners and not disable_apache2:
@@ -145,6 +145,7 @@ def main():
     _do_copy(repo_root / "tools/webapp/wsgi.py", app_dir / "wsgi.py")
     _do_copy(repo_root / "tools/webapp/django_app", app_dir)
     _do_copy(repo_root / "tools/webapp/hm_webapp", app_dir)
+    _do_copy(repo_root / "tools/webapp/core", app_dir)
     _do_copy(repo_root / "tools/webapp/hockey_rankings.py", app_dir / "hockey_rankings.py")
     _do_copy(
         repo_root / "tools/webapp/scripts/recalc_div_ratings.py", app_dir / "recalc_div_ratings.py"
