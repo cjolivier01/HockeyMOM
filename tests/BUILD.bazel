@@ -81,3 +81,27 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+py_test(
+    name = "test_jersey_tracker",
+    srcs = ["test_jersey_tracker.py"],
+    deps = [
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "test_jersey_koshkina_side_view",
+    srcs = ["test_jersey_koshkina_side_view.py"],
+    deps = [
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "test_jersey_pose_plugin_rois",
+    srcs = ["test_jersey_pose_plugin_rois.py"],
+    deps = [
+        requirement("pytest"),
+    ],
+)

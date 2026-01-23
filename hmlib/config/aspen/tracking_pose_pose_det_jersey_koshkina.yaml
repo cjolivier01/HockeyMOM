@@ -137,6 +137,11 @@ aspen:
         legibility_weights: pretrained/legibility_classifier/hockey/legibility_resnet34_hockey_20240201.pth
         legibility_threshold: 0.5
 
+        # Optional: add a sleeve ROI when the pose looks side-on (orthogonal to camera)
+        # side_view_enabled: true
+        # side_view_shoulder_ratio_thresh: 0.22
+        # side_view_vote_scale: 1.25
+
         # ReID occlusion/outlier removal
         reid_enabled: false
         reid_backend: resnet   # 'resnet' or 'centroid'

@@ -28,8 +28,11 @@ def pack_bounding_boxes_as_tiles(
     # _, sorted_indices = torch.sort(heights, descending=True)
     # bounding_boxes = bounding_boxes[sorted_indices]
 
-    # Resize bounding boxes if height exceeds 256 pixels while maintaining the aspect ratio
+    # Normalize ROI scale for OCR:
+    # - Downscale very large crops to limit compute
+    # - Upscale very small crops so text recognizers have enough pixels
     max_height_allowed = 256
+    min_height_allowed = 128
     new_bounding_boxes = []
     resized_regions = []
     for bbox in bounding_boxes:
@@ -38,13 +41,25 @@ def pack_bounding_boxes_as_tiles(
         h = y2 - y1
         cropped_region = _to_float(source_image[:, y1:y2, x1:x2])
         if h > max_height_allowed:
-            scale_factor = max_height_allowed / h
+            scale_factor = max_height_allowed / max(1, h)
             new_w = int(w * scale_factor)
             new_h = max_height_allowed
             cropped_region = F.interpolate(
                 cropped_region.unsqueeze(0),
                 size=(new_h, new_w),
                 mode="area",
+            ).squeeze(0)
+            x2 = x1 + new_w
+            y2 = y1 + new_h
+        elif h < min_height_allowed:
+            scale_factor = min_height_allowed / max(1, h)
+            new_w = int(max(1, w * scale_factor))
+            new_h = int(min_height_allowed)
+            cropped_region = F.interpolate(
+                cropped_region.unsqueeze(0),
+                size=(new_h, new_w),
+                mode="bilinear",
+                align_corners=False,
             ).squeeze(0)
             x2 = x1 + new_w
             y2 = y1 + new_h

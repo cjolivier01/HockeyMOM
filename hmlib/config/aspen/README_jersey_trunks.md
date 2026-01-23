@@ -37,6 +37,17 @@ Koshkina Plugin Parameters (jersey_numbers.params)
   - `legibility_threshold`: default 0.5
   - Fallback: if weights not provided, behaves as pass-through.
 
+- Robust Track Aggregation (optional)
+  - `vote_window`: max age (frames) of votes used for per-track aggregation
+  - `vote_decay`: per-frame decay applied to older votes
+  - `vote_filter_thresh`: ignore individual votes below this weight
+  - `vote_sum_thresh`: require aggregated evidence above this to emit a number
+
+- Side-View Sleeve ROIs (optional; requires `roi_mode: pose`)
+  - `side_view_enabled`: true|false (default false)
+  - `side_view_shoulder_ratio_thresh`: smaller means "more strictly side-on"
+  - `side_view_vote_scale`: extra weight for sleeve votes when side-on
+
 - ReID Occlusion / Outlier Removal (optional)
   - `reid_enabled`: true|false
   - `reid_backend`: `resnet` (default) or `centroid`

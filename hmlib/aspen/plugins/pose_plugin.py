@@ -53,10 +53,15 @@ class PosePlugin(Plugin):
                 pred_track_instances.instances_id = unwrap_tensor(pred_track_instances.instances_id)
                 pred_track_instances.labels = unwrap_tensor(pred_track_instances.labels)
                 pred_track_instances.scores = unwrap_tensor(pred_track_instances.scores)
-            else:
-                assert False, "No pred_track_instances found in video_data_samples"
+            # If track instances are absent, fall back to MMPose's internal detector path.
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
+        if per_frame_bboxes is not None:
+            try:
+                if all((not torch.is_tensor(b)) or b.numel() == 0 for b in per_frame_bboxes):
+                    per_frame_bboxes = None
+            except Exception:
+                pass
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensorBase):
@@ -72,6 +77,7 @@ class PosePlugin(Plugin):
             and frame_metas is not None
             and frame_count is not None
             and len(frame_metas) == frame_count
+            and per_frame_bboxes is not None
         ):
             use_det_imgs = True
             for idx in range(frame_count):
