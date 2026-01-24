@@ -442,6 +442,8 @@
             var homeTeamName = {{ game.team1_name|default:"Home"|tojson }};
             var awayTeamName = {{ game.team2_name|default:"Away"|tojson }};
             var gameVideoUrl = {{ game.game_video_url|default:""|tojson }};
+            var hmPublicLeagueId = {{ public_league_id|default:"null"|tojson }};
+            var hmSelectedLeagueId = {{ selected_league_id|tojson }};
   
               var videoPane = document.getElementById("event-video-pane");
               var videoIframe = document.getElementById("event-video-iframe");
@@ -708,6 +710,20 @@
                   if (!gameVideoUrl || !videoPane || !videoIframe) return false;
                   var vs2 = parseVideoSecondsFromRow(row);
                   if (vs2 === null || !isFinite(vs2)) return false;
+                try {
+                  var leagueId = (hmPublicLeagueId !== null && hmPublicLeagueId !== undefined) ? hmPublicLeagueId : hmSelectedLeagueId;
+                  var raw = row ? row["__hm_event_row_id"] : null;
+                  var eid = null;
+                  try { eid = parseInt(String(raw || "").trim(), 10); } catch (e) { eid = null; }
+                  if (leagueId !== null && leagueId !== undefined && eid !== null && isFinite(eid) && eid > 0) {
+                    fetch("/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record", {
+                      method: "POST",
+                      credentials: "same-origin",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ kind: "event_clip", entity_id: eid }),
+                    }).catch(function () {});
+                  }
+                } catch (e) {}
                 var etKey = normTypeKey(getValue(row, ["Event Type", "Event"]));
                 var totalClipS = 30;
                 var preS = 20;
@@ -2458,7 +2474,17 @@
 	      <div id="events-drilldown-title" style="font-weight:700;"></div>
 	      <div id="events-drilldown-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
 	    </div>
-	    <button id="events-drilldown-close" class="btn" type="button">Close</button>
+	    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+        <div id="events-drilldown-pageviews"></div>
+        <button
+          id="events-drilldown-mark-clips"
+          type="button"
+          class="btn secondary"
+          style="padding:.18rem .45rem;font-size:.75rem;line-height:1;box-shadow:none;display:none;"
+          title="Mark all visible clip view counts as baseline"
+        >Mark clips</button>
+        <button id="events-drilldown-close" class="btn" type="button">Close</button>
+      </div>
 	  </div>
 	  <div id="events-drilldown-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.12);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -2737,6 +2763,11 @@
       var vs2 = parseVideoSecondsFromRow(row);
       if (vs2 === null || !isFinite(vs2)) return false;
 
+      try {
+        var eid = hmEventRowIdFromRow(row);
+        if (eid !== null) hmRecordLeaguePageView("event_clip", eid);
+      } catch (e) {}
+
       var totalClipS = 30;
       try {
         var v = parseInt(String(drilldownClipLenEl && drilldownClipLenEl.value || "").trim(), 10);
@@ -2927,6 +2958,194 @@
 
     var PLAYER_EVENTS_SCOPE_LABEL = String("{{ game.team2_name|escapejs }} at {{ game.team1_name|escapejs }}{% if game.starts_at %} {{ game.starts_at|date:'Y-m-d' }}{% endif %}" || "").trim();
 
+    var hmPublicLeagueId = {{ public_league_id|default:"null"|tojson }};
+    var hmSelectedLeagueId = {{ selected_league_id|tojson }};
+    var hmIsLeagueOwner = {% if league_page_views %}true{% else %}false{% endif %};
+
+    function hmActiveLeagueId() {
+      if (hmPublicLeagueId !== null && hmPublicLeagueId !== undefined) return hmPublicLeagueId;
+      if (hmSelectedLeagueId !== null && hmSelectedLeagueId !== undefined) return hmSelectedLeagueId;
+      return null;
+    }
+
+    function hmGetCookie(name) {
+      try {
+        var v = ("; " + document.cookie).split("; " + name + "=");
+        if (v.length === 2) return v.pop().split(";").shift();
+      } catch (e) {}
+      return null;
+    }
+
+    function hmEventRowIdFromRow(row) {
+      if (!row) return null;
+      var raw = null;
+      try { raw = row["__hm_event_row_id"]; } catch (e) { raw = null; }
+      var v = null;
+      try { v = parseInt(String(raw || "").trim(), 10); } catch (e) { v = null; }
+      return (v !== null && isFinite(v) && v > 0) ? v : null;
+    }
+
+    function hmRecordLeaguePageView(kind, entityId) {
+      var leagueId = hmActiveLeagueId();
+      if (leagueId === null || leagueId === undefined) return;
+      var eid = null;
+      try { eid = parseInt(String(entityId || "").trim(), 10); } catch (e) { eid = null; }
+      if (eid === null || !isFinite(eid) || eid <= 0) return;
+      var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record";
+      try {
+        fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: String(kind || ""), entity_id: eid }),
+        }).catch(function () {});
+      } catch (e) {}
+    }
+
+    function hmRenderPlayerEventsPageViews(playerId) {
+      var pvWrap = document.getElementById("events-drilldown-pageviews");
+      if (!pvWrap) return;
+      pvWrap.innerHTML = "";
+      var leagueId = hmActiveLeagueId();
+      if (!hmIsLeagueOwner || leagueId === null || leagueId === undefined) return;
+      var pid = null;
+      try { pid = parseInt(String(playerId || "").trim(), 10); } catch (e) { pid = null; }
+      if (pid === null || !isFinite(pid) || pid <= 0) return;
+
+      var w = document.createElement("div");
+      w.setAttribute("data-hm-league-pageviews", "1");
+      w.setAttribute("data-league-id", String(leagueId));
+      w.setAttribute("data-kind", "player_events");
+      w.setAttribute("data-entity-id", String(pid));
+      w.setAttribute("data-refresh-ms", "5000");
+      w.className = "muted";
+      w.style.fontSize = ".85rem";
+      w.style.whiteSpace = "nowrap";
+      w.style.display = "inline-flex";
+      w.style.alignItems = "center";
+      w.style.gap = ".35rem";
+      w.title = "Live views (excluding your own views as league owner)";
+
+      var label = document.createElement("span");
+      label.textContent = "Views: ";
+      w.appendChild(label);
+      var c = document.createElement("span");
+      c.setAttribute("data-role", "count");
+      c.textContent = "0";
+      w.appendChild(c);
+      var d = document.createElement("span");
+      d.setAttribute("data-role", "delta");
+      d.className = "muted";
+      d.style.display = "none";
+      w.appendChild(d);
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("data-role", "mark");
+      b.className = "btn secondary";
+      b.style.padding = ".18rem .45rem";
+      b.style.fontSize = ".75rem";
+      b.style.lineHeight = "1";
+      b.style.boxShadow = "none";
+      b.title = "Mark current views as baseline";
+      b.textContent = "Mark";
+      w.appendChild(b);
+
+      pvWrap.appendChild(w);
+      try { if (typeof window.hmInitLeaguePageViews === "function") window.hmInitLeaguePageViews(pvWrap); } catch (e) {}
+    }
+
+    function hmClipEntityIdsInContainer(container) {
+      if (!container) return [];
+      var out = [];
+      container.querySelectorAll("[data-hm-clip-views='1'][data-event-row-id]").forEach(function (el0) {
+        var s = String(el0.getAttribute("data-event-row-id") || "").trim();
+        var v = null;
+        try { v = parseInt(s, 10); } catch (e) { v = null; }
+        if (v !== null && isFinite(v) && v > 0) out.push(v);
+      });
+      var seen = {};
+      var uniq = [];
+      for (var i = 0; i < out.length; i++) {
+        var k = String(out[i]);
+        if (seen[k]) continue;
+        seen[k] = true;
+        uniq.push(out[i]);
+      }
+      return uniq;
+    }
+
+    function hmRefreshClipViewCounts(container) {
+      if (!hmIsLeagueOwner) return;
+      var leagueId = hmActiveLeagueId();
+      if (leagueId === null || leagueId === undefined) return;
+      var ids = hmClipEntityIdsInContainer(container);
+      var markBtn = document.getElementById("events-drilldown-mark-clips");
+      if (markBtn) markBtn.style.display = ids.length ? "" : "none";
+      if (!ids.length) return;
+      var url =
+        "/api/leagues/" +
+        encodeURIComponent(String(leagueId)) +
+        "/page_views/batch?kind=event_clip&entity_ids=" +
+        encodeURIComponent(ids.join(","));
+      try {
+        fetch(url, { credentials: "same-origin" })
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (j) {
+            if (!j || !j.ok || !j.results) return;
+            container.querySelectorAll("[data-hm-clip-views='1'][data-event-row-id]").forEach(function (el0) {
+              var s = String(el0.getAttribute("data-event-row-id") || "").trim();
+              var info = j.results[s];
+              if (!info) return;
+              var count = (info.count !== undefined && info.count !== null) ? parseInt(String(info.count), 10) : 0;
+              if (!isFinite(count)) count = 0;
+              var delta = (info.delta_count !== undefined) ? info.delta_count : null;
+              var txt = String(count);
+              if (delta !== null && delta !== undefined) {
+                var dd = parseInt(String(delta), 10);
+                if (isFinite(dd)) txt += " (+" + String(dd) + ")";
+              }
+              el0.textContent = txt;
+            });
+          })
+          .catch(function () {});
+      } catch (e) {}
+    }
+
+    function hmMarkClipBaselines(container) {
+      if (!hmIsLeagueOwner) return;
+      var markBtn = document.getElementById("events-drilldown-mark-clips");
+      if (!markBtn) return;
+      var leagueId = hmActiveLeagueId();
+      if (leagueId === null || leagueId === undefined) return;
+      var csrf = hmGetCookie("csrftoken");
+      if (!csrf) return;
+      var ids = hmClipEntityIdsInContainer(container);
+      if (!ids.length) return;
+      var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/mark_batch";
+      var body = "kind=event_clip&entity_ids=" + encodeURIComponent(ids.join(","));
+      try {
+        markBtn.disabled = true;
+        fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "X-CSRFToken": csrf,
+          },
+          body: body,
+        })
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (j) {
+            if (!j || !j.ok) return;
+            hmRefreshClipViewCounts(container);
+          })
+          .catch(function () {})
+          .finally(function () { markBtn.disabled = false; });
+      } catch (e) {
+        markBtn.disabled = false;
+      }
+    }
+
     var _tableFitQueued = false;
     function queueTableFit() {
       if (_tableFitQueued) return;
@@ -3037,7 +3256,23 @@
           btn.className = "btn secondary";
           btn.style.padding = ".25rem .55rem";
           btn.style.fontSize = ".85rem";
-          btn.textContent = tVideo;
+          btn.style.display = "inline-flex";
+          btn.style.alignItems = "center";
+          btn.style.gap = ".35rem";
+          var tSpan = document.createElement("span");
+          tSpan.className = "hm-clip-time";
+          tSpan.textContent = tVideo;
+          btn.appendChild(tSpan);
+          var eid = hmEventRowIdFromRow(row);
+          if (hmIsLeagueOwner && hmActiveLeagueId() && eid !== null) {
+            var vSpan = document.createElement("span");
+            vSpan.className = "muted";
+            vSpan.style.fontSize = ".82rem";
+            vSpan.style.fontWeight = "600";
+            vSpan.setAttribute("data-hm-clip-views", "1");
+            vSpan.setAttribute("data-event-row-id", String(eid));
+            btn.appendChild(vSpan);
+          }
           btn.addEventListener("click", function () {
             var et = String(getValue(row, ["Event Type", "Event"]) || "").trim();
             var atTxt = "";
@@ -3185,6 +3420,7 @@
       opts = opts || {};
       var playerName = String(opts.playerName || "").trim();
       var playerJersey = String(opts.playerJersey || "").trim();
+      var playerId = opts.playerId;
       var playerNameNorm = normName(playerName);
       var side = String(opts.teamSide || "").trim().toLowerCase();
       var statKey = String(opts.statKey || "").trim();
@@ -3268,6 +3504,7 @@
       var titleEl = document.getElementById("events-drilldown-title");
       var subtitleEl = document.getElementById("events-drilldown-subtitle");
       var bodyEl = document.getElementById("events-drilldown-body");
+      var markClipsBtn = document.getElementById("events-drilldown-mark-clips");
       if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
 
       titleEl.textContent = "Player Events — " + (PLAYER_EVENTS_SCOPE_LABEL || "Game");
@@ -3275,6 +3512,16 @@
       subtitleEl.textContent = statLabel ? (pLabel + " • " + statLabel) : pLabel;
       bodyEl.innerHTML = "";
       closeDrilldownVideo();
+      hmRenderPlayerEventsPageViews(playerId);
+      hmRecordLeaguePageView("player_events", playerId);
+      if (markClipsBtn) {
+        markClipsBtn.style.display = "none";
+        markClipsBtn.disabled = false;
+        markClipsBtn.onclick = function (e) {
+          try { e.preventDefault(); } catch (e2) {}
+          hmMarkClipBaselines(bodyEl);
+        };
+      }
 
       if (!filtered.length && !onIceGoals.length) {
         var p = document.createElement("p");
@@ -3369,6 +3616,7 @@
         }
 
       try {
+        hmRefreshClipViewCounts(bodyEl);
         dlg.showModal();
       } catch (e) {
         dlg.open = true;
@@ -3410,7 +3658,8 @@
           if (btn) {
             btn.addEventListener("click", function (e) {
               e.preventDefault();
-              openDrilldown({ playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
+              var pid = btn.getAttribute("data-player-id") || tr.getAttribute("data-player-id") || "";
+              openDrilldown({ playerId: pid, playerName: nameTxt, playerJersey: jerseyTxt, teamSide: side, statKey: "", statLabel: "" });
             });
           }
         }
@@ -3422,7 +3671,9 @@
           td.title = "Double-click to show events";
           td.style.cursor = "pointer";
           td.addEventListener("dblclick", function () {
+            var pid = tr.getAttribute("data-player-id") || "";
             openDrilldown({
+              playerId: pid,
               playerName: nameTxt,
               playerJersey: jerseyTxt,
               teamSide: side,

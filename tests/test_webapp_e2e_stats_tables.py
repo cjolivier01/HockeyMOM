@@ -76,7 +76,7 @@ def _extract_player_stats_cell(
     assert table_m is not None, f"Player stats table not found for side={team_side!r}"
     tbody = table_m.group("tbody")
     row_m = re.search(
-        rf"<tr>.*?<td[^>]*data-player-cell=\"name\"[^>]*>.*?{re.escape(player_name)}.*?</td>"
+        rf"<tr[^>]*>.*?<td[^>]*data-player-cell=\"name\"[^>]*>.*?{re.escape(player_name)}.*?</td>"
         r"(?P<rest>.*?)</tr>",
         tbody,
         re.DOTALL,

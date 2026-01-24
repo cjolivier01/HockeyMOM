@@ -37,6 +37,21 @@ urlpatterns = [
         v.api_league_page_views_mark,
         name="api_league_page_views_mark",
     ),
+    path(
+        "api/leagues/<int:league_id>/page_views/batch",
+        v.api_league_page_views_batch,
+        name="api_league_page_views_batch",
+    ),
+    path(
+        "api/leagues/<int:league_id>/page_views/mark_batch",
+        v.api_league_page_views_mark_batch,
+        name="api_league_page_views_mark_batch",
+    ),
+    path(
+        "api/leagues/<int:league_id>/page_views/record",
+        v.api_league_page_views_record,
+        name="api_league_page_views_record",
+    ),
     path("api/hky/games/<int:game_id>/events", v.api_hky_game_events, name="api_hky_game_events"),
     path(
         "api/hky/teams/<int:team_id>/players/<int:player_id>/events",

@@ -1,0 +1,322 @@
+from __future__ import annotations
+
+import datetime as dt
+import json
+
+import pytest
+
+
+def _set_session(client, *, user_id: int, email: str) -> None:
+    sess = client.session
+    sess["user_id"] = int(user_id)
+    sess["user_email"] = str(email)
+    sess.save()
+
+
+@pytest.fixture()
+def client_and_models(monkeypatch, webapp_db):
+    _django_orm, m = webapp_db
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    from django.test import Client
+
+    return Client(), m
+
+
+def should_increment_player_events_page_views_from_player_events_api(client_and_models):
+    client, m = client_and_models
+    from django.test import Client
+
+    now = dt.datetime.now()
+    owner = m.User.objects.create(
+        id=10,
+        email="owner@example.com",
+        password_hash="x",
+        name="Owner",
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    m.League.objects.create(
+        id=1,
+        name="Public League",
+        owner_user_id=int(owner.id),
+        is_shared=True,
+        is_public=True,
+        show_goalie_stats=False,
+        show_shift_data=False,
+        source=None,
+        external_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    team = m.Team.objects.create(
+        id=1,
+        user_id=int(owner.id),
+        name="Team A",
+        logo_path=None,
+        is_external=False,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueTeam.objects.create(
+        league_id=1,
+        team_id=int(team.id),
+        division_name="12AA",
+    )
+    player = m.Player.objects.create(
+        id=100,
+        user_id=int(owner.id),
+        team_id=int(team.id),
+        name="Skater One",
+        jersey_number="9",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    client_anon = Client()
+    r = client_anon.get(
+        f"/api/hky/teams/{int(team.id)}/players/{int(player.id)}/events?league_id=1"
+    )
+    assert r.status_code == 200
+    r = client_anon.get(
+        f"/api/hky/teams/{int(team.id)}/players/{int(player.id)}/events?league_id=1"
+    )
+    assert r.status_code == 200
+
+    pv = (
+        m.LeaguePageView.objects.filter(
+            league_id=1, page_kind="player_events", entity_id=int(player.id)
+        )
+        .values_list("view_count", flat=True)
+        .first()
+    )
+    assert int(pv or 0) == 2
+
+    client_owner = client
+    _set_session(client_owner, user_id=int(owner.id), email=str(owner.email))
+    r = client_owner.get(
+        f"/api/hky/teams/{int(team.id)}/players/{int(player.id)}/events?league_id=1"
+    )
+    assert r.status_code == 200
+    pv2 = (
+        m.LeaguePageView.objects.filter(
+            league_id=1, page_kind="player_events", entity_id=int(player.id)
+        )
+        .values_list("view_count", flat=True)
+        .first()
+    )
+    assert int(pv2 or 0) == 2
+
+
+def should_record_player_events_and_event_clip_views_via_record_endpoint(client_and_models):
+    client, m = client_and_models
+    from django.test import Client
+
+    now = dt.datetime.now()
+    owner = m.User.objects.create(
+        id=10,
+        email="owner@example.com",
+        password_hash="x",
+        name="Owner",
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    m.League.objects.create(
+        id=1,
+        name="Public League",
+        owner_user_id=int(owner.id),
+        is_shared=True,
+        is_public=True,
+        show_goalie_stats=False,
+        show_shift_data=False,
+        source=None,
+        external_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    team = m.Team.objects.create(
+        id=1,
+        user_id=int(owner.id),
+        name="Team A",
+        logo_path=None,
+        is_external=False,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueTeam.objects.create(
+        league_id=1,
+        team_id=int(team.id),
+        division_name="12AA",
+    )
+    player = m.Player.objects.create(
+        id=100,
+        user_id=int(owner.id),
+        team_id=int(team.id),
+        name="Skater One",
+        jersey_number="9",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    game = m.HkyGame.objects.create(
+        id=200,
+        user_id=int(owner.id),
+        team1_id=int(team.id),
+        team2_id=int(team.id),
+        game_type_id=None,
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueGame.objects.create(
+        league_id=1,
+        game_id=int(game.id),
+        division_name="12AA",
+        sort_order=1,
+    )
+    et = m.HkyEventType.objects.create(key="goal", name="Goal", created_at=now)
+    ev = m.HkyGameEventRow.objects.create(
+        id=500,
+        game_id=int(game.id),
+        event_type_id=int(et.id),
+        import_key="k",
+        created_at=now,
+        updated_at=None,
+    )
+
+    client_anon = Client()
+    r = client_anon.post(
+        "/api/leagues/1/page_views/record",
+        data=json.dumps({"kind": "player_events", "entity_id": int(player.id)}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+    r = client_anon.post(
+        "/api/leagues/1/page_views/record",
+        data=json.dumps({"kind": "event_clip", "entity_id": int(ev.id)}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+
+    pv_player = (
+        m.LeaguePageView.objects.filter(
+            league_id=1, page_kind="player_events", entity_id=int(player.id)
+        )
+        .values_list("view_count", flat=True)
+        .first()
+    )
+    pv_clip = (
+        m.LeaguePageView.objects.filter(league_id=1, page_kind="event_clip", entity_id=int(ev.id))
+        .values_list("view_count", flat=True)
+        .first()
+    )
+    assert int(pv_player or 0) == 1
+    assert int(pv_clip or 0) == 1
+
+    client_owner = client
+    _set_session(client_owner, user_id=int(owner.id), email=str(owner.email))
+    r = client_owner.post(
+        "/api/leagues/1/page_views/record",
+        data=json.dumps({"kind": "player_events", "entity_id": int(player.id)}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+    r = client_owner.post(
+        "/api/leagues/1/page_views/record",
+        data=json.dumps({"kind": "event_clip", "entity_id": int(ev.id)}),
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+
+    pv_player2 = (
+        m.LeaguePageView.objects.filter(
+            league_id=1, page_kind="player_events", entity_id=int(player.id)
+        )
+        .values_list("view_count", flat=True)
+        .first()
+    )
+    pv_clip2 = (
+        m.LeaguePageView.objects.filter(league_id=1, page_kind="event_clip", entity_id=int(ev.id))
+        .values_list("view_count", flat=True)
+        .first()
+    )
+    assert int(pv_player2 or 0) == 1
+    assert int(pv_clip2 or 0) == 1
+
+
+def should_mark_event_clip_baseline_with_mark_batch(client_and_models):
+    client_owner, m = client_and_models
+
+    now = dt.datetime.now()
+    owner = m.User.objects.create(
+        id=10,
+        email="owner@example.com",
+        password_hash="x",
+        name="Owner",
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    m.League.objects.create(
+        id=1,
+        name="Public League",
+        owner_user_id=int(owner.id),
+        is_shared=True,
+        is_public=True,
+        show_goalie_stats=False,
+        show_shift_data=False,
+        source=None,
+        external_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeaguePageView.objects.create(
+        league_id=1,
+        page_kind="event_clip",
+        entity_id=55,
+        view_count=7,
+        created_at=now,
+        updated_at=now,
+    )
+
+    _set_session(client_owner, user_id=int(owner.id), email=str(owner.email))
+    r = client_owner.get("/api/leagues/1/page_views/batch?kind=event_clip&entity_ids=55")
+    assert r.status_code == 200
+    j = json.loads(r.content)
+    assert j["ok"] is True
+    assert j["results"]["55"]["count"] == 7
+    assert j["results"]["55"]["baseline_count"] is None
+    assert j["results"]["55"]["delta_count"] is None
+
+    r = client_owner.post(
+        "/api/leagues/1/page_views/mark_batch", data={"kind": "event_clip", "entity_ids": "55"}
+    )
+    assert r.status_code == 200
+    j = json.loads(r.content)
+    assert j["ok"] is True
+    assert j["results"]["55"]["count"] == 7
+    assert j["results"]["55"]["baseline_count"] == 7
+    assert j["results"]["55"]["delta_count"] == 0
+
+    m.LeaguePageView.objects.filter(league_id=1, page_kind="event_clip", entity_id=55).update(
+        view_count=10, updated_at=now
+    )
+    r = client_owner.get("/api/leagues/1/page_views/batch?kind=event_clip&entity_ids=55")
+    assert r.status_code == 200
+    j = json.loads(r.content)
+    assert j["ok"] is True
+    assert j["results"]["55"]["count"] == 10
+    assert j["results"]["55"]["baseline_count"] == 7
+    assert j["results"]["55"]["delta_count"] == 3

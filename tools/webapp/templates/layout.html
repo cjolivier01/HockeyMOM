@@ -524,16 +524,17 @@
   </script>
   <script>
     (function () {
-      function initLeaguePageViews() {
-        var el = document.querySelector("[data-hm-league-pageviews='1']");
-        if (!el) return;
-        var leagueId = String(el.getAttribute("data-league-id") || "").trim();
-        var kind = String(el.getAttribute("data-kind") || "").trim();
-        var entityId = String(el.getAttribute("data-entity-id") || "0").trim() || "0";
-        var countEl = el.querySelector("[data-role='count']");
-        var deltaEl = el.querySelector("[data-role='delta']");
-        var markBtn = el.querySelector("[data-role='mark']");
-        if (!leagueId || !kind || !countEl) return;
+      var _hmPvInit = (typeof WeakSet !== "undefined") ? new WeakSet() : null;
+
+      function initLeaguePageViews(root) {
+        var scope = root || document;
+        var els = [];
+        try {
+          els = Array.from(scope.querySelectorAll("[data-hm-league-pageviews='1']"));
+        } catch (e) {
+          els = [];
+        }
+        if (!els.length) return;
 
         function getCookie(name) {
           try {
@@ -543,103 +544,134 @@
           return null;
         }
 
-        function applyCounts(j) {
-          if (!j || !j.ok) return;
-          if (typeof j.count !== "undefined") {
-            countEl.textContent = String(j.count);
+        function initWidget(el) {
+          if (!el) return;
+          if (_hmPvInit) {
+            try {
+              if (_hmPvInit.has(el)) return;
+              _hmPvInit.add(el);
+            } catch (e) {}
+          } else {
+            if (String(el.getAttribute("data-hm-pv-init") || "") === "1") return;
+            el.setAttribute("data-hm-pv-init", "1");
           }
-          if (!deltaEl) return;
-          if (j.delta_count === null || typeof j.delta_count === "undefined") {
-            deltaEl.textContent = "";
-            deltaEl.style.display = "none";
-            return;
+
+          var leagueId = String(el.getAttribute("data-league-id") || "").trim();
+          var kind = String(el.getAttribute("data-kind") || "").trim();
+          var entityId = String(el.getAttribute("data-entity-id") || "0").trim() || "0";
+          var countEl = el.querySelector("[data-role='count']");
+          var deltaEl = el.querySelector("[data-role='delta']");
+          var markBtn = el.querySelector("[data-role='mark']");
+          if (!leagueId || !kind || !countEl) return;
+
+          function applyCounts(j) {
+            if (!j || !j.ok) return;
+            if (typeof j.count !== "undefined") {
+              countEl.textContent = String(j.count);
+            }
+            if (!deltaEl) return;
+            if (j.delta_count === null || typeof j.delta_count === "undefined") {
+              deltaEl.textContent = "";
+              deltaEl.style.display = "none";
+              return;
+            }
+            deltaEl.textContent = "(+" + String(j.delta_count) + ")";
+            deltaEl.style.display = "";
           }
-          deltaEl.textContent = "(+" + String(j.delta_count) + ")";
-          deltaEl.style.display = "";
-        }
 
-        function refresh() {
-          var url =
-            "/api/leagues/" +
-            encodeURIComponent(leagueId) +
-            "/page_views?kind=" +
-            encodeURIComponent(kind) +
-            "&entity_id=" +
-            encodeURIComponent(entityId);
-          try {
-            fetch(url, { credentials: "same-origin" })
-              .then(function (r) {
-                return r.json().catch(function () {
-                  return {};
-                });
-              })
-              .then(function (j) {
-                applyCounts(j);
-              })
-              .catch(function () {});
-          } catch (e) {}
-        }
+          function refresh() {
+            var url =
+              "/api/leagues/" +
+              encodeURIComponent(leagueId) +
+              "/page_views?kind=" +
+              encodeURIComponent(kind) +
+              "&entity_id=" +
+              encodeURIComponent(entityId);
+            try {
+              fetch(url, { credentials: "same-origin" })
+                .then(function (r) {
+                  return r.json().catch(function () {
+                    return {};
+                  });
+                })
+                .then(function (j) {
+                  applyCounts(j);
+                })
+                .catch(function () {});
+            } catch (e) {}
+          }
 
-        function markBaseline() {
-          if (!markBtn) return;
-          var csrf = getCookie("csrftoken");
-          if (!csrf) return;
-          var url =
-            "/api/leagues/" + encodeURIComponent(leagueId) + "/page_views/mark";
-          var body =
-            "kind=" +
-            encodeURIComponent(kind) +
-            "&entity_id=" +
-            encodeURIComponent(entityId);
-          try {
-            markBtn.disabled = true;
-            fetch(url, {
-              method: "POST",
-              credentials: "same-origin",
-              headers: {
-                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                "X-CSRFToken": csrf,
-              },
-              body: body,
-            })
-              .then(function (r) {
-                return r.json().catch(function () {
-                  return {};
+          function markBaseline() {
+            if (!markBtn) return;
+            var csrf = getCookie("csrftoken");
+            if (!csrf) return;
+            var url =
+              "/api/leagues/" + encodeURIComponent(leagueId) + "/page_views/mark";
+            var body =
+              "kind=" +
+              encodeURIComponent(kind) +
+              "&entity_id=" +
+              encodeURIComponent(entityId);
+            try {
+              markBtn.disabled = true;
+              fetch(url, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                  "X-CSRFToken": csrf,
+                },
+                body: body,
+              })
+                .then(function (r) {
+                  return r.json().catch(function () {
+                    return {};
+                  });
+                })
+                .then(function (j) {
+                  applyCounts(j);
+                  refresh();
+                })
+                .catch(function () {})
+                .finally(function () {
+                  markBtn.disabled = false;
                 });
-              })
-              .then(function (j) {
-                applyCounts(j);
-                refresh();
-              })
-              .catch(function () {})
-              .finally(function () {
-                markBtn.disabled = false;
-              });
+            } catch (e) {
+              markBtn.disabled = false;
+            }
+          }
+
+          refresh();
+          var refreshMs = null;
+          try {
+            refreshMs = parseInt(String(el.getAttribute("data-refresh-ms") || "5000"), 10);
           } catch (e) {
-            markBtn.disabled = false;
+            refreshMs = 5000;
+          }
+          if (refreshMs !== null && isFinite(refreshMs) && refreshMs > 0) {
+            try { window.setInterval(refresh, refreshMs); } catch (e) {}
+          }
+
+          if (markBtn) {
+            try {
+              markBtn.addEventListener("click", function (e) {
+                try { e.preventDefault(); } catch (e2) {}
+                markBaseline();
+              });
+            } catch (e) {}
           }
         }
 
-        refresh();
-        try {
-          window.setInterval(refresh, 5000);
-        } catch (e) {}
-
-        if (markBtn) {
-          try {
-            markBtn.addEventListener("click", function (e) {
-              try { e.preventDefault(); } catch (e2) {}
-              markBaseline();
-            });
-          } catch (e) {}
-        }
+        els.forEach(function (el) { initWidget(el); });
       }
 
       if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initLeaguePageViews);
+        document.addEventListener("DOMContentLoaded", function () { initLeaguePageViews(document); });
       } else {
-        initLeaguePageViews();
+        initLeaguePageViews(document);
       }
+
+      try { window.hmInitLeaguePageViews = initLeaguePageViews; } catch (e) {}
     })();
   </script>
 </body>

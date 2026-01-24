@@ -1073,6 +1073,7 @@ def _load_game_events_for_display(
 
     raw_rows = list(
         qs.values(
+            "id",
             "event_type__name",
             "event_id",
             "source",
@@ -1128,6 +1129,7 @@ def _load_game_events_for_display(
 
         out_rows.append(
             {
+                "__hm_event_row_id": str(int(r.get("id") or 0)),
                 "Event Type": str(r.get("event_type__name") or "").strip(),
                 "Event ID": "" if r.get("event_id") is None else str(int(r["event_id"])),
                 "Source": str(r.get("source") or "").strip(),
@@ -3342,6 +3344,303 @@ def api_league_page_views_mark(request: HttpRequest, league_id: int) -> JsonResp
     )
 
 
+def _parse_entity_ids_csv(raw: Any, *, max_ids: int = 500) -> list[int]:
+    if raw is None:
+        return []
+    s = str(raw or "").strip()
+    if not s:
+        return []
+    out: list[int] = []
+    for tok in s.split(","):
+        t = str(tok or "").strip()
+        if not t:
+            continue
+        try:
+            v = int(t)
+        except Exception:
+            continue
+        if v <= 0:
+            continue
+        out.append(int(v))
+        if len(out) >= int(max_ids):
+            break
+    # Dedupe preserving order.
+    seen: set[int] = set()
+    uniq: list[int] = []
+    for v in out:
+        if v in seen:
+            continue
+        seen.add(v)
+        uniq.append(v)
+    return uniq
+
+
+def api_league_page_views_batch(request: HttpRequest, league_id: int) -> JsonResponse:
+    r = _require_login(request)
+    if r:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+    user_id = _session_user_id(request)
+    _django_orm, m = _orm_modules()
+    owner_id = (
+        m.League.objects.filter(id=int(league_id)).values_list("owner_user_id", flat=True).first()
+    )
+    owner_id_i = int(owner_id) if owner_id is not None else None
+    if owner_id_i is None:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    if int(owner_id_i) != int(user_id):
+        return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
+
+    kind = str(request.GET.get("kind") or "").strip()
+    entity_ids = _parse_entity_ids_csv(request.GET.get("entity_ids") or request.GET.get("ids"))
+    if not entity_ids:
+        entity_ids = _parse_entity_ids_csv(request.GET.get("entity_id"))
+    if not entity_ids:
+        return JsonResponse({"ok": False, "error": "entity_ids_required"}, status=400)
+
+    try:
+        kind_canon, _ = logic._canon_league_page_view_kind_entity(
+            kind=kind, entity_id=int(entity_ids[0])
+        )
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    view_counts: dict[int, int] = {}
+    for eid, vc in m.LeaguePageView.objects.filter(
+        league_id=int(league_id), page_kind=str(kind_canon), entity_id__in=list(entity_ids)
+    ).values_list("entity_id", "view_count"):
+        try:
+            view_counts[int(eid)] = int(vc or 0)
+        except Exception:
+            view_counts[int(eid)] = 0
+
+    baseline_counts: dict[int, int] = {}
+    for eid, bc in m.LeaguePageViewBaseline.objects.filter(
+        league_id=int(league_id), page_kind=str(kind_canon), entity_id__in=list(entity_ids)
+    ).values_list("entity_id", "baseline_count"):
+        try:
+            baseline_counts[int(eid)] = int(bc or 0)
+        except Exception:
+            baseline_counts[int(eid)] = 0
+
+    results: dict[str, Any] = {}
+    for eid in entity_ids:
+        count = int(view_counts.get(int(eid), 0))
+        baseline = baseline_counts.get(int(eid))
+        delta = None
+        if baseline is not None:
+            try:
+                delta = max(0, int(count) - int(baseline))
+            except Exception:
+                delta = 0
+        results[str(int(eid))] = {
+            "entity_id": int(eid),
+            "count": int(count),
+            "baseline_count": int(baseline) if baseline is not None else None,
+            "delta_count": int(delta) if delta is not None else None,
+        }
+    return JsonResponse(
+        {"ok": True, "league_id": int(league_id), "kind": kind_canon, "results": results}
+    )
+
+
+def api_league_page_views_mark_batch(request: HttpRequest, league_id: int) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    r = _require_login(request)
+    if r:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+    user_id = _session_user_id(request)
+    _django_orm, m = _orm_modules()
+    owner_id = (
+        m.League.objects.filter(id=int(league_id)).values_list("owner_user_id", flat=True).first()
+    )
+    owner_id_i = int(owner_id) if owner_id is not None else None
+    if owner_id_i is None:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    if int(owner_id_i) != int(user_id):
+        return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
+
+    kind = str(request.POST.get("kind") or "").strip()
+    entity_ids = _parse_entity_ids_csv(request.POST.get("entity_ids") or request.POST.get("ids"))
+    if not entity_ids:
+        entity_ids = _parse_entity_ids_csv(request.POST.get("entity_id"))
+    if not entity_ids:
+        return JsonResponse({"ok": False, "error": "entity_ids_required"}, status=400)
+
+    try:
+        kind_canon, _ = logic._canon_league_page_view_kind_entity(
+            kind=kind, entity_id=int(entity_ids[0])
+        )
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    view_counts: dict[int, int] = {}
+    for eid, vc in m.LeaguePageView.objects.filter(
+        league_id=int(league_id), page_kind=str(kind_canon), entity_id__in=list(entity_ids)
+    ).values_list("entity_id", "view_count"):
+        try:
+            view_counts[int(eid)] = int(vc or 0)
+        except Exception:
+            view_counts[int(eid)] = 0
+
+    from django.db import transaction
+
+    now = dt.datetime.now()
+    try:
+        with transaction.atomic():
+            existing = list(
+                m.LeaguePageViewBaseline.objects.filter(
+                    league_id=int(league_id),
+                    page_kind=str(kind_canon),
+                    entity_id__in=list(entity_ids),
+                )
+            )
+            existing_ids = {int(b.entity_id) for b in existing}
+            for b in existing:
+                eid = int(b.entity_id)
+                b.baseline_count = int(view_counts.get(eid, 0))
+                b.updated_at = now
+            if existing:
+                m.LeaguePageViewBaseline.objects.bulk_update(
+                    existing, ["baseline_count", "updated_at"]
+                )
+
+            to_create = []
+            for eid in entity_ids:
+                if int(eid) in existing_ids:
+                    continue
+                to_create.append(
+                    m.LeaguePageViewBaseline(
+                        league_id=int(league_id),
+                        page_kind=str(kind_canon),
+                        entity_id=int(eid),
+                        baseline_count=int(view_counts.get(int(eid), 0)),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            if to_create:
+                m.LeaguePageViewBaseline.objects.bulk_create(to_create, ignore_conflicts=True)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "failed_to_mark"}, status=500)
+
+    results: dict[str, Any] = {}
+    for eid in entity_ids:
+        count = int(view_counts.get(int(eid), 0))
+        results[str(int(eid))] = {
+            "entity_id": int(eid),
+            "count": int(count),
+            "baseline_count": int(count),
+            "delta_count": 0,
+        }
+    return JsonResponse(
+        {"ok": True, "league_id": int(league_id), "kind": kind_canon, "results": results}
+    )
+
+
+@csrf_exempt
+def api_league_page_views_record(request: HttpRequest, league_id: int) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    payload = _json_body(request)
+    kind = str(payload.get("kind") or request.POST.get("kind") or "").strip()
+    entity_id_raw = payload.get("entity_id")
+    if entity_id_raw is None:
+        entity_id_raw = request.POST.get("entity_id")
+    try:
+        entity_id = int(str(entity_id_raw or "0").strip() or "0")
+    except Exception:
+        entity_id = 0
+
+    _django_orm, m = _orm_modules()
+    viewer_user_id = _session_user_id(request)
+    league_row = (
+        m.League.objects.filter(id=int(league_id))
+        .values("id", "owner_user_id", "is_shared", "is_public")
+        .first()
+    )
+    if not league_row:
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    owner_user_id = int(league_row["owner_user_id"])
+    is_public = bool(league_row.get("is_public"))
+
+    if not viewer_user_id and not is_public:
+        return JsonResponse({"ok": False, "error": "login_required"}, status=401)
+    if viewer_user_id and not is_public:
+        from django.db.models import Q
+
+        ok = (
+            m.League.objects.filter(id=int(league_id))
+            .filter(
+                Q(is_shared=True)
+                | Q(owner_user_id=int(viewer_user_id))
+                | Q(members__user_id=int(viewer_user_id))
+            )
+            .exists()
+        )
+        if not ok:
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+
+    # Validate entity belongs to the league, to avoid cross-league injection of view counts.
+    kind_s = str(kind or "").strip()
+    if kind_s == logic.LEAGUE_PAGE_VIEW_KIND_TEAMS:
+        entity_id = 0
+    elif kind_s == logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE:
+        entity_id = 0
+    elif kind_s == logic.LEAGUE_PAGE_VIEW_KIND_TEAM:
+        if (
+            entity_id <= 0
+            or not m.LeagueTeam.objects.filter(
+                league_id=int(league_id), team_id=int(entity_id)
+            ).exists()
+        ):
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    elif kind_s == logic.LEAGUE_PAGE_VIEW_KIND_GAME:
+        if (
+            entity_id <= 0
+            or not m.LeagueGame.objects.filter(
+                league_id=int(league_id), game_id=int(entity_id)
+            ).exists()
+        ):
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    elif kind_s == logic.LEAGUE_PAGE_VIEW_KIND_PLAYER_EVENTS:
+        if entity_id <= 0:
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+        p = m.Player.objects.filter(id=int(entity_id)).values_list("team_id", flat=True).first()
+        if p is None:
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+        if not m.LeagueTeam.objects.filter(league_id=int(league_id), team_id=int(p)).exists():
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    elif kind_s == logic.LEAGUE_PAGE_VIEW_KIND_EVENT_CLIP:
+        if entity_id <= 0:
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+        gid = (
+            m.HkyGameEventRow.objects.filter(id=int(entity_id))
+            .values_list("game_id", flat=True)
+            .first()
+        )
+        if gid is None:
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+        if not m.LeagueGame.objects.filter(league_id=int(league_id), game_id=int(gid)).exists():
+            return JsonResponse({"ok": False, "error": "not_found"}, status=404)
+    else:
+        return JsonResponse({"ok": False, "error": "unsupported_kind"}, status=400)
+
+    logic._record_league_page_view(
+        None,
+        int(league_id),
+        kind=str(kind_s),
+        entity_id=int(entity_id),
+        viewer_user_id=int(viewer_user_id) if viewer_user_id else None,
+        league_owner_user_id=int(owner_user_id) if owner_user_id else None,
+    )
+    return JsonResponse(
+        {"ok": True, "league_id": int(league_id), "kind": kind_s, "entity_id": int(entity_id)}
+    )
+
+
 def api_hky_game_events(request: HttpRequest, game_id: int) -> JsonResponse:
     """
     Query normalized per-row game events.
@@ -3562,6 +3861,17 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
     if not prow:
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
 
+    if league_id_i is not None:
+        league_owner_user_id = logic._get_league_owner_user_id(None, int(league_id_i))
+        logic._record_league_page_view(
+            None,
+            int(league_id_i),
+            kind=logic.LEAGUE_PAGE_VIEW_KIND_PLAYER_EVENTS,
+            entity_id=int(player_id),
+            viewer_user_id=int(session_uid) if session_uid else None,
+            league_owner_user_id=league_owner_user_id,
+        )
+
     player_name = str(prow.get("name") or "").strip()
     player_pos = str(prow.get("position") or "").strip()
     jersey_norm = logic.normalize_jersey_number(prow.get("jersey_number"))
@@ -3684,13 +3994,6 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                 }
             )
         schedule_games = logic.sort_games_schedule_order(schedule_games or [])
-
-    league_name: Optional[str] = None
-    if league_id_i is not None:
-        try:
-            league_name = logic._get_league_name(None, int(league_id_i))
-        except Exception:
-            league_name = None
 
     league_name: Optional[str] = None
     if league_id_i is not None:
@@ -4136,6 +4439,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
                     correction = {"raw": str(corr_raw)}
             on_ice_goals_out.append(
                 {
+                    "id": int(r0.get("id") or 0),
                     "kind": "on_ice_goal",
                     "for_against": rel or "",
                     "game_id": int(gid),

@@ -8,12 +8,23 @@ LEAGUE_PAGE_VIEW_KIND_TEAMS = "teams"
 LEAGUE_PAGE_VIEW_KIND_SCHEDULE = "schedule"
 LEAGUE_PAGE_VIEW_KIND_TEAM = "team"
 LEAGUE_PAGE_VIEW_KIND_GAME = "game"
+LEAGUE_PAGE_VIEW_KIND_PLAYER_EVENTS = "player_events"
+LEAGUE_PAGE_VIEW_KIND_EVENT_CLIP = "event_clip"
 
 LEAGUE_PAGE_VIEW_KINDS: set[str] = {
     LEAGUE_PAGE_VIEW_KIND_TEAMS,
     LEAGUE_PAGE_VIEW_KIND_SCHEDULE,
     LEAGUE_PAGE_VIEW_KIND_TEAM,
     LEAGUE_PAGE_VIEW_KIND_GAME,
+    LEAGUE_PAGE_VIEW_KIND_PLAYER_EVENTS,
+    LEAGUE_PAGE_VIEW_KIND_EVENT_CLIP,
+}
+
+LEAGUE_PAGE_VIEW_KINDS_REQUIRE_ENTITY_ID: set[str] = {
+    LEAGUE_PAGE_VIEW_KIND_TEAM,
+    LEAGUE_PAGE_VIEW_KIND_GAME,
+    LEAGUE_PAGE_VIEW_KIND_PLAYER_EVENTS,
+    LEAGUE_PAGE_VIEW_KIND_EVENT_CLIP,
 }
 
 
@@ -64,7 +75,7 @@ def _get_league_page_view_count(db_conn, league_id: int, *, kind: str, entity_id
     if kind_s not in LEAGUE_PAGE_VIEW_KINDS:
         raise ValueError(f"Unsupported league page view kind: {kind_s}")
     eid = int(entity_id or 0)
-    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAM, LEAGUE_PAGE_VIEW_KIND_GAME} and eid <= 0:
+    if kind_s in LEAGUE_PAGE_VIEW_KINDS_REQUIRE_ENTITY_ID and eid <= 0:
         raise ValueError(f"entity_id is required for kind={kind_s}")
     if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAMS, LEAGUE_PAGE_VIEW_KIND_SCHEDULE}:
         eid = 0
@@ -88,7 +99,7 @@ def _canon_league_page_view_kind_entity(*, kind: str, entity_id: int = 0) -> tup
     if kind_s not in LEAGUE_PAGE_VIEW_KINDS:
         raise ValueError(f"Unsupported league page view kind: {kind_s}")
     eid = int(entity_id or 0)
-    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAM, LEAGUE_PAGE_VIEW_KIND_GAME} and eid <= 0:
+    if kind_s in LEAGUE_PAGE_VIEW_KINDS_REQUIRE_ENTITY_ID and eid <= 0:
         raise ValueError(f"entity_id is required for kind={kind_s}")
     if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAMS, LEAGUE_PAGE_VIEW_KIND_SCHEDULE}:
         eid = 0
@@ -165,7 +176,7 @@ def _record_league_page_view(
     if kind_s not in LEAGUE_PAGE_VIEW_KINDS:
         return
     eid = int(entity_id or 0)
-    if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAM, LEAGUE_PAGE_VIEW_KIND_GAME} and eid <= 0:
+    if kind_s in LEAGUE_PAGE_VIEW_KINDS_REQUIRE_ENTITY_ID and eid <= 0:
         return
     if kind_s in {LEAGUE_PAGE_VIEW_KIND_TEAMS, LEAGUE_PAGE_VIEW_KIND_SCHEDULE}:
         eid = 0
