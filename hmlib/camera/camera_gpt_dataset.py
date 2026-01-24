@@ -293,6 +293,9 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         max_players_for_norm: int = 22,
         seed: int = 0,
         max_cached_games: int = 8,
+        *,
+        preload_csv: str = "none",
+        shard_games_by_worker: bool = False,
     ) -> None:
         super().__init__()
         self._games = games
@@ -308,10 +311,14 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         self._pose_feat_dim = 8 if self._include_pose else 0
         self._seed = int(seed)
         self._max_cached = int(max_cached_games)
+        self._preload_csv = str(preload_csv)
+        self._shard_games_by_worker = bool(shard_games_by_worker)
         self._cache: Dict[str, _LoadedGame] = {}
         self._cache_order: deque[str] = deque()
         if self._feature_mode not in {"legacy_prev_slow", "base_prev_y"}:
             raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
+        if self._preload_csv not in {"none", "shard", "all"}:
+            raise ValueError(f"Unknown preload_csv: {self._preload_csv}")
 
     @property
     def norm(self) -> CameraNorm:
@@ -368,9 +375,24 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         worker = get_worker_info()
         worker_id = int(worker.id) if worker is not None else 0
+        num_workers = int(worker.num_workers) if worker is not None else 1
         rng = random.Random(self._seed + worker_id)
+
+        games = self._games
+        if self._shard_games_by_worker and worker is not None and num_workers > 1:
+            shard = list(games[worker_id::num_workers])
+            if shard:
+                games = shard
+
+        if self._preload_csv != "none":
+            to_load = games if self._preload_csv == "shard" else self._games
+            # Ensure the cache can hold all preloaded games without eviction.
+            self._max_cached = max(self._max_cached, len(to_load))
+            for paths in to_load:
+                self._get_game(paths)
+
         while True:
-            paths = rng.choice(self._games)
+            paths = rng.choice(games)
             game = self._get_game(paths)
             if game is None:
                 continue

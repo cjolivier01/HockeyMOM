@@ -330,16 +330,44 @@ def main():
     )
     ap.add_argument("--steps", type=int, default=2000, help="Training optimizer steps")
     ap.add_argument(
+        "--max-iters",
+        dest="max_iters",
+        type=int,
+        default=None,
+        help="Alias for --steps (max training iterations).",
+    )
+    ap.add_argument(
         "--frames",
         type=int,
         default=0,
         help="Optional training budget in frames (overrides --steps when >0)",
     )
     ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument(
+        "--data-workers",
+        type=int,
+        default=0,
+        help="DataLoader workers (0 runs data pipeline in the main process).",
+    )
+    ap.add_argument(
+        "--pin-memory",
+        action="store_true",
+        help="Enable DataLoader pin_memory (useful for GPU training).",
+    )
+    ap.add_argument(
+        "--preload-csv",
+        type=str,
+        default="none",
+        choices=["none", "shard", "all"],
+        help=(
+            "Preload CSVs into each dataset worker process. "
+            "'shard' loads only the worker's slice of games; 'all' loads all games in every worker."
+        ),
+    )
     ap.add_argument("--lr", type=float, default=1e-4)
-    ap.add_argument("--d-model", type=int, default=128)
-    ap.add_argument("--nhead", type=int, default=4)
-    ap.add_argument("--nlayers", type=int, default=4)
+    ap.add_argument("--d-model", type=int, default=512)
+    ap.add_argument("--nhead", type=int, default=8)
+    ap.add_argument("--nlayers", type=int, default=8)
     ap.add_argument("--dropout", type=float, default=0.1)
     ap.add_argument("--loss-l1-weight", type=float, default=1.0, help="Weight for L1 loss.")
     ap.add_argument(
@@ -372,6 +400,15 @@ def main():
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--eval-every", type=int, default=200)
     ap.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=0,
+        help=(
+            "Save a training checkpoint every N steps (0=disabled). "
+            "Periodic checkpoints are saved alongside --out using a _stepXXXX suffix."
+        ),
+    )
+    ap.add_argument(
         "--camera-csv-name",
         type=str,
         default=None,
@@ -400,6 +437,15 @@ def main():
         help="Optional cap on number of games loaded from --file-list or ids (0=no cap).",
     )
     args = ap.parse_args()
+
+    # --max-iters is an alias for --steps. If both are provided explicitly, require they match.
+    if args.max_iters is not None:
+        steps_in_argv = _arg_in_argv("--steps")
+        max_iters_in_argv = _arg_in_argv("--max-iters")
+        if steps_in_argv and max_iters_in_argv and int(args.steps) != int(args.max_iters):
+            raise SystemExit("--steps and --max-iters both provided but differ; please use one.")
+        if (not steps_in_argv) and max_iters_in_argv:
+            args.steps = int(args.max_iters)
 
     game_csvs: List[GameCsvPaths] = []
 
@@ -514,8 +560,16 @@ def main():
         max_players_for_norm=int(args.max_players),
         seed=int(args.seed),
         max_cached_games=int(args.max_cached_games),
+        preload_csv=str(args.preload_csv),
+        shard_games_by_worker=(int(args.data_workers) > 1),
     )
-    train_loader = DataLoader(train_ds, batch_size=int(args.batch_size), num_workers=0)
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=int(args.batch_size),
+        num_workers=int(args.data_workers),
+        pin_memory=bool(args.pin_memory),
+        persistent_workers=int(args.data_workers) > 0,
+    )
 
     val_loader = None
     if val_games and int(args.val_steps) > 0:
@@ -529,8 +583,16 @@ def main():
             max_players_for_norm=int(args.max_players),
             seed=int(args.seed) + 999,
             max_cached_games=max(1, int(args.max_cached_games // 2)),
+            preload_csv=str(args.preload_csv),
+            shard_games_by_worker=(int(args.data_workers) > 1),
         )
-        val_loader = DataLoader(val_ds, batch_size=int(args.batch_size), num_workers=0)
+        val_loader = DataLoader(
+            val_ds,
+            batch_size=int(args.batch_size),
+            num_workers=int(args.data_workers),
+            pin_memory=bool(args.pin_memory),
+            persistent_workers=int(args.data_workers) > 0,
+        )
 
     device = (
         torch.device(args.device)
@@ -548,6 +610,8 @@ def main():
         dropout=float(args.dropout),
     )
     model = CameraPanZoomGPT(cfg).to(device)
+    n_params = sum(p.numel() for p in model.parameters())
+    logger.info("Model params: %.2fM", float(n_params) / 1e6)
     opt = optim.AdamW(model.parameters(), lr=float(args.lr))
 
     steps = int(args.steps)
@@ -566,6 +630,26 @@ def main():
 
     it = iter(train_loader)
     best_val = float("inf")
+
+    def _checkpoint_path(step_num: int) -> str:
+        out_path = Path(args.out)
+        suffix = "".join(out_path.suffixes) or ".pt"
+        stem = (
+            out_path.name[: -len(suffix)]
+            if suffix and out_path.name.endswith(suffix)
+            else out_path.stem
+        )
+        return str(out_path.with_name(f"{stem}_step{int(step_num):06d}{suffix}"))
+
+    def _save_checkpoint(path: str, step_num: int) -> None:
+        ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
+        ckpt["step"] = int(step_num)
+        ckpt["games"] = [p.game_id for p in game_csvs]
+        ckpt["target_mode"] = str(args.target_mode)
+        ckpt["include_pose"] = bool(args.include_pose)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        torch.save(ckpt, path)
+
     for step in range(1, steps + 1):
         model.train()
         batch = next(it)
@@ -623,6 +707,11 @@ def main():
         loss.backward()
         opt.step()
 
+        if int(args.checkpoint_every) > 0 and (step % int(args.checkpoint_every) == 0):
+            path = _checkpoint_path(step)
+            _save_checkpoint(path, step_num=step)
+            logger.info("Saved checkpoint to %s", path)
+
         if step % int(args.log_every) == 0 or step == 1:
             msg = f"step {step}/{steps}: train_loss={metrics['loss']:.5f}"
             if "l1_slow" in metrics:
@@ -654,25 +743,11 @@ def main():
             logger.info("step %d/%d: val_loss=%.5f", step, steps, float(val))
             if val < best_val:
                 best_val = float(val)
-                ckpt = pack_gpt_checkpoint(
-                    model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg
-                )
-                ckpt["step"] = int(step)
-                ckpt["games"] = [p.game_id for p in game_csvs]
-                ckpt["target_mode"] = str(args.target_mode)
-                ckpt["include_pose"] = bool(args.include_pose)
-                os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-                torch.save(ckpt, args.out)
+                _save_checkpoint(args.out, step_num=step)
                 logger.info("Saved best checkpoint to %s", args.out)
 
     if val_loader is None:
-        ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
-        ckpt["step"] = int(steps)
-        ckpt["games"] = [p.game_id for p in game_csvs]
-        ckpt["target_mode"] = str(args.target_mode)
-        ckpt["include_pose"] = bool(args.include_pose)
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        torch.save(ckpt, args.out)
+        _save_checkpoint(args.out, step_num=steps)
         logger.info("Saved checkpoint to %s", args.out)
 
 

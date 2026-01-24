@@ -26,9 +26,10 @@ class CameraGPTConfig:
     d_out: int = 3
     feature_mode: str = "legacy_prev_slow"
     include_pose: bool = False
-    d_model: int = 128
-    nhead: int = 4
-    nlayers: int = 4
+    # Defaults chosen to be ~25M params with typical camgpt training settings.
+    d_model: int = 512
+    nhead: int = 8
+    nlayers: int = 8
     dropout: float = 0.1
 
 
@@ -93,7 +94,7 @@ def pack_gpt_checkpoint(
 
 
 def unpack_gpt_checkpoint(
-    ckpt: Dict[str, Any]
+    ckpt: Dict[str, Any],
 ) -> Tuple[Dict[str, Any], CameraNorm, int, CameraGPTConfig]:
     sd = ckpt["state_dict"]
     n = ckpt["norm"]
