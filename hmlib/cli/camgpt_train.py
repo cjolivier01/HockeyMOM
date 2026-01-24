@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import random
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -176,6 +177,39 @@ def _load_game_ids(args: argparse.Namespace) -> List[str]:
     return dedup
 
 
+def _arg_in_argv(flag: str) -> bool:
+    try:
+        return flag in sys.argv
+    except Exception:
+        return False
+
+
+def _load_game_dirs_from_list(list_path: str) -> List[Path]:
+    p = Path(list_path).expanduser()
+    if not p.is_file():
+        raise FileNotFoundError(f"file list does not exist: {p}")
+    root = p.parent
+    out: List[Path] = []
+    for raw in p.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        d = Path(line).expanduser()
+        if not d.is_absolute():
+            d = root / d
+        out.append(d)
+    # de-dupe, keep order
+    seen: set[str] = set()
+    dedup: List[Path] = []
+    for d in out:
+        key = str(d)
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(d)
+    return dedup
+
+
 @torch.no_grad()
 def _eval_loss(
     model: nn.Module,
@@ -224,12 +258,35 @@ def main():
     ap.add_argument("--game-ids", type=str, default=None, help="Comma-separated game ids")
     ap.add_argument("--game-ids-file", type=str, default=None, help="Text file with game ids")
     ap.add_argument(
+        "--file-list",
+        type=str,
+        default=None,
+        help=(
+            "Path to a .lst text file containing game directories. Each line should be either an "
+            "absolute path or a path relative to the .lst file's directory. Each game directory "
+            "must contain tracking.csv and camera.csv (pose.csv optional). When set, this overrides "
+            "--game-id/--game-ids/--game-ids-file."
+        ),
+    )
+    ap.add_argument(
         "--videos-root",
         type=str,
         default=str(Path(os.environ.get("HOME", "")) / "Videos"),
         help="Root directory containing <game-id>/ directories (default: $HOME/Videos)",
     )
     ap.add_argument("--seq-len", type=int, default=32, help="Sequence length in frames")
+    ap.add_argument(
+        "--sample-seconds",
+        type=float,
+        default=3.0,
+        help="Window length to sample (seconds). Used when --file-list is set and --seq-len isn't provided.",
+    )
+    ap.add_argument(
+        "--fps",
+        type=float,
+        default=30.0,
+        help="FPS used to convert --sample-seconds into frames (used only for --file-list mode).",
+    )
     ap.add_argument(
         "--target-mode",
         type=str,
@@ -336,43 +393,93 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--max-cached-games", type=int, default=8)
+    ap.add_argument(
+        "--max-games",
+        type=int,
+        default=0,
+        help="Optional cap on number of games loaded from --file-list or ids (0=no cap).",
+    )
     args = ap.parse_args()
 
-    game_ids = _load_game_ids(args)
-    if not game_ids:
-        raise SystemExit("No game ids provided (use --game-id/--game-ids/--game-ids-file)")
-
-    videos_root = Path(args.videos_root)
-    if not videos_root.is_dir():
-        raise SystemExit(f"videos_root does not exist: {videos_root}")
-
     game_csvs: List[GameCsvPaths] = []
-    for gid in game_ids:
-        gdir = videos_root / gid
-        if not gdir.is_dir():
-            logger.warning("Skipping %s (missing dir %s)", gid, gdir)
-            continue
-        paths = resolve_csv_paths(
-            game_id=gid,
-            game_dir=str(gdir),
-            camera_csv_name=args.camera_csv_name,
-            camera_fast_csv_name=args.camera_fast_csv_name,
-            pose_csv_name=args.pose_csv_name,
-        )
-        if paths is None:
-            logger.warning("Skipping %s (missing tracking.csv/camera.csv)", gid)
-            continue
-        if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
-            logger.warning(
-                "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid
+
+    if args.file_list:
+        # Default to seconds-based sampling unless --seq-len was explicitly provided.
+        if not _arg_in_argv("--seq-len"):
+            fps = max(1.0, float(args.fps))
+            secs = max(0.1, float(args.sample_seconds))
+            args.seq_len = int(round(secs * fps))
+
+        game_dirs = _load_game_dirs_from_list(args.file_list)
+        if int(args.max_games) > 0:
+            game_dirs = game_dirs[: int(args.max_games)]
+        if not game_dirs:
+            raise SystemExit(f"No game directories found in {args.file_list}")
+
+        for game_dir in game_dirs:
+            if not game_dir.is_dir():
+                logger.warning("Skipping missing game dir: %s", game_dir)
+                continue
+            paths = resolve_csv_paths(
+                game_id=game_dir.name,
+                game_dir=str(game_dir),
+                camera_csv_name=args.camera_csv_name,
+                camera_fast_csv_name=args.camera_fast_csv_name,
+                pose_csv_name=args.pose_csv_name,
             )
-            continue
-        try:
-            validate_csv_paths(paths)
-        except Exception as ex:
-            logger.warning("Skipping %s (bad CSV paths): %s", gid, ex)
-            continue
-        game_csvs.append(paths)
+            if paths is None:
+                logger.warning("Skipping %s (missing tracking.csv/camera.csv)", game_dir)
+                continue
+            if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+                logger.warning(
+                    "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)",
+                    game_dir,
+                )
+                continue
+            try:
+                validate_csv_paths(paths)
+            except Exception as ex:
+                logger.warning("Skipping %s (bad CSV paths): %s", game_dir, ex)
+                continue
+            game_csvs.append(paths)
+    else:
+        game_ids = _load_game_ids(args)
+        if not game_ids:
+            raise SystemExit("No game ids provided (use --game-id/--game-ids/--game-ids-file)")
+
+        videos_root = Path(args.videos_root)
+        if not videos_root.is_dir():
+            raise SystemExit(f"videos_root does not exist: {videos_root}")
+
+        if int(args.max_games) > 0:
+            game_ids = game_ids[: int(args.max_games)]
+
+        for gid in game_ids:
+            gdir = videos_root / gid
+            if not gdir.is_dir():
+                logger.warning("Skipping %s (missing dir %s)", gid, gdir)
+                continue
+            paths = resolve_csv_paths(
+                game_id=gid,
+                game_dir=str(gdir),
+                camera_csv_name=args.camera_csv_name,
+                camera_fast_csv_name=args.camera_fast_csv_name,
+                pose_csv_name=args.pose_csv_name,
+            )
+            if paths is None:
+                logger.warning("Skipping %s (missing tracking.csv/camera.csv)", gid)
+                continue
+            if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+                logger.warning(
+                    "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid
+                )
+                continue
+            try:
+                validate_csv_paths(paths)
+            except Exception as ex:
+                logger.warning("Skipping %s (bad CSV paths): %s", gid, ex)
+                continue
+            game_csvs.append(paths)
 
     if not game_csvs:
         raise SystemExit(
