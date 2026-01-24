@@ -430,6 +430,15 @@ def main():
         help="Disable pose.csv feature aggregation even if pose.csv exists.",
     )
     ap.add_argument(
+        "--include-rink",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Include rink features derived from rink_mask_0.png / rink_profile (requires retraining). "
+            "Use --no-include-rink to disable."
+        ),
+    )
+    ap.add_argument(
         "--scheduled-sampling",
         action="store_true",
         help="Enable scheduled sampling (only when --feature-mode=base_prev_y).",
@@ -697,6 +706,7 @@ def main():
         target_mode=str(args.target_mode),
         feature_mode=str(args.feature_mode),
         include_pose=bool(args.include_pose),
+        include_rink=bool(args.include_rink),
         max_players_for_norm=int(args.max_players),
         seed=int(args.seed),
         max_cached_games=int(args.max_cached_games),
@@ -720,6 +730,7 @@ def main():
             target_mode=str(args.target_mode),
             feature_mode=str(args.feature_mode),
             include_pose=bool(args.include_pose),
+            include_rink=bool(args.include_rink),
             max_players_for_norm=int(args.max_players),
             seed=int(args.seed) + 999,
             max_cached_games=max(1, int(args.max_cached_games // 2)),
@@ -744,6 +755,7 @@ def main():
         d_out=int(train_ds.target_dim),
         feature_mode=str(args.feature_mode),
         include_pose=bool(args.include_pose),
+        include_rink=bool(args.include_rink),
         d_model=int(args.d_model),
         nhead=int(args.nhead),
         nlayers=int(args.nlayers),

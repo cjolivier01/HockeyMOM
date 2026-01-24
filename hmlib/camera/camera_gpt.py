@@ -26,6 +26,7 @@ class CameraGPTConfig:
     d_out: int = 3
     feature_mode: str = "legacy_prev_slow"
     include_pose: bool = False
+    include_rink: bool = False
     # Defaults chosen to be ~25M params with typical camgpt training settings.
     d_model: int = 512
     nhead: int = 8
@@ -85,6 +86,7 @@ def pack_gpt_checkpoint(
             "d_out": int(cfg.d_out),
             "feature_mode": str(cfg.feature_mode),
             "include_pose": bool(cfg.include_pose),
+            "include_rink": bool(getattr(cfg, "include_rink", False)),
             "d_model": int(cfg.d_model),
             "nhead": int(cfg.nhead),
             "nlayers": int(cfg.nlayers),
@@ -101,11 +103,13 @@ def unpack_gpt_checkpoint(
     window = int(ckpt.get("window", 16))
     model_cfg = ckpt.get("model") or {}
     include_pose = model_cfg.get("include_pose", ckpt.get("include_pose", False))
+    include_rink = model_cfg.get("include_rink", ckpt.get("include_rink", False))
     cfg = CameraGPTConfig(
         d_in=int(model_cfg.get("d_in", 11)),
         d_out=int(model_cfg.get("d_out", 3)),
         feature_mode=str(model_cfg.get("feature_mode", "legacy_prev_slow")),
         include_pose=bool(include_pose),
+        include_rink=bool(include_rink),
         d_model=int(model_cfg.get("d_model", 128)),
         nhead=int(model_cfg.get("nhead", 4)),
         nlayers=int(model_cfg.get("nlayers", 4)),
