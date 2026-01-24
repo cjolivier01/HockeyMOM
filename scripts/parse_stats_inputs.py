@@ -13689,9 +13689,9 @@ def main() -> None:
         g = load_goals(args.goal, args.goals_file)
         if g:
             return g
-        # If no t2s id was provided/inferred, fall back to goals.xlsx next to the input.
-        if t2s_id is None:
-            goals_xlsx = in_path.parent / "goals.xlsx"
+        # goals.xlsx always takes precedence when present.
+        goals_xlsx = in_path.parent / "goals.xlsx"
+        if goals_xlsx.exists() and goals_xlsx.is_file():
             meta_for_file = dict(meta or {})
             our_team_name: Optional[str] = None
             side_l = str(side or "").strip().lower()
@@ -13776,6 +13776,8 @@ def main() -> None:
                 for gg in reversed(sorted([str(x) for x in gx])):
                     print(f"[goals.xlsx:{in_path.name}] {gg}")
                 return gx
+
+        if t2s_id is None:
             return g
         # With a t2s id, require a side and use TimeToScore data.
         if side is None:

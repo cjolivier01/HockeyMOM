@@ -73,9 +73,9 @@ python scripts/parse_stats_inputs.py --input <game stats dir> --outdir <out> --l
 #### Goals (GF/GA) sources and priority
 The script tries, in order:
 1) `--goal` / `--goals-file`
-2) TimeToScore via `--t2s` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
+2) `goals.xlsx` next to the input sheet (when present, it overrides other goal sources for that game).
+3) TimeToScore via `--t2s` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
    - `--t2s` also accepts `--t2s <game_id>[:HOME|AWAY][:game_label]` for TimeToScore-only runs (no spreadsheets).
-3) `goals.xlsx` next to the primary sheet (fallback when no TimeToScore id is in use).
 
 #### `*-long*` companion sheets
 Only the leftmost per-period event table is used. It is identified by period header rows in column A
