@@ -106,6 +106,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             # Fast path: CUDA graph the pruning operation (no drawing, fixed max outputs).
             if (
                 self._cuda_graph_enabled
+                and self._iter_num > 1
                 and not draw_mask
                 and self._max_detections_in_mask is not None
                 and isinstance(det_bboxes, torch.Tensor)

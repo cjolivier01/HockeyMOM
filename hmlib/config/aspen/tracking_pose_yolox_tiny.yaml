@@ -86,8 +86,14 @@ aspen:
       params: {}
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
-      depends: [image_prep, detector_factory]
+      depends: [detector_join]
       params: {}
+    detector_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, detector_factory]
+      params:
+        required_plugins: [image_prep, detector_factory]
+        output_key: detector_joined
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
       depends: [detector]
@@ -98,13 +104,25 @@ aspen:
       params: {}
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
-      depends: [detector, ice_config]
+      depends: [ice_boundaries_join]
       params:
         max_detections_in_mask: 50
+    ice_boundaries_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [detector, ice_config]
+      params:
+        required_plugins: [detector, ice_config]
+        output_key: ice_boundaries_joined
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [detector, ice_boundaries, model_factory, boundaries]
+      depends: [tracker_join]
       params: {}
+    tracker_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [detector, ice_boundaries, model_factory, boundaries]
+      params:
+        required_plugins: [detector, ice_boundaries, model_factory, boundaries]
+        output_key: tracker_joined
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
       depends: [tracker]

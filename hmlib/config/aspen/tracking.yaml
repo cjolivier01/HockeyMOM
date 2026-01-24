@@ -1,5 +1,8 @@
 aspen:
   minimal_context: true
+  pipeline:
+    threaded: true
+    graph: true
 
   # Move the original mmengine inference pipeline here so the CLI can use it
   inference_pipeline:
@@ -127,9 +130,16 @@ aspen:
           pad_size_divisor: 32
           use_det_processor: true
 
+    detector_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, detector_factory]
+      params:
+        required_plugins: [image_prep, detector_factory]
+        output_key: detector_joined
+
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
-      depends: [image_prep, detector_factory]
+      depends: [detector_join]
       params: {}
 
     save_detections:
@@ -140,12 +150,12 @@ aspen:
 
     ice_config:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
-      depends: [image_prep]
+      depends: [detector]
       params: {}
 
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
-      depends: [detector, ice_config]
+      depends: [ice_config]
       params:
         enabled: true
         # Optional cap on detections that survive the rink mask.
@@ -194,7 +204,6 @@ aspen:
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
       depends: [
-        tracker, 
         camera_controller, 
       ]
       enabled: true
@@ -230,9 +239,16 @@ aspen:
       enabled: true
       params: {}
 
+    apply_camera_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [overlays, load_camera]
+      params:
+        required_plugins: [overlays, load_camera]
+        output_key: apply_camera_joined
+
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [overlays, load_camera]
+      depends: [apply_camera_join]
       enabled: true
       params:
         video_out_pipeline: GLOBAL.aspen.video_out_pipeline
@@ -242,7 +258,7 @@ aspen:
 
     rgb_stats_check:
       class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
-      depends: [play_tracker]
+      depends: [overlays]
       enabled: GLOBAL.debug.rgb_stats_check.enable
       params:
         source: stitch
@@ -251,7 +267,7 @@ aspen:
 
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
-      depends: [apply_camera, rgb_stats_check]
+      depends: [apply_camera]
       enabled: true
       params:
         # Allow GLOBAL.aspen.video_out.skip_final_save (default from baseline.yaml)

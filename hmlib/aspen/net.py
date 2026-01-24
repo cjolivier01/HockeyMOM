@@ -6,15 +6,17 @@ topological order while sharing a mutable context dictionary.
 
 import contextlib
 import importlib
+import io
 import os
 import queue
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import networkx as nx
 import torch
@@ -180,6 +182,7 @@ class AspenNet(torch.nn.Module):
         self.exec_order = self._toposort()
         self.training: bool = False
         self._iter_num: int = 0
+        self._call_seq: int = 0
         self.save_graphviz(self.dot_path)
         self.initialized = False
 
@@ -266,11 +269,75 @@ class AspenNet(torch.nn.Module):
             details = ", ".join(f"{k}: {v}" for k, v in unknown_deps.items())
             raise ValueError(f"Unknown dependencies referenced in plugins: {details}")
 
+        self._assert_dag(self.graph)
+        self._validate_fanin_requires_join(self.graph)
+        self._validate_unique_inheritance_paths(self.graph)
         self.set_graph_degree(self.graph)
 
+    def _validate_fanin_requires_join(self, G: nx.DiGraph) -> None:
+        """Require explicit JoinPlugin nodes for fan-in.
+
+        Rule: any node with more than one direct dependency must be a join node
+        (i.e., its module has ``allow_multi_path_inputs = True``). All other
+        plugins must have at most one dependency.
+
+        This forces merges to be explicit and makes it harder to accidentally
+        create multi-path ancestry or ambiguous execution intent.
+        """
+
+        join_nodes = {
+            node.name
+            for node in self.nodes
+            if bool(getattr(node.module, "allow_multi_path_inputs", False))
+        }
+        offenders: List[Tuple[str, List[str]]] = []
+        for node in G.nodes:
+            indeg = int(G.in_degree(node))
+            if indeg <= 1:
+                continue
+            if node in join_nodes:
+                continue
+            deps = sorted(str(p) for p in G.predecessors(node))
+            offenders.append((str(node), deps))
+
+        if not offenders:
+            return
+
+        lines: List[str] = []
+        lines.append(
+            "AspenNet dependency graph is invalid: fan-in requires an explicit JoinPlugin."
+        )
+        lines.append("")
+        lines.append(
+            "Any plugin with more than one dependency must be a join node (JoinPlugin or another "
+            "plugin declaring allow_multi_path_inputs=True). All other plugins must have <= 1 dependency."
+        )
+        lines.append("")
+        lines.append("Nodes with illegal fan-in:")
+        for name, deps in sorted(offenders):
+            lines.append(f"- '{name}' depends on {deps}")
+        lines.append("")
+        lines.append("Fix pattern:")
+        lines.append("  1) Add a JoinPlugin node J that depends on the current deps")
+        lines.append("  2) Make the original node depend only on J")
+        lines.append("")
+        lines.append("Example:")
+        lines.append("  J: depends: [a, b]")
+        lines.append("  X: depends: [J]  # instead of [a, b]")
+        raise ValueError("\n".join(lines).rstrip())
+
+    @staticmethod
+    def _assert_dag(G: nx.DiGraph) -> None:
+        if nx.is_directed_acyclic_graph(G):
+            return
+        try:
+            cycle_nodes = nx.find_cycle(G)  # type: ignore[arg-type]
+        except Exception:
+            cycle_nodes = []
+        raise ValueError(f"Cycle detected in plugins graph: {cycle_nodes}")
+
     def set_graph_degree(self, G: nx.DiGraph) -> None:
-        if not nx.is_directed_acyclic_graph(G):
-            raise ValueError("Graph must be a DAG")
+        self._assert_dag(G)
 
         for n in G.nodes:
             node = self.node_map[n]
@@ -296,12 +363,7 @@ class AspenNet(torch.nn.Module):
         return cls(**params)
 
     def _toposort(self) -> List[_Node]:
-        if not nx.is_directed_acyclic_graph(self.graph):
-            try:
-                cycle_nodes = nx.find_cycle(self.graph)  # type: ignore[arg-type]
-            except Exception:
-                cycle_nodes = []
-            raise ValueError(f"Cycle detected in plugins graph: {cycle_nodes}")
+        self._assert_dag(self.graph)
 
         name2node: Dict[str, _Node] = {n.name: n for n in self.nodes}
         order_names: List[str] = list(nx.topological_sort(self.graph))
@@ -319,6 +381,9 @@ class AspenNet(torch.nn.Module):
         # Ensure plugins can access shared resources
         context.setdefault("shared", self.shared)
         context.setdefault("plugins", {})
+        if "_aspen_seq" not in context:
+            self._call_seq += 1
+            context["_aspen_seq"] = self._call_seq
         if self.threaded_trunks:
             self._maybe_reraise_thread_error()
             return self._forward_threaded(context)
@@ -342,24 +407,50 @@ class AspenNet(torch.nn.Module):
 
     def _dot_lines(self) -> Iterable[str]:
         # Simple DOT writer without extra deps
+        return self._dot_lines_with_styles()
+
+    def _dot_lines_with_styles(
+        self,
+        *,
+        edge_attrs: Optional[Dict[Tuple[str, str], Dict[str, str]]] = None,
+        label: Optional[str] = None,
+    ) -> Iterable[str]:
+        def _dot_escape(value: Any) -> str:
+            text = str(value)
+            return text.replace("\\", "\\\\").replace('"', '\\"')
+
         yield "digraph AspenNet {"
         yield "  rankdir=TB;"
         yield "  node [shape=box, style=rounded];"
-        graph_label = self.name.replace("\\", "\\\\").replace('"', '\\"')
+        graph_label = _dot_escape(label or self.name)
         yield f'  label="{graph_label}";'
         yield "  labelloc=t;"
         # Nodes with labels
         for n, data in self.graph.nodes(data=True):
-            node_label = f"{n}\n{data.get('cls_path', '')}"
+            node_label = _dot_escape(f"{n}\n{data.get('cls_path', '')}")
             yield f'  "{n}" [label="{node_label}"];'
         # Edges
+        attrs_map = edge_attrs or {}
         for u, v in self.graph.edges():
-            yield f'  "{u}" -> "{v}";'
+            attrs = attrs_map.get((u, v))
+            if attrs:
+                rendered = ", ".join(f'{k}="{_dot_escape(val)}"' for k, val in attrs.items())
+                yield f'  "{u}" -> "{v}" [{rendered}];'
+            else:
+                yield f'  "{u}" -> "{v}";'
         yield "}"
 
     def to_dot(self) -> str:
         """Return the Graphviz DOT string for the plugins graph."""
         return "\n".join(self._dot_lines())
+
+    def _to_dot_with_styles(
+        self,
+        *,
+        edge_attrs: Optional[Dict[Tuple[str, str], Dict[str, str]]] = None,
+        label: Optional[str] = None,
+    ) -> str:
+        return "\n".join(self._dot_lines_with_styles(edge_attrs=edge_attrs, label=label))
 
     def save_graphviz(self, path: str) -> None:
         """
@@ -375,6 +466,255 @@ class AspenNet(torch.nn.Module):
         with open(path, "w", encoding="utf-8") as f:
             f.write(dot)
         self._last_dot_path = os.path.abspath(path)
+
+    def _write_dot_diagnostics(self, *, suffix: str, dot: str) -> str:
+        path = os.path.abspath(f"aspennet_{self._safe_name}.{suffix}.dot")
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(dot)
+        return path
+
+    def _validate_unique_inheritance_paths(self, G: nx.DiGraph) -> None:
+        """Reject graphs where any upstream node reaches a downstream node via >1 directed path.
+
+        This prevents "diamond" shapes like:
+
+            tracker -> camera_controller -> play_tracker
+            tracker ---------------------> play_tracker
+        """
+
+        topo = list(nx.topological_sort(G))
+        topo_index = {name: idx for idx, name in enumerate(topo)}
+        ancestor_path_counts: Dict[str, Dict[str, int]] = {}
+        violations: List[Tuple[str, str]] = []
+        join_nodes = {
+            node.name
+            for node in self.nodes
+            if bool(getattr(node.module, "allow_multi_path_inputs", False))
+        }
+
+        def _get_paths_to(node: str, ancestor: str) -> int:
+            if node == ancestor:
+                return 1
+            return ancestor_path_counts.get(node, {}).get(ancestor, 0)
+
+        for node in topo:
+            if node in join_nodes:
+                # Join nodes are an explicit semantic barrier: they may accept multiple
+                # incoming paths from shared ancestors, and downstream ancestry should
+                # not inherit those upstream duplicates.
+                ancestor_path_counts[node] = {}
+                continue
+            counts: Dict[str, int] = {}
+            parents = list(G.predecessors(node))
+            for parent in parents:
+                counts[parent] = min(2, counts.get(parent, 0) + 1)
+                for ancestor, path_count in ancestor_path_counts.get(parent, {}).items():
+                    if counts.get(ancestor, 0) >= 2:
+                        continue
+                    counts[ancestor] = min(2, counts.get(ancestor, 0) + path_count)
+            ancestor_path_counts[node] = counts
+
+            # Only report root-cause violations: the first node where an ancestor gains
+            # multiple paths. Downstream nodes are suppressed because they are side effects.
+            introduced: Set[str] = set()
+            for ancestor, path_count in counts.items():
+                if path_count <= 1:
+                    continue
+                if any(_get_paths_to(parent, ancestor) > 1 for parent in parents):
+                    continue
+                introduced.add(ancestor)
+            if not introduced:
+                continue
+
+            # Reduce to "lowest" duplicated ancestors (closest to 'node') to avoid
+            # reporting ancestors-of-ancestors which are also duplicated as a side effect.
+            minimal_introduced = set(introduced)
+            for a in introduced:
+                for b in introduced:
+                    if a == b:
+                        continue
+                    # If a can reach b, then a is more upstream than b; keep b only.
+                    if nx.has_path(G, a, b):
+                        minimal_introduced.discard(a)
+                        break
+            for ancestor in sorted(minimal_introduced, key=lambda n: topo_index.get(n, 0)):
+                violations.append((ancestor, node))
+
+        if not violations:
+            return
+
+        # Gather two concrete paths for each violation and highlight their edges.
+        paths_by_pair: Dict[Tuple[str, str], List[List[str]]] = {}
+        highlight_edges: Set[Tuple[str, str]] = set()
+        for ancestor, node in violations:
+            key = (ancestor, node)
+            if key in paths_by_pair:
+                continue
+            paths = self._find_two_paths(G, ancestor, node)
+            paths_by_pair[key] = paths
+            for path in paths:
+                highlight_edges.update(zip(path, path[1:]))
+
+        dot = self._to_dot_with_styles(
+            edge_attrs={edge: {"color": "red", "penwidth": "3"} for edge in highlight_edges},
+            label=f"{self.name} (INVALID: multiple inheritance paths)",
+        )
+        diag_path = self._write_dot_diagnostics(suffix="INVALID_MULTI_PATHS", dot=dot)
+
+        ordered_pairs = sorted(
+            paths_by_pair.keys(),
+            key=lambda pair: (topo_index.get(pair[1], 0), topo_index.get(pair[0], 0), pair[0]),
+        )
+        message = self._format_multipath_error_message(
+            paths_by_pair, ordered_pairs=ordered_pairs, diag_path=diag_path
+        )
+        self._maybe_print_rich_multipath_tree(
+            paths_by_pair, ordered_pairs=ordered_pairs, diag_path=diag_path
+        )
+        raise ValueError(message)
+
+    @staticmethod
+    def _find_two_paths(G: nx.DiGraph, source: str, target: str) -> List[List[str]]:
+        if source == target:
+            return [[source]]
+        # Only consider nodes that can reach target (reverse-DFS from target).
+        candidates = nx.ancestors(G, target) | {target}
+        if source not in candidates:
+            return []
+        paths: List[List[str]] = []
+        stack: List[Tuple[str, List[str]]] = [(source, [source])]
+        while stack and len(paths) < 2:
+            node, path = stack.pop()
+            if node == target:
+                paths.append(path)
+                continue
+            successors = [s for s in G.successors(node) if s in candidates]
+            successors.sort(reverse=True)
+            for succ in successors:
+                if succ in path:
+                    continue
+                stack.append((succ, [*path, succ]))
+        return paths
+
+    def _format_multipath_error_message(
+        self,
+        paths_by_pair: Dict[Tuple[str, str], List[List[str]]],
+        *,
+        ordered_pairs: List[Tuple[str, str]],
+        diag_path: str,
+    ) -> str:
+        lines: List[str] = []
+        lines.append(
+            "AspenNet dependency graph is invalid: an upstream plugin is reachable by more than one "
+            "directed path from a downstream plugin."
+        )
+        lines.append("")
+        lines.append(
+            "This is forbidden because it makes dependency structure ambiguous and hard to reason about."
+        )
+        lines.append(
+            "Fix by removing redundant edges so that for any pair (A -> ... -> B) there is at most one path."
+        )
+        lines.append("")
+        lines.append(f"Graphviz diagnostics written to: {diag_path}")
+        lines.append("Red edges are part of at least one multi-path violation.")
+        lines.append("")
+        lines.append(
+            "Only root-cause violations are shown (the first nodes where multiple paths are introduced); "
+            "downstream duplicates are suppressed as side effects."
+        )
+        lines.append("")
+        tree_text = self._render_multipath_tree_text(
+            paths_by_pair, ordered_pairs=ordered_pairs, diag_path=diag_path
+        )
+        if tree_text:
+            lines.append("Graph:")
+            lines.append(tree_text.rstrip())
+            lines.append("")
+        lines.append("Violations:")
+        for ancestor, node in ordered_pairs:
+            paths = paths_by_pair[(ancestor, node)]
+            if not paths:
+                lines.append(
+                    f"- '{ancestor}' reaches '{node}' via multiple paths (paths unavailable)."
+                )
+                continue
+            rendered = [" -> ".join(p) for p in paths[:2]]
+            lines.append(f"- '{ancestor}' reaches '{node}' via multiple paths (showing up to 2):")
+            for idx, p in enumerate(rendered, start=1):
+                lines.append(f"    {idx}) {p}")
+        return "\n".join(lines).rstrip()
+
+    @staticmethod
+    def _render_multipath_tree_text(
+        paths_by_pair: Dict[Tuple[str, str], List[List[str]]],
+        *,
+        ordered_pairs: List[Tuple[str, str]],
+        diag_path: str,
+    ) -> str:
+        try:
+            from rich.console import Console  # type: ignore
+            from rich.text import Text  # type: ignore
+            from rich.tree import Tree  # type: ignore
+
+            console = Console(
+                width=120,
+                color_system=None,
+                force_terminal=False,
+                record=True,
+                file=io.StringIO(),
+            )
+            root = Tree(Text("AspenNet INVALID graph: multiple inheritance paths"))
+            root.add(Text(f"DOT with red edges: {diag_path}"))
+            for ancestor, node in ordered_pairs:
+                paths = paths_by_pair[(ancestor, node)]
+                branch = root.add(Text(f"{ancestor} → {node}"))
+                for path in paths[:2]:
+                    branch.add(Text(" -> ".join(path)))
+            console.print(root)
+            return console.export_text(styles=False)
+        except Exception:
+            lines: List[str] = []
+            lines.append("AspenNet INVALID graph: multiple inheritance paths")
+            lines.append(f"DOT with red edges: {diag_path}")
+            for ancestor, node in ordered_pairs:
+                paths = paths_by_pair[(ancestor, node)]
+                lines.append(f"- {ancestor} → {node}")
+                for path in paths[:2]:
+                    lines.append(f"  - {' -> '.join(path)}")
+            return "\n".join(lines)
+
+    def _maybe_print_rich_multipath_tree(
+        self,
+        paths_by_pair: Dict[Tuple[str, str], List[List[str]]],
+        *,
+        ordered_pairs: List[Tuple[str, str]],
+        diag_path: str,
+    ) -> None:
+        try:
+            if not sys.stderr.isatty():
+                return
+            from rich.console import Console  # type: ignore
+            from rich.text import Text  # type: ignore
+            from rich.tree import Tree  # type: ignore
+
+            console = Console(stderr=True)
+            root = Tree(
+                Text("AspenNet INVALID graph: multiple inheritance paths", style="bold red")
+            )
+            root.add(Text(f"DOT with red edges: {diag_path}", style="dim"))
+            for ancestor, node in ordered_pairs:
+                paths = paths_by_pair[(ancestor, node)]
+                branch = root.add(Text(f"{ancestor} → {node}", style="red"))
+                for path in paths[:2]:
+                    branch.add(Text(" -> ".join(path), style="red"))
+            console.print(root)
+        except Exception:
+            # Diagnostics should never prevent raising the real configuration error.
+            return
 
     def display_graphviz(self) -> None:
         """
@@ -959,6 +1299,7 @@ class AspenNet(torch.nn.Module):
         with self._graph_lock:
             seq = self._graph_seq
             self._graph_seq += 1
+            context["_aspen_seq"] = seq
             item = _WorkItem(seq=seq, context=context)
             state = _GraphContextState(
                 item=item,

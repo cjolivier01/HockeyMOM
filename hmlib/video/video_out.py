@@ -267,6 +267,7 @@ class VideoOutput(torch.nn.ModuleDict):
 
         self._bit_rate = bit_rate
         self._enable_end_zones: bool = bool(enable_end_zones)
+        self._last_frame_id: Optional[torch.Tensor] = None
 
         self._fourcc = fourcc
 
@@ -510,6 +511,16 @@ class VideoOutput(torch.nn.ModuleDict):
         @return: The updated ``results`` dict (for chaining if desired).
         """
         with self._fctx:
+            frame_ids = results["frame_ids"]
+            if self._last_frame_id is not None:
+                if torch.any(frame_ids <= self._last_frame_id):
+                    raise ValueError(
+                        "VideoOutput received non-monotonic frame_ids. "
+                        f"last_frame_id={self._last_frame_id}, "
+                        f"current_frame_ids={frame_ids}"
+                    )
+            self._last_frame_id = frame_ids.max()
+
             online_im = results["img"]
 
             if isinstance(online_im, np.ndarray):

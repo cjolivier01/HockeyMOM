@@ -43,9 +43,15 @@ aspen:
           weight_iou_with_det_scores: true
           match_iou_thrs: {high: 0.1, low: 0.5, tentative: 0.3}
           num_frames_retain: 30
+    mmtracking_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, model_factory]
+      params:
+        required_plugins: [image_prep, model_factory]
+        output_key: mmtracking_joined
     mmtracking:
       class: hmlib.aspen.plugins.mmtracking_plugin.MMTrackingPlugin
-      depends: [image_prep, model_factory]
+      depends: [mmtracking_join]
       params: {}
     prune:
       class: hmlib.aspen.plugins.prune_plugin.PruneKeysPlugin

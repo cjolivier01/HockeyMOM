@@ -37,9 +37,16 @@ aspen:
           pad_size_divisor: 32
           use_det_processor: true
 
+    detector_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, detector_factory]
+      params:
+        required_plugins: [image_prep, detector_factory]
+        output_key: detector_joined
+
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
-      depends: [image_prep, detector_factory]
+      depends: [detector_join]
       params: {}
 
     tracker:

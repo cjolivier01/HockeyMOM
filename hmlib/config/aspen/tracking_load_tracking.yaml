@@ -86,9 +86,16 @@ aspen:
         model_path: null
         window: 8
 
+    postprocess_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [load_tracking, camera_controller]
+      params:
+        required_plugins: [load_tracking, camera_controller]
+        output_key: postprocess_joined
+
     postprocess:
       class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
-      depends: [load_tracking, camera_controller]
+      depends: [postprocess_join]
       params: {}
 
     overlays:

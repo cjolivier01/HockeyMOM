@@ -1,5 +1,8 @@
 aspen:
   minimal_context: true
+  pipeline:
+    threaded: true
+    graph: true
 
   # Move the original mmengine inference pipeline here so the CLI can use it
   inference_pipeline:
@@ -127,6 +130,13 @@ aspen:
           pad_size_divisor: 32
           use_det_processor: true
 
+    detector_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, detector_factory]
+      params:
+        required_plugins: [image_prep, detector_factory]
+        output_key: detector_joined
+
     pose_factory:
       class: hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin
       depends: [detector_factory]
@@ -147,7 +157,7 @@ aspen:
 
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
-      depends: [image_prep, detector_factory]
+      depends: [detector_join]
       params: {}
 
     save_detections:
@@ -161,9 +171,16 @@ aspen:
       depends: [image_prep]
       params: {}
 
+    ice_boundaries_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [detector, ice_config]
+      params:
+        required_plugins: [detector, ice_config]
+        output_key: ice_boundaries_joined
+
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
-      depends: [detector, ice_config]
+      depends: [ice_boundaries_join]
       params:
         enabled: true
         # Optional cap on detections that survive the rink mask.
@@ -173,7 +190,7 @@ aspen:
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [detector, ice_boundaries]
+      depends: [ice_boundaries]
       params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
@@ -192,11 +209,25 @@ aspen:
       enabled: true
       params: {}
 
-    pose:
-      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
+    pose_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
       depends: [tracker, pose_factory]
       params:
+        required_plugins: [tracker, pose_factory]
+        output_key: pose_joined
+
+    pose:
+      class: hmlib.aspen.plugins.pose_plugin.PosePlugin
+      depends: [pose_join]
+      params:
         plot_pose: GLOBAL.plot.plot_pose
+
+    pose_play_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [play_tracker, pose]
+      params:
+        required_plugins: [play_tracker, pose]
+        output_key: pose_play_joined
 
     save_pose:
       class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
@@ -215,7 +246,7 @@ aspen:
     # setting controller: transformer|gpt and model_path to your checkpoint.
     camera_controller:
       class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
-      depends: [tracker, pose]
+      depends: [tracker]
       params:
         controller: GLOBAL.rink.camera.controller
         model_path: GLOBAL.rink.camera.camera_model
@@ -224,9 +255,7 @@ aspen:
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
       depends: [
-        tracker, 
         camera_controller,
-        # pose,  # Uncomment to see pose drawn on the main image, but this has aperformance cost in that it can't run pose in parallel to play tracking
       ]
       enabled: true
       params:
@@ -244,7 +273,7 @@ aspen:
 
     overlays:
       class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
-      depends: [play_tracker, pose]
+      depends: [pose_play_join]
       enabled: true
       params:
         plot_pose: GLOBAL.plot.plot_pose
@@ -261,9 +290,16 @@ aspen:
       enabled: true
       params: {}
 
+    apply_camera_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [overlays, load_camera]
+      params:
+        required_plugins: [overlays, load_camera]
+        output_key: apply_camera_joined
+
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [overlays, load_camera]
+      depends: [apply_camera_join]
       enabled: true
       params:
         video_out_pipeline: GLOBAL.aspen.video_out_pipeline
@@ -280,9 +316,16 @@ aspen:
         stats_key: stitched
         tensor_key: original_images
 
+    video_out_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [apply_camera, rgb_stats_check]
+      params:
+        required_plugins: [apply_camera, rgb_stats_check]
+        output_key: video_out_joined
+
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
-      depends: [apply_camera, rgb_stats_check, pose]
+      depends: [video_out_join]
       enabled: true
       params:
         # Allow GLOBAL.aspen.video_out.skip_final_save (default from baseline.yaml)
