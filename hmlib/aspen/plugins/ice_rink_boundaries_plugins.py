@@ -32,7 +32,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         det_thresh: float = 0.05,
         max_detections_in_mask: Optional[int] = None,
         plot_ice_mask: bool = False,
-        cuda_graph: bool = True,
+        cuda_graph: bool = False,
     ):
         super().__init__(enabled=enabled)
         self._det_thresh = float(det_thresh)

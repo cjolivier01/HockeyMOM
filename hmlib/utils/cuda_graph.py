@@ -93,7 +93,7 @@ class CudaGraphCallable:
             pool = torch.cuda.graphs.graph_pool_handle()
             try:
                 with torch.cuda.graph(
-                    graph, pool=pool, stream=capture_stream, capture_error_mode="relaxed"
+                    graph, pool=pool, stream=capture_stream, capture_error_mode="thread_local"
                 ):
                     self._static_outputs = self._fn(*self._static_inputs)
             except Exception as ex:
