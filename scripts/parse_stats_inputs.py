@@ -12004,7 +12004,10 @@ def process_long_only_sheets(
             norm = _normalize_jersey_number(parts.jersey)
             if norm:
                 jerseys.add(norm)
-        jerseys_by_long_team[str(team_name)] = jerseys
+        # Some malformed / partial long sheets can produce placeholder team names
+        # with no parsed players. Ignore those for "our team" selection.
+        if jerseys:
+            jerseys_by_long_team[str(team_name)] = jerseys
 
     # Determine our Blue/White focus team from long events (when possible).
     focus_team: Optional[str] = focus_team_override
@@ -13502,6 +13505,95 @@ def main() -> None:
             "disable-t2s",
         )
 
+    def _meta_str(meta: dict[str, str], *keys: str) -> Optional[str]:
+        for k in keys:
+            kk = str(k or "").strip().lower()
+            if not kk:
+                continue
+            v = meta.get(kk)
+            if v is None:
+                continue
+            vv = str(v).strip()
+            if vv:
+                return vv
+        return None
+
+    def _match_team_name(a: Optional[str], b: Optional[str]) -> bool:
+        """
+        Best-effort match for team names that may be shortened (e.g., 'Utah' vs
+        'Utah ...') or contain varying whitespace/punctuation.
+        """
+        aa = _normalize_header_label(str(a or ""))
+        bb = _normalize_header_label(str(b or ""))
+        if not aa or not bb:
+            return False
+        return aa == bb or aa in bb or bb in aa
+
+    def _infer_side_from_meta_and_long_sheet(
+        in_path: Path, *, meta: dict[str, str], sheet: Any
+    ) -> Tuple[Optional[str], Dict[str, Any]]:
+        """
+        If the caller did not specify HOME/AWAY (and no TimeToScore id is in use),
+        try to infer which side this spreadsheet represents by matching the long
+        sheet's embedded team names against `home_team` / `away_team` metadata.
+        """
+        debug: Dict[str, Any] = {}
+        home_team = _meta_str(meta, "home_team", "home_team_name", "home")
+        away_team = _meta_str(meta, "away_team", "away_team_name", "away")
+        debug["meta_home_team"] = home_team or ""
+        debug["meta_away_team"] = away_team or ""
+        if not home_team or not away_team:
+            debug["failure"] = "missing home_team/away_team metadata"
+            return None, debug
+
+        if not _is_long_sheet_path(in_path):
+            debug["failure"] = "not a '*-long*' sheet"
+            return None, debug
+
+        try:
+            target_sheet = 0 if sheet is None else sheet
+            long_df = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
+        except Exception as e:  # noqa: BLE001
+            debug["failure"] = f"failed to read spreadsheet: {type(e).__name__}: {e}"
+            return None, debug
+
+        try:
+            parsed = _parse_long_shift_tables(long_df) or {}
+        except Exception as e:  # noqa: BLE001
+            debug["failure"] = f"failed to parse long shift tables: {type(e).__name__}: {e}"
+            return None, debug
+
+        teams: List[Tuple[str, int]] = []
+        for team_name, info in parsed.items():
+            sb_pairs = (info or {}).get("sb_pairs_by_player") or {}
+            teams.append((str(team_name), len(sb_pairs)))
+        teams_sorted = sorted(teams, key=lambda x: (-int(x[1] or 0), x[0]))
+        debug["long_teams"] = [{"team": t, "players": int(n)} for t, n in teams_sorted]
+        if not teams_sorted:
+            debug["failure"] = "no teams found in long shift tables"
+            return None, debug
+
+        best_team = teams_sorted[0][0]
+        debug["best_team"] = best_team
+        if _match_team_name(best_team, away_team):
+            return "away", debug
+        if _match_team_name(best_team, home_team):
+            return "home", debug
+
+        matches: List[str] = []
+        for t, _n in teams_sorted:
+            if _match_team_name(t, away_team):
+                matches.append("away")
+            if _match_team_name(t, home_team):
+                matches.append("home")
+        matches = sorted(set(matches))
+        debug["matches"] = matches
+        if len(matches) == 1:
+            return matches[0], debug
+
+        debug["failure"] = "no unique match to home_team/away_team"
+        return None, debug
+
     # Webapp upload arg validation (fail fast; don't silently skip uploads).
     default_webapp_url = "http://127.0.0.1:8008"
     if str(getattr(args, "webapp_url", "") or "").strip() != default_webapp_url and not getattr(
@@ -14005,6 +14097,22 @@ def main() -> None:
                 else:
                     side_to_use = None
 
+            # If TimeToScore is not in use, attempt to infer HOME/AWAY from file-list
+            # metadata + the embedded long-sheet shift table team names.
+            if (
+                (not manual_goals)
+                and side_to_use is None
+                and t2s_id is None
+                and args.file_list
+                and meta_for_group
+            ):
+                inferred_side2, debug2 = _infer_side_from_meta_and_long_sheet(
+                    Path(in_path), meta=meta_for_group, sheet=args.sheet
+                )
+                if inferred_side2 in {"home", "away"}:
+                    side_to_use = inferred_side2
+                    side_infer_debug = debug2 or {}
+
             # If a TimeToScore id is in use and we don't have a side override, we
             # must determine whether our team is Home or Away to map GF/GA.
             if t2s_id is not None and (not manual_goals) and side_to_use is None:
@@ -14112,10 +14220,29 @@ def main() -> None:
                         "  Reason: no ':HOME' / ':AWAY' provided and no TimeToScore id inferred.",
                         file=sys.stderr,
                     )
+                    if side_infer_debug:
+                        meta_home = side_infer_debug.get("meta_home_team")
+                        meta_away = side_infer_debug.get("meta_away_team")
+                        if meta_home or meta_away:
+                            print(
+                                f"  Metadata: home_team={meta_home!r}, away_team={meta_away!r}",
+                                file=sys.stderr,
+                            )
+                        long_teams = side_infer_debug.get("long_teams")
+                        if isinstance(long_teams, list) and long_teams:
+                            try:
+                                txt = ", ".join(
+                                    f"{str(x.get('team') or '')}({int(x.get('players') or 0)})"
+                                    for x in long_teams[:8]
+                                )
+                            except Exception:
+                                txt = ""
+                            if txt:
+                                print(f"  Long-sheet teams (players): {txt}", file=sys.stderr)
                     if args.file_list:
                         print(f"  File list: {args.file_list}", file=sys.stderr)
                     print(
-                        "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
+                        "Fix: set `side: HOME|AWAY` for this game in the YAML file-list (or add ':HOME' / ':AWAY' for text file-lists; or run a single game with --home/--away).",
                         file=sys.stderr,
                     )
                 else:
