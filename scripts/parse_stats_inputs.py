@@ -13682,6 +13682,7 @@ def main() -> None:
         t2s_id: Optional[int],
         side: Optional[str],
         *,
+        meta: Optional[dict[str, str]] = None,
         allow_remote: bool,
         allow_full_sync: bool,
     ) -> List[GoalEvent]:
@@ -13691,19 +13692,83 @@ def main() -> None:
         # If no t2s id was provided/inferred, fall back to goals.xlsx next to the input.
         if t2s_id is None:
             goals_xlsx = in_path.parent / "goals.xlsx"
+            meta_for_file = dict(meta or {})
+            our_team_name: Optional[str] = None
+            side_l = str(side or "").strip().lower()
+            if side_l == "home":
+                our_team_name = _meta_str(meta_for_file, "home_team", "home_team_name", "home")
+            elif side_l == "away":
+                our_team_name = _meta_str(meta_for_file, "away_team", "away_team_name", "away")
+
             our_jerseys: Optional[set[str]] = None
+
+            # For long-sheet-only runs, the generic roster-table extractor can
+            # return Blue/White blocks that include both teams, which flips GF/GA
+            # mapping. Prefer the embedded long-shift roster for our matched team.
+            if our_team_name and _is_long_sheet_path(in_path):
+                try:
+                    target_sheet = 0 if args.sheet is None else args.sheet
+                    df_long = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
+                    parsed = _parse_long_shift_tables(df_long) or {}
+                    best = None
+                    best_n = -1
+                    for team_name, info in parsed.items():
+                        if not _match_team_name(str(team_name), our_team_name):
+                            continue
+                        sb_pairs = (info or {}).get("sb_pairs_by_player") or {}
+                        n = len(sb_pairs)
+                        if n > best_n:
+                            best_n = n
+                            best = (str(team_name), sb_pairs)
+                    if best is not None:
+                        _team_name, sb_pairs = best
+                        nums: set[str] = set()
+                        for pk in sb_pairs.keys():
+                            parts = _parse_player_key(pk)
+                            norm = _normalize_jersey_number(parts.jersey)
+                            if norm:
+                                nums.add(norm)
+                        if nums:
+                            our_jerseys = nums
+                except Exception:
+                    our_jerseys = None
+
+            # Fall back to extracting a roster from the sheet (primary sheet case).
+            if our_jerseys is None:
+                try:
+                    target_sheet = 0 if args.sheet is None else args.sheet
+                    df_primary = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
+                    roster_tables = _extract_roster_tables_from_df(df_primary)
+                    if roster_tables:
+                        # If we know the team name, avoid taking a union across
+                        # multiple rosters (which can invert GF/GA).
+                        if our_team_name:
+                            best_roster = None
+                            best_size = -1
+                            for team_name, roster in roster_tables:
+                                if not _match_team_name(str(team_name), our_team_name):
+                                    continue
+                                n = len((roster or {}).keys())
+                                if n > best_size:
+                                    best_size = n
+                                    best_roster = roster
+                            if best_roster is not None:
+                                our_jerseys = {
+                                    str(x).strip()
+                                    for x in (best_roster or {}).keys()
+                                    if str(x).strip()
+                                }
+                        elif len(roster_tables) == 1:
+                            _team, roster = roster_tables[0]
+                            our_jerseys = {
+                                str(x).strip() for x in (roster or {}).keys() if str(x).strip()
+                            }
+                except Exception:
+                    our_jerseys = None
             try:
-                target_sheet = 0 if args.sheet is None else args.sheet
-                df_primary = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
-                roster_tables = _extract_roster_tables_from_df(df_primary)
-                jerseys = set()
-                for _team, roster in roster_tables:
-                    jerseys.update(str(x) for x in (roster or {}).keys())
-                our_jerseys = {str(x).strip() for x in jerseys if str(x).strip()}
-            except Exception:
-                our_jerseys = None
-            try:
-                gx = _goals_from_goals_xlsx(goals_xlsx, our_jerseys=our_jerseys)
+                gx = _goals_from_goals_xlsx(
+                    goals_xlsx, our_jerseys=our_jerseys, our_team_name=our_team_name
+                )
             except Exception as e:  # noqa: BLE001
                 print(f"[goals.xlsx] Failed to parse {goals_xlsx}: {e}", file=sys.stderr)
                 gx = []
@@ -13949,6 +14014,7 @@ def main() -> None:
                     sheet_path,
                     t2s_id,
                     sheet_side,
+                    meta=meta_for_group,
                     allow_remote=t2s_allow_remote,
                     allow_full_sync=t2s_allow_full_sync,
                 )
@@ -14260,6 +14326,7 @@ def main() -> None:
                 in_path,
                 t2s_id,
                 side_to_use,
+                meta=meta_for_group,
                 allow_remote=t2s_allow_remote,
                 allow_full_sync=t2s_allow_full_sync,
             )
