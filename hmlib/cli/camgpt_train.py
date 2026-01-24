@@ -4,7 +4,7 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
 from torch import nn, optim
@@ -210,6 +210,124 @@ def _load_game_dirs_from_list(list_path: str) -> List[Path]:
     return dedup
 
 
+def _parse_checkpoint_naming(out: str) -> Tuple[Path, str, str]:
+    """Return (best_path, prefix, ext)."""
+    best_path = Path(out)
+    ext = "".join(best_path.suffixes) or ".pt"
+    name = best_path.name
+    stem = name[: -len(ext)] if name.endswith(ext) else best_path.stem
+    prefix = stem
+    if prefix.endswith("_best"):
+        prefix = prefix[: -len("_best")]
+    if not prefix:
+        prefix = "camera_gpt"
+    if not stem.endswith("_best"):
+        best_path = best_path.with_name(f"{prefix}_best{ext}")
+    return best_path, prefix, ext
+
+
+def _checkpoint_path(best_path: Path, prefix: str, ext: str, step_num: int) -> Path:
+    return best_path.with_name(f"{prefix}_{int(step_num)}{ext}")
+
+
+def _list_numbered_checkpoints(best_path: Path, prefix: str, ext: str) -> List[tuple[int, Path]]:
+    out: List[tuple[int, Path]] = []
+    pat = f"{prefix}_"
+    for p in best_path.parent.glob(f"{prefix}_*{ext}"):
+        if p.name == best_path.name:
+            continue
+        name = p.name
+        if not name.startswith(pat) or not name.endswith(ext):
+            continue
+        mid = name[len(pat) : -len(ext)]
+        if not mid.isdigit():
+            continue
+        out.append((int(mid), p))
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def _checkpoint_compatible(ckpt: dict, cfg: CameraGPTConfig) -> bool:
+    try:
+        m = ckpt.get("model") or {}
+        return (
+            int(m.get("d_in")) == int(cfg.d_in)
+            and int(m.get("d_out")) == int(cfg.d_out)
+            and str(m.get("feature_mode")) == str(cfg.feature_mode)
+            and bool(m.get("include_pose")) == bool(cfg.include_pose)
+            and int(m.get("d_model")) == int(cfg.d_model)
+            and int(m.get("nhead")) == int(cfg.nhead)
+            and int(m.get("nlayers")) == int(cfg.nlayers)
+        )
+    except Exception:
+        return False
+
+
+def _maybe_resume(
+    *,
+    best_path: Path,
+    prefix: str,
+    ext: str,
+    resume_mode: str,
+    device: torch.device,
+    model: nn.Module,
+    opt: optim.Optimizer,
+    cfg: CameraGPTConfig,
+) -> int:
+    if resume_mode == "none":
+        return 1
+
+    numbered = _list_numbered_checkpoints(best_path, prefix, ext)
+    latest = numbered[-1][1] if numbered else (best_path if best_path.is_file() else None)
+
+    if latest is None:
+        if resume_mode == "force":
+            raise SystemExit(f"--resume specified but no checkpoint found for prefix={prefix}")
+        return 1
+
+    ckpt = torch.load(str(latest), map_location="cpu")
+    if not _checkpoint_compatible(ckpt, cfg):
+        msg = f"Checkpoint incompatible with current model cfg: {latest}"
+        if resume_mode == "force":
+            raise SystemExit(msg)
+        logger.warning("%s (skipping resume)", msg)
+        return 1
+
+    model.load_state_dict(ckpt["state_dict"])
+    opt_sd = ckpt.get("optimizer")
+    if opt_sd:
+        try:
+            opt.load_state_dict(opt_sd)
+        except Exception as ex:
+            logger.warning("Failed to load optimizer state from %s: %s", latest, ex)
+    model.to(device)
+    step0 = int(ckpt.get("step", 0) or 0)
+    logger.info("Resumed from %s (step=%d)", latest, step0)
+    return max(1, step0 + 1)
+
+
+def _save_training_checkpoint(
+    *,
+    path: Path,
+    step_num: int,
+    model: nn.Module,
+    opt: optim.Optimizer,
+    train_ds: CameraPanZoomGPTIterableDataset,
+    cfg: CameraGPTConfig,
+    game_csvs: List[GameCsvPaths],
+    target_mode: str,
+    include_pose: bool,
+) -> None:
+    ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(train_ds._seq_len), cfg=cfg)
+    ckpt["step"] = int(step_num)
+    ckpt["games"] = [p.game_id for p in game_csvs]
+    ckpt["target_mode"] = str(target_mode)
+    ckpt["include_pose"] = bool(include_pose)
+    ckpt["optimizer"] = opt.state_dict()
+    os.makedirs(str(path.parent), exist_ok=True)
+    torch.save(ckpt, str(path))
+
+
 @torch.no_grad()
 def _eval_loss(
     model: nn.Module,
@@ -402,11 +520,27 @@ def main():
     ap.add_argument(
         "--checkpoint-every",
         type=int,
-        default=0,
+        default=2000,
         help=(
             "Save a training checkpoint every N steps (0=disabled). "
-            "Periodic checkpoints are saved alongside --out using a _stepXXXX suffix."
+            "Checkpoints are saved alongside --out as <prefix>_<step>.pt (best is <prefix>_best.pt)."
         ),
+    )
+    ap.add_argument(
+        "--max-checkpoints",
+        type=int,
+        default=10,
+        help="Keep only the last N numbered checkpoints (0=keep all). Best checkpoint is kept.",
+    )
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from latest checkpoint if found (or error if none found).",
+    )
+    ap.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Disable auto-resume even if checkpoints are present.",
     )
     ap.add_argument(
         "--camera-csv-name",
@@ -426,7 +560,7 @@ def main():
         default=None,
         help="Optional fixed pose CSV filename inside each <videos-root>/<game-id>/ (e.g. pose.csv).",
     )
-    ap.add_argument("--out", type=str, default="camera_gpt.pt")
+    ap.add_argument("--out", type=str, default="camera_gpt_best.pt")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--max-cached-games", type=int, default=8)
@@ -446,6 +580,12 @@ def main():
             raise SystemExit("--steps and --max-iters both provided but differ; please use one.")
         if (not steps_in_argv) and max_iters_in_argv:
             args.steps = int(args.max_iters)
+
+    resume_mode = "auto"
+    if bool(args.no_resume):
+        resume_mode = "none"
+    elif bool(args.resume):
+        resume_mode = "force"
 
     game_csvs: List[GameCsvPaths] = []
 
@@ -630,27 +770,19 @@ def main():
 
     it = iter(train_loader)
     best_val = float("inf")
+    best_path, prefix, ext = _parse_checkpoint_naming(args.out)
+    start_step = _maybe_resume(
+        best_path=best_path,
+        prefix=prefix,
+        ext=ext,
+        resume_mode=resume_mode,
+        device=device,
+        model=model,
+        opt=opt,
+        cfg=cfg,
+    )
 
-    def _checkpoint_path(step_num: int) -> str:
-        out_path = Path(args.out)
-        suffix = "".join(out_path.suffixes) or ".pt"
-        stem = (
-            out_path.name[: -len(suffix)]
-            if suffix and out_path.name.endswith(suffix)
-            else out_path.stem
-        )
-        return str(out_path.with_name(f"{stem}_step{int(step_num):06d}{suffix}"))
-
-    def _save_checkpoint(path: str, step_num: int) -> None:
-        ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
-        ckpt["step"] = int(step_num)
-        ckpt["games"] = [p.game_id for p in game_csvs]
-        ckpt["target_mode"] = str(args.target_mode)
-        ckpt["include_pose"] = bool(args.include_pose)
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        torch.save(ckpt, path)
-
-    for step in range(1, steps + 1):
+    for step in range(start_step, steps + 1):
         model.train()
         batch = next(it)
         y = batch["y"].to(device)
@@ -708,9 +840,28 @@ def main():
         opt.step()
 
         if int(args.checkpoint_every) > 0 and (step % int(args.checkpoint_every) == 0):
-            path = _checkpoint_path(step)
-            _save_checkpoint(path, step_num=step)
-            logger.info("Saved checkpoint to %s", path)
+            ckpt_path = _checkpoint_path(best_path, prefix, ext, step)
+            _save_training_checkpoint(
+                path=ckpt_path,
+                step_num=step,
+                model=model,
+                opt=opt,
+                train_ds=train_ds,
+                cfg=cfg,
+                game_csvs=game_csvs,
+                target_mode=str(args.target_mode),
+                include_pose=bool(args.include_pose),
+            )
+            logger.info("Saved checkpoint to %s", ckpt_path)
+            max_keep = int(args.max_checkpoints)
+            if max_keep > 0:
+                numbered = _list_numbered_checkpoints(best_path, prefix, ext)
+                if len(numbered) > max_keep:
+                    for _, p in numbered[: len(numbered) - max_keep]:
+                        try:
+                            p.unlink()
+                        except Exception:
+                            pass
 
         if step % int(args.log_every) == 0 or step == 1:
             msg = f"step {step}/{steps}: train_loss={metrics['loss']:.5f}"
@@ -743,12 +894,32 @@ def main():
             logger.info("step %d/%d: val_loss=%.5f", step, steps, float(val))
             if val < best_val:
                 best_val = float(val)
-                _save_checkpoint(args.out, step_num=step)
-                logger.info("Saved best checkpoint to %s", args.out)
+                _save_training_checkpoint(
+                    path=best_path,
+                    step_num=step,
+                    model=model,
+                    opt=opt,
+                    train_ds=train_ds,
+                    cfg=cfg,
+                    game_csvs=game_csvs,
+                    target_mode=str(args.target_mode),
+                    include_pose=bool(args.include_pose),
+                )
+                logger.info("Saved best checkpoint to %s", best_path)
 
     if val_loader is None:
-        _save_checkpoint(args.out, step_num=steps)
-        logger.info("Saved checkpoint to %s", args.out)
+        _save_training_checkpoint(
+            path=best_path,
+            step_num=steps,
+            model=model,
+            opt=opt,
+            train_ds=train_ds,
+            cfg=cfg,
+            game_csvs=game_csvs,
+            target_mode=str(args.target_mode),
+            include_pose=bool(args.include_pose),
+        )
+        logger.info("Saved checkpoint to %s", best_path)
 
 
 if __name__ == "__main__":
