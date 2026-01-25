@@ -164,8 +164,8 @@ rink:
     fixed_edge_rotation_angle: 10
     # Ratio of height and width for the "destination" box based upon what the "fast box" size is.
     # Making this ratio larger makes the destination box larger, which makes the camera less zoomed in
-    follower_box_scale_width: 1.5
-    follower_box_scale_height: 1.5
+    follower_box_scale_width: 1.25
+    follower_box_scale_height: 1.25
     crop_image: true
     pre_clip: true
     max_speed_ratio_x: 1.0
