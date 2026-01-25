@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import sys
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -70,6 +70,15 @@ class KoshkinaJerseyNumberPlugin(Plugin):
     def __init__(
         self,
         enabled: bool = True,
+        # Track vote aggregation (robustness)
+        vote_window: int = 200,
+        vote_decay: float = 0.985,
+        vote_filter_thresh: float = 0.2,
+        vote_sum_thresh: float = 1.0,
+        # Side-view (orthogonal) sleeve ROIs
+        side_view_enabled: bool = False,
+        side_view_shoulder_ratio_thresh: float = 0.22,
+        side_view_vote_scale: float = 1.25,
         # Legibility
         legibility_enabled: bool = False,
         legibility_weights: Optional[str] = None,
@@ -89,6 +98,17 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         self._legibility_threshold = float(legibility_threshold)
         self._legibility_model: nn.Module = _IdentityLegibility()
 
+        # Vote aggregation
+        self._vote_window = int(vote_window)
+        self._vote_decay = float(vote_decay)
+        self._vote_filter_thresh = float(vote_filter_thresh)
+        self._vote_sum_thresh = float(vote_sum_thresh)
+
+        # Side view sleeve crops
+        self._side_view_enabled = bool(side_view_enabled)
+        self._side_view_shoulder_ratio_thresh = float(side_view_shoulder_ratio_thresh)
+        self._side_view_vote_scale = float(side_view_vote_scale)
+
         # ROI
         self._roi_mode = str(roi_mode)
 
@@ -98,8 +118,9 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         self._parseq_model = None
         self._str_transform = None  # filled by SceneTextDataModule.get_transform
 
-        # Track-level accumulator: track_id -> List[(number, weight)]
-        self._votes: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
+        # Track-level accumulator: track_id -> deque[(frame_index, number, weight)]
+        self._votes: Dict[int, Deque[Tuple[int, int, float]]] = {}
+        self._last_seen_frame: Dict[int, int] = {}
 
     # ----------------------- Model setup -----------------------
     def _ensure_legibility(self, device: torch.device):
@@ -331,6 +352,95 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         except Exception:
             return None
 
+    def _is_side_view_pose(
+        self, kpts: torch.Tensor, kps: Optional[torch.Tensor], bbox_w: float
+    ) -> Tuple[bool, Optional[str]]:
+        # Rough heuristic: if shoulders are close relative to bbox width, or one shoulder is missing,
+        # treat as side/orthogonal view and prefer sleeve ROI on the more visible side.
+        if bbox_w <= 1:
+            return False, None
+        try:
+            scores = None
+            if kps is not None and torch.is_tensor(kps) and kps.shape[0] == kpts.shape[0]:
+                scores = kps
+
+            def kp(i: int) -> Tuple[float, float, float]:
+                x = float(kpts[i, 0].item())
+                y = float(kpts[i, 1].item())
+                s = float(scores[i].item()) if scores is not None else 1.0
+                return x, y, s
+
+            lsx, lsy, lss = kp(5)
+            rsx, rsy, rss = kp(6)
+            shoulder_ok = (lss >= _CONFIDENCE_THRESHOLD) and (rss >= _CONFIDENCE_THRESHOLD)
+            if shoulder_ok:
+                dist = float(np.hypot(lsx - rsx, lsy - rsy))
+                if (dist / float(bbox_w)) < self._side_view_shoulder_ratio_thresh:
+                    side = "left" if lss >= rss else "right"
+                    return True, side
+                return False, None
+
+            # One shoulder missing -> likely side view, pick best-supported side.
+            if (lss >= _CONFIDENCE_THRESHOLD) != (rss >= _CONFIDENCE_THRESHOLD):
+                side = "left" if lss >= rss else "right"
+                return True, side
+
+            return False, None
+        except Exception:
+            return False, None
+
+    @staticmethod
+    def _upper_arm_roi_from_pose(
+        kpts: torch.Tensor,
+        kps: Optional[torch.Tensor],
+        img_w: int,
+        img_h: int,
+        side: str,
+    ) -> Optional[Tuple[int, int, int, int]]:
+        # COCO indices: left (5=shoulder,7=elbow,9=wrist) right (6,8,10)
+        if side not in ("left", "right"):
+            return None
+        try:
+            scores = None
+            if kps is not None and torch.is_tensor(kps) and kps.shape[0] == kpts.shape[0]:
+                scores = kps
+
+            if side == "left":
+                ids = (5, 7, 9)
+            else:
+                ids = (6, 8, 10)
+
+            pts: List[Tuple[float, float, float]] = []
+            for i in ids:
+                x = float(kpts[i, 0].item())
+                y = float(kpts[i, 1].item())
+                s = float(scores[i].item()) if scores is not None else 1.0
+                pts.append((x, y, s))
+
+            # Require shoulder + elbow, optionally use wrist
+            if pts[0][2] < _CONFIDENCE_THRESHOLD or pts[1][2] < _CONFIDENCE_THRESHOLD:
+                return None
+            use_pts = [pts[0], pts[1]]
+            if pts[2][2] >= _CONFIDENCE_THRESHOLD:
+                use_pts.append(pts[2])
+
+            xs = [p[0] for p in use_pts]
+            ys = [p[1] for p in use_pts]
+            # Pad relative to upper-arm length
+            arm_len = float(np.hypot(pts[0][0] - pts[1][0], pts[0][1] - pts[1][1]))
+            pad = int(max(_PADDING, 0.45 * arm_len))
+            x_min = int(max(0, min(xs) - pad))
+            x_max = int(min(img_w - 1, max(xs) + pad))
+            y_min = int(max(0, min(ys) - int(0.25 * pad)))
+            y_max = int(min(img_h - 1, max(ys) + int(0.75 * pad)))
+            if x_max <= x_min or y_max <= y_min:
+                return None
+            if (x_max - x_min) < 4 or (y_max - y_min) < 4:
+                return None
+            return (x_min, y_min, x_max, y_max)
+        except Exception:
+            return None
+
     @staticmethod
     def _bbox_torso_fallback(
         box: torch.Tensor, img_w: int, img_h: int
@@ -400,25 +510,28 @@ class KoshkinaJerseyNumberPlugin(Plugin):
     def _double_digit_bias(v: int) -> float:
         return 0.61 if v > 9 else 0.39
 
-    @staticmethod
     def _aggregate_track(
-        votes: List[Tuple[int, float]], filter_thresh: float = 0.2, sum_thresh: float = 1.0
+        self, votes: Deque[Tuple[int, int, float]], current_frame_index: int
     ) -> Tuple[int, float]:
         if not votes:
             return -1, 0.0
-        # Filter weak
-        filtered = [(v, w if w >= filter_thresh else 0.0) for (v, w) in votes]
-        # Sum with bias
+        # Sum votes with time decay and double-digit bias.
         totals: Dict[int, float] = defaultdict(float)
-        for v, w in filtered:
-            totals[v] += w * KoshkinaJerseyNumberPlugin._double_digit_bias(v)
+        for fidx, v, w in votes:
+            age = int(current_frame_index) - int(fidx)
+            if age < 0 or age > self._vote_window:
+                continue
+            if w < self._vote_filter_thresh:
+                continue
+            decay = float(self._vote_decay**age)
+            totals[v] += float(w) * decay * KoshkinaJerseyNumberPlugin._double_digit_bias(v)
         best_v = -1
         best_w = 0.0
         for k, tot in totals.items():
             if tot > best_w:
                 best_w = tot
                 best_v = k
-        if best_w < sum_thresh:
+        if best_w < self._vote_sum_thresh:
             return -1, best_w
         return best_v, best_w
 
@@ -485,9 +598,9 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             frame_img = original_images[frame_index]  # (C,H,W)
 
             # Build ROIs per track
-            rois: List[
-                Tuple[int, Tuple[int, int, int, int]]
-            ] = []  # (index in tracks, (x1,y1,x2,y2))
+            rois: List[Tuple[int, Tuple[int, int, int, int], float]] = (
+                []
+            )  # (track index, (x1,y1,x2,y2), vote_scale)
             if pose_inst is not None and hasattr(pose_inst, "keypoints"):
                 kpts_all = pose_inst.keypoints  # (N,K,2)
                 kps_all = getattr(pose_inst, "keypoint_scores", None)
@@ -509,18 +622,42 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                             best_iou = iou
                             best_j = pj
                     roi: Optional[Tuple[int, int, int, int]] = None
+                    matched_pose = None
                     if best_j >= 0 and best_iou > 0.1:
+                        matched_pose = best_j
                         roi = self._torso_roi_from_pose(
                             kpts_all[best_j], None if kps_all is None else kps_all[best_j], W, H
                         )
                     if roi is None:
                         roi = self._bbox_torso_fallback(tb.to(dtype=torch.int64), W, H)
-                    rois.append((ti, roi))
+                    rois.append((ti, roi, 1.0))
+                    if (
+                        self._side_view_enabled
+                        and matched_pose is not None
+                        and kpts_all is not None
+                        and kpts_all.shape[0] > matched_pose
+                    ):
+                        bbox_w = float(max(1, int(tb[2] - tb[0])))
+                        side_view, side = self._is_side_view_pose(
+                            kpts_all[matched_pose],
+                            None if kps_all is None else kps_all[matched_pose],
+                            bbox_w=bbox_w,
+                        )
+                        if side_view and side is not None:
+                            arm_roi = self._upper_arm_roi_from_pose(
+                                kpts_all[matched_pose],
+                                None if kps_all is None else kps_all[matched_pose],
+                                W,
+                                H,
+                                side=side,
+                            )
+                            if arm_roi is not None:
+                                rois.append((ti, arm_roi, self._side_view_vote_scale))
             else:
                 # Fallback: bbox-based torso crops
                 for ti in range(bboxes_xyxy.shape[0]):
                     bb = bboxes_xyxy[ti].to(dtype=torch.int64)
-                    rois.append((ti, self._bbox_torso_fallback(bb, W, H)))
+                    rois.append((ti, self._bbox_torso_fallback(bb, W, H), 1.0))
 
             # Optional legibility filtering per-crop
             keep_indices = list(range(len(rois)))
@@ -529,7 +666,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             ):
                 crops_for_leg: List[torch.Tensor] = []
                 map_idx: List[int] = []
-                for idx, (_, r) in enumerate(rois):
+                for idx, (_, r, _) in enumerate(rois):
                     x1, y1, x2, y2 = r
                     crop = frame_img[:, y1:y2, x1:x2]
                     if crop.numel() == 0:
@@ -573,7 +710,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
 
             # STR inference per kept ROI
             for local_idx in keep_indices:
-                ti, r = rois[local_idx]
+                ti, r, vote_scale = rois[local_idx]
                 x1, y1, x2, y2 = r
                 crop = frame_img[:, y1:y2, x1:x2]
                 if crop.numel() == 0 or (y2 - y1) < 4 or (x2 - x1) < 4:
@@ -598,23 +735,41 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                     total_prob = float(np.prod(conf_list[:-1]))
                 else:
                     total_prob = float(np.prod(conf_list))
+                total_prob *= float(vote_scale)
                 try:
                     number_val = int(label)
                 except Exception:
                     continue
                 tid = int(tracking_ids[ti])
-                self._votes[tid].append((number_val, total_prob))
+                dq = self._votes.get(tid)
+                if dq is None:
+                    dq = deque(maxlen=max(16, int(self._vote_window) * 3))
+                    self._votes[tid] = dq
+                dq.append((int(frame_index), int(number_val), float(total_prob)))
+                self._last_seen_frame[tid] = int(frame_index)
 
             # Consolidate for visible tracks this frame
             jersey_results: List[TrackJerseyInfo] = []
             for ti in range(bboxes_xyxy.shape[0]):
                 tid = int(tracking_ids[ti])
-                best_num, best_w = self._aggregate_track(self._votes.get(tid, []))
+                best_num, best_w = self._aggregate_track(
+                    self._votes.get(tid, deque()), current_frame_index=int(frame_index)
+                )
                 if best_num > 0:
                     jersey_results.append(
                         TrackJerseyInfo(tracking_id=tid, number=best_num, score=float(best_w))
                     )
             all_jersey_results.append(jersey_results)
+
+            # Prune stale tracks to avoid unbounded growth
+            if frame_index % 50 == 0 and self._last_seen_frame:
+                stale_before = int(frame_index) - int(self._vote_window) * 3
+                stale_ids = [
+                    tid for tid, last in self._last_seen_frame.items() if int(last) < stale_before
+                ]
+                for tid in stale_ids:
+                    self._last_seen_frame.pop(tid, None)
+                    self._votes.pop(tid, None)
 
         data["jersey_results"] = all_jersey_results
         return {"data": data}

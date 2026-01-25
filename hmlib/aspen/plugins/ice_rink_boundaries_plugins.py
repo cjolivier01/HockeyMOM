@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 from mmengine.structures import InstanceData
 
+from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
@@ -31,6 +32,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         det_thresh: float = 0.05,
         max_detections_in_mask: Optional[int] = None,
         plot_ice_mask: bool = False,
+        cuda_graph: bool = False,
     ):
         super().__init__(enabled=enabled)
         self._det_thresh = float(det_thresh)
@@ -39,6 +41,9 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         )
         self._segm = None
         self._default_plot_ice_mask: bool = bool(plot_ice_mask)
+        self._cuda_graph_enabled = bool(cuda_graph) and not plot_ice_mask
+        self._cg: Optional[CudaGraphCallable] = None
+        self._cg_device: Optional[torch.device] = None
 
     def _ensure_pipeline(self, context: Dict[str, Any], draw: bool):
         if self._segm is not None:
@@ -97,6 +102,43 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             det_bboxes = unwrap_tensor(det_instances.bboxes)
             det_labels = unwrap_tensor(det_instances.labels)
             det_scores = unwrap_tensor(det_instances.scores)
+
+            # Fast path: CUDA graph the pruning operation (no drawing, fixed max outputs).
+            if (
+                self._cuda_graph_enabled
+                and self._iter_num > 1
+                and not draw_mask
+                and self._max_detections_in_mask is not None
+                and isinstance(det_bboxes, torch.Tensor)
+                and det_bboxes.is_cuda
+                and det_bboxes.numel() > 0
+            ):
+                if self._cg is None or self._cg_device != det_bboxes.device:
+                    # Build a graph for the current input signature.
+                    def _fn(b: torch.Tensor, labels_t: torch.Tensor, s: torch.Tensor):
+                        out_b, out_l, out_s, num_valid = self._segm.prune_detections_static(
+                            det_bboxes=b, labels=labels_t, scores=s
+                        )
+                        return out_b, out_l, out_s, num_valid
+
+                    self._cg = CudaGraphCallable(
+                        _fn,
+                        (det_bboxes, det_labels, det_scores),
+                        name="rink_prune",
+                    )
+                    self._cg_device = det_bboxes.device
+                new_bboxes, new_labels, new_scores, num_valid = self._cg(
+                    det_bboxes, det_labels, det_scores
+                )
+                new_inst = InstanceData(
+                    bboxes=wrap_tensor(new_bboxes),
+                    labels=wrap_tensor(new_labels),
+                    scores=wrap_tensor(new_scores),
+                )
+                if num_valid is not None:
+                    new_inst.set_metainfo({"num_detections": num_valid})
+                img_data_sample.pred_instances = new_inst
+                continue
 
             pd_input: Dict[str, Any] = {
                 "det_bboxes": det_bboxes,

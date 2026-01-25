@@ -63,7 +63,6 @@ class SegmBoundaries:
             assert self._segment_mask.ndim == 2
             assert self._segment_mask.shape[0] == image_height(img)
             assert self._segment_mask.shape[1] == image_width(img)
-            # alpha = 0.05
             alpha = 0.10
             if isinstance(img, StreamTensorBase):
                 img = img.wait()
@@ -376,6 +375,91 @@ class SegmBoundaries:
             self._iter_num = 0
             self._duration = 0
         return data
+
+    def prune_detections_static(
+        self,
+        det_bboxes: torch.Tensor,
+        labels: torch.Tensor,
+        scores: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        """Prune (bboxes, labels, scores) against the segment mask.
+
+        Returns fixed-shape outputs when `max_detections_in_mask` is set:
+          - bboxes_out: (K,4)
+          - labels_out: (K,)
+          - scores_out: (K,)
+          - num_valid: int tensor scalar on-device
+
+        When `max_detections_in_mask` is None, returns masked values (same shape as input)
+        and num_valid=None.
+        """
+        if self._segment_mask is None:
+            return det_bboxes, labels, scores, None
+
+        if isinstance(det_bboxes, StreamTensorBase):
+            det_bboxes = unwrap_tensor(det_bboxes)
+        if isinstance(labels, StreamTensorBase):
+            labels = unwrap_tensor(labels)
+        if isinstance(scores, StreamTensorBase):
+            scores = unwrap_tensor(scores)
+
+        det_bboxes = det_bboxes.to(dtype=torch.float32)
+        if labels.dtype != torch.long:
+            labels = labels.to(dtype=torch.long)
+        if scores.dtype != torch.float32:
+            scores = scores.to(dtype=torch.float32)
+
+        keep_mask = self.prune_items_index(batch_item_bboxes=det_bboxes)
+        if not isinstance(keep_mask, torch.Tensor):
+            keep_mask = torch.as_tensor(keep_mask, device=det_bboxes.device)
+        if keep_mask.dtype != torch.bool:
+            keep_mask = keep_mask.to(dtype=torch.bool)
+        keep_count = keep_mask.to(dtype=torch.int32).sum()
+
+        max_items = self._max_detections_in_mask
+        if max_items is None:
+            # Keep same-shape tensors to avoid dynamic indexing on CUDA.
+            if keep_mask.device.type == "cuda":
+                return (
+                    self._apply_keep_mask(det_bboxes, keep_mask),
+                    self._apply_keep_mask(labels, keep_mask),
+                    self._apply_keep_mask(scores, keep_mask),
+                    None,
+                )
+            return det_bboxes[keep_mask], labels[keep_mask], scores[keep_mask], None
+
+        max_items = max(int(max_items), 0)
+        N = int(keep_mask.shape[0])
+        if N == 0 or max_items == 0:
+            out_b = det_bboxes.new_zeros((max_items, 4))
+            out_l = labels.new_zeros((max_items,))
+            out_s = scores.new_zeros((max_items,))
+            num_valid = keep_count.clamp(max=max_items)
+            return out_b, out_l, out_s, num_valid
+
+        priority = scores.masked_fill(~keep_mask, float("-inf"))
+        k = min(max_items, N)
+        order = torch.topk(priority, k=k).indices
+
+        out_b = det_bboxes.index_select(0, order)
+        out_l = labels.index_select(0, order)
+        out_s = scores.index_select(0, order)
+
+        if out_b.shape[0] < max_items:
+            pad_b = out_b.new_zeros((max_items, 4))
+            pad_l = out_l.new_zeros((max_items,))
+            pad_s = out_s.new_zeros((max_items,))
+            pad_b[: out_b.shape[0]].copy_(out_b)
+            pad_l[: out_l.shape[0]].copy_(out_l)
+            pad_s[: out_s.shape[0]].copy_(out_s)
+            out_b, out_l, out_s = pad_b, pad_l, pad_s
+
+        num_valid = keep_count.clamp(max=max_items)
+        valid_mask = torch.arange(max_items, device=det_bboxes.device) < num_valid
+        out_b = self._apply_keep_mask(out_b, valid_mask)
+        out_l = self._apply_keep_mask(out_l, valid_mask)
+        out_s = self._apply_keep_mask(out_s, valid_mask)
+        return out_b, out_l, out_s, num_valid
 
 
 def calculate_box_heights(bboxes: torch.Tensor) -> torch.Tensor:

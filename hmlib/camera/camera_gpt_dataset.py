@@ -137,6 +137,7 @@ class _LoadedGame:
     cam_slow_tlwh_by_frame: Dict[int, np.ndarray]  # normalized TLWH
     cam_fast_tlwh_by_frame: Dict[int, np.ndarray]  # normalized TLWH
     pose_feat_by_frame: Dict[int, np.ndarray]
+    rink_feat: np.ndarray  # fixed per-game features
 
 
 def _pose_features_from_json(pose_json: str, norm: CameraNorm) -> np.ndarray:
@@ -206,8 +207,45 @@ def _pose_features_from_json(pose_json: str, norm: CameraNorm) -> np.ndarray:
     return feat
 
 
+def _rink_features_from_mask_png(game_dir: str, norm: CameraNorm) -> np.ndarray:
+    """Return fixed-length rink features derived from rink_mask_0.png (zeros if missing)."""
+    feat = np.zeros((7,), dtype=np.float32)
+    try:
+        import cv2
+
+        p = Path(game_dir) / "rink_mask_0.png"
+        if not p.is_file():
+            return feat
+        mask = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+        if mask is None or mask.size == 0:
+            return feat
+        # Treat non-zero pixels as rink.
+        ys, xs = np.nonzero(mask > 0)
+        if xs.size == 0 or ys.size == 0:
+            return feat
+        x1 = float(xs.min())
+        y1 = float(ys.min())
+        x2 = float(xs.max())
+        y2 = float(ys.max())
+        cx = float(xs.mean())
+        cy = float(ys.mean())
+        area = float(xs.size) / float(mask.shape[0] * mask.shape[1])
+        sx = max(1e-6, float(norm.scale_x))
+        sy = max(1e-6, float(norm.scale_y))
+        feat[0] = float(np.clip(x1 / sx, 0.0, 1.0))
+        feat[1] = float(np.clip(y1 / sy, 0.0, 1.0))
+        feat[2] = float(np.clip(x2 / sx, 0.0, 1.0))
+        feat[3] = float(np.clip(y2 / sy, 0.0, 1.0))
+        feat[4] = float(np.clip(cx / sx, 0.0, 1.0))
+        feat[5] = float(np.clip(cy / sy, 0.0, 1.0))
+        feat[6] = float(np.clip(area, 0.0, 1.0))
+        return feat
+    except Exception:
+        return feat
+
+
 def _load_game(
-    paths: GameCsvPaths, norm: CameraNorm, target_mode: str, include_pose: bool
+    paths: GameCsvPaths, norm: CameraNorm, target_mode: str, include_pose: bool, include_rink: bool
 ) -> _LoadedGame:
     tracks = _read_tracking_dataframe(paths.tracking_csv)
     cams = _read_camera_dataframe(paths.camera_csv)
@@ -269,6 +307,12 @@ def _load_game(
         except Exception:
             pose_feat_by_frame = {}
 
+    rink_feat = (
+        _rink_features_from_mask_png(str(Path(paths.tracking_csv).parent), norm=norm)
+        if include_rink
+        else np.zeros((7,), dtype=np.float32)
+    )
+
     return _LoadedGame(
         game_id=paths.game_id,
         frames=frames_int,
@@ -276,6 +320,7 @@ def _load_game(
         cam_slow_tlwh_by_frame=cam_slow_tlwh_by_frame,
         cam_fast_tlwh_by_frame=cam_fast_tlwh_by_frame,
         pose_feat_by_frame=pose_feat_by_frame,
+        rink_feat=rink_feat,
     )
 
 
@@ -290,9 +335,13 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         target_mode: str = "slow_center_h",
         feature_mode: str = "base_prev_y",
         include_pose: bool = True,
+        include_rink: bool = False,
         max_players_for_norm: int = 22,
         seed: int = 0,
         max_cached_games: int = 8,
+        *,
+        preload_csv: str = "none",
+        shard_games_by_worker: bool = False,
     ) -> None:
         super().__init__()
         self._games = games
@@ -305,13 +354,19 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         self._target_mode = str(target_mode)
         self._feature_mode = str(feature_mode)
         self._include_pose = bool(include_pose)
+        self._include_rink = bool(include_rink)
         self._pose_feat_dim = 8 if self._include_pose else 0
+        self._rink_feat_dim = 7 if self._include_rink else 0
         self._seed = int(seed)
         self._max_cached = int(max_cached_games)
+        self._preload_csv = str(preload_csv)
+        self._shard_games_by_worker = bool(shard_games_by_worker)
         self._cache: Dict[str, _LoadedGame] = {}
         self._cache_order: deque[str] = deque()
         if self._feature_mode not in {"legacy_prev_slow", "base_prev_y"}:
             raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
+        if self._preload_csv not in {"none", "shard", "all"}:
+            raise ValueError(f"Unknown preload_csv: {self._preload_csv}")
 
     @property
     def norm(self) -> CameraNorm:
@@ -320,12 +375,12 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
     @property
     def base_dim(self) -> int:
         """Dimension of per-frame inputs excluding previous camera state."""
-        return 8 + int(self._pose_feat_dim)
+        return 8 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
 
     @property
     def feature_dim(self) -> int:
         if self._feature_mode == "legacy_prev_slow":
-            return 11 + int(self._pose_feat_dim)
+            return 11 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
         if self._feature_mode == "base_prev_y":
             return int(self.base_dim) + int(self.target_dim)
         raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
@@ -353,6 +408,7 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                 norm=self._norm,
                 target_mode=self._target_mode,
                 include_pose=self._include_pose,
+                include_rink=self._include_rink,
             )
         except Exception:
             return None
@@ -368,9 +424,24 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         worker = get_worker_info()
         worker_id = int(worker.id) if worker is not None else 0
+        num_workers = int(worker.num_workers) if worker is not None else 1
         rng = random.Random(self._seed + worker_id)
+
+        games = self._games
+        if self._shard_games_by_worker and worker is not None and num_workers > 1:
+            shard = list(games[worker_id::num_workers])
+            if shard:
+                games = shard
+
+        if self._preload_csv != "none":
+            to_load = games if self._preload_csv == "shard" else self._games
+            # Ensure the cache can hold all preloaded games without eviction.
+            self._max_cached = max(self._max_cached, len(to_load))
+            for paths in to_load:
+                self._get_game(paths)
+
         while True:
-            paths = rng.choice(self._games)
+            paths = rng.choice(games)
             game = self._get_game(paths)
             if game is None:
                 continue
@@ -446,11 +517,17 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                     )
                 else:
                     feat = build_frame_base_features(tlwh=tlwh, norm=self._norm)
+
                 if self._include_pose:
                     pose_feat = game.pose_feat_by_frame.get(f)
                     if pose_feat is None:
                         pose_feat = np.zeros((self._pose_feat_dim,), dtype=np.float32)
                     feat = np.concatenate([feat, pose_feat.astype(np.float32, copy=False)], axis=0)
+                if self._include_rink:
+                    rf = game.rink_feat
+                    if rf is None or rf.shape[0] != int(self._rink_feat_dim):
+                        rf = np.zeros((self._rink_feat_dim,), dtype=np.float32)
+                    feat = np.concatenate([feat, rf.astype(np.float32, copy=False)], axis=0)
                 feats.append(feat.astype(np.float32, copy=False))
 
                 slow_tlwh = game.cam_slow_tlwh_by_frame.get(f)

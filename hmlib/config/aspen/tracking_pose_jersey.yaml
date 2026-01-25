@@ -147,8 +147,15 @@ aspen:
 
     detector:
       class: hmlib.aspen.plugins.detector_plugin.DetectorInferencePlugin
-      depends: [image_prep, detector_factory]
+      depends: [detector_join]
       params: {}
+
+    detector_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, detector_factory]
+      params:
+        required_plugins: [image_prep, detector_factory]
+        output_key: detector_joined
 
     save_detections:
       class: hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin
@@ -163,7 +170,7 @@ aspen:
 
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
-      depends: [detector, ice_config]
+      depends: [ice_boundaries_join]
       params:
         enabled: true
         # Optional cap on detections that survive the rink mask.
@@ -171,9 +178,16 @@ aspen:
         max_detections_in_mask: 50
         plot_ice_mask: GLOBAL.plot.plot_ice_mask
 
+    ice_boundaries_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [detector, ice_config]
+      params:
+        required_plugins: [detector, ice_config]
+        output_key: ice_boundaries_joined
+
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [detector, ice_boundaries]
+      depends: [tracker_join]
       params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
@@ -186,6 +200,13 @@ aspen:
         #   reid_feature_dim: 256
         #   reid_weight: 0.5
 
+    tracker_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [detector, ice_boundaries]
+      params:
+        required_plugins: [detector, ice_boundaries]
+        output_key: tracker_joined
+
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
       depends: [tracker]
@@ -194,9 +215,16 @@ aspen:
 
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
-      depends: [tracker, pose_factory]
+      depends: [pose_join]
       params:
         plot_pose: GLOBAL.plot.plot_pose
+
+    pose_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [tracker, pose_factory]
+      params:
+        required_plugins: [tracker, pose_factory]
+        output_key: pose_joined
 
     save_pose:
       class: hmlib.aspen.plugins.save_plugins.SavePosePlugin
@@ -206,7 +234,14 @@ aspen:
 
     jersey_numbers:
       class: hmlib.aspen.plugins.jersey_pose_plugin.JerseyNumberFromPosePlugin
+      depends: [jersey_numbers_join]
+
+    jersey_numbers_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
       depends: [pose, tracker]
+      params:
+        required_plugins: [pose, tracker]
+        output_key: jersey_numbers_joined
 
     # Optional camera dataframe load/save for camera.csv
     load_camera:
@@ -219,31 +254,66 @@ aspen:
     # setting controller: transformer|gpt and model_path to your checkpoint.
     camera_controller:
       class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
-      depends: [tracker, pose]
+      depends: [camera_controller_join]
       params:
         controller: GLOBAL.rink.camera.controller
         model_path: GLOBAL.rink.camera.camera_model
         window: GLOBAL.rink.camera.camera_window
 
+    camera_controller_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [tracker, pose]
+      params:
+        required_plugins: [tracker, pose]
+        output_key: camera_controller_joined
+
     play_tracker:
       class: hmlib.aspen.plugins.play_tracker_plugin.PlayTrackerPlugin
+      depends: [play_tracker_join]
+      enabled: true
+      params:
+        debug_play_tracker: GLOBAL.plot.debug_play_tracker
+        plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
+        plot_individual_player_tracking: false
+        plot_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_all_detections: null
+        plot_trajectories: false
+        plot_speed: GLOBAL.plot.plot_speed
+        plot_jersey_numbers: false
+        plot_actions: GLOBAL.plot.plot_actions
+
+    play_tracker_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
       depends: [
         tracker, 
         camera_controller,
         # pose,  # Uncomment to see pose drawn on the main image, but this has aperformance cost in that it can't run pose in parallel to play tracking
       ]
+      params:
+        required_plugins: [tracker, camera_controller]
+        output_key: play_tracker_joined
+
+    overlays:
+      class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
+      depends: [overlays_join]
       enabled: true
       params:
-        debug_play_tracker: GLOBAL.plot.debug_play_tracker
-        plot_moving_boxes: GLOBAL.plot.plot_moving_boxes
-        plot_individual_player_tracking: GLOBAL.plot.plot_individual_player_tracking
-        plot_tracking_circles: GLOBAL.plot.plot_tracking_circles
-        plot_boundaries: GLOBAL.plot.plot_boundaries
+        plot_pose: GLOBAL.plot.plot_pose
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_tracking: GLOBAL.plot.plot_individual_player_tracking
         plot_all_detections: GLOBAL.plot.plot_all_detections
         plot_trajectories: GLOBAL.plot.plot_trajectories
-        plot_speed: GLOBAL.plot.plot_speed
-        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
-        plot_actions: GLOBAL.plot.plot_actions
+        draw_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        # Debug aid: print what data is available when composing overlays.
+        print_available: true
+
+    overlays_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [play_tracker, pose, jersey_numbers]
+      params:
+        required_plugins: [play_tracker, pose, jersey_numbers]
+        output_key: overlays_joined
 
     save_camera:
       class: hmlib.aspen.plugins.save_plugins.SaveCameraPlugin
@@ -253,13 +323,20 @@ aspen:
 
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [play_tracker, load_camera]
+      depends: [apply_camera_join]
       enabled: true
       params:
         video_out_pipeline: GLOBAL.aspen.video_out_pipeline
         crop_play_box: GLOBAL.aspen.apply_camera.crop_play_box
         crop_output_image: GLOBAL.aspen.apply_camera.crop_output_image
         end_zones: GLOBAL.aspen.apply_camera.end_zones
+
+    apply_camera_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [overlays, load_camera]
+      params:
+        required_plugins: [overlays, load_camera]
+        output_key: apply_camera_joined
 
     rgb_stats_check:
       class: hmlib.aspen.plugins.debug_rgb_stats_plugin.RgbStatsCheckPlugin
@@ -272,7 +349,7 @@ aspen:
 
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
-      depends: [apply_camera, rgb_stats_check, pose]
+      depends: [video_out_join]
       enabled: true
       params:
         # Allow GLOBAL.aspen.video_out.skip_final_save (default from baseline.yaml)
@@ -284,3 +361,10 @@ aspen:
         show_image: GLOBAL.aspen.video_out.show_image
         show_scaled: GLOBAL.aspen.video_out.show_scaled
         output_video_path: GLOBAL.aspen.video_out.output_video_path
+
+    video_out_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [apply_camera, rgb_stats_check, pose]
+      params:
+        required_plugins: [apply_camera, rgb_stats_check, pose]
+        output_key: video_out_joined

@@ -85,16 +85,30 @@ aspen:
       depends: [image_prep]
       params: {}
 
-    ice_boundaries:
-      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
+    ice_boundaries_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
       depends: [load_tracking, ice_config]
       params:
+        required_plugins: [load_tracking, ice_config]
+        output_key: ice_boundaries_joined
+
+    ice_boundaries:
+      class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
+      depends: [ice_boundaries_join]
+      params:
         max_detections_in_mask: 50
+
+    pose_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [load_tracking, pose_factory]
+      params:
+        required_plugins: [load_tracking, pose_factory]
+        output_key: pose_joined
 
     # Run pose on top of loaded tracks
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
-      depends: [load_tracking, pose_factory]
+      depends: [pose_join]
       params:
         plot_pose: GLOBAL.plot.plot_pose
 
@@ -107,3 +121,16 @@ aspen:
       class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [pose]
       params: {}
+
+    overlays:
+      class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
+      depends: [pose]
+      enabled: true
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        draw_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        print_available: false

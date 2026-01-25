@@ -9,6 +9,8 @@ import numpy as np
 import torch
 from mmengine.structures import InstanceData
 
+from pathlib import Path
+
 from hmlib.bbox.box_functions import center, clamp_box, make_box_at_center
 from hmlib.builder import HM
 from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT, unpack_gpt_checkpoint
@@ -186,6 +188,84 @@ class CameraControllerPlugin(Plugin):
             except Exception:
                 pass
 
+        return feat
+
+    def _rink_features(self, context: Dict[str, Any]) -> np.ndarray:
+        """Fixed-length rink features (7,) derived from rink_profile or rink_mask_0.png."""
+        feat = np.zeros((7,), dtype=np.float32)
+        if self._norm is None:
+            return feat
+        sx = max(1e-6, float(self._norm.scale_x))
+        sy = max(1e-6, float(self._norm.scale_y))
+
+        rp = context.get("rink_profile")
+        if isinstance(rp, dict):
+            try:
+                bbox = rp.get("combined_bbox")
+                centroid = rp.get("centroid")
+                if bbox is not None and len(bbox) == 4:
+                    x1, y1, x2, y2 = (
+                        float(bbox[0]),
+                        float(bbox[1]),
+                        float(bbox[2]),
+                        float(bbox[3]),
+                    )
+                    feat[0] = float(np.clip(x1 / sx, 0.0, 1.0))
+                    feat[1] = float(np.clip(y1 / sy, 0.0, 1.0))
+                    feat[2] = float(np.clip(x2 / sx, 0.0, 1.0))
+                    feat[3] = float(np.clip(y2 / sy, 0.0, 1.0))
+                if centroid is not None and len(centroid) == 2:
+                    cx, cy = float(centroid[0]), float(centroid[1])
+                    feat[4] = float(np.clip(cx / sx, 0.0, 1.0))
+                    feat[5] = float(np.clip(cy / sy, 0.0, 1.0))
+                # area fraction if mask present
+                mask = rp.get("combined_mask")
+                if mask is not None:
+                    try:
+                        if hasattr(mask, "detach"):
+                            m = mask.detach().cpu().numpy()
+                        else:
+                            m = np.asarray(mask)
+                        feat[6] = float(np.clip(float(np.mean(m > 0)), 0.0, 1.0))
+                    except Exception:
+                        pass
+                return feat
+            except Exception:
+                pass
+
+        # Fallback: load rink_mask_0.png from game_dir if present.
+        try:
+            import cv2
+
+            shared = context.get("shared", {}) or {}
+            game_dir = shared.get("game_dir")
+            if not game_dir:
+                return feat
+            p = Path(str(game_dir)) / "rink_mask_0.png"
+            if not p.is_file():
+                return feat
+            mask = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+            if mask is None or mask.size == 0:
+                return feat
+            ys, xs = np.nonzero(mask > 0)
+            if xs.size == 0 or ys.size == 0:
+                return feat
+            x1 = float(xs.min())
+            y1 = float(ys.min())
+            x2 = float(xs.max())
+            y2 = float(ys.max())
+            cx = float(xs.mean())
+            cy = float(ys.mean())
+            area = float(xs.size) / float(mask.shape[0] * mask.shape[1])
+            feat[0] = float(np.clip(x1 / sx, 0.0, 1.0))
+            feat[1] = float(np.clip(y1 / sy, 0.0, 1.0))
+            feat[2] = float(np.clip(x2 / sx, 0.0, 1.0))
+            feat[3] = float(np.clip(y2 / sy, 0.0, 1.0))
+            feat[4] = float(np.clip(cx / sx, 0.0, 1.0))
+            feat[5] = float(np.clip(cy / sy, 0.0, 1.0))
+            feat[6] = float(np.clip(area, 0.0, 1.0))
+        except Exception:
+            pass
         return feat
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -412,11 +492,20 @@ class CameraControllerPlugin(Plugin):
                     if bool(getattr(self._gpt_cfg, "include_pose", False))
                     else None
                 )
+                rink_feat = (
+                    self._rink_features(context)
+                    if bool(getattr(self._gpt_cfg, "include_rink", False))
+                    else None
+                )
 
                 if str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow")) == "base_prev_y":
                     base_feat = build_frame_base_features(tlwh=tlwh_np, norm=self._norm)
                     if pose_feat is not None:
                         base_feat = np.concatenate([base_feat, pose_feat], axis=0).astype(
+                            np.float32, copy=False
+                        )
+                    if rink_feat is not None:
+                        base_feat = np.concatenate([base_feat, rink_feat], axis=0).astype(
                             np.float32, copy=False
                         )
                     if self._prev_y is None or int(self._prev_y.shape[0]) != int(
@@ -435,6 +524,10 @@ class CameraControllerPlugin(Plugin):
                     )
                     if pose_feat is not None:
                         feat = np.concatenate([feat, pose_feat], axis=0).astype(
+                            np.float32, copy=False
+                        )
+                    if rink_feat is not None:
+                        feat = np.concatenate([feat, rink_feat], axis=0).astype(
                             np.float32, copy=False
                         )
 

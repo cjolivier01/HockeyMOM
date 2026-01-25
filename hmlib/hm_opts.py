@@ -899,7 +899,7 @@ class hm_opts(object):
             "--show-scaled",
             type=float,
             default=None,
-            help="scale showed image (ignored is --show-image is not specified)",
+            help="scale preview window and imply --show/--show-image",
         )
         parser.add_argument(
             "--scoreboard-scale",
@@ -1540,8 +1540,16 @@ class hm_opts(object):
             opt.cache_size = 0
             opt.no_async_dataset = True
 
-        if opt.show_scaled:
+        # `hmtrack` applies arg->config overrides before calling `hm_opts.init`,
+        # so `--show-scaled` must imply both the CLI flag and the config value
+        # that VideoOutPlugin reads.
+        if getattr(opt, "show_scaled", None) is not None:
             opt.show_image = True
+            try:
+                if isinstance(getattr(opt, "game_config", None), dict):
+                    set_nested_value(opt.game_config, "aspen.video_out.show_image", True)
+            except Exception:
+                pass
 
         # Resolve "auto" decoder selection to a concrete backend.
         # Prefer GPU decode (pynvcodec) when CUDA + PyNvVideoCodec are available.

@@ -84,3 +84,20 @@ class BarrierPlugin(Plugin):
             else:
                 _increment_done(shared)
         return {}
+
+
+class KeyPlugin(Plugin):
+    """Test plugin that returns a fixed mapping (for join/merge tests)."""
+
+    def __init__(self, outputs: Dict[str, Any]):
+        super().__init__()
+        self._outputs = dict(outputs)
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        return dict(self._outputs)
+
+    def input_keys(self) -> set[str]:
+        return set()
+
+    def output_keys(self) -> set[str]:
+        return set(self._outputs.keys())

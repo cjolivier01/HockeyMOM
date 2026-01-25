@@ -47,12 +47,13 @@ def _ensure_hockeymom_ext(repo_root: Path) -> None:
     if spec is None or spec.loader is None:
         return
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[arg-type]
+    try:
+        spec.loader.exec_module(module)  # type: ignore[arg-type]
+    except ImportError:
+        # Best-effort: the Bazel-built extension may depend on a libpython/ABI
+        # that is not compatible with the interpreter running this test.
+        return
     sys.modules[ext_key] = module
-
-
-_repo_root = _ensure_repo_on_path()
-_ensure_hockeymom_ext(_repo_root)
 
 
 def _require_torch_cuda():
@@ -61,6 +62,7 @@ def _require_torch_cuda():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available")
+    _ensure_hockeymom_ext(_ensure_repo_on_path())
     return torch
 
 

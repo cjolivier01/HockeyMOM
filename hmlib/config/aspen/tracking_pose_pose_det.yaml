@@ -85,9 +85,16 @@ aspen:
         pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
         show_progress: false
 
+    pose_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, pose_factory]
+      params:
+        required_plugins: [image_prep, pose_factory]
+        output_key: pose_joined
+
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
-      depends: [image_prep, pose_factory]
+      depends: [pose_join]
       params: {}
 
     save_pose:
@@ -110,23 +117,57 @@ aspen:
       depends: [image_prep]
       params: {}
 
+    ice_boundaries_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [pose_to_det, ice_config]
+      params:
+        required_plugins: [pose_to_det, ice_config]
+        output_key: ice_boundaries_joined
+
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
-      depends: [pose_to_det, ice_config]
+      depends: [ice_boundaries_join]
       params:
         max_detections_in_mask: 50
 
+    tracker_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
+      params:
+        required_plugins: [pose_to_det, ice_boundaries, model_factory, boundaries]
+        output_key: tracker_joined
+
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
+      depends: [tracker_join]
       params: {}
+
+    save_tracking_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [pose, tracker]
+      params:
+        required_plugins: [pose, tracker]
+        output_key: save_tracking_joined
 
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
-      depends: [pose, tracker]
+      depends: [save_tracking_join]
       params: {}
 
     postprocess:
       class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
       depends: [tracker]
       params: {}
+
+    overlays:
+      class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
+      depends: [pose]
+      enabled: true
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        draw_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        print_available: false

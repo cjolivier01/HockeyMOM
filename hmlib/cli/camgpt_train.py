@@ -2,8 +2,9 @@ import argparse
 import math
 import os
 import random
+import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
 from torch import nn, optim
@@ -176,6 +177,157 @@ def _load_game_ids(args: argparse.Namespace) -> List[str]:
     return dedup
 
 
+def _arg_in_argv(flag: str) -> bool:
+    try:
+        return flag in sys.argv
+    except Exception:
+        return False
+
+
+def _load_game_dirs_from_list(list_path: str) -> List[Path]:
+    p = Path(list_path).expanduser()
+    if not p.is_file():
+        raise FileNotFoundError(f"file list does not exist: {p}")
+    root = p.parent
+    out: List[Path] = []
+    for raw in p.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        d = Path(line).expanduser()
+        if not d.is_absolute():
+            d = root / d
+        out.append(d)
+    # de-dupe, keep order
+    seen: set[str] = set()
+    dedup: List[Path] = []
+    for d in out:
+        key = str(d)
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(d)
+    return dedup
+
+
+def _parse_checkpoint_naming(out: str) -> Tuple[Path, str, str]:
+    """Return (best_path, prefix, ext)."""
+    best_path = Path(out)
+    ext = "".join(best_path.suffixes) or ".pt"
+    name = best_path.name
+    stem = name[: -len(ext)] if name.endswith(ext) else best_path.stem
+    prefix = stem
+    if prefix.endswith("_best"):
+        prefix = prefix[: -len("_best")]
+    if not prefix:
+        prefix = "camera_gpt"
+    if not stem.endswith("_best"):
+        best_path = best_path.with_name(f"{prefix}_best{ext}")
+    return best_path, prefix, ext
+
+
+def _checkpoint_path(best_path: Path, prefix: str, ext: str, step_num: int) -> Path:
+    return best_path.with_name(f"{prefix}_{int(step_num)}{ext}")
+
+
+def _list_numbered_checkpoints(best_path: Path, prefix: str, ext: str) -> List[tuple[int, Path]]:
+    out: List[tuple[int, Path]] = []
+    pat = f"{prefix}_"
+    for p in best_path.parent.glob(f"{prefix}_*{ext}"):
+        if p.name == best_path.name:
+            continue
+        name = p.name
+        if not name.startswith(pat) or not name.endswith(ext):
+            continue
+        mid = name[len(pat) : -len(ext)]
+        if not mid.isdigit():
+            continue
+        out.append((int(mid), p))
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def _checkpoint_compatible(ckpt: dict, cfg: CameraGPTConfig) -> bool:
+    try:
+        m = ckpt.get("model") or {}
+        return (
+            int(m.get("d_in")) == int(cfg.d_in)
+            and int(m.get("d_out")) == int(cfg.d_out)
+            and str(m.get("feature_mode")) == str(cfg.feature_mode)
+            and bool(m.get("include_pose")) == bool(cfg.include_pose)
+            and int(m.get("d_model")) == int(cfg.d_model)
+            and int(m.get("nhead")) == int(cfg.nhead)
+            and int(m.get("nlayers")) == int(cfg.nlayers)
+        )
+    except Exception:
+        return False
+
+
+def _maybe_resume(
+    *,
+    best_path: Path,
+    prefix: str,
+    ext: str,
+    resume_mode: str,
+    device: torch.device,
+    model: nn.Module,
+    opt: optim.Optimizer,
+    cfg: CameraGPTConfig,
+) -> int:
+    if resume_mode == "none":
+        return 1
+
+    numbered = _list_numbered_checkpoints(best_path, prefix, ext)
+    latest = numbered[-1][1] if numbered else (best_path if best_path.is_file() else None)
+
+    if latest is None:
+        if resume_mode == "force":
+            raise SystemExit(f"--resume specified but no checkpoint found for prefix={prefix}")
+        return 1
+
+    ckpt = torch.load(str(latest), map_location="cpu")
+    if not _checkpoint_compatible(ckpt, cfg):
+        msg = f"Checkpoint incompatible with current model cfg: {latest}"
+        if resume_mode == "force":
+            raise SystemExit(msg)
+        logger.warning("%s (skipping resume)", msg)
+        return 1
+
+    model.load_state_dict(ckpt["state_dict"])
+    opt_sd = ckpt.get("optimizer")
+    if opt_sd:
+        try:
+            opt.load_state_dict(opt_sd)
+        except Exception as ex:
+            logger.warning("Failed to load optimizer state from %s: %s", latest, ex)
+    model.to(device)
+    step0 = int(ckpt.get("step", 0) or 0)
+    logger.info("Resumed from %s (step=%d)", latest, step0)
+    return max(1, step0 + 1)
+
+
+def _save_training_checkpoint(
+    *,
+    path: Path,
+    step_num: int,
+    model: nn.Module,
+    opt: optim.Optimizer,
+    train_ds: CameraPanZoomGPTIterableDataset,
+    cfg: CameraGPTConfig,
+    game_csvs: List[GameCsvPaths],
+    target_mode: str,
+    include_pose: bool,
+) -> None:
+    ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(train_ds._seq_len), cfg=cfg)
+    ckpt["step"] = int(step_num)
+    ckpt["games"] = [p.game_id for p in game_csvs]
+    ckpt["target_mode"] = str(target_mode)
+    ckpt["include_pose"] = bool(include_pose)
+    ckpt["optimizer"] = opt.state_dict()
+    os.makedirs(str(path.parent), exist_ok=True)
+    torch.save(ckpt, str(path))
+
+
 @torch.no_grad()
 def _eval_loss(
     model: nn.Module,
@@ -224,12 +376,35 @@ def main():
     ap.add_argument("--game-ids", type=str, default=None, help="Comma-separated game ids")
     ap.add_argument("--game-ids-file", type=str, default=None, help="Text file with game ids")
     ap.add_argument(
+        "--file-list",
+        type=str,
+        default=None,
+        help=(
+            "Path to a .lst text file containing game directories. Each line should be either an "
+            "absolute path or a path relative to the .lst file's directory. Each game directory "
+            "must contain tracking.csv and camera.csv (pose.csv optional). When set, this overrides "
+            "--game-id/--game-ids/--game-ids-file."
+        ),
+    )
+    ap.add_argument(
         "--videos-root",
         type=str,
         default=str(Path(os.environ.get("HOME", "")) / "Videos"),
         help="Root directory containing <game-id>/ directories (default: $HOME/Videos)",
     )
     ap.add_argument("--seq-len", type=int, default=32, help="Sequence length in frames")
+    ap.add_argument(
+        "--sample-seconds",
+        type=float,
+        default=3.0,
+        help="Window length to sample (seconds). Used when --file-list is set and --seq-len isn't provided.",
+    )
+    ap.add_argument(
+        "--fps",
+        type=float,
+        default=30.0,
+        help="FPS used to convert --sample-seconds into frames (used only for --file-list mode).",
+    )
     ap.add_argument(
         "--target-mode",
         type=str,
@@ -255,6 +430,15 @@ def main():
         help="Disable pose.csv feature aggregation even if pose.csv exists.",
     )
     ap.add_argument(
+        "--include-rink",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Include rink features derived from rink_mask_0.png / rink_profile (requires retraining). "
+            "Use --no-include-rink to disable."
+        ),
+    )
+    ap.add_argument(
         "--scheduled-sampling",
         action="store_true",
         help="Enable scheduled sampling (only when --feature-mode=base_prev_y).",
@@ -273,16 +457,44 @@ def main():
     )
     ap.add_argument("--steps", type=int, default=2000, help="Training optimizer steps")
     ap.add_argument(
+        "--max-iters",
+        dest="max_iters",
+        type=int,
+        default=None,
+        help="Alias for --steps (max training iterations).",
+    )
+    ap.add_argument(
         "--frames",
         type=int,
         default=0,
         help="Optional training budget in frames (overrides --steps when >0)",
     )
     ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument(
+        "--data-workers",
+        type=int,
+        default=0,
+        help="DataLoader workers (0 runs data pipeline in the main process).",
+    )
+    ap.add_argument(
+        "--pin-memory",
+        action="store_true",
+        help="Enable DataLoader pin_memory (useful for GPU training).",
+    )
+    ap.add_argument(
+        "--preload-csv",
+        type=str,
+        default="none",
+        choices=["none", "shard", "all"],
+        help=(
+            "Preload CSVs into each dataset worker process. "
+            "'shard' loads only the worker's slice of games; 'all' loads all games in every worker."
+        ),
+    )
     ap.add_argument("--lr", type=float, default=1e-4)
-    ap.add_argument("--d-model", type=int, default=128)
-    ap.add_argument("--nhead", type=int, default=4)
-    ap.add_argument("--nlayers", type=int, default=4)
+    ap.add_argument("--d-model", type=int, default=512)
+    ap.add_argument("--nhead", type=int, default=8)
+    ap.add_argument("--nlayers", type=int, default=8)
     ap.add_argument("--dropout", type=float, default=0.1)
     ap.add_argument("--loss-l1-weight", type=float, default=1.0, help="Weight for L1 loss.")
     ap.add_argument(
@@ -315,6 +527,31 @@ def main():
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--eval-every", type=int, default=200)
     ap.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=2000,
+        help=(
+            "Save a training checkpoint every N steps (0=disabled). "
+            "Checkpoints are saved alongside --out as <prefix>_<step>.pt (best is <prefix>_best.pt)."
+        ),
+    )
+    ap.add_argument(
+        "--max-checkpoints",
+        type=int,
+        default=10,
+        help="Keep only the last N numbered checkpoints (0=keep all). Best checkpoint is kept.",
+    )
+    ap.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from latest checkpoint if found (or error if none found).",
+    )
+    ap.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Disable auto-resume even if checkpoints are present.",
+    )
+    ap.add_argument(
         "--camera-csv-name",
         type=str,
         default=None,
@@ -332,47 +569,112 @@ def main():
         default=None,
         help="Optional fixed pose CSV filename inside each <videos-root>/<game-id>/ (e.g. pose.csv).",
     )
-    ap.add_argument("--out", type=str, default="camera_gpt.pt")
+    ap.add_argument("--out", type=str, default="camera_gpt_best.pt")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--max-cached-games", type=int, default=8)
+    ap.add_argument(
+        "--max-games",
+        type=int,
+        default=0,
+        help="Optional cap on number of games loaded from --file-list or ids (0=no cap).",
+    )
     args = ap.parse_args()
 
-    game_ids = _load_game_ids(args)
-    if not game_ids:
-        raise SystemExit("No game ids provided (use --game-id/--game-ids/--game-ids-file)")
+    # --max-iters is an alias for --steps. If both are provided explicitly, require they match.
+    if args.max_iters is not None:
+        steps_in_argv = _arg_in_argv("--steps")
+        max_iters_in_argv = _arg_in_argv("--max-iters")
+        if steps_in_argv and max_iters_in_argv and int(args.steps) != int(args.max_iters):
+            raise SystemExit("--steps and --max-iters both provided but differ; please use one.")
+        if (not steps_in_argv) and max_iters_in_argv:
+            args.steps = int(args.max_iters)
 
-    videos_root = Path(args.videos_root)
-    if not videos_root.is_dir():
-        raise SystemExit(f"videos_root does not exist: {videos_root}")
+    resume_mode = "auto"
+    if bool(args.no_resume):
+        resume_mode = "none"
+    elif bool(args.resume):
+        resume_mode = "force"
 
     game_csvs: List[GameCsvPaths] = []
-    for gid in game_ids:
-        gdir = videos_root / gid
-        if not gdir.is_dir():
-            logger.warning("Skipping %s (missing dir %s)", gid, gdir)
-            continue
-        paths = resolve_csv_paths(
-            game_id=gid,
-            game_dir=str(gdir),
-            camera_csv_name=args.camera_csv_name,
-            camera_fast_csv_name=args.camera_fast_csv_name,
-            pose_csv_name=args.pose_csv_name,
-        )
-        if paths is None:
-            logger.warning("Skipping %s (missing tracking.csv/camera.csv)", gid)
-            continue
-        if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
-            logger.warning(
-                "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid
+
+    if args.file_list:
+        # Default to seconds-based sampling unless --seq-len was explicitly provided.
+        if not _arg_in_argv("--seq-len"):
+            fps = max(1.0, float(args.fps))
+            secs = max(0.1, float(args.sample_seconds))
+            args.seq_len = int(round(secs * fps))
+
+        game_dirs = _load_game_dirs_from_list(args.file_list)
+        if int(args.max_games) > 0:
+            game_dirs = game_dirs[: int(args.max_games)]
+        if not game_dirs:
+            raise SystemExit(f"No game directories found in {args.file_list}")
+
+        for game_dir in game_dirs:
+            if not game_dir.is_dir():
+                logger.warning("Skipping missing game dir: %s", game_dir)
+                continue
+            paths = resolve_csv_paths(
+                game_id=game_dir.name,
+                game_dir=str(game_dir),
+                camera_csv_name=args.camera_csv_name,
+                camera_fast_csv_name=args.camera_fast_csv_name,
+                pose_csv_name=args.pose_csv_name,
             )
-            continue
-        try:
-            validate_csv_paths(paths)
-        except Exception as ex:
-            logger.warning("Skipping %s (bad CSV paths): %s", gid, ex)
-            continue
-        game_csvs.append(paths)
+            if paths is None:
+                logger.warning("Skipping %s (missing tracking.csv/camera.csv)", game_dir)
+                continue
+            if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+                logger.warning(
+                    "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)",
+                    game_dir,
+                )
+                continue
+            try:
+                validate_csv_paths(paths)
+            except Exception as ex:
+                logger.warning("Skipping %s (bad CSV paths): %s", game_dir, ex)
+                continue
+            game_csvs.append(paths)
+    else:
+        game_ids = _load_game_ids(args)
+        if not game_ids:
+            raise SystemExit("No game ids provided (use --game-id/--game-ids/--game-ids-file)")
+
+        videos_root = Path(args.videos_root)
+        if not videos_root.is_dir():
+            raise SystemExit(f"videos_root does not exist: {videos_root}")
+
+        if int(args.max_games) > 0:
+            game_ids = game_ids[: int(args.max_games)]
+
+        for gid in game_ids:
+            gdir = videos_root / gid
+            if not gdir.is_dir():
+                logger.warning("Skipping %s (missing dir %s)", gid, gdir)
+                continue
+            paths = resolve_csv_paths(
+                game_id=gid,
+                game_dir=str(gdir),
+                camera_csv_name=args.camera_csv_name,
+                camera_fast_csv_name=args.camera_fast_csv_name,
+                pose_csv_name=args.pose_csv_name,
+            )
+            if paths is None:
+                logger.warning("Skipping %s (missing tracking.csv/camera.csv)", gid)
+                continue
+            if args.target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+                logger.warning(
+                    "Skipping %s (missing camera_fast.csv for --target-mode=slow_fast_tlwh)", gid
+                )
+                continue
+            try:
+                validate_csv_paths(paths)
+            except Exception as ex:
+                logger.warning("Skipping %s (bad CSV paths): %s", gid, ex)
+                continue
+            game_csvs.append(paths)
 
     if not game_csvs:
         raise SystemExit(
@@ -404,11 +706,20 @@ def main():
         target_mode=str(args.target_mode),
         feature_mode=str(args.feature_mode),
         include_pose=bool(args.include_pose),
+        include_rink=bool(args.include_rink),
         max_players_for_norm=int(args.max_players),
         seed=int(args.seed),
         max_cached_games=int(args.max_cached_games),
+        preload_csv=str(args.preload_csv),
+        shard_games_by_worker=(int(args.data_workers) > 1),
     )
-    train_loader = DataLoader(train_ds, batch_size=int(args.batch_size), num_workers=0)
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=int(args.batch_size),
+        num_workers=int(args.data_workers),
+        pin_memory=bool(args.pin_memory),
+        persistent_workers=int(args.data_workers) > 0,
+    )
 
     val_loader = None
     if val_games and int(args.val_steps) > 0:
@@ -419,11 +730,20 @@ def main():
             target_mode=str(args.target_mode),
             feature_mode=str(args.feature_mode),
             include_pose=bool(args.include_pose),
+            include_rink=bool(args.include_rink),
             max_players_for_norm=int(args.max_players),
             seed=int(args.seed) + 999,
             max_cached_games=max(1, int(args.max_cached_games // 2)),
+            preload_csv=str(args.preload_csv),
+            shard_games_by_worker=(int(args.data_workers) > 1),
         )
-        val_loader = DataLoader(val_ds, batch_size=int(args.batch_size), num_workers=0)
+        val_loader = DataLoader(
+            val_ds,
+            batch_size=int(args.batch_size),
+            num_workers=int(args.data_workers),
+            pin_memory=bool(args.pin_memory),
+            persistent_workers=int(args.data_workers) > 0,
+        )
 
     device = (
         torch.device(args.device)
@@ -435,12 +755,15 @@ def main():
         d_out=int(train_ds.target_dim),
         feature_mode=str(args.feature_mode),
         include_pose=bool(args.include_pose),
+        include_rink=bool(args.include_rink),
         d_model=int(args.d_model),
         nhead=int(args.nhead),
         nlayers=int(args.nlayers),
         dropout=float(args.dropout),
     )
     model = CameraPanZoomGPT(cfg).to(device)
+    n_params = sum(p.numel() for p in model.parameters())
+    logger.info("Model params: %.2fM", float(n_params) / 1e6)
     opt = optim.AdamW(model.parameters(), lr=float(args.lr))
 
     steps = int(args.steps)
@@ -459,7 +782,19 @@ def main():
 
     it = iter(train_loader)
     best_val = float("inf")
-    for step in range(1, steps + 1):
+    best_path, prefix, ext = _parse_checkpoint_naming(args.out)
+    start_step = _maybe_resume(
+        best_path=best_path,
+        prefix=prefix,
+        ext=ext,
+        resume_mode=resume_mode,
+        device=device,
+        model=model,
+        opt=opt,
+        cfg=cfg,
+    )
+
+    for step in range(start_step, steps + 1):
         model.train()
         batch = next(it)
         y = batch["y"].to(device)
@@ -516,6 +851,30 @@ def main():
         loss.backward()
         opt.step()
 
+        if int(args.checkpoint_every) > 0 and (step % int(args.checkpoint_every) == 0):
+            ckpt_path = _checkpoint_path(best_path, prefix, ext, step)
+            _save_training_checkpoint(
+                path=ckpt_path,
+                step_num=step,
+                model=model,
+                opt=opt,
+                train_ds=train_ds,
+                cfg=cfg,
+                game_csvs=game_csvs,
+                target_mode=str(args.target_mode),
+                include_pose=bool(args.include_pose),
+            )
+            logger.info("Saved checkpoint to %s", ckpt_path)
+            max_keep = int(args.max_checkpoints)
+            if max_keep > 0:
+                numbered = _list_numbered_checkpoints(best_path, prefix, ext)
+                if len(numbered) > max_keep:
+                    for _, p in numbered[: len(numbered) - max_keep]:
+                        try:
+                            p.unlink()
+                        except Exception:
+                            pass
+
         if step % int(args.log_every) == 0 or step == 1:
             msg = f"step {step}/{steps}: train_loss={metrics['loss']:.5f}"
             if "l1_slow" in metrics:
@@ -547,26 +906,32 @@ def main():
             logger.info("step %d/%d: val_loss=%.5f", step, steps, float(val))
             if val < best_val:
                 best_val = float(val)
-                ckpt = pack_gpt_checkpoint(
-                    model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg
+                _save_training_checkpoint(
+                    path=best_path,
+                    step_num=step,
+                    model=model,
+                    opt=opt,
+                    train_ds=train_ds,
+                    cfg=cfg,
+                    game_csvs=game_csvs,
+                    target_mode=str(args.target_mode),
+                    include_pose=bool(args.include_pose),
                 )
-                ckpt["step"] = int(step)
-                ckpt["games"] = [p.game_id for p in game_csvs]
-                ckpt["target_mode"] = str(args.target_mode)
-                ckpt["include_pose"] = bool(args.include_pose)
-                os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-                torch.save(ckpt, args.out)
-                logger.info("Saved best checkpoint to %s", args.out)
+                logger.info("Saved best checkpoint to %s", best_path)
 
     if val_loader is None:
-        ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(args.seq_len), cfg=cfg)
-        ckpt["step"] = int(steps)
-        ckpt["games"] = [p.game_id for p in game_csvs]
-        ckpt["target_mode"] = str(args.target_mode)
-        ckpt["include_pose"] = bool(args.include_pose)
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-        torch.save(ckpt, args.out)
-        logger.info("Saved checkpoint to %s", args.out)
+        _save_training_checkpoint(
+            path=best_path,
+            step_num=steps,
+            model=model,
+            opt=opt,
+            train_ds=train_ds,
+            cfg=cfg,
+            game_csvs=game_csvs,
+            target_mode=str(args.target_mode),
+            include_pose=bool(args.include_pose),
+        )
+        logger.info("Saved checkpoint to %s", best_path)
 
 
 if __name__ == "__main__":

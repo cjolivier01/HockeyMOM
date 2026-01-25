@@ -80,9 +80,16 @@ aspen:
         pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
         show_progress: false
 
+    pose_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [image_prep, pose_factory]
+      params:
+        required_plugins: [image_prep, pose_factory]
+        output_key: pose_joined
+
     pose:
       class: hmlib.aspen.plugins.pose_plugin.PosePlugin
-      depends: [image_prep, pose_factory]
+      depends: [pose_join]
       params:
         plot_pose: GLOBAL.plot.plot_pose
 
@@ -96,15 +103,29 @@ aspen:
       depends: [image_prep]
       params: {}
 
+    ice_boundaries_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [pose_to_det, ice_config]
+      params:
+        required_plugins: [pose_to_det, ice_config]
+        output_key: ice_boundaries_joined
+
     ice_boundaries:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
-      depends: [pose_to_det, ice_config]
+      depends: [ice_boundaries_join]
       params:
         max_detections_in_mask: 50
 
+    tracker_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
+      params:
+        required_plugins: [pose_to_det, ice_boundaries, model_factory, boundaries]
+        output_key: tracker_joined
+
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [pose_to_det, ice_boundaries, model_factory, boundaries]
+      depends: [tracker_join]
       params: {}
 
     # New: MMAction2 action recognition from poses per tracked player
@@ -117,9 +138,16 @@ aspen:
         # Optional: label map (defaults to NTU60 label map if omitted)
         # label_map_path: openmm/mmaction2/tools/data/skeleton/label_map_ntu60.txt
 
+    actions_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [tracker, action_factory]
+      params:
+        required_plugins: [tracker, action_factory]
+        output_key: actions_joined
+
     actions:
       class: hmlib.aspen.plugins.action_pose_plugin.ActionFromPosePlugin
-      depends: [tracker, action_factory]
+      depends: [actions_join]
       params:
         top_k: 3
         score_threshold: 0.0
@@ -150,7 +178,27 @@ aspen:
       depends: [actions]
       params: {}
 
+    postprocess_join:
+      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+      depends: [save_tracking, jersey_numbers]
+      params:
+        required_plugins: [save_tracking, jersey_numbers]
+        output_key: postprocess_joined
+
     postprocess:
       class: hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin
-      depends: [save_tracking, jersey_numbers]
+      depends: [postprocess_join]
       params: {}
+
+    overlays:
+      class: hmlib.aspen.plugins.overlay_plugin.OverlayPlugin
+      depends: [actions]
+      enabled: true
+      params:
+        plot_pose: GLOBAL.plot.plot_pose
+        plot_jersey_numbers: GLOBAL.plot.plot_jersey_numbers
+        plot_tracking: GLOBAL.plot.plot_individual_player_tracking
+        plot_all_detections: GLOBAL.plot.plot_all_detections
+        plot_trajectories: GLOBAL.plot.plot_trajectories
+        draw_tracking_circles: GLOBAL.plot.plot_tracking_circles
+        print_available: false

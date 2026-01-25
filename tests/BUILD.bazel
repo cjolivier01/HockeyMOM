@@ -78,6 +78,43 @@ py_test(
     name = "test_pynvcodec_writer",
     srcs = ["test_pynvcodec_writer.py"],
     deps = [
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "test_jersey_tracker",
+    srcs = ["test_jersey_tracker.py"],
+    deps = [
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "test_jersey_koshkina_side_view",
+    srcs = ["test_jersey_koshkina_side_view.py"],
+    deps = [
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "test_jersey_pose_plugin_rois",
+    srcs = ["test_jersey_pose_plugin_rois.py"],
+    deps = [
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "test_show_scaled_implies_show",
+    srcs = ["test_show_scaled_implies_show.py"],
+    deps = [
+        "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )

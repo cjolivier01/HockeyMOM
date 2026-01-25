@@ -16,8 +16,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..utils.image import is_channels_first, make_channels_first
 
-# Key: (point size, ttf file path) -> letter -> RGB tensor
-CHARACTERS: Dict[Tuple[int, str], Dict[str, torch.Tensor]] = {}
+# Key: (ttf file path, point size, device) -> letter -> RGBA tensor
+CHARACTERS: Dict[Tuple[str, int, str], Dict[str, torch.Tensor]] = {}
 
 
 def print_rgba_planes(image_tensor):
@@ -53,7 +53,7 @@ def _create_text_images(
     global CHARACTERS
     assert font_path
 
-    key = (font_path, font_size)
+    key = (font_path, font_size, str(device))
     found = CHARACTERS.get(key)
     if found is not None:
         return found
@@ -199,3 +199,43 @@ def draw_text(
     if ndims == 4:
         image = image.unsqueeze(0)
     return image
+
+
+def measure_text(text: str, font_size: int = 20) -> Tuple[int, int]:
+    """Return (width_px, height_px) for `draw_text` with the same `font_size`.
+
+    This is used by overlays to draw a background box before rendering text.
+    """
+    if not text:
+        return 0, 0
+    font_size = int(font_size * 10)
+    global draw_text_SIZE_TO_FONT_PATHS
+    font_path = draw_text_SIZE_TO_FONT_PATHS.get(font_size)
+    if font_path is None:
+        font_path = find_font_path()
+        draw_text_SIZE_TO_FONT_PATHS[font_size] = font_path
+    char_images = _create_text_images(
+        font_path=font_path,
+        font_size=font_size,
+        font_color=(255, 255, 255),
+        device="cpu",
+    )
+    line_width = 0
+    max_width = 0
+    height = int(char_images["max_height"])
+    total_height = height
+    for ch in text:
+        if ch == "\n":
+            max_width = max(max_width, line_width)
+            line_width = 0
+            total_height += height
+            continue
+        if ch == "\r":
+            max_width = max(max_width, line_width)
+            line_width = 0
+            continue
+        glyph = char_images.get(ch)
+        if glyph is not None:
+            line_width += int(glyph.shape[-1])
+    max_width = max(max_width, line_width)
+    return int(max_width), int(total_height)

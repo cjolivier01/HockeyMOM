@@ -3,10 +3,40 @@ from typing import Any, Dict, List, Optional, Set
 import torch
 
 from hmlib.tracking_utils.utils import get_track_mask
+from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 
 from .base import Plugin
+
+
+def _to_cuda_tensor(value: Any, *, device: torch.device) -> Optional[torch.Tensor]:
+    if isinstance(value, torch.Tensor):
+        t = value
+    else:
+        t = None
+        try:
+            import numpy as np  # type: ignore
+
+            if isinstance(value, np.ndarray):
+                t = torch.from_numpy(value)
+        except Exception:
+            t = None
+        if t is None:
+            if (
+                isinstance(value, (list, tuple))
+                and value
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value)
+            ):
+                t = torch.as_tensor(value)
+            else:
+                return None
+
+    if t.device != device:
+        t = t.to(device=device, non_blocking=True)
+    if t.dtype == torch.float64:
+        t = t.to(dtype=torch.float32)
+    return t.contiguous()
 
 
 class PosePlugin(Plugin):
@@ -22,10 +52,20 @@ class PosePlugin(Plugin):
       - data: updated with 'pose_results'
     """
 
-    def __init__(self, enabled: bool = True, plot_pose: bool = False):
+    def __init__(
+        self,
+        enabled: bool = True,
+        plot_pose: bool = False,
+        cuda_graph: bool = False,
+        cuda_graph_max_instances: int = 32,
+    ):
         # Need to import in order to register
         super().__init__(enabled=enabled)
         self._default_plot_pose: bool = bool(plot_pose)
+        self._cuda_graph_enabled: bool = bool(cuda_graph)
+        self._cuda_graph_max_instances: int = int(max(1, cuda_graph_max_instances))
+        self._pose_cg: Optional[CudaGraphCallable] = None
+        self._pose_cg_device: Optional[torch.device] = None
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -53,10 +93,15 @@ class PosePlugin(Plugin):
                 pred_track_instances.instances_id = unwrap_tensor(pred_track_instances.instances_id)
                 pred_track_instances.labels = unwrap_tensor(pred_track_instances.labels)
                 pred_track_instances.scores = unwrap_tensor(pred_track_instances.scores)
-            else:
-                assert False, "No pred_track_instances found in video_data_samples"
+            # If track instances are absent, fall back to MMPose's internal detector path.
 
         per_frame_bboxes, frame_metas = self._collect_bboxes(track_data_sample, frame_count)
+        if per_frame_bboxes is not None:
+            try:
+                if all((not torch.is_tensor(b)) or b.numel() == 0 for b in per_frame_bboxes):
+                    per_frame_bboxes = None
+            except Exception:
+                pass
 
         det_imgs_tensor = data.get("img")
         if isinstance(det_imgs_tensor, StreamTensorBase):
@@ -72,6 +117,7 @@ class PosePlugin(Plugin):
             and frame_metas is not None
             and frame_count is not None
             and len(frame_metas) == frame_count
+            and per_frame_bboxes is not None
         ):
             use_det_imgs = True
             for idx in range(frame_count):
@@ -149,78 +195,331 @@ class PosePlugin(Plugin):
                 except Exception:
                     return []
 
-            batched_data_infos: List[Any] = []
-            frame_batch_indices: List[int] = []
-            empty_frame_indices: Set[int] = set()
-            for i, (img, bxs) in enumerate(zip(inputs, per_frame_bboxes)):
-                if bxs.numel() == 0:
-                    empty_frame_indices.add(i)
-                    continue
+            use_pose_cudagraph = (
+                self._cuda_graph_enabled
+                and torch.cuda.is_available()
+                and isinstance(inputs, torch.Tensor)
+                and inputs.is_cuda
+            )
 
-                # Keep bboxes on GPU and feed them directly to the MMPose
-                # pipeline as torch tensors to avoid host synchronization.
-                for j in range(bxs.shape[0]):
-                    bbox = bxs[j]
-                    inst: Dict[str, Any] = {
-                        "img": img,
-                        # "img_path": str(i).rjust(10, "0") + ".jpg",
-                        "img_path": None,
-                        "hm_frame_index": i,
-                    }
-                    inst.update(dataset_meta)
-                    inst["bbox"] = bbox[None, :4].to(dtype=torch.float32)
-                    inst["bbox_score"] = bbox[4:5].to(dtype=torch.float32)
-                    batched_data_infos.append(pipeline(inst))
-                    frame_batch_indices.append(i)
+            from mmengine.structures import InstanceData
+            from mmpose.structures import PoseDataSample
 
-            frame_predictions: List[Optional[List[Any]]] = [None] * len(inputs)
+            if use_pose_cudagraph:
+                try:
+                    model_device = next(model.parameters()).device
+                except StopIteration:
+                    model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                if model_device.type != "cuda":
+                    raise RuntimeError("Pose CUDA graph requires the pose model to be on CUDA")
 
-            if batched_data_infos:
-                proc_inputs = collate_fn(batched_data_infos)
+                max_k = int(self._cuda_graph_max_instances)
+                dp = getattr(model, "data_preprocessor", None)
+                mean_t = getattr(dp, "mean", None) if dp is not None else None
+                std_t = getattr(dp, "std", None) if dp is not None else None
+                swap_rgb = bool(
+                    (getattr(dp, "bgr_to_rgb", False) if dp is not None else False)
+                    or (getattr(dp, "rgb_to_bgr", False) if dp is not None else False)
+                )
+                if isinstance(mean_t, torch.Tensor):
+                    if mean_t.ndim == 1:
+                        mean_t = mean_t.view(1, -1, 1, 1)
+                    elif mean_t.ndim == 3:
+                        mean_t = mean_t.unsqueeze(0)
+                if isinstance(std_t, torch.Tensor):
+                    if std_t.ndim == 1:
+                        std_t = std_t.view(1, -1, 1, 1)
+                    elif std_t.ndim == 3:
+                        std_t = std_t.unsqueeze(0)
+
+                mean_graph = (
+                    mean_t.detach().to(device=model_device, dtype=torch.float32)
+                    if isinstance(mean_t, torch.Tensor)
+                    else None
+                )
+                std_graph = (
+                    std_t.detach().to(device=model_device, dtype=torch.float32)
+                    if isinstance(std_t, torch.Tensor)
+                    else None
+                )
+
+                head = getattr(model, "head", None)
+                neck = getattr(model, "neck", None)
+                decoder = getattr(head, "decoder", None) if head is not None else None
+                if head is None or decoder is None or not hasattr(decoder, "simcc_split_ratio"):
+                    raise RuntimeError("Pose CUDA graph requires head.decoder.simcc_split_ratio")
+                split_ratio = getattr(decoder, "simcc_split_ratio", 1.0)
+                if isinstance(split_ratio, (list, tuple)) and len(split_ratio) >= 2:
+                    split_ratio_t = torch.tensor(
+                        [float(split_ratio[0]), float(split_ratio[1])],
+                        device=model_device,
+                        dtype=torch.float32,
+                    ).view(1, 1, 2)
+                else:
+                    sr = float(split_ratio)
+                    split_ratio_t = torch.tensor(
+                        [sr, sr], device=model_device, dtype=torch.float32
+                    ).view(1, 1, 2)
+
+                def _pose_fn(
+                    x: torch.Tensor,
+                    input_center: torch.Tensor,
+                    input_scale: torch.Tensor,
+                    input_size: torch.Tensor,
+                ):
+                    if x.dtype != torch.float32:
+                        x = x.to(dtype=torch.float32)
+                    if swap_rgb and x.ndim == 4 and x.size(1) == 3:
+                        x = x[:, [2, 1, 0], :, :]
+                    if isinstance(mean_graph, torch.Tensor) and isinstance(std_graph, torch.Tensor):
+                        x = (x - mean_graph) / std_graph
+                    feats = model.backbone(x)
+                    if neck is not None:
+                        feats = neck(feats)
+                    if not isinstance(feats, (tuple, list)):
+                        feats = (feats,)
+                    pred_x, pred_y = head.forward(feats)  # type: ignore[operator]
+                    if pred_x.ndim != 3 or pred_y.ndim != 3:
+                        raise RuntimeError("Pose CUDA graph expected (N,K,W) SimCC tensors")
+                    n, k, _ = pred_x.shape
+                    flat_x = pred_x.reshape(n * k, -1)
+                    flat_y = pred_y.reshape(n * k, -1)
+                    max_val_x, x_idx = flat_x.max(dim=1)
+                    max_val_y, y_idx = flat_y.max(dim=1)
+                    locs = torch.stack((x_idx, y_idx), dim=-1).to(dtype=torch.float32)
+                    better_mask = max_val_x > max_val_y
+                    vals = torch.where(better_mask, max_val_y, max_val_x)
+                    invalid = vals <= 0
+                    locs = torch.where(invalid.unsqueeze(-1), locs.new_full(locs.shape, -1.0), locs)
+                    locs = locs.reshape(n, k, 2)
+                    scores = vals.reshape(n, k)
+                    keypoints = locs / split_ratio_t
+
+                    center = input_center.to(dtype=torch.float32)
+                    scale = input_scale.to(dtype=torch.float32)
+                    size = input_size.to(dtype=torch.float32)
+                    center = center.view(center.shape[0], 1, 2)
+                    scale = scale.view(scale.shape[0], 1, 2)
+                    size = size.view(size.shape[0], 1, 2)
+                    offset = scale * 0.5
+                    transformed = keypoints[..., :2] / size * scale + center - offset
+                    keypoints = keypoints.clone()
+                    keypoints[..., :2] = transformed
+                    return keypoints, scores
+
+                for frame_index, (img, bxs_full) in enumerate(zip(inputs, per_frame_bboxes)):
+                    if isinstance(img, torch.Tensor) and img.device != model_device:
+                        img = img.to(device=model_device, non_blocking=True)
+                    bxs = bxs_full
+                    if bbox_thr > 0 and bxs.numel() > 0:
+                        bxs = bxs[bxs[:, 4] >= bbox_thr]
+                    if bxs.numel() == 0:
+                        all_pose_results.append({"predictions": _build_empty_predictions()})
+                        continue
+
+                    scores = bxs[:, 4].to(dtype=torch.float32)
+                    k = min(int(bxs.shape[0]), max_k)
+                    if k > 0:
+                        order = torch.topk(scores, k=k).indices
+                        bxs = bxs.index_select(0, order)
+                    valid_count = int(bxs.shape[0])
+                    if valid_count < max_k:
+                        pad = bxs.new_zeros((max_k - valid_count, bxs.shape[1]))
+                        pad[:, 2] = 1.0
+                        pad[:, 3] = 1.0
+                        bxs = torch.cat([bxs, pad], dim=0)
+
+                    batched_data_infos: List[Any] = []
+                    for j in range(bxs.shape[0]):
+                        bbox = bxs[j]
+                        inst: Dict[str, Any] = {
+                            "img": img,
+                            "img_path": None,
+                            "hm_frame_index": frame_index,
+                        }
+                        inst.update(dataset_meta)
+                        inst["bbox"] = bbox[None, :4].to(dtype=torch.float32)
+                        inst["bbox_score"] = bbox[4:5].to(dtype=torch.float32)
+                        batched_data_infos.append(pipeline(inst))
+
+                    proc_inputs = collate_fn(batched_data_infos)
+                    inputs_t = proc_inputs.get("inputs")
+                    if not isinstance(inputs_t, torch.Tensor):
+                        if isinstance(inputs_t, (list, tuple)):
+                            if len(inputs_t) == 0:
+                                raise RuntimeError(
+                                    "Pose CUDA graph got empty proc_inputs['inputs']"
+                                )
+                            tensors: List[torch.Tensor] = []
+                            for item in inputs_t:
+                                if not isinstance(item, torch.Tensor):
+                                    raise RuntimeError(
+                                        "Pose CUDA graph requires tensor items in proc_inputs['inputs']"
+                                    )
+                                t = item
+                                if t.ndim == 4 and t.size(0) == 1:
+                                    t = t.squeeze(0)
+                                tensors.append(t)
+                            if len(tensors) == 1:
+                                inputs_t = tensors[0]
+                                if inputs_t.ndim == 3:
+                                    inputs_t = inputs_t.unsqueeze(0)
+                            else:
+                                inputs_t = torch.stack(tensors, dim=0)
+                            proc_inputs["inputs"] = inputs_t
+                        else:
+                            raise RuntimeError(
+                                "Pose CUDA graph requires tensor proc_inputs['inputs']"
+                            )
+                    if inputs_t.device != model_device:
+                        inputs_t = inputs_t.to(device=model_device, non_blocking=True)
+                        proc_inputs["inputs"] = inputs_t
+                    if not inputs_t.is_cuda:
+                        raise RuntimeError("Pose CUDA graph requires CUDA proc_inputs['inputs']")
+
+                    data_samples = proc_inputs.get("data_samples")
+                    if not isinstance(data_samples, list) or len(data_samples) != int(
+                        inputs_t.shape[0]
+                    ):
+                        raise RuntimeError(
+                            "Pose CUDA graph requires proc_inputs['data_samples'] list"
+                        )
+                    centers_l: List[torch.Tensor] = []
+                    scales_l: List[torch.Tensor] = []
+                    sizes_l: List[torch.Tensor] = []
+                    for ds in data_samples:
+                        meta = getattr(ds, "metainfo", {}) or {}
+                        if not isinstance(meta, dict):
+                            try:
+                                meta = dict(meta)
+                            except Exception:
+                                meta = {}
+                        for k in ("input_center", "input_scale", "input_size"):
+                            if k not in meta:
+                                raise RuntimeError(f"Pose CUDA graph requires metainfo[{k}]")
+                        c = _to_cuda_tensor(meta["input_center"], device=model_device)
+                        s = _to_cuda_tensor(meta["input_scale"], device=model_device)
+                        z = _to_cuda_tensor(meta["input_size"], device=model_device)
+                        if c is None or s is None or z is None:
+                            raise RuntimeError(
+                                "Pose CUDA graph requires tensorizable input_center/scale/size"
+                            )
+                        centers_l.append(c.reshape(-1)[:2])
+                        scales_l.append(s.reshape(-1)[:2])
+                        sizes_l.append(z.reshape(-1)[:2])
+                    centers = torch.stack(centers_l, dim=0).contiguous()
+                    scales = torch.stack(scales_l, dim=0).contiguous()
+                    sizes = torch.stack(sizes_l, dim=0).contiguous()
+
+                    if self._pose_cg is None or self._pose_cg_device != inputs_t.device:
+                        self._pose_cg = CudaGraphCallable(
+                            _pose_fn,
+                            (inputs_t, centers, scales, sizes),
+                            name="pose",
+                        )
+                        self._pose_cg_device = inputs_t.device
+
+                    keypoints, kp_scores = self._pose_cg(inputs_t, centers, scales, sizes)
+                    keypoints = keypoints[:valid_count]
+                    kp_scores = kp_scores[:valid_count]
+
+                    gt_boxes: List[torch.Tensor] = []
+                    gt_scores: List[torch.Tensor] = []
+                    for ds in data_samples[:valid_count]:
+                        gt = getattr(ds, "gt_instances", None)
+                        if (
+                            gt is None
+                            or not hasattr(gt, "bboxes")
+                            or not hasattr(gt, "bbox_scores")
+                        ):
+                            raise RuntimeError(
+                                "Pose CUDA graph requires gt_instances.bboxes/bbox_scores"
+                            )
+                        b = gt.bboxes
+                        sc = gt.bbox_scores
+                        if not isinstance(b, torch.Tensor):
+                            b = torch.as_tensor(b)
+                        if not isinstance(sc, torch.Tensor):
+                            sc = torch.as_tensor(sc)
+                        if b.ndim == 2 and b.shape[0] == 1:
+                            b = b.squeeze(0)
+                        if sc.ndim == 1 and sc.shape[0] == 1:
+                            sc = sc.squeeze(0)
+                        gt_boxes.append(b.to(device=model_device, dtype=torch.float32))
+                        gt_scores.append(sc.to(device=model_device, dtype=torch.float32))
+                    bboxes = torch.stack(gt_boxes, dim=0)
+                    bbox_scores = torch.stack(gt_scores, dim=0)
+
+                    merged = PoseDataSample(metainfo=getattr(data_samples[0], "metainfo", {}))
+                    merged.pred_instances = InstanceData(
+                        keypoints=keypoints,
+                        keypoint_scores=kp_scores,
+                        bboxes=bboxes,
+                        bbox_scores=bbox_scores,
+                    )
+                    all_pose_results.append({"predictions": [merged]})
+            else:
+                batched_data_infos: List[Any] = []
+                frame_batch_indices: List[int] = []
+                empty_frame_indices: Set[int] = set()
+
+                for i, (img, bxs) in enumerate(zip(inputs, per_frame_bboxes)):
+                    if bxs.numel() == 0:
+                        empty_frame_indices.add(i)
+                        continue
+
+                    for j in range(bxs.shape[0]):
+                        bbox = bxs[j]
+                        inst: Dict[str, Any] = {
+                            "img": img,
+                            "img_path": None,
+                            "hm_frame_index": i,
+                        }
+                        inst.update(dataset_meta)
+                        inst["bbox"] = bbox[None, :4].to(dtype=torch.float32)
+                        inst["bbox_score"] = bbox[4:5].to(dtype=torch.float32)
+                        batched_data_infos.append(pipeline(inst))
+                        frame_batch_indices.append(i)
+
+                frame_predictions: List[Optional[List[Any]]] = [None] * len(inputs)
                 preds: Optional[List[Any]] = None
-                tried_runner = None
-                pose_runner = getattr(context.get("pose_inferencer"), "_hm_pose_runner", None)
-                pose_forward = getattr(pose_runner, "forward", None)
-                if callable(pose_forward):
-                    tried_runner = pose_runner
-                    try:
+                if batched_data_infos:
+                    proc_inputs = collate_fn(batched_data_infos)
+                    tried_runner = None
+                    pose_runner = getattr(context.get("pose_inferencer"), "_hm_pose_runner", None)
+                    pose_forward = getattr(pose_runner, "forward", None)
+                    if callable(pose_forward):
+                        tried_runner = pose_runner
                         pr = pose_forward(proc_inputs)
                         if isinstance(pr, (list, tuple)):
                             preds = list(pr)
-                    except Exception:
-                        preds = None
-                if preds is None:
-                    # Prefer TensorRT runner if available, else ONNX
-                    trt_runner = getattr(context.get("pose_inferencer"), "_hm_trt_runner", None)
-                    trt_forward = getattr(trt_runner, "forward", None)
-                    if callable(trt_forward) and trt_runner is not tried_runner:
-                        try:
+                    if preds is None:
+                        trt_runner = getattr(context.get("pose_inferencer"), "_hm_trt_runner", None)
+                        trt_forward = getattr(trt_runner, "forward", None)
+                        if callable(trt_forward) and trt_runner is not tried_runner:
                             pr = trt_forward(proc_inputs)
                             if isinstance(pr, (list, tuple)):
                                 preds = list(pr)
-                        except Exception:
-                            preds = None
-                if preds is None:
-                    onnx_runner = getattr(context.get("pose_inferencer"), "_hm_onnx_runner", None)
-                    onnx_forward = getattr(onnx_runner, "forward", None)
-                    if callable(onnx_forward) and onnx_runner is not tried_runner:
-                        try:
+                    if preds is None:
+                        onnx_runner = getattr(
+                            context.get("pose_inferencer"), "_hm_onnx_runner", None
+                        )
+                        onnx_forward = getattr(onnx_runner, "forward", None)
+                        if callable(onnx_forward) and onnx_runner is not tried_runner:
                             pr = onnx_forward(proc_inputs)
                             if isinstance(pr, (list, tuple)):
                                 preds = list(pr)
-                        except Exception:
-                            preds = None
-                if preds is None:
-                    forward_outputs = pose_impl.forward(
-                        proc_inputs,
-                        merge_results=False,
-                        bbox_thr=bbox_thr,
-                        pose_based_nms=pose_based_nms,
-                    )
-                    if isinstance(forward_outputs, (list, tuple)):
-                        preds = list(forward_outputs)
-                    elif forward_outputs is not None:
-                        preds = [forward_outputs]
+                    if preds is None:
+                        forward_outputs = pose_impl.forward(
+                            proc_inputs,
+                            merge_results=False,
+                            bbox_thr=bbox_thr,
+                            pose_based_nms=pose_based_nms,
+                        )
+                        if isinstance(forward_outputs, (list, tuple)):
+                            preds = list(forward_outputs)
+                        elif forward_outputs is not None:
+                            preds = [forward_outputs]
 
                 if preds:
                     batch_index_iter = iter(frame_batch_indices)
@@ -229,18 +528,7 @@ class PosePlugin(Plugin):
                         meta = getattr(data_sample, "metainfo", {}) or {}
                         if isinstance(meta, dict):
                             frame_idx = meta.get("hm_frame_index")
-                        else:
-                            try:
-                                frame_idx = meta.get("hm_frame_index")  # type: ignore[attr-defined]
-                            except Exception:
-                                frame_idx = None
-
-                        # Prefer plain Python integers for frame indices to
-                        # avoid synchronizing CUDA tensors with the host.
                         if not isinstance(frame_idx, int):
-                            frame_idx = None
-
-                        if frame_idx is None:
                             frame_idx = next(batch_index_iter, None)
                         if frame_idx is None or frame_idx < 0 or frame_idx >= len(inputs):
                             continue
@@ -248,21 +536,12 @@ class PosePlugin(Plugin):
                             frame_predictions[frame_idx] = []
                         frame_predictions[frame_idx].append(data_sample)
 
-            for idx in range(len(inputs)):
-                if idx in empty_frame_indices:
-                    all_pose_results.append({"predictions": _build_empty_predictions()})
-                    continue
-                predictions = frame_predictions[idx]
-                if predictions is None:
-                    predictions = []
-                elif predictions:
-                    # Merge per-bbox PoseDataSample objects into a single
-                    # frame-level sample without touching heatmaps to keep
-                    # everything on the GPU and avoid NumPy round-trips.
-                    try:
-                        from mmengine.structures import InstanceData
-                        from mmpose.structures import PoseDataSample
-
+                for idx in range(len(inputs)):
+                    if idx in empty_frame_indices:
+                        all_pose_results.append({"predictions": _build_empty_predictions()})
+                        continue
+                    predictions = frame_predictions[idx] or []
+                    if predictions:
                         first = predictions[0]
                         merged = PoseDataSample(metainfo=getattr(first, "metainfo", {}))
                         if hasattr(first, "gt_instances"):
@@ -278,10 +557,7 @@ class PosePlugin(Plugin):
                                 ]
                             )
                         predictions = [merged]
-                    except Exception:
-                        # Fall back to unmerged list if anything goes wrong.
-                        pass
-                all_pose_results.append({"predictions": predictions})
+                    all_pose_results.append({"predictions": predictions})
 
             if use_det_imgs and inv_scale_factors:
                 self._restore_pose_outputs(all_pose_results, inv_scale_factors)
@@ -294,22 +570,18 @@ class PosePlugin(Plugin):
                         data_sample = pose_result.get("predictions", [])
                         if not data_sample:
                             continue
-                        try:
-                            img = vis.add_datasample(
-                                name="pose results",
-                                image=img,
-                                data_sample=data_sample[0],
-                                clone_image=False,
-                                draw_gt=False,
-                                draw_bbox=False,
-                                show_kpt_idx=False,
-                                kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
-                            )
-                            original_images[i] = img
-                            # show_image("pose", img, wait=False)
-                        except Exception:
-                            pass
-                    drawn_original_images.append(img)
+                        img = vis.add_datasample(
+                            name="pose results",
+                            image=img,
+                            data_sample=data_sample[0],
+                            clone_image=False,
+                            draw_gt=False,
+                            draw_bbox=False,
+                            show_kpt_idx=False,
+                            kpt_thr=kpt_thr if kpt_thr is not None else 0.3,
+                        )
+                        original_images[i] = img
+                        drawn_original_images.append(img)
         else:
             # Fallback: let MMPose handle detection internally
             for pose_results in pose_inferencer(
