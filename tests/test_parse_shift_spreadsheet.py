@@ -1006,11 +1006,9 @@ def should_write_opponent_player_stats_from_long_shift_tables(tmp_path: Path):
     assert int(row["SOG"]) == 1
 
 
-def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
-    import datetime
-
-    long_xlsx = tmp_path / "game-long.xlsx"
-
+def _write_synthetic_long_xlsx_with_two_teams(
+    out_xlsx: Path, *, team_a_name: str, team_b_name: str
+) -> None:
     # Build a synthetic long sheet with:
     #   - leftmost per-period event table (Blue/White) for team-color inference
     #   - embedded shift tables for both teams
@@ -1061,7 +1059,7 @@ def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
     rows.append(["Shot", "0:10", "14:20", "White", "34", "SOG", ""] + [None] * (width - 7))
 
     # Team A shift table (jersey 12).
-    rows.append([None] * 10 + ["Team A (1st Period)"] + [None] * (width - 11))
+    rows.append([None] * 10 + [f"{team_a_name} (1st Period)"] + [None] * (width - 11))
     rows.append(header)
     rows.append(
         [None] * 10
@@ -1099,7 +1097,7 @@ def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
 
     # Spacer then Team B shift table (jersey 34).
     rows.append([None] * width)
-    rows.append([None] * 10 + ["Team B (1st Period)"] + [None] * (width - 11))
+    rows.append([None] * 10 + [f"{team_b_name} (1st Period)"] + [None] * (width - 11))
     rows.append(header)
     rows.append(
         [None] * 10
@@ -1135,7 +1133,12 @@ def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
         ]
     )
 
-    pd.DataFrame(rows).to_excel(long_xlsx, index=False, header=False)
+    pd.DataFrame(rows).to_excel(out_xlsx, index=False, header=False)
+
+
+def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
+    long_xlsx = tmp_path / "game-long.xlsx"
+    _write_synthetic_long_xlsx_with_two_teams(long_xlsx, team_a_name="Team A", team_b_name="Team B")
 
     outdir = tmp_path / "out"
     final_outdir, *_rest = pss.process_long_only_sheets(
@@ -1163,6 +1166,37 @@ def should_process_long_only_sheets_writes_home_and_away_stats(tmp_path: Path):
     df_away = pd.read_csv(away_csv)
     row_away = df_away[(df_away["Jersey #"] == 34) & (df_away["Player"] == "Bob Example")].iloc[0]
     assert int(row_away["Goals"]) == 1
+    assert int(row_away["SOG"]) == 1
+
+
+def should_process_long_only_sheets_can_select_team_from_metadata_hints(tmp_path: Path):
+    long_xlsx = tmp_path / "game-long.xlsx"
+    _write_synthetic_long_xlsx_with_two_teams(
+        long_xlsx,
+        team_a_name="Steamboat Stampede 12AA",
+        team_b_name="San Jose Jr Sharks 12AA-2",
+    )
+
+    outdir = tmp_path / "out"
+    final_outdir, *_rest = pss.process_long_only_sheets(
+        long_xls_paths=[long_xlsx],
+        outdir=outdir,
+        goals=[],
+        roster_map=None,
+        t2s_side="away",
+        t2s_game_id=None,
+        home_team_name_hint="Steamboat Stampede 12AA",
+        away_team_name_hint="San Jose Jr Sharks 12AA-2",
+        include_shifts_in_stats=False,
+        write_events_summary=False,
+        create_scripts=False,
+    )
+    assert final_outdir == outdir / "Away" / "per_player"
+
+    away_csv = outdir / "Away" / "per_player" / "stats" / "player_stats.csv"
+    assert away_csv.exists()
+    df_away = pd.read_csv(away_csv)
+    row_away = df_away[(df_away["Jersey #"] == 34) & (df_away["Player"] == "Bob Example")].iloc[0]
     assert int(row_away["SOG"]) == 1
 
 

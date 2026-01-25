@@ -11904,6 +11904,8 @@ def process_long_only_sheets(
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     t2s_side: Optional[str] = None,
     t2s_game_id: Optional[int] = None,
+    home_team_name_hint: Optional[str] = None,
+    away_team_name_hint: Optional[str] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
     write_events_summary: Optional[bool] = None,
@@ -12006,6 +12008,9 @@ def process_long_only_sheets(
                 jerseys.add(norm)
         jerseys_by_long_team[str(team_name)] = jerseys
 
+    def _canon_team_name(s: Any) -> str:
+        return re.sub(r"\s+", " ", str(s or "").replace("\xa0", " ").strip()).casefold()
+
     # Determine our Blue/White focus team from long events (when possible).
     focus_team: Optional[str] = focus_team_override
     if focus_team not in {"Blue", "White"}:
@@ -12033,6 +12038,28 @@ def process_long_only_sheets(
 
     # Pick which embedded shift table is ours.
     our_team_name: Optional[str] = None
+    # If the caller provided explicit home/away team names (e.g. from YAML metadata), use them to
+    # pick the embedded long-sheet shift table when possible. This avoids requiring a TimeToScore id
+    # for long-only runs when the spreadsheet already contains team names.
+    team_hint = None
+    if side == "home":
+        team_hint = str(home_team_name_hint or "").strip() or None
+    elif side == "away":
+        team_hint = str(away_team_name_hint or "").strip() or None
+    if team_hint:
+        hint_c = _canon_team_name(team_hint)
+        exact = [tn for tn in jerseys_by_long_team.keys() if _canon_team_name(tn) == hint_c]
+        if len(exact) == 1:
+            our_team_name = str(exact[0])
+        elif not exact:
+            fuzzy = [
+                tn
+                for tn in jerseys_by_long_team.keys()
+                if hint_c in _canon_team_name(tn) or _canon_team_name(tn) in hint_c
+            ]
+            if len(fuzzy) == 1:
+                our_team_name = str(fuzzy[0])
+
     if focus_team in {"Blue", "White"} and long_team_color:
         best = -1
         for team_name, color in long_team_color.items():
@@ -14247,6 +14274,25 @@ def main() -> None:
                         )
 
             if primary_path is None and long_paths_for_compare:
+                home_team_name_hint = (
+                    str(
+                        meta_for_group.get("home_team")
+                        or meta_for_group.get("home_team_name")
+                        or meta_for_group.get("home")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                away_team_name_hint = (
+                    str(
+                        meta_for_group.get("away_team")
+                        or meta_for_group.get("away_team_name")
+                        or meta_for_group.get("away")
+                        or meta_for_group.get("visitor")
+                        or ""
+                    ).strip()
+                    or None
+                )
                 final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = (
                     process_long_only_sheets(
                         long_xls_paths=list(long_paths_for_compare),
@@ -14256,6 +14302,8 @@ def main() -> None:
                         t2s_rosters_by_side=t2s_rosters_by_side,
                         t2s_side=side_to_use,
                         t2s_game_id=t2s_id,
+                        home_team_name_hint=home_team_name_hint,
+                        away_team_name_hint=away_team_name_hint,
                         focus_team_override=focus_team_override,
                         include_shifts_in_stats=include_shifts_in_stats,
                         write_events_summary=write_events_summary,
