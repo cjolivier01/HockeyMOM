@@ -13617,6 +13617,7 @@ def main() -> None:
         t2s_id: Optional[int],
         side: Optional[str],
         *,
+        our_team_name_hint: Optional[str] = None,
         allow_remote: bool,
         allow_full_sync: bool,
     ) -> List[GoalEvent]:
@@ -13638,7 +13639,11 @@ def main() -> None:
             except Exception:
                 our_jerseys = None
             try:
-                gx = _goals_from_goals_xlsx(goals_xlsx, our_jerseys=our_jerseys)
+                gx = _goals_from_goals_xlsx(
+                    goals_xlsx,
+                    our_jerseys=our_jerseys,
+                    our_team_name=our_team_name_hint,
+                )
             except Exception as e:  # noqa: BLE001
                 print(f"[goals.xlsx] Failed to parse {goals_xlsx}: {e}", file=sys.stderr)
                 gx = []
@@ -13884,6 +13889,28 @@ def main() -> None:
                     sheet_path,
                     t2s_id,
                     sheet_side,
+                    our_team_name_hint=(
+                        str(
+                            (
+                                meta_for_group.get("home_team")
+                                if sheet_side == "home"
+                                else meta_for_group.get("away_team")
+                            )
+                            or (
+                                meta_for_group.get("home_team_name")
+                                if sheet_side == "home"
+                                else meta_for_group.get("away_team_name")
+                            )
+                            or (
+                                meta_for_group.get("home")
+                                if sheet_side == "home"
+                                else meta_for_group.get("away")
+                            )
+                            or (meta_for_group.get("visitor") if sheet_side == "away" else None)
+                            or ""
+                        ).strip()
+                        or None
+                    ),
                     allow_remote=t2s_allow_remote,
                     allow_full_sync=t2s_allow_full_sync,
                 )
@@ -14160,6 +14187,28 @@ def main() -> None:
                 in_path,
                 t2s_id,
                 side_to_use,
+                our_team_name_hint=(
+                    str(
+                        (
+                            meta_for_group.get("home_team")
+                            if side_to_use == "home"
+                            else meta_for_group.get("away_team")
+                        )
+                        or (
+                            meta_for_group.get("home_team_name")
+                            if side_to_use == "home"
+                            else meta_for_group.get("away_team_name")
+                        )
+                        or (
+                            meta_for_group.get("home")
+                            if side_to_use == "home"
+                            else meta_for_group.get("away")
+                        )
+                        or (meta_for_group.get("visitor") if side_to_use == "away" else None)
+                        or ""
+                    ).strip()
+                    or None
+                ),
                 allow_remote=t2s_allow_remote,
                 allow_full_sync=t2s_allow_full_sync,
             )

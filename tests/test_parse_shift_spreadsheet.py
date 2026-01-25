@@ -1007,7 +1007,14 @@ def should_write_opponent_player_stats_from_long_shift_tables(tmp_path: Path):
 
 
 def _write_synthetic_long_xlsx_with_two_teams(
-    out_xlsx: Path, *, team_a_name: str, team_b_name: str
+    out_xlsx: Path,
+    *,
+    team_a_name: str,
+    team_b_name: str,
+    team_a_jersey: int = 12,
+    team_a_player_name: str = "Alice Example",
+    team_b_jersey: int = 34,
+    team_b_player_name: str = "Bob Example",
 ) -> None:
     # Build a synthetic long sheet with:
     #   - leftmost per-period event table (Blue/White) for team-color inference
@@ -1064,8 +1071,8 @@ def _write_synthetic_long_xlsx_with_two_teams(
     rows.append(
         [None] * 10
         + [
-            12,
-            "Alice Example",
+            team_a_jersey,
+            team_a_player_name,
             datetime.time(15, 0),
             datetime.time(14, 0),
             None,
@@ -1102,8 +1109,8 @@ def _write_synthetic_long_xlsx_with_two_teams(
     rows.append(
         [None] * 10
         + [
-            34,
-            "Bob Example",
+            team_b_jersey,
+            team_b_player_name,
             "15:00",
             "14:10",
             None,
@@ -1198,6 +1205,97 @@ def should_process_long_only_sheets_can_select_team_from_metadata_hints(tmp_path
     df_away = pd.read_csv(away_csv)
     row_away = df_away[(df_away["Jersey #"] == 34) & (df_away["Player"] == "Bob Example")].iloc[0]
     assert int(row_away["SOG"]) == 1
+
+
+def should_use_file_list_team_names_to_orient_goals_xlsx_team_tables(tmp_path: Path, monkeypatch):
+    base_dir = tmp_path / "Videos"
+    stats_dir = base_dir / "utah-3" / "stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+
+    # Long-only sheet so that main() runs the goals.xlsx parsing path without a primary sheet,
+    # where roster extraction can be ambiguous/misleading.
+    long_xlsx = stats_dir / "utah-3-long.xlsx"
+    _write_synthetic_long_xlsx_with_two_teams(
+        long_xlsx,
+        team_a_name="San Jose Jr Sharks 12AA-2",
+        team_b_name="Steamboat Stampede 12AA",
+        team_a_jersey=1,
+        team_a_player_name="Ethan L Olivier",
+        team_b_jersey=17,
+        team_b_player_name="Opp Player",
+    )
+
+    # goals.xlsx uses "team table" layout (team names above each side).
+    goals_xlsx = stats_dir / "goals.xlsx"
+    df = pd.DataFrame(
+        [
+            [
+                "San Jose Jr Sharks 12AA-2",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "Steamboat Stampede 12AA",
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+            [None] * 13,
+            [
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+                None,
+                "Period",
+                "Time",
+                "Video Time",
+                "Goal",
+                "Assist 1",
+                "Assist 2",
+            ],
+            [2, "12:09", "22:03", "#1", "#70", "#8", None, 1, "1:04", None, "#17", "#19", "#97"],
+        ]
+    )
+    df.to_excel(goals_xlsx, index=False, header=False)
+
+    # Simulate misleading roster extraction (e.g. from a long sheet): only opponent jerseys.
+    monkeypatch.setattr(pss, "_extract_roster_tables_from_df", lambda _df: [("Opp", {"17": "Opp"})])
+
+    file_list = tmp_path / "games.txt"
+    file_list.write_text(
+        "utah-3/stats:AWAY|home_team=Steamboat Stampede 12AA|away_team=San Jose Jr Sharks 12AA-2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOCKEYMOM_STATS_BASE_DIR", str(base_dir))
+
+    outdir = tmp_path / "out"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "parse_stats_inputs.py",
+            "--file-list",
+            str(file_list),
+            "--outdir",
+            str(outdir),
+            "--no-scripts",
+            "--skip-validation",
+        ],
+    )
+    pss.main()
+
+    stats_csv = outdir / "Away" / "per_player" / "stats" / "player_stats.csv"
+    assert stats_csv.exists()
+    df_stats = pd.read_csv(stats_csv)
+    row = df_stats[(df_stats["Jersey #"] == 1) & (df_stats["Player"] == "Ethan L Olivier")].iloc[0]
+    assert int(row["Goals"]) == 1
 
 
 def should_compare_primary_vs_long_shift_summary_counts():
