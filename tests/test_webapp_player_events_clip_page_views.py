@@ -613,3 +613,48 @@ def should_render_event_clip_views_in_game_events_table_for_league_admin(client_
     html = r.content.decode("utf-8", errors="replace")
     assert "<th>Views</th>" in html
     assert 'data-hm-clip-views="1"' in html
+
+
+def should_infer_team_page_views_league_id_when_not_selected(client_and_models):
+    client, m = client_and_models
+
+    now = dt.datetime.now()
+    owner = m.User.objects.create(
+        id=10,
+        email="owner@example.com",
+        password_hash="x",
+        name="Owner",
+        created_at=now,
+        default_league_id=None,
+        video_clip_len_s=None,
+    )
+    m.League.objects.create(
+        id=1,
+        name="League One",
+        owner_user_id=int(owner.id),
+        is_shared=True,
+        is_public=False,
+        show_goalie_stats=False,
+        show_shift_data=False,
+        source=None,
+        external_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    team = m.Team.objects.create(
+        id=44,
+        user_id=int(owner.id),
+        name="Team 44",
+        logo_path=None,
+        is_external=False,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueTeam.objects.create(league_id=1, team_id=int(team.id), division_name="12AA")
+
+    _set_session(client, user_id=int(owner.id), email=str(owner.email))
+    r = client.get(f"/teams/{int(team.id)}")
+    assert r.status_code == 200
+    html = r.content.decode("utf-8", errors="replace")
+    assert "var pageViewsLeagueId = 1" in html
+    assert "hmCanViewLeaguePageViews = true" in html

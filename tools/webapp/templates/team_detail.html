@@ -1069,8 +1069,9 @@
           try { eid = parseInt(String(r.id || r.event_row_id || "").trim(), 10); } catch (e) { eid = null; }
           var leagueIdForViews = null;
           try {
+            var sel = (pageViewsLeagueId !== null && pageViewsLeagueId !== undefined) ? pageViewsLeagueId : selectedLeagueId;
             leagueIdForViews = window.hmLeaguePageViews
-              ? window.hmLeaguePageViews.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: selectedLeagueId })
+              ? window.hmLeaguePageViews.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: sel })
               : null;
           } catch (e) { leagueIdForViews = null; }
           if (hmCanViewLeaguePageViews && leagueIdForViews !== null && leagueIdForViews !== undefined && eid !== null && isFinite(eid) && eid > 0) {
@@ -1321,6 +1322,9 @@
       var teamId = {{ team.id|default:"0" }};
       var publicLeagueId = {{ public_league_id|default:"null" }};
       var selectedLeagueId = {{ selected_league_id|tojson }};
+      // The team page can be visited outside a selected-league session. When that happens, the server
+      // may infer the unique league that owns this team (if unambiguous) so view counts stay consistent.
+      var pageViewsLeagueId = {{ page_views_league_id|default:"null" }};
       var hmCanViewLeaguePageViews = {{ can_view_league_page_views|default:False|tojson }};
       var dlg = document.getElementById("team-player-events-modal");
       var titleEl = document.getElementById("team-player-events-title");
@@ -1344,7 +1348,8 @@
       var pv = hmPv();
       if (!pv || !pv.activeLeagueId) return null;
       try {
-        return pv.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: selectedLeagueId });
+        var sel = (pageViewsLeagueId !== null && pageViewsLeagueId !== undefined) ? pageViewsLeagueId : selectedLeagueId;
+        return pv.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: sel });
       } catch (e) {
         return null;
       }
@@ -1447,6 +1452,10 @@
         api.searchParams.set("recent_n", String(rn));
       }
       if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      else {
+        var lid = leagueIdNow();
+        if (lid !== null && lid !== undefined) api.searchParams.set("league_id", String(lid));
+      }
       return api;
     }
 

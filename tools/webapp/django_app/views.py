@@ -6380,6 +6380,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     if r:
         return r
 
+    session_uid = _session_user_id(request)
     recent_n_raw = request.GET.get("recent_n")
     try:
         recent_n = max(1, min(10, int(str(recent_n_raw or "5"))))
@@ -6392,8 +6393,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     if league_id:
         league_owner_user_id = logic._get_league_owner_user_id(None, int(league_id))
         is_league_owner = bool(
-            league_owner_user_id is not None
-            and int(league_owner_user_id) == _session_user_id(request)
+            league_owner_user_id is not None and int(league_owner_user_id) == session_uid
         )
 
     show_shift_data = True
@@ -6406,11 +6406,11 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
     is_league_admin = False
     if league_id:
         try:
-            is_league_admin = bool(_is_league_admin(int(league_id), _session_user_id(request)))
+            is_league_admin = bool(_is_league_admin(int(league_id), session_uid))
         except Exception:
             is_league_admin = False
 
-    team = logic.get_team(int(team_id), _session_user_id(request))
+    team = logic.get_team(int(team_id), session_uid)
     editable = bool(team)
     _django_orm, m = _orm_modules()
     if not team and league_id:
@@ -6431,20 +6431,67 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         messages.error(request, "Not found")
         return redirect("/teams")
 
+    # Page view counts (and per-event clip counts) are league-scoped. If the user has not selected a
+    # league in-session, but this team belongs to exactly one league where the user is an owner/admin,
+    # infer it so the team page Player Events modal can still show consistent view counts.
+    page_views_league_id: Optional[int] = None
     if league_id:
+        page_views_league_id = int(league_id)
+    else:
+        try:
+            candidate_ids = list(
+                m.LeagueTeam.objects.filter(team_id=int(team_id))
+                .values_list("league_id", flat=True)
+                .distinct()
+            )
+            candidate_ids_i = [int(x) for x in candidate_ids if x is not None]
+            if candidate_ids_i:
+                owner_ids = set(
+                    m.League.objects.filter(
+                        id__in=candidate_ids_i, owner_user_id=int(session_uid)
+                    ).values_list("id", flat=True)
+                )
+                admin_ids = set(
+                    m.LeagueMember.objects.filter(
+                        league_id__in=candidate_ids_i,
+                        user_id=int(session_uid),
+                        role__in=["admin", "owner"],
+                    ).values_list("league_id", flat=True)
+                )
+                eligible_ids = sorted({int(x) for x in (owner_ids | admin_ids)})
+                if len(eligible_ids) == 1:
+                    page_views_league_id = int(eligible_ids[0])
+        except Exception:
+            page_views_league_id = None
+
+    # Recompute league-owner/admin flags against the effective league id used for view counts.
+    if page_views_league_id:
+        try:
+            league_owner_user_id = logic._get_league_owner_user_id(None, int(page_views_league_id))
+        except Exception:
+            league_owner_user_id = None
+        is_league_owner = bool(
+            league_owner_user_id is not None and int(league_owner_user_id) == int(session_uid)
+        )
+        try:
+            is_league_admin = bool(_is_league_admin(int(page_views_league_id), int(session_uid)))
+        except Exception:
+            is_league_admin = False
+
+    if page_views_league_id:
         logic._record_league_page_view(
             None,
-            int(league_id),
+            int(page_views_league_id),
             kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
             entity_id=int(team_id),
-            viewer_user_id=_session_user_id(request),
+            viewer_user_id=session_uid,
             league_owner_user_id=league_owner_user_id,
         )
 
     team_owner_id = int(team["user_id"])
     players_qs = m.Player.objects.filter(team_id=int(team_id))
     if editable:
-        players_qs = players_qs.filter(user_id=_session_user_id(request))
+        players_qs = players_qs.filter(user_id=session_uid)
     players = list(
         players_qs.order_by("jersey_number", "name").values(
             "id",
@@ -6927,20 +6974,26 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         recent_goalie_stats_has_sog = False
         recent_goalie_stats_has_xg = False
 
-    can_view_league_page_views = bool(league_id and (is_league_owner or is_league_admin))
+    can_view_league_page_views = bool(page_views_league_id and (is_league_owner or is_league_admin))
     league_page_views = None
-    if league_id and can_view_league_page_views:
+    if page_views_league_id and can_view_league_page_views:
         count = logic._get_league_page_view_count(
-            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+            None,
+            int(page_views_league_id),
+            kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
+            entity_id=int(team_id),
         )
         baseline_count = logic._get_league_page_view_baseline_count(
-            None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
+            None,
+            int(page_views_league_id),
+            kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
+            entity_id=int(team_id),
         )
         delta_count = (
             max(0, int(count) - int(baseline_count)) if baseline_count is not None else None
         )
         league_page_views = {
-            "league_id": int(league_id),
+            "league_id": int(page_views_league_id),
             "kind": logic.LEAGUE_PAGE_VIEW_KIND_TEAM,
             "entity_id": int(team_id),
             "count": int(count),
@@ -6971,6 +7024,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             "editable": editable,
             "is_league_admin": is_league_admin,
             "can_view_league_page_views": can_view_league_page_views,
+            "page_views_league_id": page_views_league_id,
             "player_stats_sources": player_stats_sources,
             "player_stats_coverage_total_games": cov_total,
             "game_type_filter_options": game_type_filter_options,
