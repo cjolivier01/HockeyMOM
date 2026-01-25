@@ -24,7 +24,7 @@
     <tbody>
       {% for r in rows %}
         {% with row_conf=cell_conflicts_by_player_id|get_item:r.player_id %}
-        <tr>
+        <tr data-player-id="{{ r.player_id }}">
           <td>{{ r.jersey_number|default_if_none:"" }}</td>
           <td data-player-cell="name">
             {% if r.has_events %}
@@ -39,7 +39,7 @@
                   title="Show underlying events"
                 ><span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span></button>
               {% elif events_button_kind == "game" %}
-                <button type="button" class="btn secondary player-events-btn" title="Show underlying events"><span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span></button>
+                <button type="button" class="btn secondary player-events-btn" data-player-id="{{ r.player_id }}" title="Show underlying events"><span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span></button>
               {% else %}
                 <span class="hm-player-name">{% include "_player_icon.html" with position=r.position %}<span>{{ r.name|default_if_none:"" }}</span></span>
               {% endif %}

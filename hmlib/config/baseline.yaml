@@ -164,8 +164,8 @@ rink:
     fixed_edge_rotation_angle: 10
     # Ratio of height and width for the "destination" box based upon what the "fast box" size is.
     # Making this ratio larger makes the destination box larger, which makes the camera less zoomed in
-    follower_box_scale_width: 1.5
-    follower_box_scale_height: 1.5
+    follower_box_scale_width: 1.25
+    follower_box_scale_height: 1.25
     crop_image: true
     pre_clip: true
     max_speed_ratio_x: 1.0
@@ -192,7 +192,7 @@ rink:
     stop_delay_cooldown_frames: 2
     # When increasing speed toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    time_to_dest_speed_limit_frames: 30
+    time_to_dest_speed_limit_frames: 20
     # When time-to-dest limiting is active, snap to zero below this speed (px/frame)
     time_to_dest_stop_speed_threshold: 0.25
 
@@ -202,12 +202,12 @@ rink:
     # Cancel resizing brake when inputs flip opposite (true/false)
     resizing_cancel_stop_on_opposite_dir: true
     # Consecutive opposite-direction frames required to cancel resize braking
-    resizing_stop_cancel_hysteresis_frames: 2
+    resizing_stop_cancel_hysteresis_frames: 10
     # Cooldown frames after a resize stop-delay finishes/cancels before another can start
     resizing_stop_delay_cooldown_frames: 2
     # When increasing size toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
-    resizing_time_to_dest_speed_limit_frames: 20
+    resizing_time_to_dest_speed_limit_frames: 10
     # When resize time-to-dest limiting is active, snap to zero below this speed (px/frame)
     resizing_time_to_dest_stop_speed_threshold: 0.25
 
