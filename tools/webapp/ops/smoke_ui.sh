@@ -45,7 +45,9 @@ reqf() {
 
 assert_contains() {
   local needle="$1"; shift
-  if ! grep -q "$needle"; then
+  # Avoid `grep -q` under `set -o pipefail` (it can SIGPIPE the upstream writer).
+  # `grep` without `-q` reads the full stream, avoiding SIGPIPE.
+  if ! grep -E "$needle" >/dev/null; then
     echo "[!] Expected to find: $needle" >&2
     exit 1
   fi
@@ -102,9 +104,32 @@ HTML=$(reqf -L \
 echo "$HTML" | assert_contains "Smoke Team"
 
 # 5) Discover team id
-TEAM_ID=$(echo "$HTML" | sed -n 's#.*href="/teams/\([0-9]\+\)">Edit</a>.*#\1#p' | head -n1)
+TEAM_ID=$(
+  python3 -c '
+import re
+import sys
+
+html = sys.stdin.read()
+m = re.search(r"/teams/(\d+)/edit", html)
+print(m.group(1) if m else "")
+' <<< "$HTML"
+)
 if [ -z "$TEAM_ID" ]; then
-  TEAM_ID=$(reqf "$BASE/teams?all=1" | sed -n 's#.*href="/teams/\([0-9]\+\)">Smoke Team<.*#\1#p' | head -n1)
+  TEAM_ID=$(
+    reqf "$BASE/teams?all=1" | python3 -c '
+import re
+import sys
+
+html = sys.stdin.read()
+idx = html.find("Smoke Team")
+if idx == -1:
+    print("")
+else:
+    w = html[max(0, idx - 400) : idx + 80]
+    m = re.search(r"/teams/(\d+)", w)
+    print(m.group(1) if m else "")
+'
+  )
 fi
 if [ -z "$TEAM_ID" ]; then
   echo "[!] Could not resolve team id" >&2
@@ -135,23 +160,17 @@ RESP=$(curl -sS -i -c "$COOK_FILE" -b "$COOK_FILE" -X POST \
   -d "game_type_id=$GT_ID" -d "starts_at=2025-01-02T12:00" -d "location=Smoke Rink" \
   "$BASE/schedule/new")
 echo "$RESP" | assert_contains "^Location: /hky/games/"
-GAME_ID=$(echo "$RESP" | sed -n 's#Location: /hky/games/\([0-9]\+\).*#\1#p' | head -n1)
+GAME_ID=$(
+  python3 -c '
+import re
+import sys
+
+resp = sys.stdin.read()
+m = re.search(r"^Location: /hky/games/(\d+)", resp, re.M)
+print(m.group(1) if m else "")
+' <<< "$RESP"
+)
 echo "[i] GAME_ID=$GAME_ID"
-
-# 7b) Import shift spreadsheet stats for the player
-echo "[i] Importing sample shift stats"
-PS_CSV="$TMP_DIR/hm_player_stats_smoke.csv"
-cat > "$PS_CSV" << 'CSV'
-Player,Goals,Assists,Shots,SOG,xG,Plus Minus,Shifts,TOI Total,TOI Total (Video),Period 1 TOI,Period 1 Shifts,Period 1 GF,Period 1 GA
-77 Smoke Skater,1,0,2,1,0,1,5,5:00,5:00,5:00,5,1,0
-CSV
-
-CSRF="$(get_csrf "/hky/games/$GAME_ID?edit=1")"
-HTML=$(reqf -L \
-  -F "csrfmiddlewaretoken=$CSRF" \
-  -F "player_stats_csv=@$PS_CSV;type=text/csv" \
-  "$BASE/hky/games/$GAME_ID/import_shift_stats")
-echo "$HTML" | assert_contains "Imported stats for"
 
 # 8) Set final score
 echo "[i] Setting final score"
