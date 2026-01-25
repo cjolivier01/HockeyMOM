@@ -80,8 +80,16 @@ def filter_single_game_player_stats_csv(
             return True
         return False
 
+    def _meta_items(r: dict[str, str]) -> dict[str, str]:
+        # Preserve internal row metadata (used by some views for per-row actions).
+        return {k: v for k, v in (r or {}).items() if str(k).startswith("__hm_")}
+
     kept_headers = [h for h in headers if not _drop_header(h)]
-    kept_rows = [{h: r.get(h, "") for h in kept_headers} for r in (rows or [])]
+    kept_rows: list[dict[str, str]] = []
+    for r in rows or []:
+        out = {h: r.get(h, "") for h in kept_headers}
+        out.update(_meta_items(r))
+        kept_rows.append(out)
     return kept_headers, kept_rows
 
 
@@ -97,9 +105,17 @@ def normalize_game_events_csv(
     def _is_event_type_raw(h: str) -> bool:
         return str(h or "").strip().lower() in {"event type raw", "event_type_raw"}
 
+    def _meta_items(r: dict[str, str]) -> dict[str, str]:
+        # Preserve internal row metadata (used by some views for per-row actions).
+        return {k: v for k, v in (r or {}).items() if str(k).startswith("__hm_")}
+
     # Remove raw header if present.
     filtered_headers = [h for h in (headers or []) if not _is_event_type_raw(h)]
-    filtered_rows = [{h: r.get(h, "") for h in filtered_headers} for r in (rows or [])]
+    filtered_rows: list[dict[str, str]] = []
+    for r in rows or []:
+        out = {h: r.get(h, "") for h in filtered_headers}
+        out.update(_meta_items(r))
+        filtered_rows.append(out)
 
     # Prefer explicit "Event Type"; fall back to "Event" (common legacy schema).
     event_header = None
@@ -132,12 +148,17 @@ def normalize_game_events_csv(
                     out["Event Type"] = r.get(h, "")
                 else:
                     out[h] = r.get(h, "")
+            out.update(_meta_items(r))
             renamed_rows.append(out)
         filtered_headers, filtered_rows = renamed_headers, renamed_rows
         event_header = "Event Type"
 
     reordered_headers = [event_header] + [h for h in filtered_headers if h != event_header]
-    reordered_rows = [{h: r.get(h, "") for h in reordered_headers} for r in filtered_rows]
+    reordered_rows: list[dict[str, str]] = []
+    for r in filtered_rows:
+        out = {h: r.get(h, "") for h in reordered_headers}
+        out.update(_meta_items(r))
+        reordered_rows.append(out)
     return reordered_headers, reordered_rows
 
 
@@ -168,9 +189,12 @@ def filter_events_headers_drop_empty_on_ice_split(
     if keep == set(headers):
         return headers, rows
     new_headers = [h for h in headers if h in keep]
-    new_rows = [
-        {h: (r.get(h, "") if isinstance(r, dict) else "") for h in new_headers} for r in rows
-    ]
+    new_rows: list[dict[str, str]] = []
+    for r in rows:
+        base = {h: (r.get(h, "") if isinstance(r, dict) else "") for h in new_headers}
+        if isinstance(r, dict):
+            base.update({k: v for k, v in r.items() if str(k).startswith("__hm_")})
+        new_rows.append(base)
     return new_headers, new_rows
 
 

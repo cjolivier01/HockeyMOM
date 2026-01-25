@@ -1073,7 +1073,7 @@
               ? window.hmLeaguePageViews.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: selectedLeagueId })
               : null;
           } catch (e) { leagueIdForViews = null; }
-          if (hmIsLeagueOwner && leagueIdForViews !== null && leagueIdForViews !== undefined && eid !== null && isFinite(eid) && eid > 0) {
+          if (hmCanViewLeaguePageViews && leagueIdForViews !== null && leagueIdForViews !== undefined && eid !== null && isFinite(eid) && eid > 0) {
             btn.appendChild(el("span", {
               className: "muted",
               style: "font-size:.82rem;font-weight:600;",
@@ -1321,7 +1321,7 @@
       var teamId = {{ team.id|default:"0" }};
       var publicLeagueId = {{ public_league_id|default:"null" }};
       var selectedLeagueId = {{ selected_league_id|tojson }};
-      var hmIsLeagueOwner = {% if league_page_views %}true{% else %}false{% endif %};
+      var hmCanViewLeaguePageViews = {{ can_view_league_page_views|default:False|tojson }};
       var dlg = document.getElementById("team-player-events-modal");
       var titleEl = document.getElementById("team-player-events-title");
       var subtitleEl = document.getElementById("team-player-events-subtitle");
@@ -1353,7 +1353,7 @@
     function renderPlayerEventsPageViews(playerId) {
       if (!pvWrap) return;
       pvWrap.innerHTML = "";
-      if (!hmIsLeagueOwner) return;
+      if (!hmCanViewLeaguePageViews) return;
       var leagueId = leagueIdNow();
       if (leagueId === null || leagueId === undefined) return;
       var pv = hmPv();
@@ -1362,7 +1362,7 @@
     }
 
     function refreshClipViewCounts(container) {
-      if (!hmIsLeagueOwner) return;
+      if (!hmCanViewLeaguePageViews) return;
       var leagueId = leagueIdNow();
       if (leagueId === null || leagueId === undefined) return;
       var pv = hmPv();
@@ -1371,7 +1371,7 @@
     }
 
     function markClipBaselines(container) {
-      if (!hmIsLeagueOwner) return;
+      if (!hmCanViewLeaguePageViews) return;
       var leagueId = leagueIdNow();
       if (leagueId === null || leagueId === undefined) return;
       var pv = hmPv();
@@ -1383,8 +1383,21 @@
       var leagueId = leagueIdNow();
       if (leagueId === null || leagueId === undefined) return;
       var pv = hmPv();
-      if (!pv || !pv.record) return;
-      pv.record(leagueId, "event_clip", eventRowId);
+      if (pv && pv.record) {
+        pv.record(leagueId, "event_clip", eventRowId);
+        return;
+      }
+      // Best-effort fallback if the shared helpers haven't loaded yet.
+      try {
+        var eid = parseInt(String(eventRowId || "").trim(), 10);
+        if (!isFinite(eid) || eid <= 0) return;
+        fetch("/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "event_clip", entity_id: eid }),
+        }).catch(function () {});
+      } catch (e) {}
     }
 
     if (markClipsBtn) {

@@ -692,8 +692,23 @@
 
       function activeLeagueId(opts) {
         opts = opts || {};
-        var pl = opts.publicLeagueId;
-        var sl = opts.selectedLeagueId;
+        function normLeagueId(v) {
+          if (v === null || v === undefined) return null;
+          if (typeof v === "string") {
+            var s = String(v || "").trim();
+            var sLower = s.toLowerCase();
+            if (!s || sLower === "null" || sLower === "none" || sLower === "undefined") return null;
+            // Coerce integer-like strings to numbers so callers can rely on truthiness checks.
+            try {
+              var n = parseInt(s, 10);
+              if (isFinite(n) && String(n) === s) return n;
+            } catch (e) {}
+            return s;
+          }
+          return v;
+        }
+        var pl = normLeagueId(opts.publicLeagueId);
+        var sl = normLeagueId(opts.selectedLeagueId);
         if (pl !== null && pl !== undefined) return pl;
         if (sl !== null && sl !== undefined) return sl;
         return null;
@@ -704,12 +719,23 @@
         var eid = intOrNull(entityId);
         if (eid === null || eid <= 0) return;
         var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record";
+        var payload = null;
+        try { payload = JSON.stringify({ kind: String(kind || ""), entity_id: eid }); } catch (e) { payload = null; }
+        if (!payload) return;
+        try {
+          if (navigator && typeof navigator.sendBeacon === "function") {
+            var blob = null;
+            try { blob = new Blob([payload], { type: "application/json" }); } catch (e) { blob = null; }
+            if (blob && navigator.sendBeacon(url, blob)) return;
+          }
+        } catch (e) {}
         try {
           fetch(url, {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kind: String(kind || ""), entity_id: eid }),
+            body: payload,
+            keepalive: true,
           }).catch(function () {});
         } catch (e) {}
       }

@@ -3254,7 +3254,12 @@ def api_league_page_views(request: HttpRequest, league_id: int) -> JsonResponse:
     owner_id_i = int(owner_id) if owner_id is not None else None
     if owner_id_i is None:
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    if int(owner_id_i) != int(user_id):
+    is_admin = False
+    try:
+        is_admin = bool(_is_league_admin(int(league_id), int(user_id)))
+    except Exception:
+        is_admin = False
+    if int(owner_id_i) != int(user_id) and not is_admin:
         return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
 
     kind = str(request.GET.get("kind") or "").strip()
@@ -3306,7 +3311,12 @@ def api_league_page_views_mark(request: HttpRequest, league_id: int) -> JsonResp
     owner_id_i = int(owner_id) if owner_id is not None else None
     if owner_id_i is None:
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    if int(owner_id_i) != int(user_id):
+    is_admin = False
+    try:
+        is_admin = bool(_is_league_admin(int(league_id), int(user_id)))
+    except Exception:
+        is_admin = False
+    if int(owner_id_i) != int(user_id) and not is_admin:
         return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
 
     kind = str(request.POST.get("kind") or "").strip()
@@ -3446,7 +3456,12 @@ def api_league_page_views_batch(request: HttpRequest, league_id: int) -> JsonRes
     owner_id_i = int(owner_id) if owner_id is not None else None
     if owner_id_i is None:
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    if int(owner_id_i) != int(user_id):
+    is_admin = False
+    try:
+        is_admin = bool(_is_league_admin(int(league_id), int(user_id)))
+    except Exception:
+        is_admin = False
+    if int(owner_id_i) != int(user_id) and not is_admin:
         return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
 
     kind = str(request.GET.get("kind") or "").strip()
@@ -3522,7 +3537,12 @@ def api_league_page_views_mark_batch(request: HttpRequest, league_id: int) -> Js
     owner_id_i = int(owner_id) if owner_id is not None else None
     if owner_id_i is None:
         return JsonResponse({"ok": False, "error": "not_found"}, status=404)
-    if int(owner_id_i) != int(user_id):
+    is_admin = False
+    try:
+        is_admin = bool(_is_league_admin(int(league_id), int(user_id)))
+    except Exception:
+        is_admin = False
+    if int(owner_id_i) != int(user_id) and not is_admin:
         return JsonResponse({"ok": False, "error": "not_authorized"}, status=403)
 
     kind = str(request.POST.get("kind") or "").strip()
@@ -6907,8 +6927,9 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
         recent_goalie_stats_has_sog = False
         recent_goalie_stats_has_xg = False
 
+    can_view_league_page_views = bool(league_id and (is_league_owner or is_league_admin))
     league_page_views = None
-    if league_id and is_league_owner:
+    if league_id and can_view_league_page_views:
         count = logic._get_league_page_view_count(
             None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
         )
@@ -6949,6 +6970,7 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:  # pragma: 
             == "caha",
             "editable": editable,
             "is_league_admin": is_league_admin,
+            "can_view_league_page_views": can_view_league_page_views,
             "player_stats_sources": player_stats_sources,
             "player_stats_coverage_total_games": cov_total,
             "game_type_filter_options": game_type_filter_options,
@@ -7696,6 +7718,12 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
 
     _django_orm, m = _orm_modules()
     session_uid = _session_user_id(request)
+    is_league_admin = False
+    if league_id:
+        try:
+            is_league_admin = bool(_is_league_admin(int(league_id), int(session_uid)))
+        except Exception:
+            is_league_admin = False
     owned_row = (
         m.HkyGame.objects.filter(id=int(game_id), user_id=session_uid)
         .select_related("team1", "team2")
@@ -8144,8 +8172,9 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         messages.success(request, "Game updated")
         return redirect(f"/hky/games/{int(game_id)}?return_to={return_to}")
 
+    can_view_league_page_views = bool(league_id and (is_league_owner or is_league_admin))
     league_page_views = None
-    if league_id and is_league_owner:
+    if league_id and can_view_league_page_views:
         count = logic._get_league_page_view_count(
             None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
         )
@@ -8204,6 +8233,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "goalie_stats_away_rows": goalie_stats.get("away") or [],
             "goalie_stats_has_sog": bool((goalie_stats.get("meta") or {}).get("has_sog")),
             "goalie_stats_has_xg": bool((goalie_stats.get("meta") or {}).get("has_xg")),
+            "can_view_league_page_views": can_view_league_page_views,
             "league_page_views": league_page_views,
         },
     )
@@ -8789,6 +8819,13 @@ def public_league_team_detail(
         and league_owner_user_id is not None
         and int(viewer_user_id) == int(league_owner_user_id)
     )
+    is_league_admin = False
+    if viewer_user_id:
+        try:
+            is_league_admin = bool(_is_league_admin(int(league_id), int(viewer_user_id)))
+        except Exception:
+            is_league_admin = False
+    can_view_league_page_views = bool(is_league_owner or is_league_admin)
 
     show_shift_data = False
     try:
@@ -8917,21 +8954,14 @@ def public_league_team_detail(
             }
         )
 
-    now_dt = dt.datetime.now()
     for g2 in schedule_games:
-        sdt = g2.get("starts_at")
-        started = False
-        if sdt is not None:
-            try:
-                started = logic.to_dt(sdt) is not None and logic.to_dt(sdt) <= now_dt
-            except Exception:
-                started = False
         has_score = (
             (g2.get("team1_score") is not None)
             or (g2.get("team2_score") is not None)
             or bool(g2.get("is_final"))
         )
-        g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
+        # Public pages should be stable and conservative: only show game detail when a score exists.
+        g2["can_view_summary"] = bool(has_score)
         try:
             g2["game_video_url"] = logic._sanitize_http_url(
                 logic._extract_game_video_url_from_notes(g2.get("notes"))
@@ -9235,7 +9265,7 @@ def public_league_team_detail(
         recent_goalie_stats_has_xg = False
 
     league_page_views = None
-    if is_league_owner:
+    if can_view_league_page_views:
         count = logic._get_league_page_view_count(
             None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_TEAM, entity_id=int(team_id)
         )
@@ -9276,6 +9306,8 @@ def public_league_team_detail(
             == "caha",
             "editable": False,
             "public_league_id": int(league_id),
+            "is_league_admin": is_league_admin,
+            "can_view_league_page_views": can_view_league_page_views,
             "player_stats_sources": player_stats_sources,
             "player_stats_coverage_total_games": cov_total,
             "game_type_filter_options": game_type_filter_options,
@@ -9435,7 +9467,6 @@ def public_league_schedule(
             or int(g.get("team2_id") or 0) == int(team_id_i)
         ]
     games = list(games or [])
-    now_dt = dt.datetime.now()
     for g2 in games or []:
         try:
             g2["game_video_url"] = logic._sanitize_http_url(
@@ -9443,19 +9474,13 @@ def public_league_schedule(
             )
         except Exception:
             g2["game_video_url"] = None
-        sdt = g2.get("starts_at")
-        started = False
-        if sdt is not None:
-            try:
-                started = logic.to_dt(sdt) is not None and logic.to_dt(sdt) <= now_dt
-            except Exception:
-                started = False
         has_score = (
             (g2.get("team1_score") is not None)
             or (g2.get("team2_score") is not None)
             or bool(g2.get("is_final"))
         )
-        g2["can_view_summary"] = bool(has_score or (sdt is None) or started)
+        # Public pages should be stable and conservative: only show game detail when a score exists.
+        g2["can_view_summary"] = bool(has_score)
         g2["can_edit"] = False
     _attach_schedule_stats_icons(games)
     games = logic.sort_games_schedule_order(games or [])
@@ -9516,6 +9541,13 @@ def public_hky_game_detail(
         and league_owner_user_id is not None
         and int(viewer_user_id) == int(league_owner_user_id)
     )
+    is_league_admin = False
+    if viewer_user_id:
+        try:
+            is_league_admin = bool(_is_league_admin(int(league_id), int(viewer_user_id)))
+        except Exception:
+            is_league_admin = False
+    can_view_league_page_views = bool(is_league_owner or is_league_admin)
 
     show_shift_data = False
     try:
@@ -9591,20 +9623,13 @@ def public_hky_game_detail(
         )
     except Exception:
         game["game_video_url"] = None
-    now_dt = dt.datetime.now()
-    sdt = game.get("starts_at")
-    started = False
-    if sdt is not None:
-        try:
-            started = logic.to_dt(sdt) is not None and logic.to_dt(sdt) <= now_dt
-        except Exception:
-            started = False
     has_score = (
         (game.get("team1_score") is not None)
         or (game.get("team2_score") is not None)
         or bool(game.get("is_final"))
     )
-    can_view_summary = bool(has_score or (sdt is None) or started)
+    # Public pages should be stable and conservative: only show game detail when a score exists.
+    can_view_summary = bool(has_score)
     if not can_view_summary:
         raise Http404
 
@@ -9872,7 +9897,7 @@ def public_hky_game_detail(
     public_is_logged_in = bool(viewer_user_id)
 
     league_page_views = None
-    if is_league_owner:
+    if can_view_league_page_views:
         count = logic._get_league_page_view_count(
             None, int(league_id), kind=logic.LEAGUE_PAGE_VIEW_KIND_GAME, entity_id=int(game_id)
         )
@@ -9934,6 +9959,8 @@ def public_hky_game_detail(
             "goalie_stats_away_rows": goalie_stats.get("away") or [],
             "goalie_stats_has_sog": bool((goalie_stats.get("meta") or {}).get("has_sog")),
             "goalie_stats_has_xg": bool((goalie_stats.get("meta") or {}).get("has_xg")),
+            "is_league_admin": is_league_admin,
+            "can_view_league_page_views": can_view_league_page_views,
             "league_page_views": league_page_views,
         },
     )
