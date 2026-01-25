@@ -1,6 +1,9 @@
-import torch
+from __future__ import annotations
 
-from hmlib.aspen.plugins.jersey_koshkina_plugin import KoshkinaJerseyNumberPlugin
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
 
 
 def _mk_pose(
@@ -9,6 +12,8 @@ def _mk_pose(
     le: tuple[float, float, float],
     re: tuple[float, float, float],
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    import torch
+
     kpts = torch.zeros((17, 2), dtype=torch.float32)
     kps = torch.zeros((17,), dtype=torch.float32)
     for idx, (x, y, s) in {5: ls, 6: rs, 7: le, 8: re}.items():
@@ -19,6 +24,8 @@ def _mk_pose(
 
 
 def should_detect_side_view_from_shoulders() -> None:
+    from hmlib.aspen.plugins.jersey_koshkina_plugin import KoshkinaJerseyNumberPlugin
+
     plugin = KoshkinaJerseyNumberPlugin(
         side_view_enabled=True, side_view_shoulder_ratio_thresh=0.25
     )
@@ -47,6 +54,8 @@ def should_detect_side_view_from_shoulders() -> None:
 
 
 def should_build_upper_arm_roi() -> None:
+    from hmlib.aspen.plugins.jersey_koshkina_plugin import KoshkinaJerseyNumberPlugin
+
     kpts, kps = _mk_pose(
         ls=(100, 100, 0.9),
         rs=(160, 100, 0.2),

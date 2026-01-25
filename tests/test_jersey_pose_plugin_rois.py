@@ -1,9 +1,5 @@
 from types import SimpleNamespace
 
-import torch
-
-from hmlib.aspen.plugins.jersey_pose_plugin import JerseyNumberFromPosePlugin
-
 
 def _pose_inst_one_person(
     ls: tuple[float, float, float],
@@ -13,6 +9,8 @@ def _pose_inst_one_person(
     le: tuple[float, float, float],
     re: tuple[float, float, float],
 ) -> SimpleNamespace:
+    import torch
+
     kpts = torch.zeros((1, 17, 2), dtype=torch.float32)
     kps = torch.zeros((1, 17), dtype=torch.float32)
     for idx, (x, y, s) in {5: ls, 6: rs, 11: lh, 12: rh, 7: le, 8: re}.items():
@@ -23,6 +21,10 @@ def _pose_inst_one_person(
 
 
 def should_build_pose_torso_roi_when_confident() -> None:
+    import torch
+
+    from hmlib.aspen.plugins.jersey_pose_plugin import JerseyNumberFromPosePlugin
+
     plugin = JerseyNumberFromPosePlugin(roi_mode="pose", side_view_enabled=False)
     bboxes = torch.tensor([[50.0, 40.0, 150.0, 240.0]], dtype=torch.float32)
     pose = _pose_inst_one_person(
@@ -43,6 +45,10 @@ def should_build_pose_torso_roi_when_confident() -> None:
 
 
 def should_add_sleeve_roi_when_side_on() -> None:
+    import torch
+
+    from hmlib.aspen.plugins.jersey_pose_plugin import JerseyNumberFromPosePlugin
+
     plugin = JerseyNumberFromPosePlugin(
         roi_mode="pose",
         side_view_enabled=True,
@@ -66,6 +72,10 @@ def should_add_sleeve_roi_when_side_on() -> None:
 
 
 def should_filter_small_and_limit_tracks_for_performance() -> None:
+    import torch
+
+    from hmlib.aspen.plugins.jersey_pose_plugin import JerseyNumberFromPosePlugin
+
     plugin = JerseyNumberFromPosePlugin(
         roi_mode="bbox",
         max_tracks_per_frame=2,

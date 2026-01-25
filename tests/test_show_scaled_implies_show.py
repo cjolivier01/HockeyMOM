@@ -1,9 +1,9 @@
 import argparse
 
-from hmlib.hm_opts import hm_opts
-
 
 def should_show_scaled_imply_show_image_and_config() -> None:
+    from hmlib.hm_opts import hm_opts
+
     parser = hm_opts.parser(argparse.ArgumentParser())
     args = parser.parse_args(["--show-scaled", "0.5"])
 

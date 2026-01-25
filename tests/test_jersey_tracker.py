@@ -1,10 +1,9 @@
-import torch
-
-from hmlib.jersey.jersey_tracker import JerseyTracker
-from hmlib.jersey.number_classifier import TrackJerseyInfo
-
-
 def should_stabilize_and_switch_numbers() -> None:
+    import torch
+
+    from hmlib.jersey.jersey_tracker import JerseyTracker
+    from hmlib.jersey.number_classifier import TrackJerseyInfo
+
     tracker = JerseyTracker(
         show=True,
         evidence_decay=0.95,
