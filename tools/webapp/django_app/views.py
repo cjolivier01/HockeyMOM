@@ -3375,6 +3375,65 @@ def _parse_entity_ids_csv(raw: Any, *, max_ids: int = 500) -> list[int]:
     return uniq
 
 
+def _validate_league_page_view_entity_ids(
+    *,
+    m,
+    league_id: int,
+    kind: str,
+    entity_ids: list[int],
+) -> bool:
+    """
+    Ensure all entity_ids belong to the league for the given kind.
+
+    This prevents querying/marking view counts for cross-league entities via batch APIs.
+    """
+    kind_s = str(kind or "").strip()
+    ids = [int(x) for x in (entity_ids or []) if int(x) > 0]
+    if not ids:
+        return True
+    if kind_s in {logic.LEAGUE_PAGE_VIEW_KIND_TEAMS, logic.LEAGUE_PAGE_VIEW_KIND_SCHEDULE}:
+        return True
+    if kind_s == logic.LEAGUE_PAGE_VIEW_KIND_TEAM:
+        ok_ids = set(
+            m.LeagueTeam.objects.filter(
+                league_id=int(league_id), team_id__in=list(ids)
+            ).values_list("team_id", flat=True)
+        )
+        return len(ok_ids) == len(set(ids))
+    if kind_s == logic.LEAGUE_PAGE_VIEW_KIND_GAME:
+        ok_ids = set(
+            m.LeagueGame.objects.filter(
+                league_id=int(league_id), game_id__in=list(ids)
+            ).values_list("game_id", flat=True)
+        )
+        return len(ok_ids) == len(set(ids))
+    if kind_s == logic.LEAGUE_PAGE_VIEW_KIND_PLAYER_EVENTS:
+        rows = list(m.Player.objects.filter(id__in=list(ids)).values_list("id", "team_id"))
+        team_ids = {int(tid) for _pid, tid in rows if tid is not None}
+        ok_team_ids = set(
+            m.LeagueTeam.objects.filter(
+                league_id=int(league_id), team_id__in=list(team_ids)
+            ).values_list("team_id", flat=True)
+        )
+        for _pid, tid in rows:
+            if int(tid) not in ok_team_ids:
+                return False
+        return True
+    if kind_s == logic.LEAGUE_PAGE_VIEW_KIND_EVENT_CLIP:
+        rows = list(m.HkyGameEventRow.objects.filter(id__in=list(ids)).values_list("id", "game_id"))
+        game_ids = {int(gid) for _eid, gid in rows if gid is not None}
+        ok_game_ids = set(
+            m.LeagueGame.objects.filter(
+                league_id=int(league_id), game_id__in=list(game_ids)
+            ).values_list("game_id", flat=True)
+        )
+        for _eid, gid in rows:
+            if int(gid) not in ok_game_ids:
+                return False
+        return True
+    return False
+
+
 def api_league_page_views_batch(request: HttpRequest, league_id: int) -> JsonResponse:
     r = _require_login(request)
     if r:
@@ -3403,6 +3462,11 @@ def api_league_page_views_batch(request: HttpRequest, league_id: int) -> JsonRes
         )
     except Exception as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    if not _validate_league_page_view_entity_ids(
+        m=m, league_id=int(league_id), kind=str(kind_canon), entity_ids=list(entity_ids or [])
+    ):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
 
     view_counts: dict[int, int] = {}
     for eid, vc in m.LeaguePageView.objects.filter(
@@ -3474,6 +3538,11 @@ def api_league_page_views_mark_batch(request: HttpRequest, league_id: int) -> Js
         )
     except Exception as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+    if not _validate_league_page_view_entity_ids(
+        m=m, league_id=int(league_id), kind=str(kind_canon), entity_ids=list(entity_ids or [])
+    ):
+        return JsonResponse({"ok": False, "error": "not_found"}, status=404)
 
     view_counts: dict[int, int] = {}
     for eid, vc in m.LeaguePageView.objects.filter(

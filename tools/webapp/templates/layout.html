@@ -674,5 +674,219 @@
       try { window.hmInitLeaguePageViews = initLeaguePageViews; } catch (e) {}
     })();
   </script>
+  <script>
+    (function () {
+      function intOrNull(v) {
+        var n = null;
+        try { n = parseInt(String(v || "").trim(), 10); } catch (e) { n = null; }
+        return (n !== null && isFinite(n)) ? n : null;
+      }
+
+      function getCookie(name) {
+        try {
+          var v = ("; " + document.cookie).split("; " + name + "=");
+          if (v.length === 2) return v.pop().split(";").shift();
+        } catch (e) {}
+        return null;
+      }
+
+      function activeLeagueId(opts) {
+        opts = opts || {};
+        var pl = opts.publicLeagueId;
+        var sl = opts.selectedLeagueId;
+        if (pl !== null && pl !== undefined) return pl;
+        if (sl !== null && sl !== undefined) return sl;
+        return null;
+      }
+
+      function record(leagueId, kind, entityId) {
+        if (leagueId === null || leagueId === undefined) return;
+        var eid = intOrNull(entityId);
+        if (eid === null || eid <= 0) return;
+        var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record";
+        try {
+          fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind: String(kind || ""), entity_id: eid }),
+          }).catch(function () {});
+        } catch (e) {}
+      }
+
+      function renderPlayerEventsPageViews(containerEl, leagueId, playerId) {
+        if (!containerEl) return;
+        containerEl.innerHTML = "";
+        if (leagueId === null || leagueId === undefined) return;
+        var pid = intOrNull(playerId);
+        if (pid === null || pid <= 0) return;
+
+        var w = document.createElement("div");
+        w.setAttribute("data-hm-league-pageviews", "1");
+        w.setAttribute("data-league-id", String(leagueId));
+        w.setAttribute("data-kind", "player_events");
+        w.setAttribute("data-entity-id", String(pid));
+        w.setAttribute("data-refresh-ms", "5000");
+        w.className = "muted";
+        w.style.fontSize = ".85rem";
+        w.style.whiteSpace = "nowrap";
+        w.style.display = "inline-flex";
+        w.style.alignItems = "center";
+        w.style.gap = ".35rem";
+        w.title = "Live views (excluding your own views as league owner)";
+
+        var label = document.createElement("span");
+        label.textContent = "Views: ";
+        w.appendChild(label);
+        var c = document.createElement("span");
+        c.setAttribute("data-role", "count");
+        c.textContent = "0";
+        w.appendChild(c);
+        var d = document.createElement("span");
+        d.setAttribute("data-role", "delta");
+        d.className = "muted";
+        d.style.display = "none";
+        w.appendChild(d);
+        var b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("data-role", "mark");
+        b.className = "btn secondary";
+        b.style.padding = ".18rem .45rem";
+        b.style.fontSize = ".75rem";
+        b.style.lineHeight = "1";
+        b.style.boxShadow = "none";
+        b.title = "Mark current views as baseline";
+        b.textContent = "Mark";
+        w.appendChild(b);
+
+        containerEl.appendChild(w);
+        try { if (typeof window.hmInitLeaguePageViews === "function") window.hmInitLeaguePageViews(containerEl); } catch (e) {}
+      }
+
+      function clipEntityIdsInContainer(container) {
+        if (!container) return [];
+        var out = [];
+        try {
+          container.querySelectorAll("[data-hm-clip-views='1'][data-event-row-id]").forEach(function (el0) {
+            var v = intOrNull(el0.getAttribute("data-event-row-id"));
+            if (v !== null && v > 0) out.push(v);
+          });
+        } catch (e) {
+          out = [];
+        }
+        var seen = {};
+        var uniq = [];
+        for (var i = 0; i < out.length; i++) {
+          var k = String(out[i]);
+          if (seen[k]) continue;
+          seen[k] = true;
+          uniq.push(out[i]);
+        }
+        return uniq;
+      }
+
+      function _applyClipCounts(container, results) {
+        if (!container || !results) return;
+        try {
+          container.querySelectorAll("[data-hm-clip-views='1'][data-event-row-id]").forEach(function (el0) {
+            var s = String(el0.getAttribute("data-event-row-id") || "").trim();
+            var info = results[s];
+            if (!info) return;
+            var count = intOrNull(info.count);
+            if (count === null || count < 0) count = 0;
+            var delta = (info.delta_count !== undefined) ? info.delta_count : null;
+            var txt = String(count);
+            if (delta !== null && delta !== undefined) {
+              var d = intOrNull(delta);
+              if (d !== null) txt += " (+" + String(d) + ")";
+            }
+            el0.textContent = txt;
+          });
+        } catch (e) {}
+      }
+
+      function refreshClipViewCounts(container, leagueId, opts) {
+        opts = opts || {};
+        if (leagueId === null || leagueId === undefined) return;
+        var ids = clipEntityIdsInContainer(container);
+        var markBtn = opts.markButton || null;
+        if (markBtn) {
+          try { markBtn.style.display = ids.length ? "" : "none"; } catch (e) {}
+        }
+        if (!ids.length) return;
+        var url =
+          "/api/leagues/" +
+          encodeURIComponent(String(leagueId)) +
+          "/page_views/batch?kind=event_clip&entity_ids=" +
+          encodeURIComponent(ids.join(","));
+        try {
+          fetch(url, { credentials: "same-origin" })
+            .then(function (r) { return r.json().catch(function () { return {}; }); })
+            .then(function (j) {
+              if (!j || !j.ok || !j.results) return;
+              _applyClipCounts(container, j.results);
+            })
+            .catch(function () {});
+        } catch (e) {}
+      }
+
+      function markClipBaselines(container, leagueId, opts) {
+        opts = opts || {};
+        if (leagueId === null || leagueId === undefined) return;
+        var markBtn = opts.markButton || null;
+        var csrf = getCookie("csrftoken");
+        if (!csrf) return;
+        var ids = clipEntityIdsInContainer(container);
+        if (!ids.length) return;
+        var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/mark_batch";
+        var body = "kind=event_clip&entity_ids=" + encodeURIComponent(ids.join(","));
+        try {
+          if (markBtn) markBtn.disabled = true;
+          fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+              "X-CSRFToken": csrf,
+            },
+            body: body,
+          })
+            .then(function (r) { return r.json().catch(function () { return {}; }); })
+            .then(function (j) {
+              if (!j || !j.ok) return;
+              refreshClipViewCounts(container, leagueId, { markButton: markBtn });
+            })
+            .catch(function () {})
+            .finally(function () {
+              if (markBtn) markBtn.disabled = false;
+            });
+        } catch (e) {
+          if (markBtn) markBtn.disabled = false;
+        }
+      }
+
+      function eventRowIdFromRow(row) {
+        if (!row) return null;
+        var raw = null;
+        try { raw = row["__hm_event_row_id"]; } catch (e) { raw = null; }
+        var v = intOrNull(raw);
+        return (v !== null && v > 0) ? v : null;
+      }
+
+      try {
+        window.hmLeaguePageViews = {
+          intOrNull: intOrNull,
+          getCookie: getCookie,
+          activeLeagueId: activeLeagueId,
+          record: record,
+          renderPlayerEventsPageViews: renderPlayerEventsPageViews,
+          clipEntityIdsInContainer: clipEntityIdsInContainer,
+          refreshClipViewCounts: refreshClipViewCounts,
+          markClipBaselines: markClipBaselines,
+          eventRowIdFromRow: eventRowIdFromRow,
+        };
+      } catch (e) {}
+    })();
+  </script>
 </body>
 </html>

@@ -1067,7 +1067,13 @@
           btn.appendChild(el("span", { className: "hm-clip-time" }, videoLabel));
           var eid = null;
           try { eid = parseInt(String(r.id || r.event_row_id || "").trim(), 10); } catch (e) { eid = null; }
-          if (hmIsLeagueOwner && activeLeagueId() && eid !== null && isFinite(eid) && eid > 0) {
+          var leagueIdForViews = null;
+          try {
+            leagueIdForViews = window.hmLeaguePageViews
+              ? window.hmLeaguePageViews.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: selectedLeagueId })
+              : null;
+          } catch (e) { leagueIdForViews = null; }
+          if (hmIsLeagueOwner && leagueIdForViews !== null && leagueIdForViews !== undefined && eid !== null && isFinite(eid) && eid > 0) {
             btn.appendChild(el("span", {
               className: "muted",
               style: "font-size:.82rem;font-weight:600;",
@@ -1330,140 +1336,55 @@
     var closeBtn = document.getElementById("team-player-events-close");
     if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
 
-    function activeLeagueId() {
-      if (publicLeagueId !== null && publicLeagueId !== undefined) return publicLeagueId;
-      if (selectedLeagueId !== null && selectedLeagueId !== undefined) return selectedLeagueId;
-      return null;
+    function hmPv() {
+      try { return window.hmLeaguePageViews || null; } catch (e) { return null; }
     }
 
-    function getCookie(name) {
+    function leagueIdNow() {
+      var pv = hmPv();
+      if (!pv || !pv.activeLeagueId) return null;
       try {
-        var v = ("; " + document.cookie).split("; " + name + "=");
-        if (v.length === 2) return v.pop().split(";").shift();
-      } catch (e) {}
-      return null;
+        return pv.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: selectedLeagueId });
+      } catch (e) {
+        return null;
+      }
     }
 
     function renderPlayerEventsPageViews(playerId) {
       if (!pvWrap) return;
       pvWrap.innerHTML = "";
-      var leagueId = activeLeagueId();
-      if (!hmIsLeagueOwner || leagueId === null || leagueId === undefined) return;
-      var pid = null;
-      try { pid = parseInt(String(playerId || "").trim(), 10); } catch (e) { pid = null; }
-      if (pid === null || !isFinite(pid) || pid <= 0) return;
-
-      var w = el("div", {
-        "data-hm-league-pageviews": "1",
-        "data-league-id": String(leagueId),
-        "data-kind": "player_events",
-        "data-entity-id": String(pid),
-        "data-refresh-ms": "5000",
-        className: "muted",
-        style: "font-size:.85rem;white-space:nowrap;display:inline-flex;align-items:center;gap:.35rem;",
-        title: "Live views (excluding your own views as league owner)",
-      });
-      w.appendChild(el("span", null, "Views: "));
-      w.appendChild(el("span", { "data-role": "count" }, "0"));
-      w.appendChild(el("span", { "data-role": "delta", className: "muted", style: "display:none;" }, ""));
-      w.appendChild(el("button", {
-        type: "button",
-        "data-role": "mark",
-        className: "btn secondary",
-        style: "padding:.18rem .45rem;font-size:.75rem;line-height:1;box-shadow:none;",
-        title: "Mark current views as baseline",
-      }, "Mark"));
-      pvWrap.appendChild(w);
-      try { if (typeof window.hmInitLeaguePageViews === "function") window.hmInitLeaguePageViews(pvWrap); } catch (e) {}
-    }
-
-    function clipEntityIdsInContainer(container) {
-      if (!container) return [];
-      var out = [];
-      container.querySelectorAll("[data-hm-clip-views='1'][data-event-row-id]").forEach(function (el0) {
-        var s = String(el0.getAttribute("data-event-row-id") || "").trim();
-        var v = null;
-        try { v = parseInt(s, 10); } catch (e) { v = null; }
-        if (v !== null && isFinite(v) && v > 0) out.push(v);
-      });
-      var seen = {};
-      var uniq = [];
-      for (var i = 0; i < out.length; i++) {
-        var k = String(out[i]);
-        if (seen[k]) continue;
-        seen[k] = true;
-        uniq.push(out[i]);
-      }
-      return uniq;
+      if (!hmIsLeagueOwner) return;
+      var leagueId = leagueIdNow();
+      if (leagueId === null || leagueId === undefined) return;
+      var pv = hmPv();
+      if (!pv || !pv.renderPlayerEventsPageViews) return;
+      pv.renderPlayerEventsPageViews(pvWrap, leagueId, playerId);
     }
 
     function refreshClipViewCounts(container) {
       if (!hmIsLeagueOwner) return;
-      var leagueId = activeLeagueId();
+      var leagueId = leagueIdNow();
       if (leagueId === null || leagueId === undefined) return;
-      var ids = clipEntityIdsInContainer(container);
-      if (markClipsBtn) markClipsBtn.style.display = ids.length ? "" : "none";
-      if (!ids.length) return;
-      var url =
-        "/api/leagues/" +
-        encodeURIComponent(String(leagueId)) +
-        "/page_views/batch?kind=event_clip&entity_ids=" +
-        encodeURIComponent(ids.join(","));
-      try {
-        fetch(url, { credentials: "same-origin" })
-          .then(function (r) { return r.json().catch(function () { return {}; }); })
-          .then(function (j) {
-            if (!j || !j.ok || !j.results) return;
-            container.querySelectorAll("[data-hm-clip-views='1'][data-event-row-id]").forEach(function (el0) {
-              var s = String(el0.getAttribute("data-event-row-id") || "").trim();
-              var info = j.results[s];
-              if (!info) return;
-              var count = (info.count !== undefined && info.count !== null) ? parseInt(String(info.count), 10) : 0;
-              if (!isFinite(count)) count = 0;
-              var delta = (info.delta_count !== undefined) ? info.delta_count : null;
-              var txt = String(count);
-              if (delta !== null && delta !== undefined) {
-                var d = parseInt(String(delta), 10);
-                if (isFinite(d)) txt += " (+" + String(d) + ")";
-              }
-              el0.textContent = txt;
-            });
-          })
-          .catch(function () {});
-      } catch (e) {}
+      var pv = hmPv();
+      if (!pv || !pv.refreshClipViewCounts) return;
+      pv.refreshClipViewCounts(container, leagueId, { markButton: markClipsBtn });
     }
 
     function markClipBaselines(container) {
-      if (!hmIsLeagueOwner || !markClipsBtn) return;
-      var leagueId = activeLeagueId();
+      if (!hmIsLeagueOwner) return;
+      var leagueId = leagueIdNow();
       if (leagueId === null || leagueId === undefined) return;
-      var csrf = getCookie("csrftoken");
-      if (!csrf) return;
-      var ids = clipEntityIdsInContainer(container);
-      if (!ids.length) return;
-      var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/mark_batch";
-      var body = "kind=event_clip&entity_ids=" + encodeURIComponent(ids.join(","));
-      try {
-        markClipsBtn.disabled = true;
-        fetch(url, {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-            "X-CSRFToken": csrf,
-          },
-          body: body,
-        })
-          .then(function (r) { return r.json().catch(function () { return {}; }); })
-          .then(function (j) {
-            if (!j || !j.ok) return;
-            refreshClipViewCounts(container);
-          })
-          .catch(function () {})
-          .finally(function () { markClipsBtn.disabled = false; });
-      } catch (e) {
-        markClipsBtn.disabled = false;
-      }
+      var pv = hmPv();
+      if (!pv || !pv.markClipBaselines) return;
+      pv.markClipBaselines(container, leagueId, { markButton: markClipsBtn });
+    }
+
+    function recordEventClipView(eventRowId) {
+      var leagueId = leagueIdNow();
+      if (leagueId === null || leagueId === undefined) return;
+      var pv = hmPv();
+      if (!pv || !pv.record) return;
+      pv.record(leagueId, "event_clip", eventRowId);
     }
 
     if (markClipsBtn) {
@@ -1471,23 +1392,6 @@
         try { e.preventDefault(); } catch (e2) {}
         markClipBaselines(bodyEl);
       });
-    }
-
-    function recordEventClipView(eventRowId) {
-      var leagueId = activeLeagueId();
-      if (leagueId === null || leagueId === undefined) return;
-      var eid = null;
-      try { eid = parseInt(String(eventRowId || "").trim(), 10); } catch (e) { eid = null; }
-      if (eid === null || !isFinite(eid) || eid <= 0) return;
-      var url = "/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record";
-      try {
-        fetch(url, {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "event_clip", entity_id: eid }),
-        }).catch(function () {});
-      } catch (e) {}
     }
 
     function closeVideo() {
