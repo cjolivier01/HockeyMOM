@@ -658,3 +658,131 @@ def should_infer_team_page_views_league_id_when_not_selected(client_and_models):
     html = r.content.decode("utf-8", errors="replace")
     assert "var pageViewsLeagueId = 1" in html
     assert "hmCanViewLeaguePageViews = true" in html
+
+
+def should_include_event_row_id_in_team_player_events_api(client_and_models):
+    client, m = client_and_models
+    from django.test import Client
+
+    now = dt.datetime.now()
+    owner = m.User.objects.create(
+        id=10,
+        email="owner@example.com",
+        password_hash="x",
+        name="Owner",
+        created_at=now,
+        default_league_id=1,
+        video_clip_len_s=None,
+    )
+    m.League.objects.create(
+        id=1,
+        name="League One",
+        owner_user_id=int(owner.id),
+        is_shared=True,
+        is_public=False,
+        show_goalie_stats=False,
+        show_shift_data=False,
+        source=None,
+        external_key=None,
+        created_at=now,
+        updated_at=None,
+    )
+    team = m.Team.objects.create(
+        id=44,
+        user_id=int(owner.id),
+        name="Team 44",
+        logo_path=None,
+        is_external=False,
+        created_at=now,
+        updated_at=None,
+    )
+    opp = m.Team.objects.create(
+        id=45,
+        user_id=int(owner.id),
+        name="Opp",
+        logo_path=None,
+        is_external=True,
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueTeam.objects.create(league_id=1, team_id=int(team.id), division_name="12AA")
+    m.LeagueTeam.objects.create(league_id=1, team_id=int(opp.id), division_name="12AA")
+    player = m.Player.objects.create(
+        id=501,
+        user_id=int(owner.id),
+        team_id=int(team.id),
+        name="Skater",
+        jersey_number="13",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    gt, _created = m.GameType.objects.get_or_create(
+        name="Regular Season", defaults={"is_default": True}
+    )
+    notes = json.dumps({"game_video": "https://youtu.be/abc123"}, sort_keys=True)
+    game = m.HkyGame.objects.create(
+        id=1001,
+        user_id=int(owner.id),
+        team1_id=int(team.id),
+        team2_id=int(opp.id),
+        game_type_id=int(gt.id),
+        starts_at=now,
+        location="Rink",
+        notes=notes,
+        team1_score=2,
+        team2_score=1,
+        is_final=True,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key="g-1001",
+        created_at=now,
+        updated_at=None,
+    )
+    m.LeagueGame.objects.create(
+        league_id=1, game_id=int(game.id), division_name="12AA", sort_order=1
+    )
+    ev_goal, _created = m.HkyEventType.objects.get_or_create(
+        key="goal", defaults={"name": "Goal", "created_at": now}
+    )
+    event_row_id = 9001
+    m.HkyGameEventRow.objects.create(
+        id=int(event_row_id),
+        game_id=int(game.id),
+        event_type_id=int(ev_goal.id),
+        import_key="g-1",
+        team_id=int(team.id),
+        player_id=int(player.id),
+        source="timetoscore",
+        event_id=1,
+        team_raw="Home",
+        team_side="Home",
+        for_against="For",
+        team_rel="Home",
+        period=1,
+        game_time="11:50",
+        video_time="00:10",
+        game_seconds=10,
+        game_seconds_end=None,
+        video_seconds=10,
+        details="Goal",
+        attributed_players=str(player.name),
+        attributed_jerseys=str(player.jersey_number),
+        created_at=now,
+        updated_at=None,
+    )
+
+    client_owner = Client()
+    _set_session(client_owner, user_id=int(owner.id), email=str(owner.email))
+    sess = client_owner.session
+    sess["league_id"] = 1
+    sess.save()
+
+    r = client_owner.get(f"/api/hky/teams/{int(team.id)}/players/{int(player.id)}/events")
+    assert r.status_code == 200
+    j = json.loads(r.content)
+    assert j["ok"] is True
+    assert isinstance(j["events"], list)
+    assert j["events"], j
+    assert int(j["events"][0].get("id") or 0) == int(event_row_id)

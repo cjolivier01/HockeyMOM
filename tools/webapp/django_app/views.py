@@ -4326,6 +4326,7 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
 
         events_out.append(
             {
+                "id": int(r0.get("id") or 0),
                 "kind": "attributed",
                 "game_id": int(gid),
                 "game_starts_at": g2.get("starts_at"),

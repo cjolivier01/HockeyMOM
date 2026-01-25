@@ -342,8 +342,25 @@ def should_track_player_events_and_clip_views_and_show_to_owner(monkeypatch, web
                 "#team-player-events-pageviews [data-role='count']"
             ).inner_text()
 
+            team_clip_sel = (
+                "#team-player-events-body "
+                f"[data-hm-clip-views='1'][data-event-row-id='{int(event_row_id)}']"
+            )
+            page_owner.wait_for_function(
+                """(sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return false;
+  const txt = String(el.textContent || "").trim();
+  const n = parseInt(txt || "0", 10);
+  return txt.length > 0 && Number.isFinite(n);
+}""",
+                arg=team_clip_sel,
+            )
+            team_clip_txt = page_owner.locator(team_clip_sel).first.inner_text()
+
             browser.close()
 
     assert _first_int(views_txt) >= 1
     assert _first_int(clip_txt) >= 1
     assert _first_int(team_views_txt) == _first_int(views_txt)
+    assert _first_int(team_clip_txt) >= 1
