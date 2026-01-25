@@ -635,7 +635,17 @@
 	      <div id="team-player-events-title" style="font-weight:700;"></div>
 	      <div id="team-player-events-subtitle" class="muted-strong" style="font-size:.9rem;"></div>
 	    </div>
-	    <button id="team-player-events-close" class="btn" type="button">Close</button>
+	    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+        <div id="team-player-events-pageviews"></div>
+        <button
+          id="team-player-events-mark-clips"
+          type="button"
+          class="btn secondary"
+          style="padding:.18rem .45rem;font-size:.75rem;line-height:1;box-shadow:none;display:none;"
+          title="Mark all visible clip view counts as baseline"
+        >Mark clips</button>
+        <button id="team-player-events-close" class="btn" type="button">Close</button>
+      </div>
 	  </div>
 	  <div id="team-player-events-video-pane" style="display:none;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
@@ -1049,11 +1059,29 @@
         var videoLabel = hasVideoTime ? (String(r.video_time || "").trim() || fmtSecondsToTime(videoSeconds)) : "";
         var videoCell = el("span", { className: "muted" }, "");
         if (r.video_url && hasVideoTime) {
-          var btn = el(
-            "button",
-            { type: "button", className: "btn secondary", style: "padding:.25rem .55rem;font-size:.85rem;" },
-            videoLabel
-          );
+          var btn = el("button", {
+            type: "button",
+            className: "btn secondary",
+            style: "padding:.25rem .55rem;font-size:.85rem;display:inline-flex;align-items:center;gap:.35rem;",
+          });
+          btn.appendChild(el("span", { className: "hm-clip-time" }, videoLabel));
+          var eid = null;
+          try { eid = parseInt(String(r.id || r.event_row_id || "").trim(), 10); } catch (e) { eid = null; }
+          var leagueIdForViews = null;
+          try {
+            var sel = (pageViewsLeagueId !== null && pageViewsLeagueId !== undefined) ? pageViewsLeagueId : selectedLeagueId;
+            leagueIdForViews = window.hmLeaguePageViews
+              ? window.hmLeaguePageViews.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: sel })
+              : null;
+          } catch (e) { leagueIdForViews = null; }
+          if (hmCanViewLeaguePageViews && leagueIdForViews !== null && leagueIdForViews !== undefined && eid !== null && isFinite(eid) && eid > 0) {
+            btn.appendChild(el("span", {
+              className: "muted",
+              style: "font-size:.82rem;font-weight:600;",
+              "data-hm-clip-views": "1",
+              "data-event-row-id": String(eid),
+            }, ""));
+          }
           btn.addEventListener("click", function () {
             openVideoClipForEventRow(r);
           });
@@ -1251,6 +1279,12 @@
         var start2 = Math.max(0, Math.floor(vs - timing.pre));
         var end2 = Math.max(start2 + 1, start2 + timing.dur);
 
+        try {
+          var clipEid = null;
+          try { clipEid = parseInt(String(r.id || r.event_row_id || "").trim(), 10); } catch (e) { clipEid = null; }
+          if (clipEid !== null && isFinite(clipEid) && clipEid > 0) recordEventClipView(clipEid);
+        } catch (e) {}
+
         var watchUrl = buildYoutubeWatchUrl(r.video_url, start2);
         if (videoOpen) {
           videoOpen.href = watchUrl || "";
@@ -1287,6 +1321,11 @@
 
       var teamId = {{ team.id|default:"0" }};
       var publicLeagueId = {{ public_league_id|default:"null" }};
+      var selectedLeagueId = {{ selected_league_id|tojson }};
+      // The team page can be visited outside a selected-league session. When that happens, the server
+      // may infer the unique league that owns this team (if unambiguous) so view counts stay consistent.
+      var pageViewsLeagueId = {{ page_views_league_id|default:"null" }};
+      var hmCanViewLeaguePageViews = {{ can_view_league_page_views|default:False|tojson }};
       var dlg = document.getElementById("team-player-events-modal");
       var titleEl = document.getElementById("team-player-events-title");
       var subtitleEl = document.getElementById("team-player-events-subtitle");
@@ -1296,8 +1335,82 @@
     var videoMeta = document.getElementById("team-player-events-video-meta");
     var videoOpen = document.getElementById("team-player-events-video-open-link");
     var videoClose = document.getElementById("team-player-events-video-close");
+    var pvWrap = document.getElementById("team-player-events-pageviews");
+    var markClipsBtn = document.getElementById("team-player-events-mark-clips");
     var closeBtn = document.getElementById("team-player-events-close");
     if (!dlg || !titleEl || !subtitleEl || !bodyEl) return;
+
+    function hmPv() {
+      try { return window.hmLeaguePageViews || null; } catch (e) { return null; }
+    }
+
+    function leagueIdNow() {
+      var pv = hmPv();
+      if (!pv || !pv.activeLeagueId) return null;
+      try {
+        var sel = (pageViewsLeagueId !== null && pageViewsLeagueId !== undefined) ? pageViewsLeagueId : selectedLeagueId;
+        return pv.activeLeagueId({ publicLeagueId: publicLeagueId, selectedLeagueId: sel });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function renderPlayerEventsPageViews(playerId) {
+      if (!pvWrap) return;
+      pvWrap.innerHTML = "";
+      if (!hmCanViewLeaguePageViews) return;
+      var leagueId = leagueIdNow();
+      if (leagueId === null || leagueId === undefined) return;
+      var pv = hmPv();
+      if (!pv || !pv.renderPlayerEventsPageViews) return;
+      pv.renderPlayerEventsPageViews(pvWrap, leagueId, playerId);
+    }
+
+    function refreshClipViewCounts(container) {
+      if (!hmCanViewLeaguePageViews) return;
+      var leagueId = leagueIdNow();
+      if (leagueId === null || leagueId === undefined) return;
+      var pv = hmPv();
+      if (!pv || !pv.refreshClipViewCounts) return;
+      pv.refreshClipViewCounts(container, leagueId, { markButton: markClipsBtn });
+    }
+
+    function markClipBaselines(container) {
+      if (!hmCanViewLeaguePageViews) return;
+      var leagueId = leagueIdNow();
+      if (leagueId === null || leagueId === undefined) return;
+      var pv = hmPv();
+      if (!pv || !pv.markClipBaselines) return;
+      pv.markClipBaselines(container, leagueId, { markButton: markClipsBtn });
+    }
+
+    function recordEventClipView(eventRowId) {
+      var leagueId = leagueIdNow();
+      if (leagueId === null || leagueId === undefined) return;
+      var pv = hmPv();
+      if (pv && pv.record) {
+        pv.record(leagueId, "event_clip", eventRowId);
+        return;
+      }
+      // Best-effort fallback if the shared helpers haven't loaded yet.
+      try {
+        var eid = parseInt(String(eventRowId || "").trim(), 10);
+        if (!isFinite(eid) || eid <= 0) return;
+        fetch("/api/leagues/" + encodeURIComponent(String(leagueId)) + "/page_views/record", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind: "event_clip", entity_id: eid }),
+        }).catch(function () {});
+      } catch (e) {}
+    }
+
+    if (markClipsBtn) {
+      markClipsBtn.addEventListener("click", function (e) {
+        try { e.preventDefault(); } catch (e2) {}
+        markClipBaselines(bodyEl);
+      });
+    }
 
     function closeVideo() {
       if (videoIframe) videoIframe.src = "";
@@ -1339,6 +1452,10 @@
         api.searchParams.set("recent_n", String(rn));
       }
       if (publicLeagueId !== null && publicLeagueId !== undefined) api.searchParams.set("league_id", String(publicLeagueId));
+      else {
+        var lid = leagueIdNow();
+        if (lid !== null && lid !== undefined) api.searchParams.set("league_id", String(lid));
+      }
       return api;
     }
 
@@ -1356,6 +1473,8 @@
       subtitleEl.textContent = "";
       bodyEl.innerHTML = "<p class=\"muted\">Loading events…</p>";
       closeVideo();
+      renderPlayerEventsPageViews(playerId);
+      if (markClipsBtn) markClipsBtn.style.display = "none";
       showModal();
       var api = buildApiUrl(playerId, opts);
       fetch(api.toString(), { credentials: "same-origin" }).then(function (resp) {
@@ -1518,6 +1637,7 @@
               });
             });
           }
+          refreshClipViewCounts(bodyEl);
           });
         }).catch(function (e) {
           showError("Unable to load events (" + String(e || "error") + ").");

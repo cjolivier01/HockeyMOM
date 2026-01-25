@@ -192,7 +192,11 @@ rink:
     stop_delay_cooldown_frames: 2
     # When increasing speed toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
+<<<<<<< HEAD
     time_to_dest_speed_limit_frames: 15
+=======
+    time_to_dest_speed_limit_frames: 20
+>>>>>>> master
     # When time-to-dest limiting is active, snap to zero below this speed (px/frame)
     time_to_dest_stop_speed_threshold: 0.25
 
@@ -202,12 +206,20 @@ rink:
     # Cancel resizing brake when inputs flip opposite (true/false)
     resizing_cancel_stop_on_opposite_dir: false
     # Consecutive opposite-direction frames required to cancel resize braking
+<<<<<<< HEAD
     resizing_stop_cancel_hysteresis_frames: 4
+=======
+    resizing_stop_cancel_hysteresis_frames: 10
+>>>>>>> master
     # Cooldown frames after a resize stop-delay finishes/cancels before another can start
     resizing_stop_delay_cooldown_frames: 2
     # When increasing size toward destination, enforce a minimum number of frames
     # to reach the target along that axis (0 disables)
+<<<<<<< HEAD
     resizing_time_to_dest_speed_limit_frames: 6
+=======
+    resizing_time_to_dest_speed_limit_frames: 10
+>>>>>>> master
     # When resize time-to-dest limiting is active, snap to zero below this speed (px/frame)
     resizing_time_to_dest_stop_speed_threshold: 0.25
 

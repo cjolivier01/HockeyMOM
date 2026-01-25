@@ -11904,6 +11904,8 @@ def process_long_only_sheets(
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     t2s_side: Optional[str] = None,
     t2s_game_id: Optional[int] = None,
+    home_team_name_hint: Optional[str] = None,
+    away_team_name_hint: Optional[str] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
     write_events_summary: Optional[bool] = None,
@@ -12004,10 +12006,10 @@ def process_long_only_sheets(
             norm = _normalize_jersey_number(parts.jersey)
             if norm:
                 jerseys.add(norm)
-        # Some malformed / partial long sheets can produce placeholder team names
-        # with no parsed players. Ignore those for "our team" selection.
-        if jerseys:
-            jerseys_by_long_team[str(team_name)] = jerseys
+        jerseys_by_long_team[str(team_name)] = jerseys
+
+    def _canon_team_name(s: Any) -> str:
+        return re.sub(r"\s+", " ", str(s or "").replace("\xa0", " ").strip()).casefold()
 
     # Determine our Blue/White focus team from long events (when possible).
     focus_team: Optional[str] = focus_team_override
@@ -12036,6 +12038,28 @@ def process_long_only_sheets(
 
     # Pick which embedded shift table is ours.
     our_team_name: Optional[str] = None
+    # If the caller provided explicit home/away team names (e.g. from YAML metadata), use them to
+    # pick the embedded long-sheet shift table when possible. This avoids requiring a TimeToScore id
+    # for long-only runs when the spreadsheet already contains team names.
+    team_hint = None
+    if side == "home":
+        team_hint = str(home_team_name_hint or "").strip() or None
+    elif side == "away":
+        team_hint = str(away_team_name_hint or "").strip() or None
+    if team_hint:
+        hint_c = _canon_team_name(team_hint)
+        exact = [tn for tn in jerseys_by_long_team.keys() if _canon_team_name(tn) == hint_c]
+        if len(exact) == 1:
+            our_team_name = str(exact[0])
+        elif not exact:
+            fuzzy = [
+                tn
+                for tn in jerseys_by_long_team.keys()
+                if hint_c in _canon_team_name(tn) or _canon_team_name(tn) in hint_c
+            ]
+            if len(fuzzy) == 1:
+                our_team_name = str(fuzzy[0])
+
     if focus_team in {"Blue", "White"} and long_team_color:
         best = -1
         for team_name, color in long_team_color.items():
@@ -13505,95 +13529,6 @@ def main() -> None:
             "disable-t2s",
         )
 
-    def _meta_str(meta: dict[str, str], *keys: str) -> Optional[str]:
-        for k in keys:
-            kk = str(k or "").strip().lower()
-            if not kk:
-                continue
-            v = meta.get(kk)
-            if v is None:
-                continue
-            vv = str(v).strip()
-            if vv:
-                return vv
-        return None
-
-    def _match_team_name(a: Optional[str], b: Optional[str]) -> bool:
-        """
-        Best-effort match for team names that may be shortened (e.g., 'Utah' vs
-        'Utah ...') or contain varying whitespace/punctuation.
-        """
-        aa = _normalize_header_label(str(a or ""))
-        bb = _normalize_header_label(str(b or ""))
-        if not aa or not bb:
-            return False
-        return aa == bb or aa in bb or bb in aa
-
-    def _infer_side_from_meta_and_long_sheet(
-        in_path: Path, *, meta: dict[str, str], sheet: Any
-    ) -> Tuple[Optional[str], Dict[str, Any]]:
-        """
-        If the caller did not specify HOME/AWAY (and no TimeToScore id is in use),
-        try to infer which side this spreadsheet represents by matching the long
-        sheet's embedded team names against `home_team` / `away_team` metadata.
-        """
-        debug: Dict[str, Any] = {}
-        home_team = _meta_str(meta, "home_team", "home_team_name", "home")
-        away_team = _meta_str(meta, "away_team", "away_team_name", "away")
-        debug["meta_home_team"] = home_team or ""
-        debug["meta_away_team"] = away_team or ""
-        if not home_team or not away_team:
-            debug["failure"] = "missing home_team/away_team metadata"
-            return None, debug
-
-        if not _is_long_sheet_path(in_path):
-            debug["failure"] = "not a '*-long*' sheet"
-            return None, debug
-
-        try:
-            target_sheet = 0 if sheet is None else sheet
-            long_df = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
-        except Exception as e:  # noqa: BLE001
-            debug["failure"] = f"failed to read spreadsheet: {type(e).__name__}: {e}"
-            return None, debug
-
-        try:
-            parsed = _parse_long_shift_tables(long_df) or {}
-        except Exception as e:  # noqa: BLE001
-            debug["failure"] = f"failed to parse long shift tables: {type(e).__name__}: {e}"
-            return None, debug
-
-        teams: List[Tuple[str, int]] = []
-        for team_name, info in parsed.items():
-            sb_pairs = (info or {}).get("sb_pairs_by_player") or {}
-            teams.append((str(team_name), len(sb_pairs)))
-        teams_sorted = sorted(teams, key=lambda x: (-int(x[1] or 0), x[0]))
-        debug["long_teams"] = [{"team": t, "players": int(n)} for t, n in teams_sorted]
-        if not teams_sorted:
-            debug["failure"] = "no teams found in long shift tables"
-            return None, debug
-
-        best_team = teams_sorted[0][0]
-        debug["best_team"] = best_team
-        if _match_team_name(best_team, away_team):
-            return "away", debug
-        if _match_team_name(best_team, home_team):
-            return "home", debug
-
-        matches: List[str] = []
-        for t, _n in teams_sorted:
-            if _match_team_name(t, away_team):
-                matches.append("away")
-            if _match_team_name(t, home_team):
-                matches.append("home")
-        matches = sorted(set(matches))
-        debug["matches"] = matches
-        if len(matches) == 1:
-            return matches[0], debug
-
-        debug["failure"] = "no unique match to home_team/away_team"
-        return None, debug
-
     # Webapp upload arg validation (fail fast; don't silently skip uploads).
     default_webapp_url = "http://127.0.0.1:8008"
     if str(getattr(args, "webapp_url", "") or "").strip() != default_webapp_url and not getattr(
@@ -13682,92 +13617,32 @@ def main() -> None:
         t2s_id: Optional[int],
         side: Optional[str],
         *,
-        meta: Optional[dict[str, str]] = None,
+        our_team_name_hint: Optional[str] = None,
         allow_remote: bool,
         allow_full_sync: bool,
     ) -> List[GoalEvent]:
         g = load_goals(args.goal, args.goals_file)
         if g:
             return g
-        # goals.xlsx always takes precedence when present.
-        goals_xlsx = in_path.parent / "goals.xlsx"
-        if goals_xlsx.exists() and goals_xlsx.is_file():
-            meta_for_file = dict(meta or {})
-            our_team_name: Optional[str] = None
-            side_l = str(side or "").strip().lower()
-            if side_l == "home":
-                our_team_name = _meta_str(meta_for_file, "home_team", "home_team_name", "home")
-            elif side_l == "away":
-                our_team_name = _meta_str(meta_for_file, "away_team", "away_team_name", "away")
-
+        # If no t2s id was provided/inferred, fall back to goals.xlsx next to the input.
+        if t2s_id is None:
+            goals_xlsx = in_path.parent / "goals.xlsx"
             our_jerseys: Optional[set[str]] = None
-
-            # For long-sheet-only runs, the generic roster-table extractor can
-            # return Blue/White blocks that include both teams, which flips GF/GA
-            # mapping. Prefer the embedded long-shift roster for our matched team.
-            if our_team_name and _is_long_sheet_path(in_path):
-                try:
-                    target_sheet = 0 if args.sheet is None else args.sheet
-                    df_long = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
-                    parsed = _parse_long_shift_tables(df_long) or {}
-                    best = None
-                    best_n = -1
-                    for team_name, info in parsed.items():
-                        if not _match_team_name(str(team_name), our_team_name):
-                            continue
-                        sb_pairs = (info or {}).get("sb_pairs_by_player") or {}
-                        n = len(sb_pairs)
-                        if n > best_n:
-                            best_n = n
-                            best = (str(team_name), sb_pairs)
-                    if best is not None:
-                        _team_name, sb_pairs = best
-                        nums: set[str] = set()
-                        for pk in sb_pairs.keys():
-                            parts = _parse_player_key(pk)
-                            norm = _normalize_jersey_number(parts.jersey)
-                            if norm:
-                                nums.add(norm)
-                        if nums:
-                            our_jerseys = nums
-                except Exception:
-                    our_jerseys = None
-
-            # Fall back to extracting a roster from the sheet (primary sheet case).
-            if our_jerseys is None:
-                try:
-                    target_sheet = 0 if args.sheet is None else args.sheet
-                    df_primary = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
-                    roster_tables = _extract_roster_tables_from_df(df_primary)
-                    if roster_tables:
-                        # If we know the team name, avoid taking a union across
-                        # multiple rosters (which can invert GF/GA).
-                        if our_team_name:
-                            best_roster = None
-                            best_size = -1
-                            for team_name, roster in roster_tables:
-                                if not _match_team_name(str(team_name), our_team_name):
-                                    continue
-                                n = len((roster or {}).keys())
-                                if n > best_size:
-                                    best_size = n
-                                    best_roster = roster
-                            if best_roster is not None:
-                                our_jerseys = {
-                                    str(x).strip()
-                                    for x in (best_roster or {}).keys()
-                                    if str(x).strip()
-                                }
-                        elif len(roster_tables) == 1:
-                            _team, roster = roster_tables[0]
-                            our_jerseys = {
-                                str(x).strip() for x in (roster or {}).keys() if str(x).strip()
-                            }
-                except Exception:
-                    our_jerseys = None
+            try:
+                target_sheet = 0 if args.sheet is None else args.sheet
+                df_primary = pd.read_excel(in_path, sheet_name=target_sheet, header=None)
+                roster_tables = _extract_roster_tables_from_df(df_primary)
+                jerseys = set()
+                for _team, roster in roster_tables:
+                    jerseys.update(str(x) for x in (roster or {}).keys())
+                our_jerseys = {str(x).strip() for x in jerseys if str(x).strip()}
+            except Exception:
+                our_jerseys = None
             try:
                 gx = _goals_from_goals_xlsx(
-                    goals_xlsx, our_jerseys=our_jerseys, our_team_name=our_team_name
+                    goals_xlsx,
+                    our_jerseys=our_jerseys,
+                    our_team_name=our_team_name_hint,
                 )
             except Exception as e:  # noqa: BLE001
                 print(f"[goals.xlsx] Failed to parse {goals_xlsx}: {e}", file=sys.stderr)
@@ -13776,8 +13651,6 @@ def main() -> None:
                 for gg in reversed(sorted([str(x) for x in gx])):
                     print(f"[goals.xlsx:{in_path.name}] {gg}")
                 return gx
-
-        if t2s_id is None:
             return g
         # With a t2s id, require a side and use TimeToScore data.
         if side is None:
@@ -14016,7 +13889,28 @@ def main() -> None:
                     sheet_path,
                     t2s_id,
                     sheet_side,
-                    meta=meta_for_group,
+                    our_team_name_hint=(
+                        str(
+                            (
+                                meta_for_group.get("home_team")
+                                if sheet_side == "home"
+                                else meta_for_group.get("away_team")
+                            )
+                            or (
+                                meta_for_group.get("home_team_name")
+                                if sheet_side == "home"
+                                else meta_for_group.get("away_team_name")
+                            )
+                            or (
+                                meta_for_group.get("home")
+                                if sheet_side == "home"
+                                else meta_for_group.get("away")
+                            )
+                            or (meta_for_group.get("visitor") if sheet_side == "away" else None)
+                            or ""
+                        ).strip()
+                        or None
+                    ),
                     allow_remote=t2s_allow_remote,
                     allow_full_sync=t2s_allow_full_sync,
                 )
@@ -14165,22 +14059,6 @@ def main() -> None:
                 else:
                     side_to_use = None
 
-            # If TimeToScore is not in use, attempt to infer HOME/AWAY from file-list
-            # metadata + the embedded long-sheet shift table team names.
-            if (
-                (not manual_goals)
-                and side_to_use is None
-                and t2s_id is None
-                and args.file_list
-                and meta_for_group
-            ):
-                inferred_side2, debug2 = _infer_side_from_meta_and_long_sheet(
-                    Path(in_path), meta=meta_for_group, sheet=args.sheet
-                )
-                if inferred_side2 in {"home", "away"}:
-                    side_to_use = inferred_side2
-                    side_infer_debug = debug2 or {}
-
             # If a TimeToScore id is in use and we don't have a side override, we
             # must determine whether our team is Home or Away to map GF/GA.
             if t2s_id is not None and (not manual_goals) and side_to_use is None:
@@ -14288,29 +14166,10 @@ def main() -> None:
                         "  Reason: no ':HOME' / ':AWAY' provided and no TimeToScore id inferred.",
                         file=sys.stderr,
                     )
-                    if side_infer_debug:
-                        meta_home = side_infer_debug.get("meta_home_team")
-                        meta_away = side_infer_debug.get("meta_away_team")
-                        if meta_home or meta_away:
-                            print(
-                                f"  Metadata: home_team={meta_home!r}, away_team={meta_away!r}",
-                                file=sys.stderr,
-                            )
-                        long_teams = side_infer_debug.get("long_teams")
-                        if isinstance(long_teams, list) and long_teams:
-                            try:
-                                txt = ", ".join(
-                                    f"{str(x.get('team') or '')}({int(x.get('players') or 0)})"
-                                    for x in long_teams[:8]
-                                )
-                            except Exception:
-                                txt = ""
-                            if txt:
-                                print(f"  Long-sheet teams (players): {txt}", file=sys.stderr)
                     if args.file_list:
                         print(f"  File list: {args.file_list}", file=sys.stderr)
                     print(
-                        "Fix: set `side: HOME|AWAY` for this game in the YAML file-list (or add ':HOME' / ':AWAY' for text file-lists; or run a single game with --home/--away).",
+                        "Fix: add ':HOME' or ':AWAY' to this game in --file-list (or run a single game with --home/--away).",
                         file=sys.stderr,
                     )
                 else:
@@ -14328,7 +14187,28 @@ def main() -> None:
                 in_path,
                 t2s_id,
                 side_to_use,
-                meta=meta_for_group,
+                our_team_name_hint=(
+                    str(
+                        (
+                            meta_for_group.get("home_team")
+                            if side_to_use == "home"
+                            else meta_for_group.get("away_team")
+                        )
+                        or (
+                            meta_for_group.get("home_team_name")
+                            if side_to_use == "home"
+                            else meta_for_group.get("away_team_name")
+                        )
+                        or (
+                            meta_for_group.get("home")
+                            if side_to_use == "home"
+                            else meta_for_group.get("away")
+                        )
+                        or (meta_for_group.get("visitor") if side_to_use == "away" else None)
+                        or ""
+                    ).strip()
+                    or None
+                ),
                 allow_remote=t2s_allow_remote,
                 allow_full_sync=t2s_allow_full_sync,
             )
@@ -14443,6 +14323,25 @@ def main() -> None:
                         )
 
             if primary_path is None and long_paths_for_compare:
+                home_team_name_hint = (
+                    str(
+                        meta_for_group.get("home_team")
+                        or meta_for_group.get("home_team_name")
+                        or meta_for_group.get("home")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                away_team_name_hint = (
+                    str(
+                        meta_for_group.get("away_team")
+                        or meta_for_group.get("away_team_name")
+                        or meta_for_group.get("away")
+                        or meta_for_group.get("visitor")
+                        or ""
+                    ).strip()
+                    or None
+                )
                 final_outdir, stats_rows, periods, per_player_events, pair_on_ice_rows = (
                     process_long_only_sheets(
                         long_xls_paths=list(long_paths_for_compare),
@@ -14452,6 +14351,8 @@ def main() -> None:
                         t2s_rosters_by_side=t2s_rosters_by_side,
                         t2s_side=side_to_use,
                         t2s_game_id=t2s_id,
+                        home_team_name_hint=home_team_name_hint,
+                        away_team_name_hint=away_team_name_hint,
                         focus_team_override=focus_team_override,
                         include_shifts_in_stats=include_shifts_in_stats,
                         write_events_summary=write_events_summary,
