@@ -338,18 +338,33 @@ def _upsert_game_event_rows_from_events_csv(
     pid_to_team_id: dict[int, int] = {}
     jersey_to_pids: dict[tuple[int, str], list[int]] = {}
     name_to_pids: dict[tuple[int, str], list[int]] = {}
+    head_coach_pid_by_team_id: dict[int, int] = {}
+    pid_to_name: dict[int, str] = {}
     for p in players:
         tid = int(p.get("team_id") or 0)
         pid = int(p.get("id") or 0)
         if not tid or not pid:
             continue
         pid_to_team_id[int(pid)] = int(tid)
+        pid_to_name[int(pid)] = str(p.get("name") or "").strip()
         jn = logic.normalize_jersey_number(p.get("jersey_number"))
         if jn:
             jersey_to_pids.setdefault((tid, jn), []).append(pid)
         nn = logic.normalize_player_name(str(p.get("name") or ""))
         if nn:
             name_to_pids.setdefault((tid, nn), []).append(pid)
+        jersey_raw = str(p.get("jersey_number") or "").strip().upper()
+        pos_raw = str(p.get("position") or "").strip().upper()
+        name_up = str(p.get("name") or "").strip().upper()
+        if tid and pid and tid not in head_coach_pid_by_team_id:
+            if (
+                jersey_raw in {"HC", "HEAD COACH"}
+                or pos_raw in {"HC", "HEAD COACH"}
+                or name_up.startswith("HC ")
+                or "HEAD COACH" in name_up
+                or "(HC)" in name_up
+            ):
+                head_coach_pid_by_team_id[int(tid)] = int(pid)
 
     # For some imports (e.g. TimeToScore) roster rows may be present even when jersey numbers
     # are missing. As a best-effort fallback, if a game+team has a single roster player
@@ -529,6 +544,19 @@ def _upsert_game_event_rows_from_events_csv(
             candidates = name_to_pids.get((int(team_id), name_norm), [])
             if len(set(candidates)) == 1:
                 player_id = int(list(set(candidates))[0])
+
+        # Bench penalties use jersey "B" and should be attributed to the Head Coach (HC) when present.
+        if (
+            player_id is None
+            and team_id is not None
+            and et_key in {"penalty", "penaltyexpired"}
+            and str(attributed_jerseys or "").strip().casefold() in {"b", "bench"}
+        ):
+            hc_pid = head_coach_pid_by_team_id.get(int(team_id))
+            if hc_pid is not None:
+                player_id = int(hc_pid)
+                if not attributed_players:
+                    attributed_players = pid_to_name.get(int(hc_pid), "") or "Head Coach"
 
         if player_id is None and team_id is not None and (jersey_norm or attributed_players):
             roster_pid = _unique_game_roster_pid(int(team_id))

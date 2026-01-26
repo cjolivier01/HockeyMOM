@@ -1263,6 +1263,39 @@ def should_not_create_new_assists_from_shift_package_when_timetoscore_exists(cli
     assert not m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist").exists()
 
 
+def should_attribute_bench_penalties_to_head_coach_when_present(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Charles Coach",
+        jersey_number="HC",
+        position=None,
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    _upsert_event_rows_from_csv(
+        game_id=1001,
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Details,Game Seconds End\n"
+            "Penalty,timetoscore,Home,1,100,B,Unsportsmanlike 2m,220\n"
+        ),
+        replace=True,
+    )
+    row = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="penalty")
+        .values("player_id", "attributed_players", "attributed_jerseys")
+        .first()
+    )
+    assert row is not None
+    assert int(row.get("player_id") or 0) == 503
+    assert str(row.get("attributed_players") or "") == "Charles Coach"
+    assert str(row.get("attributed_jerseys") or "") == "B"
+
+
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):
     client, m = client_and_models
     r = _post_json(
