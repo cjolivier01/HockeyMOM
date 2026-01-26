@@ -136,12 +136,14 @@ def load_previous_meetings_summary(
     limit: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """
-    Return a compact list of prior games between team1/team2 suitable for game-page display.
+    Return a compact list of games between team1/team2 suitable for game-page display.
 
     - If `league_id` is provided, restrict to games mapped to that league (via `LeagueGame`).
     - Otherwise restrict to games owned by `user_id`.
     - If `before_starts_at` is provided, restrict to games before that datetime.
     - If `limit` is provided, restrict to that many results.
+    - The current game (identified by `current_game_id`) may be included in results; callers can
+      use the `is_current` field to highlight it.
     """
     _django_orm, m = _orm_modules()
     from django.db.models import Q
@@ -171,8 +173,13 @@ def load_previous_meetings_summary(
         d = to_dt(starts_at)
         if not d:
             return False
-        now = dt.datetime.now(tz=d.tzinfo) if getattr(d, "tzinfo", None) else dt.datetime.now()
-        return bool(d > now)
+        # Normalize to UTC to avoid naive/aware comparison issues.
+        if d.tzinfo is None or d.tzinfo.utcoffset(d) is None:
+            d_utc = d.replace(tzinfo=dt.timezone.utc)
+        else:
+            d_utc = d.astimezone(dt.timezone.utc)
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        return bool(d_utc > now_utc)
 
     if league_id is not None:
         qs = (
@@ -218,6 +225,7 @@ def load_previous_meetings_summary(
                     else:
                         is_tie = True
                 except Exception:
+                    # If scores cannot be parsed (e.g., non-integer values), leave winner/is_tie unset.
                     pass
             out.append(
                 {
@@ -235,6 +243,7 @@ def load_previous_meetings_summary(
                     "winner_name": winner_name or None,
                     "is_tie": bool(is_tie),
                     "is_future": _is_future(r0.get("game__starts_at")),
+                    "is_current": bool(int(r0["game_id"]) == int(current_game_id)),
                 }
             )
         out.sort(key=_chronological_sort_key)
@@ -280,6 +289,7 @@ def load_previous_meetings_summary(
                 else:
                     is_tie = True
             except Exception:
+                # If scores cannot be parsed (e.g., non-integer values), leave winner/is_tie unset.
                 pass
         out.append(
             {
@@ -297,6 +307,7 @@ def load_previous_meetings_summary(
                 "winner_name": winner_name or None,
                 "is_tie": bool(is_tie),
                 "is_future": _is_future(r0.get("starts_at")),
+                "is_current": bool(int(r0["id"]) == int(current_game_id)),
             }
         )
     out.sort(key=_chronological_sort_key)

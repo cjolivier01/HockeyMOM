@@ -132,13 +132,13 @@
       <h3 style="margin-top:0;">All Meetings</h3>
       <div class="meeting-list">
         {% for g in previous_meetings %}
-          <div class="meeting-row{% if g.id == game.id %} meeting-row-current{% endif %}{% if g.is_future %} meeting-row-future{% endif %}">
+          <div class="meeting-row{% if g.is_current %} meeting-row-current{% endif %}{% if g.is_future %} meeting-row-future{% endif %}">
             <div class="meeting-meta">
               <div class="meeting-top">
                 <span class="muted nowrap">{{ g.starts_at|fmt_date }}</span>
                 <span class="muted">·</span>
                 <span class="muted">{{ g.game_type_name|default_if_none:"Game" }}</span>
-                {% if g.id == game.id %}
+                {% if g.is_current %}
                   <span class="meeting-this-game">(This Game)</span>
                 {% endif %}
               </div>
