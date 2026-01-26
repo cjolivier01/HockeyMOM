@@ -129,10 +129,10 @@
   
   {% if previous_meetings %}
     <div class="card" style="margin-top:1rem;">
-      <h3 style="margin-top:0;">Previous Meetings</h3>
+      <h3 style="margin-top:0;">All Meetings</h3>
       <div class="meeting-list">
         {% for g in previous_meetings %}
-          <div class="meeting-row">
+          <div class="meeting-row{% if g.id == game.id %} meeting-row-current{% endif %}{% if g.is_future %} meeting-row-future{% endif %}">
             <div class="meeting-meta">
               <div class="meeting-top">
                 <span class="muted nowrap">{{ g.starts_at|fmt_date }}</span>

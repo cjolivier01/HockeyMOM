@@ -8540,8 +8540,8 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             current_game_id=int(game_id),
             team1_id=int(game["team1_id"]),
             team2_id=int(game["team2_id"]),
-            before_starts_at=game.get("starts_at"),
-            limit=5,
+            before_starts_at=None,
+            limit=None,
         )
     except Exception:
         logger.exception("Failed to load previous meetings summary for game_id=%s", game_id)
@@ -10286,8 +10286,8 @@ def public_hky_game_detail(
             current_game_id=int(game_id),
             team1_id=int(game["team1_id"]),
             team2_id=int(game["team2_id"]),
-            before_starts_at=game.get("starts_at"),
-            limit=5,
+            before_starts_at=None,
+            limit=None,
         )
     except Exception:
         logger.exception(

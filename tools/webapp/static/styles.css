@@ -307,6 +307,9 @@ tr.game-excluded:hover { opacity: .85; }
 .meeting-list { display: flex; flex-direction: column; gap: .55rem; }
 .meeting-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-top: 1px solid rgba(148, 163, 184, .14); }
 .meeting-row:first-child { border-top: 0; padding-top: 0; }
+.meeting-row-current { color: #7dd3fc; }
+.meeting-row-current .muted { color: #bae6fd; }
+.meeting-row-future { opacity: .55; }
 .meeting-score { display: inline-flex; align-items: center; gap: .45rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .meeting-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 1px solid rgba(148, 163, 184, .38); background: rgba(148, 163, 184, .18); }
 .meeting-dot-home { background: rgba(40, 167, 69, .22); border-color: rgba(40, 167, 69, .48); }

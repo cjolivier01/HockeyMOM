@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 from typing import Any, Optional
 
@@ -37,6 +38,11 @@ def client_and_models(monkeypatch, webapp_db):
 def should_render_previous_meetings_summary_for_private_and_public_game_pages(client_and_models):
     client, m = client_and_models
 
+    now = dt.datetime.now().replace(microsecond=0)
+    game1_starts_at = (now - dt.timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    game2_starts_at = (now - dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+    game3_starts_at = (now + dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+
     payload = {
         "league_name": "CAHA",
         "shared": True,
@@ -48,7 +54,7 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
             {
                 "home_name": "Home A",
                 "away_name": "Away A",
-                "starts_at": "2026-01-02 10:00:00",
+                "starts_at": game1_starts_at,
                 "location": "Rink 1",
                 "home_score": 1,
                 "away_score": 2,
@@ -61,7 +67,7 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
             {
                 "home_name": "Home A",
                 "away_name": "Away A",
-                "starts_at": "2026-02-03 10:00:00",
+                "starts_at": game2_starts_at,
                 "location": "Rink 1",
                 "home_score": 3,
                 "away_score": 4,
@@ -70,6 +76,19 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
                 "season_id": 31,
                 "division_name": "12AA",
                 "game_type_name": "Playoffs",
+            },
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": game3_starts_at,
+                "location": "Rink 1",
+                "home_score": None,
+                "away_score": None,
+                "is_final": False,
+                "timetoscore_game_id": 125,
+                "season_id": 31,
+                "division_name": "12AA",
+                "game_type_name": "Regular Season",
             },
         ],
     }
@@ -86,12 +105,16 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
 
     _set_session(client, user_id=owner_user_id, email="owner@example.com", league_id=league_id)
     html = client.get(f"/hky/games/{gid2}?return_to=/schedule").content.decode()
-    assert "Previous Meetings" in html
-    assert "Regular Season" in html
-    assert "2 - 1" in html
+    assert "All Meetings" in html
+    segment = html.split("All Meetings", 1)[1].split("Scoring By Period", 1)[0]
+    assert "meeting-row-current" in segment
+    assert "meeting-row-future" in segment
+    assert segment.index("2 - 1") < segment.index("4 - 3")
 
     m.League.objects.filter(id=int(league_id)).update(is_public=True)
     public_html = client.get(f"/public/leagues/{league_id}/hky/games/{gid2}").content.decode()
-    assert "Previous Meetings" in public_html
-    assert "Regular Season" in public_html
-    assert "2 - 1" in public_html
+    assert "All Meetings" in public_html
+    public_segment = public_html.split("All Meetings", 1)[1].split("Scoring By Period", 1)[0]
+    assert "meeting-row-current" in public_segment
+    assert "meeting-row-future" in public_segment
+    assert public_segment.index("2 - 1") < public_segment.index("4 - 3")
