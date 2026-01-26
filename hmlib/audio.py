@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 
 from hmlib.log import get_logger
 from hmlib.stitching.synchronize import synchronize_by_audio
@@ -137,7 +137,12 @@ def concatenate_audio(files) -> tempfile.TemporaryFile:
 
 
 def copy_audio(
-    input_audio: Union[str, List[str]], input_video: str, output_video: str, shortest: bool = True
+    input_audio: Union[str, List[str], dict],
+    input_video: str,
+    output_video: str,
+    shortest: bool = True,
+    start_seconds: float = 0.0,
+    check: bool = True,
 ):
     """Copy or merge audio from one or more sources into a target video.
 
@@ -145,6 +150,8 @@ def copy_audio(
     @param input_video: Path to the video that will receive the audio track.
     @param output_video: Output video filename with audio attached.
     @param shortest: If ``True``, stop when the shortest stream ends (ffmpeg ``-shortest``).
+    @param start_seconds: Optional offset (in seconds) to seek into the audio source before muxing.
+    @param check: If True, raise on ffmpeg failure.
     @see @ref hmlib.game_audio.transfer_audio "transfer_audio" for a higher-level wrapper.
     """
     temp_audio_file = None
@@ -172,9 +179,16 @@ def copy_audio(
             raise AssertionError(f"Either lfo or rfo should be zero, but were {lfo=} and {rfo=}")
     else:
         if isinstance(input_audio, list):
-            assert len(input_audio) == 1
-            input_audio = input_audio[0]
-        audio_source = input_audio
+            if len(input_audio) == 1:
+                audio_source = input_audio[0]
+            else:
+                temp_audio_file = concatenate_audio(input_audio)
+                audio_source = temp_audio_file.name if temp_audio_file is not None else None
+        else:
+            audio_source = input_audio
+
+    if not audio_source:
+        raise RuntimeError("No valid audio source provided for muxing.")
 
     output_suffix = Path(output_video).suffix.lower()
     output_is_mp4 = output_suffix in {".mp4", ".m4v", ".mov"}
@@ -207,6 +221,10 @@ def copy_audio(
         "ffmpeg",
         "-y",
         "-hide_banner",
+    ]
+    if start_seconds and start_seconds > 0:
+        command += ["-ss", str(float(start_seconds))]
+    command += [
         "-i",
         audio_source,
         "-i",
@@ -229,8 +247,91 @@ def copy_audio(
         command.append("-shortest")
 
     command.append(output_video)
-    process = subprocess.Popen(command)
-    process.wait()
+    if check:
+        subprocess.run(command, check=True)
+    else:
+        process = subprocess.Popen(command)
+        process.wait()
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command)
+    if temp_audio_file is not None:
+        try:
+            temp_audio_file.close()
+        except Exception:
+            pass
+
+
+def has_audio_stream(path: str) -> bool:
+    """Return True if ffprobe detects at least one audio stream in the file."""
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                path,
+            ]
+        )
+    except Exception:
+        return False
+    return bool(out.strip())
+
+
+def mux_audio_in_place(
+    input_audio: Union[str, List[str], dict],
+    video_path: str,
+    *,
+    start_seconds: float = 0.0,
+    shortest: bool = True,
+    keep_original: bool = False,
+) -> Optional[str]:
+    """Mux audio into an existing video file by writing a temp file and replacing.
+
+    Returns the final video path (same as ``video_path``) on success, or ``None`` on failure.
+    """
+    if not video_path:
+        return None
+    if not os.path.exists(video_path):
+        return None
+
+    path = Path(video_path)
+    suffix = path.suffix or ""
+    if suffix:
+        tmp_path = str(path.with_name(f".{path.stem}.with-audio{suffix}"))
+        bak_path = str(path.with_name(f".{path.stem}.no-audio{suffix}")) if keep_original else None
+    else:
+        dir_name = os.path.dirname(video_path) or "."
+        base = os.path.basename(video_path)
+        tmp_path = os.path.join(dir_name, f".{base}.with-audio.tmp")
+        bak_path = os.path.join(dir_name, f".{base}.no-audio.bak") if keep_original else None
+    try:
+        copy_audio(
+            input_audio=input_audio,
+            input_video=video_path,
+            output_video=tmp_path,
+            shortest=shortest,
+            start_seconds=start_seconds,
+            check=True,
+        )
+        if keep_original and bak_path:
+            os.replace(video_path, bak_path)
+        os.replace(tmp_path, video_path)
+        return video_path
+    except Exception as exc:
+        get_logger(__name__).warning("Audio mux failed for %s: %s", video_path, exc)
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return None
 
 
 if __name__ == "__main__":

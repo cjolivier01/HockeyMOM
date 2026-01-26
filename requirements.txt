@@ -18,6 +18,7 @@ yacs
 opencv-python
 PyYAML
 cython-bbox
+cupy-cuda13x
 scipy
 progress
 motmetrics

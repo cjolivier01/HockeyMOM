@@ -24,9 +24,8 @@ from hmlib.utils.progress_bar import RICH_CONSOLE
 from hmlib.utils.utils import classinstancememoize
 
 try:
-    from rich.progress import BarColumn
+    from rich.progress import BarColumn, ProgressColumn, TextColumn, TimeRemainingColumn
     from rich.progress import Progress as RichProgress
-    from rich.progress import ProgressColumn, TextColumn, TimeRemainingColumn
     from rich.text import Text
 except Exception:  # pragma: no cover - optional dependency during import
     BarColumn = None  # type: ignore[assignment]
@@ -122,9 +121,6 @@ class BasicVideoInfo:
                         len(probe.video),
                         video_file,
                     )
-                    # raise AssertionError(
-                    #     f"Found too many ({len(probe.video)}) video streams in file: {video_file}"
-                    # )
                 self._ffstream = probe.video[0]
                 # Duration in seconds is kept as float; fps is stored as Fraction
                 self.duration = self._ffstream.durationSeconds()

@@ -266,7 +266,7 @@ class hm_opts(object):
         io.add_argument(
             "--no-audio",
             action="store_true",
-            help="Skip copying audio to the rendered video",
+            help="Disable muxing/copying audio into the rendered output video",
         )
         io.add_argument(
             "--deploy-dir",

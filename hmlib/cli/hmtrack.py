@@ -34,7 +34,7 @@ from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
-from hmlib.game_audio import transfer_audio
+from hmlib.audio import has_audio_stream, mux_audio_in_place
 from hmlib.hm_opts import copy_opts, hm_opts, preferred_arg
 
 # from hmlib.hm_transforms import update_data_pipeline
@@ -45,7 +45,6 @@ from hmlib.tasks.tracking import run_mmtrack
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
-from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -737,11 +736,6 @@ def _main(args, num_gpu):
             if hasattr(args, "game_config") and isinstance(args.game_config, dict):
                 args.game_config["initial_args"] = args.initial_args
 
-        if args.max_frames or args.max_time:
-            if args.no_audio:
-                print("Disabling audio extraction due to max-frames/max-time limit")
-                args.no_audio = True
-
         postprocessor = None
         if args.input_video:
             input_video_files = args.input_video.split(",")
@@ -806,6 +800,27 @@ def _main(args, num_gpu):
                         "frame_offset": rfo,
                     },
                 }
+                # Prefer audio from the baseline camera (frame offset == 0) for stitched output.
+                try:
+                    baseline = None
+                    if float(lfo or 0) == 0.0:
+                        baseline = "left"
+                    elif float(rfo or 0) == 0.0:
+                        baseline = "right"
+                    else:
+                        baseline = "left" if float(lfo or 0) <= float(rfo or 0) else "right"
+                        logger.warning(
+                            "Neither stitching frame offset is 0 (lfo=%s rfo=%s); using %s audio.",
+                            lfo,
+                            rfo,
+                            baseline,
+                        )
+                    if baseline == "left":
+                        args.audio_sources = list(game_videos.get("left") or [])
+                    else:
+                        args.audio_sources = list(game_videos.get("right") or [])
+                except Exception:
+                    args.audio_sources = None
 
                 def _set_runtime_arg(name: str, value: Any) -> None:
                     setattr(args, name, value)
@@ -1039,8 +1054,75 @@ def _main(args, num_gpu):
 
         output_video_path = None
         if not args.no_save_video:
-            output_video_path = os.path.join(results_folder, "tracking_output.mkv")
+            output_video_path = args.output_video or os.path.join(
+                results_folder, "tracking_output.mkv"
+            )
+            try:
+                out_dir = os.path.dirname(str(output_video_path))
+                if out_dir:
+                    os.makedirs(out_dir, exist_ok=True)
+            except Exception:
+                pass
         args.output_video_path = output_video_path
+
+        #
+        # Audio passthrough: provide input audio sources + start offset to Aspen VideoOutPlugin.
+        #
+        try:
+            audio_sources = getattr(args, "audio_sources", None)
+            if audio_sources is None and args.input_video:
+                audio_sources = input_video_files
+                if isinstance(audio_sources, list) and len(audio_sources) == 1:
+                    audio_sources = audio_sources[0]
+                args.audio_sources = audio_sources
+            args.audio_start_seconds = 0.0
+            if audio_sources and args.start_frame:
+                ref_path = None
+                if isinstance(audio_sources, dict):
+                    left_files = audio_sources.get("left") or []
+                    if left_files:
+                        ref_path = left_files[0]
+                elif isinstance(audio_sources, list):
+                    ref_path = audio_sources[0] if audio_sources else None
+                else:
+                    ref_path = str(audio_sources)
+                if ref_path:
+                    ref_info = BasicVideoInfo(str(ref_path))
+                    fps_val = float(ref_info.fps) if float(ref_info.fps) > 0 else 0.0
+                    if fps_val > 0:
+                        args.audio_start_seconds = float(args.start_frame) / fps_val
+        except Exception:
+            logger.exception("Failed to configure audio passthrough; continuing without audio.")
+            args.audio_sources = None
+            args.audio_start_seconds = 0.0
+
+        if args.audio_only:
+            if args.no_audio:
+                logger.info("--audio-only specified with --no-audio; skipping audio mux.")
+                return
+            target_video = args.output_video or output_video_path
+            if not target_video:
+                raise ValueError(
+                    "--audio-only requires --output-video (or an existing output path)."
+                )
+            if not os.path.exists(target_video):
+                raise FileNotFoundError(f"--audio-only target video does not exist: {target_video}")
+            if not args.audio_sources:
+                raise ValueError("--audio-only requires --input-video with an audio track.")
+            if has_audio_stream(target_video):
+                logger.info("Target video already has audio: %s", target_video)
+                return
+            result = mux_audio_in_place(
+                input_audio=args.audio_sources,
+                video_path=target_video,
+                start_seconds=float(args.audio_start_seconds or 0.0),
+                shortest=True,
+                keep_original=False,
+            )
+            if not result:
+                raise RuntimeError(f"Failed to mux audio into: {target_video}")
+            logger.info("Saved video with audio: %s", result)
+            return
 
         if not args.audio_only:
 
@@ -1083,64 +1165,48 @@ def _main(args, num_gpu):
             )
 
         #
-        # Optional: add audio for full runs
-        #
-        dest_path = None
-        is_truncated_run = bool(args.max_time or args.max_frames)
-
-        if (
-            (not is_truncated_run)
-            and (not args.no_audio)
-            and output_video_path
-            and os.path.exists(output_video_path)
-        ):
-            try:
-                output_av_path = args.output_video
-                deploy_dir = getattr(args, "deploy_dir", None)
-                if output_av_path is None and deploy_dir:
-                    os.makedirs(deploy_dir, exist_ok=True)
-                    file_name = os.path.basename(output_video_path)
-                    file_name = str(add_suffix_to_filename(file_name, "-with-audio"))
-                    base_name, extension = os.path.splitext(file_name)
-                    if extension == ".mkv":
-                        extension = ".mp4"
-                    output_av_path = None
-                    for i in range(1000):
-                        if i:
-                            fname = f"{base_name}-{i}{extension}"
-                        else:
-                            fname = f"{base_name}{extension}"
-                        candidate = os.path.join(deploy_dir, fname)
-                        if not os.path.exists(candidate):
-                            output_av_path = candidate
-                            break
-                    if output_av_path is None:
-                        raise RuntimeError("Could not find a free deploy filename for output video")
-
-                dest_path = transfer_audio(
-                    game_id=args.game_id,
-                    input_av_files=input_video_files,
-                    video_source_file=output_video_path,
-                    output_av_path=output_av_path,
-                )
-            except Exception:
-                logger.exception("Failed to transfer audio; continuing without audio.")
-                dest_path = None
-
-        #
         # Deploy CSV artifacts to the game directory (full run) or --deploy-dir (explicit).
         #
         deploy_dir = getattr(args, "deploy_dir", None)
         target_deploy_dir = None
         if deploy_dir:
             target_deploy_dir = deploy_dir
-        elif not is_truncated_run:
+        elif not bool(args.max_time or args.max_frames):
             target_deploy_dir = (
                 args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
             )
 
         if target_deploy_dir:
             os.makedirs(target_deploy_dir, exist_ok=True)
+            deployed_video_path = None
+            if output_video_path and os.path.exists(output_video_path):
+                try:
+                    out_abs = os.path.abspath(output_video_path)
+                    deploy_abs = os.path.abspath(target_deploy_dir)
+                    if os.path.dirname(out_abs) == deploy_abs:
+                        deployed_video_path = out_abs
+                    else:
+                        base_name = os.path.basename(output_video_path)
+                        base_root, base_ext = os.path.splitext(base_name)
+                        candidate = None
+                        for i in range(0, 1000):
+                            if i == 0:
+                                name_i = f"{base_root}{base_ext}"
+                            else:
+                                name_i = f"{base_root}-{i}{base_ext}"
+                            cand = os.path.join(target_deploy_dir, name_i)
+                            if not os.path.exists(cand):
+                                candidate = cand
+                                break
+                        if candidate is None:
+                            raise RuntimeError(
+                                "Could not find a free deploy filename for output video"
+                            )
+                        shutil.copy2(output_video_path, candidate)
+                        deployed_video_path = candidate
+                except Exception:
+                    logger.exception("Failed to deploy output video; continuing.")
+                    deployed_video_path = None
             csv_names = []
             try:
                 for name in os.listdir(results_folder):
@@ -1182,7 +1248,9 @@ def _main(args, num_gpu):
                         return i
                 raise RuntimeError("Could not find a free suffix for CSV deployment")
 
-            suffix_num = extract_suffix_num(dest_path)
+            suffix_num = extract_suffix_num(
+                deployed_video_path or args.output_video or output_video_path
+            )
             if suffix_num is not None and csv_names:
                 for name in csv_names:
                     if os.path.exists(

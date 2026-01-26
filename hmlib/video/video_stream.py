@@ -11,6 +11,7 @@ import os
 import platform
 import sys
 from fractions import Fraction
+from functools import cache
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 import cv2
@@ -54,6 +55,28 @@ _FOURCC_TO_CODEC = {
 
 MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
 MAX_NEVC_VIDEO_WIDTH: int = 8192
+
+
+@cache
+def _opencv_nvenc_available() -> bool:
+    try:
+        if not hasattr(cv2, "cudacodec"):
+            return False
+        if not hasattr(cv2, "cuda"):
+            return False
+        get_count = getattr(cv2.cuda, "getCudaEnabledDeviceCount", None)
+        if get_count is None or int(get_count()) <= 0:
+            return False
+        return bool(getattr(cv2.cudacodec, "createVideoWriter", None))
+    except Exception:
+        return False
+
+
+def _opencv_nvenc_supported_extension(filename: str) -> bool:
+    suffix = os.path.splitext(str(filename))[1].lower()
+    # Empirically, OpenCV cudacodec NVENC writer is robust with MP4-like containers,
+    # but can fail with MKV depending on build/options.
+    return suffix in {".mp4", ".m4v", ".mov"}
 
 
 def _load_pynvcodec():
@@ -248,7 +271,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         streaming_drop_frame_interval: int = 3,
         stream_fps: int = 15,
     ):
-        assert False, "Stop using VideoStreamWriter; use PyNvVideoEncoderWriter instead"
+        # assert False, "Stop using VideoStreamWriter; use PyNvVideoEncoderWriter instead"
         self._filename = filename
         self._container_type = container_type
         # Always keep a float internally even if callers pass a Fraction
@@ -478,7 +501,7 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             self._timer = Timer()
         self._timer.tic()
 
-    def write(self, images: torch.Tensor):
+    def write(self, images: torch.Tensor, **kwargs):
         return self.append(images)
 
 
@@ -1103,25 +1126,98 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
         bit_rate: Optional[int] = None,
         batch_size: Optional[int] = 1,
     ):
-        fourcc = cv2.VideoWriter_fourcc(*codec)
+        self._filename = str(filename)
+        self._fps = float(fps)
+        self._width = int(width)
+        self._height = int(height)
         self._bit_rate = bit_rate
-        self._output_video = cv2.VideoWriter(
-            filename=filename,
-            fourcc=fourcc,
-            fps=fps,
-            frameSize=(
-                int(width),
-                int(height),
-            ),
-        )
-        self._output_video.set(
-            cv2.CAP_PROP_BITRATE,
-            self.calculate_desired_bitrate(width=width, height=height),
-        )
-        assert self._output_video.isOpened()
-        self._device = torch.device("cpu")
+        self._batch_size = batch_size or 1
+        self._device = device if isinstance(device, torch.device) else torch.device(device)
+
+        self._backend: str = "opencv_video_writer"
+        self._backend_transfer: str = "cpu"
+        self._output_video: Optional[cv2.VideoWriter] = None
+        self._nvenc_writer = None
+        self._nvenc_gpumat: Optional[cv2.cuda.GpuMat] = None
+        self._nvenc_stream = None
+        self._cupy = None
+
+        try:
+            import cupy  # type: ignore
+
+            self._cupy = cupy
+        except Exception:
+            self._cupy = None
+
+        codec_str = (codec or "").strip()
+        if not codec_str:
+            codec_str = "mp4v" if self._filename.lower().endswith(".mp4") else "XVID"
+        else:
+            # OpenCV's VideoWriter_fourcc expects exactly 4 characters. Callers
+            # sometimes pass codec names like "hevc_nvenc"; normalize those.
+            codec_lower = codec_str.lower()
+            if len(codec_str) != 4:
+                if "hevc" in codec_lower or "h265" in codec_lower or "hvc" in codec_lower:
+                    codec_str = "HEVC"
+                elif "h264" in codec_lower or "avc" in codec_lower:
+                    codec_str = "H264"
+                elif "av1" in codec_lower:
+                    codec_str = "av01"
+                else:
+                    codec_str = "mp4v" if self._filename.lower().endswith(".mp4") else "XVID"
+
+        if (
+            self._device.type == "cuda"
+            and _opencv_nvenc_available()
+            and _opencv_nvenc_supported_extension(self._filename)
+        ):
+            try:
+                codec_lower = codec_str.lower()
+                nv_codec = (
+                    cv2.cudacodec.HEVC
+                    if ("hevc" in codec_lower or "h265" in codec_lower or "hvc" in codec_lower)
+                    else cv2.cudacodec.H264
+                )
+                params = cv2.cudacodec.EncoderParams()
+                desired = int(
+                    self.calculate_desired_bitrate(width=self._width, height=self._height)
+                )
+                params.averageBitRate = desired
+                params.maxBitRate = max(desired, int(desired * 1.2))
+                self._nvenc_stream = cv2.cuda.Stream()
+                self._nvenc_writer = cv2.cudacodec.createVideoWriter(
+                    self._filename,
+                    (self._width, self._height),
+                    nv_codec,
+                    self._fps,
+                    cv2.cudacodec.BGR,
+                    params,
+                    None,
+                    self._nvenc_stream,
+                )
+                self._backend = "opencv_cudacodec_nvenc"
+            except Exception:
+                self._nvenc_writer = None
+                self._nvenc_stream = None
+
+        if self._nvenc_writer is None:
+            fourcc = cv2.VideoWriter_fourcc(*codec_str)
+            self._output_video = cv2.VideoWriter(
+                filename=self._filename,
+                fourcc=fourcc,
+                fps=self._fps,
+                frameSize=(self._width, self._height),
+            )
+            self._output_video.set(
+                cv2.CAP_PROP_BITRATE,
+                self.calculate_desired_bitrate(width=self._width, height=self._height),
+            )
+            assert self._output_video.isOpened()
+            self._device = torch.device("cpu")
 
     def isOpened(self) -> bool:
+        if self._nvenc_writer is not None:
+            return True
         return self._output_video is not None and self._output_video.isOpened()
 
     def calculate_desired_bitrate(self, width: int, height: int):
@@ -1142,14 +1238,35 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
     def device(self) -> torch.device:
         return self._device
 
+    @property
+    def backend(self) -> str:
+        return self._backend
+
+    @property
+    def backend_transfer(self) -> str:
+        return self._backend_transfer
+
     def flush(self):
         pass
 
     def close(self):
-        self._output_video.release()
-        self._output_video = None
+        if self._nvenc_writer is not None:
+            try:
+                self._nvenc_writer.release()
+            except Exception:
+                pass
+            self._nvenc_writer = None
+        if self._nvenc_stream is not None:
+            try:
+                self._nvenc_stream.waitForCompletion()
+            except Exception:
+                pass
+            self._nvenc_stream = None
+        if self._output_video is not None:
+            self._output_video.release()
+            self._output_video = None
 
-    def write(self, img: Union[torch.Tensor, np.ndarray]):
+    def write(self, img: Union[torch.Tensor, np.ndarray], **kwargs) -> None:
         if isinstance(img, StreamTensorBase):
             img = img.get()
         if img.ndim == 4:
@@ -1157,11 +1274,65 @@ class VideoStreamWriterCV2(VideoStreamWriterInterface):
             img = img.squeeze(0)
         # OpenCV always wants channels last
         img = make_channels_last(img)
+        if self._nvenc_writer is not None:
+            # OpenCV cudacodec expects a cv2.cuda_GpuMat. With CuPy installed we can
+            # avoid staging through CPU by doing a D2D memcpy from Torch -> GpuMat.
+            if self._nvenc_gpumat is None:
+                self._nvenc_gpumat = cv2.cuda.GpuMat()
+
+            if isinstance(img, torch.Tensor) and img.is_cuda and self._cupy is not None:
+                cp = self._cupy
+                img = img.detach()
+                if not img.is_contiguous():
+                    img = img.contiguous()
+                channels = int(img.shape[-1])
+                if channels not in (3, 4):
+                    raise ValueError(f"NVENC writer expects 3 or 4 channels, got {channels}")
+                cv_type = cv2.CV_8UC3 if channels == 3 else cv2.CV_8UC4
+                self._nvenc_gpumat.create(int(img.shape[0]), int(img.shape[1]), cv_type)
+
+                dlpack = torch.utils.dlpack.to_dlpack(img)
+                cp_arr = (
+                    cp.from_dlpack(dlpack) if hasattr(cp, "from_dlpack") else cp.fromDlpack(dlpack)
+                )
+                width_bytes = int(cp_arr.shape[1]) * channels
+                src_pitch = int(cp_arr.strides[0])
+                dst_pitch = int(self._nvenc_gpumat.step)
+                dst_ptr = int(self._nvenc_gpumat.cudaPtr())
+                src_ptr = int(cp_arr.data.ptr)
+                stream_ptr = (
+                    int(self._nvenc_stream.cudaPtr()) if self._nvenc_stream is not None else 0
+                )
+                with cp.cuda.ExternalStream(stream_ptr):
+                    cp.cuda.runtime.memcpy2DAsync(
+                        dst_ptr,
+                        dst_pitch,
+                        src_ptr,
+                        src_pitch,
+                        width_bytes,
+                        int(cp_arr.shape[0]),
+                        cp.cuda.runtime.memcpyDeviceToDevice,
+                        stream_ptr,
+                    )
+                self._backend_transfer = "cupy_d2d"
+            else:
+                # Fallback: CPU staging + upload.
+                if isinstance(img, torch.Tensor):
+                    img = img.detach().cpu().numpy()
+                    img = np.ascontiguousarray(img)
+                if isinstance(img, np.ndarray) and img.dtype != np.dtype("uint8"):
+                    img = img.astype("uint8")
+                self._nvenc_gpumat.upload(img, stream=self._nvenc_stream)
+                self._backend_transfer = "cpu_upload"
+
+            self._nvenc_writer.write(self._nvenc_gpumat)
+            return
         if isinstance(img, torch.Tensor):
             img = img.detach().cpu().numpy()
             img = np.ascontiguousarray(img)
         if isinstance(img, np.ndarray) and img.dtype != np.dtype("uint8"):
             img = img.astype("uint8")
+        assert self._output_video is not None
         self._output_video.write(img)
 
 
@@ -1181,7 +1352,8 @@ def create_output_video_stream(
     # never see Fraction instances.
     fps_val = float(fps)
     # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
-    use_pynvcodec_env = True
+    use_pynvcodec_env = False
+    use_cv2_cuda: bool = True
     if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
         output_video = PyNvVideoEncoderWriter(
             filename=filename,
@@ -1195,7 +1367,7 @@ def create_output_video_stream(
             profiler=profiler,
         )
         output_video.open()
-    elif "_nvenc" in (codec or "") or filename.startswith("rtmp://"):
+    elif not use_cv2_cuda and ("_nvenc" in (codec or "") or filename.startswith("rtmp://")):
         output_video = VideoStreamWriter(
             filename=filename,
             fps=fps_val,

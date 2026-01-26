@@ -312,6 +312,10 @@ def run_mmtrack(
                     camera_ui=int(initial_args.get("camera_ui") or config.get("camera_ui") or 0),
                     # Optional stitching rotation controller (e.g., StitchDataset instance)
                     stitch_rotation_controller=config.get("stitch_rotation_controller"),
+                    # Optional audio passthrough into rendered video (handled by VideoOutPlugin.finalize).
+                    audio_sources=config.get("audio_sources"),
+                    audio_start_seconds=config.get("audio_start_seconds", 0.0),
+                    no_audio=bool(config.get("no_audio", False)),
                 )
                 # Optional per-plugin audit hook for debugging CUDA stream correctness.
                 audit_dir = initial_args.get("audit_dir")
@@ -322,7 +326,9 @@ def run_mmtrack(
                         audit_plugins = initial_args.get("audit_plugins")
                         plugins = None
                         if audit_plugins:
-                            plugins = [p.strip() for p in str(audit_plugins).split(",") if p.strip()]
+                            plugins = [
+                                p.strip() for p in str(audit_plugins).split(",") if p.strip()
+                            ]
                         ref_dir = initial_args.get("audit_reference_dir")
                         ref_path = Path(ref_dir) if ref_dir else None
                         audit_cfg = AspenAuditConfig(
@@ -333,7 +339,11 @@ def run_mmtrack(
                             fail_fast=bool(int(initial_args.get("audit_fail_fast", 1) or 0)),
                         )
                         shared["_aspen_audit"] = AspenAuditHook(audit_cfg)
-                        logger.info("Aspen audit enabled: out_dir=%s ref_dir=%s", audit_cfg.out_dir, ref_path)
+                        logger.info(
+                            "Aspen audit enabled: out_dir=%s ref_dir=%s",
+                            audit_cfg.out_dir,
+                            ref_path,
+                        )
                     except Exception:
                         logger.exception("Failed to initialize Aspen audit hook")
                 if profiler is not None:
@@ -568,7 +578,9 @@ def run_mmtrack(
                 aspen_net.finalize()
             except Exception:
                 logger.exception("AspenNet finalize failed")
-            audit_hook = aspen_net.shared.get("_aspen_audit") if hasattr(aspen_net, "shared") else None
+            audit_hook = (
+                aspen_net.shared.get("_aspen_audit") if hasattr(aspen_net, "shared") else None
+            )
             close_fn = getattr(audit_hook, "close", None)
             if callable(close_fn):
                 try:

@@ -4,7 +4,9 @@ import os
 from typing import Any, Dict, Optional
 
 from hmlib.builder import HM
+from hmlib.log import logger
 from hmlib.config import get_nested_value
+from hmlib.audio import has_audio_stream, mux_audio_in_place
 from hmlib.video.video_out import VideoOutput
 
 from .base import Plugin
@@ -70,6 +72,7 @@ class VideoOutPlugin(Plugin):
         self._show_image = bool(show_image) if show_image is not None else None
         self._show_scaled = show_scaled
         self._bit_rate = bit_rate
+        self._last_shared: Optional[Dict[str, Any]] = None
 
     def is_output(self) -> bool:
         """If enabled, this node is an output."""
@@ -94,7 +97,9 @@ class VideoOutPlugin(Plugin):
         #   3. Fallback to <work_dir>/tracking_output.mkv
         out_path = self._out_path
         if not out_path or "/" not in out_path:
-            candidate = get_nested_value(cfg, "aspen.video_out.output_video_path", default_value=None)
+            candidate = get_nested_value(
+                cfg, "aspen.video_out.output_video_path", default_value=None
+            )
             if not candidate:
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
                 candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
@@ -143,6 +148,9 @@ class VideoOutPlugin(Plugin):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
+        shared = context.get("shared")
+        if isinstance(shared, dict):
+            self._last_shared = shared
         self._ensure_initialized(context)
         assert self._vo is not None
         # Call VideoOutput as a regular nn.Module (forward) to write frames.
@@ -157,6 +165,30 @@ class VideoOutPlugin(Plugin):
             except Exception:
                 # Finalization should be best-effort; ignore errors here.
                 pass
+        shared = self._last_shared or {}
+        try:
+            if bool(shared.get("no_audio", False)):
+                return
+            audio_sources = shared.get("audio_sources")
+            if not audio_sources:
+                return
+            out_path = self._out_path
+            if not out_path or not os.path.exists(out_path):
+                return
+            if has_audio_stream(out_path):
+                return
+            start_seconds = float(shared.get("audio_start_seconds") or 0.0)
+            result = mux_audio_in_place(
+                input_audio=audio_sources,
+                video_path=out_path,
+                start_seconds=start_seconds,
+                shortest=True,
+                keep_original=False,
+            )
+            if result:
+                logger.info("Muxed audio into output video: %s", result)
+        except Exception:
+            logger.exception("Failed to mux audio into output video")
 
     def input_keys(self):
         if not hasattr(self, "_input_keys"):

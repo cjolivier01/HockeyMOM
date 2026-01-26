@@ -204,6 +204,14 @@ class PlayTracker(torch.nn.Module):
         self._cpp_playtracker = cpp_playtracker
         self._playtracker: Union[PlayTracker, None] = None
         self._ui_dirty_paths: Set[Tuple[str, ...]] = set()
+        self._ui_saved_values: Dict[Tuple[str, ...], Any] = {}
+        # Color window -> config prefix tuple (without leaf key)
+        self._ui_color_prefix_by_window: Dict[str, Tuple[str, ...]] = {}
+        self._ui_button_rects: Dict[str, Tuple[int, int, int, int]] = {}
+        self._ui_mouse_callbacks: Set[str] = set()
+        self._ui_save_clicked_windows: Set[str] = set()
+        self._ui_status_message: Optional[str] = None
+        self._ui_status_frame: Optional[int] = None
         self._hockey_mom: HockeyMOM = hockey_mom
         self._plot_cluster_tracking = plot_cluster_tracking or debug_play_tracker
         self._plot_speed = bool(plot_speed)
@@ -283,6 +291,7 @@ class PlayTracker(torch.nn.Module):
         self._camera_accel_x = self._hockey_mom._camera_box_max_accel_x * self._max_accel_ratio_x
         self._camera_accel_y = self._hockey_mom._camera_box_max_accel_y * self._max_accel_ratio_y
         self._validate_required_camera_config()
+        self._init_ui_saved_values()
 
         # Tracking specific ids
         self._track_ids: Set[int] = set()
@@ -1345,6 +1354,275 @@ class PlayTracker(torch.nn.Module):
         # Mark that UI controls changed so we can skip the heavy read when idle.
         self._ui_controls_dirty = True
 
+    def _init_ui_saved_values(self) -> None:
+        # Snapshot the "saved" baseline for every config path that the camera UI can persist.
+        # This baseline is used to compute "dirty" (unsaved) state and supports reverting a
+        # slider back to its saved value without remaining dirty.
+        tracked_paths: Set[Tuple[str, ...]] = {
+            ("rink", "camera", "stop_on_dir_change_delay"),
+            ("rink", "camera", "cancel_stop_on_opposite_dir"),
+            ("rink", "camera", "stop_cancel_hysteresis_frames"),
+            ("rink", "camera", "stop_delay_cooldown_frames"),
+            ("rink", "camera", "time_to_dest_speed_limit_frames"),
+            ("rink", "camera", "max_speed_ratio_x"),
+            ("rink", "camera", "max_speed_ratio_y"),
+            ("rink", "camera", "max_accel_ratio_x"),
+            ("rink", "camera", "max_accel_ratio_y"),
+            ("rink", "camera", "breakaway_detection", "overshoot_stop_delay_count"),
+            ("rink", "camera", "breakaway_detection", "post_nonstop_stop_delay_count"),
+            ("rink", "camera", "breakaway_detection", "overshoot_scale_speed_ratio"),
+            ("game", "stitching", "stitch-rotate-degrees"),
+            ("rink", "camera", "color", "white_balance_temp"),
+            ("rink", "camera", "color", "white_balance"),
+            ("rink", "camera", "color", "brightness"),
+            ("rink", "camera", "color", "contrast"),
+            ("rink", "camera", "color", "gamma"),
+            ("game", "stitching", "left", "color", "white_balance_temp"),
+            ("game", "stitching", "left", "color", "white_balance"),
+            ("game", "stitching", "left", "color", "brightness"),
+            ("game", "stitching", "left", "color", "contrast"),
+            ("game", "stitching", "left", "color", "gamma"),
+            ("game", "stitching", "right", "color", "white_balance_temp"),
+            ("game", "stitching", "right", "color", "white_balance"),
+            ("game", "stitching", "right", "color", "brightness"),
+            ("game", "stitching", "right", "color", "contrast"),
+            ("game", "stitching", "right", "color", "gamma"),
+        }
+        try:
+            for path in tracked_paths:
+                if path not in self._ui_saved_values:
+                    self._ui_saved_values[path] = copy.deepcopy(self._get_config_path_value(path))
+        except Exception:
+            pass
+
+    def _consume_ui_button(self, window_name: str, button_name: str) -> bool:
+        try:
+            if int(cv2.getTrackbarPos(button_name, window_name)) > 0:
+                try:
+                    cv2.setTrackbarPos(button_name, window_name, 0)
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            return False
+        return False
+
+    def _ensure_ui_mouse_callback(self, window_name: str) -> None:
+        if window_name in self._ui_mouse_callbacks:
+            return
+
+        def _on_mouse(event: int, x: int, y: int, _flags: int, param: Any) -> None:
+            try:
+                if int(event) != int(cv2.EVENT_LBUTTONUP):
+                    return
+                win = str(param)
+                rect = self._ui_button_rects.get(win)
+                if rect is None:
+                    return
+                x1, y1, x2, y2 = rect
+                if x1 <= int(x) <= x2 and y1 <= int(y) <= y2:
+                    self._ui_save_clicked_windows.add(win)
+            except Exception:
+                return
+
+        try:
+            cv2.setMouseCallback(window_name, _on_mouse, param=window_name)
+            self._ui_mouse_callbacks.add(window_name)
+        except Exception:
+            return
+
+    def _ui_slider_config_paths(self, window_name: str, slider_name: str) -> List[Tuple[str, ...]]:
+        if window_name == self._ui_window_name:
+            mapping: Dict[str, Tuple[str, ...]] = {
+                "Stop_Direction_Change_Delay_Frames": (
+                    "rink",
+                    "camera",
+                    "stop_on_dir_change_delay",
+                ),
+                "Cancel_Stop_On_Opposite_Direction": (
+                    "rink",
+                    "camera",
+                    "cancel_stop_on_opposite_dir",
+                ),
+                "Stop_Cancel_Hysteresis_Frames": (
+                    "rink",
+                    "camera",
+                    "stop_cancel_hysteresis_frames",
+                ),
+                "Stop_Delay_Cooldown_Frames": ("rink", "camera", "stop_delay_cooldown_frames"),
+                "Overshoot_Stop_Delay_Frames": (
+                    "rink",
+                    "camera",
+                    "breakaway_detection",
+                    "overshoot_stop_delay_count",
+                ),
+                "Post_Nonstop_Stop_Delay_Frames": (
+                    "rink",
+                    "camera",
+                    "breakaway_detection",
+                    "post_nonstop_stop_delay_count",
+                ),
+                "Overshoot_Speed_Ratio_x100": (
+                    "rink",
+                    "camera",
+                    "breakaway_detection",
+                    "overshoot_scale_speed_ratio",
+                ),
+                "Time_To_Dest_Speed_Limit_Frames": (
+                    "rink",
+                    "camera",
+                    "time_to_dest_speed_limit_frames",
+                ),
+                "Max_Speed_X_x10": ("rink", "camera", "max_speed_ratio_x"),
+                "Max_Speed_Y_x10": ("rink", "camera", "max_speed_ratio_y"),
+                "Max_Accel_X_x10": ("rink", "camera", "max_accel_ratio_x"),
+                "Max_Accel_Y_x10": ("rink", "camera", "max_accel_ratio_y"),
+                "Stitch_Rotate_Degrees": ("game", "stitching", "stitch-rotate-degrees"),
+            }
+            path = mapping.get(slider_name)
+            return [path] if path is not None else []
+
+        prefix = self._ui_color_prefix_by_window.get(window_name)
+        if prefix is None:
+            return []
+        if slider_name == "White_Balance_Kelvin_Enable":
+            return [prefix + ("white_balance_temp",), prefix + ("white_balance",)]
+        if slider_name == "White_Balance_Kelvin_Temperature":
+            return [prefix + ("white_balance_temp",)]
+        if slider_name in {
+            "White_Balance_Red_Gain_x100",
+            "White_Balance_Green_Gain_x100",
+            "White_Balance_Blue_Gain_x100",
+        }:
+            return [prefix + ("white_balance",)]
+        if slider_name == "Brightness_Multiplier_x100":
+            return [prefix + ("brightness",)]
+        if slider_name == "Contrast_Multiplier_x100":
+            return [prefix + ("contrast",)]
+        if slider_name == "Gamma_Multiplier_x100":
+            return [prefix + ("gamma",)]
+        return []
+
+    def _ui_slider_is_dirty(self, window_name: str, slider_name: str) -> bool:
+        for path in self._ui_slider_config_paths(window_name, slider_name):
+            if path in self._ui_dirty_paths:
+                return True
+        return False
+
+    def _render_ui_dialog_status(self) -> None:
+        if not self._camera_ui_enabled or not self._ui_inited:
+            return
+        try:
+            windows: List[Tuple[str, List[str]]] = []
+            main_sliders = [
+                "Stop_Direction_Change_Delay_Frames",
+                "Cancel_Stop_On_Opposite_Direction",
+                "Stop_Cancel_Hysteresis_Frames",
+                "Stop_Delay_Cooldown_Frames",
+                "Overshoot_Stop_Delay_Frames",
+                "Post_Nonstop_Stop_Delay_Frames",
+                "Overshoot_Speed_Ratio_x100",
+                "Time_To_Dest_Speed_Limit_Frames",
+                "Max_Speed_X_x10",
+                "Max_Speed_Y_x10",
+                "Max_Accel_X_x10",
+                "Max_Accel_Y_x10",
+            ]
+            if self._stitch_slider_enabled:
+                main_sliders.append("Stitch_Rotate_Degrees")
+            windows.append((self._ui_window_name, main_sliders))
+            if self._ui_color_inited:
+                windows.append((self._ui_color_window_name, sorted(_COLOR_TRACKBARS)))
+            if self._ui_color_left_inited:
+                windows.append((self._ui_color_left_window_name, sorted(_COLOR_TRACKBARS)))
+            if self._ui_color_right_inited:
+                windows.append((self._ui_color_right_window_name, sorted(_COLOR_TRACKBARS)))
+
+            for window_name, sliders in windows:
+                # One summary image per window, with dirty values colored and starred.
+                h = 24 + 18 * (len(sliders) + 2) + 52
+                w = 520
+                img = np.zeros((max(120, h), w, 3), dtype=np.uint8)
+                has_dirty = any(self._ui_slider_is_dirty(window_name, s) for s in sliders)
+                status_text = ""
+                if self._ui_status_frame is not None and self._ui_status_message:
+                    try:
+                        age = int(self._frame_counter - self._ui_status_frame)
+                        if age <= 120:
+                            status_text = f"  {self._ui_status_message}"
+                    except Exception:
+                        status_text = ""
+                header = f"{window_name}{'  *DIRTY*' if has_dirty else ''}{status_text}"
+                cv2.putText(
+                    img,
+                    header,
+                    (10, 24),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 255) if has_dirty else (200, 200, 200),
+                    2,
+                    lineType=cv2.LINE_AA,
+                )
+                cv2.putText(
+                    img,
+                    "Click Save below (or press S).",
+                    (10, 46),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.45,
+                    (180, 180, 180),
+                    1,
+                    lineType=cv2.LINE_AA,
+                )
+                y = 70
+                for slider in sliders:
+                    try:
+                        v = int(cv2.getTrackbarPos(slider, window_name))
+                    except Exception:
+                        v = 0
+                    dirty = self._ui_slider_is_dirty(window_name, slider)
+                    val_text = f"{v}{'*' if dirty else ''}"
+                    color = (0, 0, 255) if dirty else (200, 200, 200)
+                    cv2.putText(
+                        img,
+                        f"{slider}: {val_text}",
+                        (10, y),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        color,
+                        1,
+                        lineType=cv2.LINE_AA,
+                    )
+                    y += 18
+
+                # Save button (clickable)
+                btn_w = 120
+                btn_h = 34
+                x2 = w - 12
+                x1 = x2 - btn_w
+                y2 = img.shape[0] - 10
+                y1 = y2 - btn_h
+                self._ui_button_rects[window_name] = (x1, y1, x2, y2)
+                btn_color = (40, 40, 40) if not has_dirty else (0, 0, 160)
+                cv2.rectangle(img, (x1, y1), (x2, y2), btn_color, thickness=-1)
+                cv2.rectangle(img, (x1, y1), (x2, y2), (200, 200, 200), thickness=1)
+                cv2.putText(
+                    img,
+                    "Save",
+                    (x1 + 32, y1 + 23),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 255, 255),
+                    2,
+                    lineType=cv2.LINE_AA,
+                )
+                try:
+                    cv2.imshow(window_name, img)
+                except Exception:
+                    pass
+                self._ensure_ui_mouse_callback(window_name)
+        except Exception:
+            pass
+
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""
         deg = max(-90.0, min(90.0, float(degrees)))
@@ -1645,6 +1923,11 @@ class PlayTracker(torch.nn.Module):
                         cv2.setTrackbarPos(name, self._ui_color_window_name, int(val))
                     except Exception:
                         pass
+                self._ui_color_prefix_by_window[self._ui_color_window_name] = (
+                    "rink",
+                    "camera",
+                    "color",
+                )
                 try:
                     self._ui_defaults[self._ui_color_window_name] = dict(color_defaults)
                 except Exception:
@@ -1694,6 +1977,12 @@ class PlayTracker(torch.nn.Module):
                             cv2.setTrackbarPos(name, self._ui_color_left_window_name, int(val))
                         except Exception:
                             pass
+                    self._ui_color_prefix_by_window[self._ui_color_left_window_name] = (
+                        "game",
+                        "stitching",
+                        "left",
+                        "color",
+                    )
                     self._ui_defaults[self._ui_color_left_window_name] = dict(left_defaults)
                     self._ui_color_left_inited = True
                 except Exception:
@@ -1737,6 +2026,12 @@ class PlayTracker(torch.nn.Module):
                             cv2.setTrackbarPos(name, self._ui_color_right_window_name, int(val))
                         except Exception:
                             pass
+                    self._ui_color_prefix_by_window[self._ui_color_right_window_name] = (
+                        "game",
+                        "stitching",
+                        "right",
+                        "color",
+                    )
                     self._ui_defaults[self._ui_color_right_window_name] = dict(right_defaults)
                     self._ui_color_right_inited = True
                 except Exception:
@@ -1756,6 +2051,18 @@ class PlayTracker(torch.nn.Module):
             self._handle_ui_keyboard()
         except Exception:
             pass
+        # Keep per-window dirty status visible even when sliders are idle.
+        try:
+            self._render_ui_dialog_status()
+        except Exception:
+            pass
+
+        if self._ui_save_clicked_windows:
+            try:
+                self._ui_save_clicked_windows.clear()
+                self._save_ui_config()
+            except Exception:
+                pass
         if not self._ui_controls_dirty:
             return
         try:
@@ -1902,6 +2209,7 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             # For Python-only breakaway values, we read from self._game_config in calculate_breakaway
+
         except Exception:
             # If we failed to read UI, try again next frame
             self._ui_controls_dirty = True
@@ -1941,7 +2249,7 @@ class PlayTracker(torch.nn.Module):
             # Key help
             img = vis.plot_text(
                 img,
-                "[R]eset  [S]ave",
+                "[R]eset  [S]ave  (or click Save)",
                 (20, 70),
                 cv2.FONT_HERSHEY_PLAIN,
                 2,
@@ -2091,13 +2399,25 @@ class PlayTracker(torch.nn.Module):
                     else:
                         break
             if mark_dirty:
-                self._ui_dirty_paths.add(path)
+                if path not in self._ui_saved_values:
+                    self._ui_saved_values[path] = copy.deepcopy(current)
+                if self._values_equal(
+                    self._get_config_path_value(path), self._ui_saved_values[path]
+                ):
+                    self._ui_dirty_paths.discard(path)
+                else:
+                    self._ui_dirty_paths.add(path)
             return True
         if self._values_equal(current, value):
             return False
         cur[leaf] = copy.deepcopy(value)
         if mark_dirty:
-            self._ui_dirty_paths.add(path)
+            if path not in self._ui_saved_values:
+                self._ui_saved_values[path] = copy.deepcopy(current)
+            if self._values_equal(self._get_config_path_value(path), self._ui_saved_values[path]):
+                self._ui_dirty_paths.discard(path)
+            else:
+                self._ui_dirty_paths.add(path)
         return True
 
     def _set_ui_config_value(self, path: Tuple[str, ...], value: Any):
@@ -2117,14 +2437,19 @@ class PlayTracker(torch.nn.Module):
     def _delete_priv_path(self, priv: Dict[str, Any], path: Tuple[str, ...]) -> bool:
         return self._set_config_value(priv, path, _MISSING, mark_dirty=False, cleanup_empty=True)
 
-    def _save_ui_config(self):
+    def _save_ui_config(self) -> bool:
         # Save current game_config to private config.yaml if game_id is present
         try:
             game_id = self._game_id
             if not game_id:
-                return
+                self._ui_status_message = "No game_id"
+                self._ui_status_frame = int(self._frame_counter)
+                return False
             if not self._ui_dirty_paths:
-                return
+                self._ui_status_message = "Nothing to save"
+                self._ui_status_frame = int(self._frame_counter)
+                return False
+            dirty_paths = set(self._ui_dirty_paths)
             priv = get_game_config_private(game_id=game_id) or {}
 
             # If the stitched rotation angle changed, clear cached rink geometry
@@ -2159,7 +2484,7 @@ class PlayTracker(torch.nn.Module):
                             pass
 
             dirty = False
-            for path in list(self._ui_dirty_paths):
+            for path in list(dirty_paths):
                 current_value = self._get_config_path_value(path)
                 if current_value is _MISSING:
                     dirty |= self._delete_priv_path(priv, path)
@@ -2167,9 +2492,26 @@ class PlayTracker(torch.nn.Module):
                     dirty |= self._set_priv_path(priv, path, current_value)
             if dirty:
                 save_private_config(game_id=game_id, data=priv, verbose=True)
+            # Update baselines so reverted values can become clean and reset maps to last saved.
+            for path in list(dirty_paths):
+                self._ui_saved_values[path] = copy.deepcopy(self._get_config_path_value(path))
+            try:
+                for win, sliders in self._ui_defaults.items():
+                    for name in list(sliders.keys()):
+                        try:
+                            sliders[name] = int(cv2.getTrackbarPos(name, win))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             self._ui_dirty_paths.clear()
+            self._ui_status_message = "Saved"
+            self._ui_status_frame = int(self._frame_counter)
+            return True
         except Exception:
-            pass
+            self._ui_status_message = "Save failed"
+            self._ui_status_frame = int(self._frame_counter)
+            return False
 
     def calculate_breakaway(
         self,

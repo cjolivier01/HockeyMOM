@@ -331,6 +331,40 @@ def stitch_videos(
             aspen_shared["game_id"] = getattr(args, "game_id", None)
             aspen_shared["game_config"] = getattr(args, "game_config", None)
             aspen_shared["game_dir"] = dir_name
+            aspen_shared["no_audio"] = bool(getattr(args, "no_audio", False))
+        try:
+            left_files = [str(p) for p in (videos.get("left") or [])]
+            right_files = [str(p) for p in (videos.get("right") or [])]
+
+            # For stitching, use the audio from whichever camera has a configured
+            # frame offset of 0 (baseline timeline). If neither is exactly 0,
+            # fall back to the smaller offset.
+            baseline = None
+            if float(lfo or 0) == 0.0:
+                baseline = "left"
+            elif float(rfo or 0) == 0.0:
+                baseline = "right"
+            else:
+                baseline = "left" if float(lfo or 0) <= float(rfo or 0) else "right"
+                logger.warning(
+                    "Neither stitching frame offset is 0 (lfo=%s rfo=%s); using %s audio.",
+                    lfo,
+                    rfo,
+                    baseline,
+                )
+
+            if baseline == "left":
+                aspen_shared["audio_sources"] = left_files
+                fps_val = float(left_vid.fps) if float(left_vid.fps) > 0 else 0.0
+            else:
+                aspen_shared["audio_sources"] = right_files
+                fps_val = float(right_vid.fps) if float(right_vid.fps) > 0 else 0.0
+            aspen_shared["audio_start_seconds"] = (
+                float(start_frame_number) / fps_val if fps_val > 0 and start_frame_number else 0.0
+            )
+        except Exception:
+            aspen_shared["audio_sources"] = None
+            aspen_shared["audio_start_seconds"] = 0.0
         aspen_name = game_id or "stitch"
         aspen_net = AspenNet(aspen_name, aspen_graph_cfg, shared=aspen_shared)
         aspen_net = aspen_net.to(encoder_device)
