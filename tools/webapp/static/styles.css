@@ -303,6 +303,23 @@ tr.game-excluded:hover { opacity: .85; }
   color: rgba(55, 65, 81, 0.75);
 }
 
+/* Game page: previous meetings summary */
+.meeting-list { display: flex; flex-direction: column; gap: .55rem; }
+.meeting-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: .45rem 0; border-top: 1px solid rgba(148, 163, 184, .14); }
+.meeting-row:first-child { border-top: 0; padding-top: 0; }
+.meeting-row-current { color: #eab308; } /* dark yellow */
+.meeting-row-current .muted { color: rgba(234, 179, 8, 0.78); }
+.meeting-this-game { color: inherit; font-weight: 800; margin-left: .35rem; }
+.meeting-row-future { opacity: .55; }
+.meeting-score { display: inline-flex; align-items: center; gap: .45rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meeting-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 1px solid rgba(148, 163, 184, .38); background: rgba(148, 163, 184, .18); }
+.meeting-dot-home { background: rgba(40, 167, 69, .22); border-color: rgba(40, 167, 69, .48); }
+.meeting-dot-away { background: rgba(29, 78, 216, .18); border-color: rgba(29, 78, 216, .38); }
+.meeting-dot-tie { background: rgba(148, 163, 184, .22); border-color: rgba(148, 163, 184, .48); }
+@media (max-width: 720px) {
+  .meeting-row { flex-direction: column; gap: .4rem; }
+}
+
 table.table-schedule th.schedule-src-col,
 table.table-schedule td.schedule-src-col {
   padding-left: .35rem;

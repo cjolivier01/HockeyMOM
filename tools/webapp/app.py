@@ -81,6 +81,7 @@ from core.hockey import (  # noqa: E402
     ensure_external_team,
     get_team,
     is_external_division_name,
+    load_previous_meetings_summary,
     parse_age_from_division_name,
     parse_level_from_division_name,
     recompute_league_mhr_ratings,
