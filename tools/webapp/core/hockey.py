@@ -152,9 +152,10 @@ def load_previous_meetings_summary(
     if limit is None:
         limit_i = None
     else:
-        limit_i = max(0, int(limit))
+        limit_i = int(limit)
         if limit_i <= 0:
-            return []
+            # Treat non-positive limits (including 0) as "no limit".
+            limit_i = None
 
     team1_id_i = int(team1_id)
     team2_id_i = int(team2_id)
@@ -168,6 +169,29 @@ def load_previous_meetings_summary(
     def _chronological_sort_key(r: dict[str, Any]) -> tuple[bool, float, int]:
         d = to_dt(r.get("starts_at"))
         return d is None, d.timestamp() if d else float("inf"), int(r.get("id") or 0)
+
+    def _winner_fields(
+        *,
+        team1_score: Any,
+        team2_score: Any,
+        team1_id: int,
+        team2_id: int,
+        team1_name: str,
+        team2_name: str,
+    ) -> tuple[Optional[int], Optional[str], bool]:
+        if team1_score is None or team2_score is None:
+            return None, None, False
+        try:
+            a = int(team1_score)
+            b = int(team2_score)
+        except Exception:
+            # If scores cannot be parsed (e.g., non-integer values), leave winner/is_tie unset.
+            return None, None, False
+        if a > b:
+            return int(team1_id), (team1_name or None), False
+        if b > a:
+            return int(team2_id), (team2_name or None), False
+        return None, None, True
 
     def _is_future(starts_at: Any) -> bool:
         d = to_dt(starts_at)
@@ -207,34 +231,30 @@ def load_previous_meetings_summary(
         if limit_i is not None:
             values_qs = values_qs[:limit_i]
         for r0 in values_qs:
+            gid = int(r0["game_id"])
+            starts_at = r0.get("game__starts_at")
+            t1id = int(r0["game__team1_id"])
+            t2id = int(r0["game__team2_id"])
+            t1name = str(r0.get("game__team1__name") or "")
+            t2name = str(r0.get("game__team2__name") or "")
             team1_score = r0.get("game__team1_score")
             team2_score = r0.get("game__team2_score")
-            winner_team_id = None
-            winner_name = None
-            is_tie = False
-            if team1_score is not None and team2_score is not None:
-                try:
-                    a = int(team1_score)
-                    b = int(team2_score)
-                    if a > b:
-                        winner_team_id = int(r0["game__team1_id"])
-                        winner_name = str(r0.get("game__team1__name") or "")
-                    elif b > a:
-                        winner_team_id = int(r0["game__team2_id"])
-                        winner_name = str(r0.get("game__team2__name") or "")
-                    else:
-                        is_tie = True
-                except Exception:
-                    # If scores cannot be parsed (e.g., non-integer values), leave winner/is_tie unset.
-                    pass
+            winner_team_id, winner_name, is_tie = _winner_fields(
+                team1_score=team1_score,
+                team2_score=team2_score,
+                team1_id=t1id,
+                team2_id=t2id,
+                team1_name=t1name,
+                team2_name=t2name,
+            )
             out.append(
                 {
-                    "id": int(r0["game_id"]),
-                    "starts_at": r0.get("game__starts_at"),
-                    "team1_id": int(r0["game__team1_id"]),
-                    "team2_id": int(r0["game__team2_id"]),
-                    "team1_name": r0.get("game__team1__name"),
-                    "team2_name": r0.get("game__team2__name"),
+                    "id": gid,
+                    "starts_at": starts_at,
+                    "team1_id": t1id,
+                    "team2_id": t2id,
+                    "team1_name": t1name,
+                    "team2_name": t2name,
                     "team1_score": team1_score,
                     "team2_score": team2_score,
                     "is_final": bool(r0.get("game__is_final")),
@@ -242,8 +262,8 @@ def load_previous_meetings_summary(
                     "winner_team_id": winner_team_id,
                     "winner_name": winner_name or None,
                     "is_tie": bool(is_tie),
-                    "is_future": _is_future(r0.get("game__starts_at")),
-                    "is_current": bool(int(r0["game_id"]) == int(current_game_id)),
+                    "is_future": _is_future(starts_at),
+                    "is_current": bool(gid == int(current_game_id)),
                 }
             )
         out.sort(key=_chronological_sort_key)
@@ -271,34 +291,30 @@ def load_previous_meetings_summary(
     if limit_i is not None:
         values_qs2 = values_qs2[:limit_i]
     for r0 in values_qs2:
+        gid = int(r0["id"])
+        starts_at = r0.get("starts_at")
+        t1id = int(r0["team1_id"])
+        t2id = int(r0["team2_id"])
+        t1name = str(r0.get("team1__name") or "")
+        t2name = str(r0.get("team2__name") or "")
         team1_score = r0.get("team1_score")
         team2_score = r0.get("team2_score")
-        winner_team_id = None
-        winner_name = None
-        is_tie = False
-        if team1_score is not None and team2_score is not None:
-            try:
-                a = int(team1_score)
-                b = int(team2_score)
-                if a > b:
-                    winner_team_id = int(r0["team1_id"])
-                    winner_name = str(r0.get("team1__name") or "")
-                elif b > a:
-                    winner_team_id = int(r0["team2_id"])
-                    winner_name = str(r0.get("team2__name") or "")
-                else:
-                    is_tie = True
-            except Exception:
-                # If scores cannot be parsed (e.g., non-integer values), leave winner/is_tie unset.
-                pass
+        winner_team_id, winner_name, is_tie = _winner_fields(
+            team1_score=team1_score,
+            team2_score=team2_score,
+            team1_id=t1id,
+            team2_id=t2id,
+            team1_name=t1name,
+            team2_name=t2name,
+        )
         out.append(
             {
-                "id": int(r0["id"]),
-                "starts_at": r0.get("starts_at"),
-                "team1_id": int(r0["team1_id"]),
-                "team2_id": int(r0["team2_id"]),
-                "team1_name": r0.get("team1__name"),
-                "team2_name": r0.get("team2__name"),
+                "id": gid,
+                "starts_at": starts_at,
+                "team1_id": t1id,
+                "team2_id": t2id,
+                "team1_name": t1name,
+                "team2_name": t2name,
                 "team1_score": team1_score,
                 "team2_score": team2_score,
                 "is_final": bool(r0.get("is_final")),
@@ -306,8 +322,8 @@ def load_previous_meetings_summary(
                 "winner_team_id": winner_team_id,
                 "winner_name": winner_name or None,
                 "is_tie": bool(is_tie),
-                "is_future": _is_future(r0.get("starts_at")),
-                "is_current": bool(int(r0["id"]) == int(current_game_id)),
+                "is_future": _is_future(starts_at),
+                "is_current": bool(gid == int(current_game_id)),
             }
         )
     out.sort(key=_chronological_sort_key)
