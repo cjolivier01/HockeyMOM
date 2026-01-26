@@ -10389,6 +10389,13 @@ def _ensure_league_for_import(
         updates: dict[str, Any] = {}
         if is_shared is not None and bool(existing.get("is_shared")) != bool(is_shared):
             updates["is_shared"] = bool(is_shared)
+        elif (
+            is_shared is None
+            and str(name).strip().casefold() == "caha"
+            and not bool(existing.get("is_shared"))
+        ):
+            # CAHA is treated as a shared league by default (new users should be able to view it).
+            updates["is_shared"] = True
         if source is not None and str(existing.get("source") or "") != str(source or ""):
             updates["source"] = source
         if external_key is not None and str(existing.get("external_key") or "") != str(
