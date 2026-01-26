@@ -140,7 +140,17 @@
                 <span class="muted">{{ g.game_type_name|default_if_none:"Game" }}</span>
               </div>
               <div class="muted">
-                <span>{{ g.team2_name }}</span> <span class="muted">at</span> <span>{{ g.team1_name }}</span>
+                {% if g.winner_team_id == g.team2_id %}
+                  <strong>{{ g.team2_name }}</strong>
+                {% else %}
+                  <span>{{ g.team2_name }}</span>
+                {% endif %}
+                <span class="muted">at</span>
+                {% if g.winner_team_id == g.team1_id %}
+                  <strong>{{ g.team1_name }}</strong>
+                {% else %}
+                  <span>{{ g.team1_name }}</span>
+                {% endif %}
                 {% if g.is_final %}<span class="muted"> (Final)</span>{% endif %}
               </div>
             </div>

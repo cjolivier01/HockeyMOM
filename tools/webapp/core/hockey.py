@@ -158,6 +158,15 @@ def load_previous_meetings_summary(
     has_outcome_q = Q(team1_score__isnull=False) | Q(team2_score__isnull=False) | Q(is_final=True)
 
     out: list[dict[str, Any]] = []
+
+    def _chronological_sort_key(r: dict[str, Any]) -> tuple[bool, dt.datetime, int]:
+        starts_at = r.get("starts_at")
+        if starts_at is None:
+            return True, dt.datetime.max, int(r.get("id") or 0)
+        if isinstance(starts_at, dt.datetime):
+            return False, starts_at, int(r.get("id") or 0)
+        return True, dt.datetime.max, int(r.get("id") or 0)
+
     if league_id is not None:
         qs = (
             m.LeagueGame.objects.filter(league_id=int(league_id))
@@ -223,6 +232,7 @@ def load_previous_meetings_summary(
                     "is_tie": bool(is_tie),
                 }
             )
+        out.sort(key=_chronological_sort_key)
         return out
 
     qs2 = (
@@ -282,6 +292,7 @@ def load_previous_meetings_summary(
                 "is_tie": bool(is_tie),
             }
         )
+    out.sort(key=_chronological_sort_key)
     return out
 
 
