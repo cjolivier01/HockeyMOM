@@ -125,6 +125,166 @@ def create_hky_game(
     return int(g.id)
 
 
+def load_previous_meetings_summary(
+    *,
+    league_id: Optional[int],
+    user_id: int,
+    current_game_id: int,
+    team1_id: int,
+    team2_id: int,
+    before_starts_at: Optional[dt.datetime],
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Return a compact list of prior games between team1/team2 suitable for game-page display.
+
+    - If `league_id` is provided, restrict to games mapped to that league (via `LeagueGame`).
+    - Otherwise restrict to games owned by `user_id`.
+    - Results are limited to games before `before_starts_at` when available.
+    """
+    _django_orm, m = _orm_modules()
+    from django.db.models import Q
+
+    limit_i = max(0, int(limit))
+    if limit_i <= 0:
+        return []
+
+    team1_id_i = int(team1_id)
+    team2_id_i = int(team2_id)
+
+    match_q = Q(team1_id=team1_id_i, team2_id=team2_id_i) | Q(
+        team1_id=team2_id_i, team2_id=team1_id_i
+    )
+    has_outcome_q = Q(team1_score__isnull=False) | Q(team2_score__isnull=False) | Q(is_final=True)
+
+    out: list[dict[str, Any]] = []
+    if league_id is not None:
+        qs = (
+            m.LeagueGame.objects.filter(league_id=int(league_id))
+            .select_related("game", "game__team1", "game__team2", "game__game_type")
+            .exclude(game_id=int(current_game_id))
+            .filter(
+                Q(game__team1_id=team1_id_i, game__team2_id=team2_id_i)
+                | Q(game__team1_id=team2_id_i, game__team2_id=team1_id_i)
+            )
+            .filter(
+                Q(game__team1_score__isnull=False)
+                | Q(game__team2_score__isnull=False)
+                | Q(game__is_final=True)
+            )
+        )
+        if before_starts_at is not None:
+            qs = qs.filter(game__starts_at__lt=before_starts_at)
+        for r0 in qs.order_by("-game__starts_at", "-game_id").values(
+            "game_id",
+            "game__starts_at",
+            "game__team1_id",
+            "game__team2_id",
+            "game__team1__name",
+            "game__team2__name",
+            "game__team1_score",
+            "game__team2_score",
+            "game__is_final",
+            "game__game_type__name",
+        )[:limit_i]:
+            team1_score = r0.get("game__team1_score")
+            team2_score = r0.get("game__team2_score")
+            winner_team_id = None
+            winner_name = None
+            is_tie = False
+            if team1_score is not None and team2_score is not None:
+                try:
+                    a = int(team1_score)
+                    b = int(team2_score)
+                    if a > b:
+                        winner_team_id = int(r0["game__team1_id"])
+                        winner_name = str(r0.get("game__team1__name") or "")
+                    elif b > a:
+                        winner_team_id = int(r0["game__team2_id"])
+                        winner_name = str(r0.get("game__team2__name") or "")
+                    else:
+                        is_tie = True
+                except Exception:
+                    pass
+            out.append(
+                {
+                    "id": int(r0["game_id"]),
+                    "starts_at": r0.get("game__starts_at"),
+                    "team1_id": int(r0["game__team1_id"]),
+                    "team2_id": int(r0["game__team2_id"]),
+                    "team1_name": r0.get("game__team1__name"),
+                    "team2_name": r0.get("game__team2__name"),
+                    "team1_score": team1_score,
+                    "team2_score": team2_score,
+                    "is_final": bool(r0.get("game__is_final")),
+                    "game_type_name": r0.get("game__game_type__name"),
+                    "winner_team_id": winner_team_id,
+                    "winner_name": winner_name or None,
+                    "is_tie": bool(is_tie),
+                }
+            )
+        return out
+
+    qs2 = (
+        m.HkyGame.objects.filter(user_id=int(user_id))
+        .select_related("team1", "team2", "game_type")
+        .exclude(id=int(current_game_id))
+        .filter(match_q)
+        .filter(has_outcome_q)
+    )
+    if before_starts_at is not None:
+        qs2 = qs2.filter(starts_at__lt=before_starts_at)
+    for r0 in qs2.order_by("-starts_at", "-id").values(
+        "id",
+        "starts_at",
+        "team1_id",
+        "team2_id",
+        "team1__name",
+        "team2__name",
+        "team1_score",
+        "team2_score",
+        "is_final",
+        "game_type__name",
+    )[:limit_i]:
+        team1_score = r0.get("team1_score")
+        team2_score = r0.get("team2_score")
+        winner_team_id = None
+        winner_name = None
+        is_tie = False
+        if team1_score is not None and team2_score is not None:
+            try:
+                a = int(team1_score)
+                b = int(team2_score)
+                if a > b:
+                    winner_team_id = int(r0["team1_id"])
+                    winner_name = str(r0.get("team1__name") or "")
+                elif b > a:
+                    winner_team_id = int(r0["team2_id"])
+                    winner_name = str(r0.get("team2__name") or "")
+                else:
+                    is_tie = True
+            except Exception:
+                pass
+        out.append(
+            {
+                "id": int(r0["id"]),
+                "starts_at": r0.get("starts_at"),
+                "team1_id": int(r0["team1_id"]),
+                "team2_id": int(r0["team2_id"]),
+                "team1_name": r0.get("team1__name"),
+                "team2_name": r0.get("team2__name"),
+                "team1_score": team1_score,
+                "team2_score": team2_score,
+                "is_final": bool(r0.get("is_final")),
+                "game_type_name": r0.get("game_type__name"),
+                "winner_team_id": winner_team_id,
+                "winner_name": winner_name or None,
+                "is_tie": bool(is_tie),
+            }
+        )
+    return out
+
+
 def _safe_return_to_url(value: Optional[str], *, default: str) -> str:
     """
     Only allow returning to same-site relative URLs.

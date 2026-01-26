@@ -127,6 +127,40 @@
     </div>
   {% endif %}
   
+  {% if previous_meetings %}
+    <div class="card" style="margin-top:1rem;">
+      <h3 style="margin-top:0;">Previous Meetings</h3>
+      <div class="meeting-list">
+        {% for g in previous_meetings %}
+          <div class="meeting-row">
+            <div class="meeting-meta">
+              <div class="meeting-top">
+                <span class="muted nowrap">{{ g.starts_at|fmt_date }}</span>
+                <span class="muted">·</span>
+                <span class="muted">{{ g.game_type_name|default_if_none:"Game" }}</span>
+              </div>
+              <div class="muted">
+                <span>{{ g.team2_name }}</span> <span class="muted">at</span> <span>{{ g.team1_name }}</span>
+                {% if g.is_final %}<span class="muted"> (Final)</span>{% endif %}
+              </div>
+            </div>
+            <div class="meeting-score">
+              {% if g.team1_score != None and g.team2_score != None %}
+                <span
+                  class="meeting-dot {% if g.is_tie %}meeting-dot-tie{% elif g.winner_team_id == g.team2_id %}meeting-dot-away{% else %}meeting-dot-home{% endif %}"
+                  title="{% if g.is_tie %}Tie{% elif g.winner_name %}Winner: {{ g.winner_name }}{% else %}Winner{% endif %}"
+                ></span>
+                <strong>{{ g.team2_score }} - {{ g.team1_score }}</strong>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
   {% if scoring_by_period_rows %}
     <div class="card" style="margin-top:1rem;">
     <h3 style="margin-top:0;">Scoring By Period</h3>

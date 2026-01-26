@@ -8532,6 +8532,21 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "delta_count": int(delta_count) if delta_count is not None else None,
         }
 
+    previous_meetings: list[dict[str, Any]] = []
+    try:
+        previous_meetings = logic.load_previous_meetings_summary(
+            league_id=int(league_id) if league_id is not None else None,
+            user_id=int(session_uid),
+            current_game_id=int(game_id),
+            team1_id=int(game["team1_id"]),
+            team2_id=int(game["team2_id"]),
+            before_starts_at=game.get("starts_at"),
+            limit=5,
+        )
+    except Exception:
+        logger.exception("Failed to load previous meetings summary for game_id=%s", game_id)
+        previous_meetings = []
+
     shift_timeline_rows: list[dict[str, str]] = []
     if show_shift_data:
         try:
@@ -8558,6 +8573,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "events_meta": events_meta,
             "shift_timeline_rows": shift_timeline_rows,
             "show_shift_data": bool(show_shift_data),
+            "previous_meetings": previous_meetings,
             "scoring_by_period_rows": scoring_by_period_rows,
             "game_event_stats_rows": game_event_stats_rows,
             "user_video_clip_len_s": logic.get_user_video_clip_len_s(
@@ -10262,6 +10278,25 @@ def public_hky_game_detail(
         except Exception:
             shift_timeline_rows = []
 
+    previous_meetings: list[dict[str, Any]] = []
+    try:
+        previous_meetings = logic.load_previous_meetings_summary(
+            league_id=int(league_id),
+            user_id=int(game.get("user_id") or 0),
+            current_game_id=int(game_id),
+            team1_id=int(game["team1_id"]),
+            team2_id=int(game["team2_id"]),
+            before_starts_at=game.get("starts_at"),
+            limit=5,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to load previous meetings summary for public game_id=%s league_id=%s",
+            game_id,
+            league_id,
+        )
+        previous_meetings = []
+
     return render(
         request,
         "hky_game_detail.html",
@@ -10282,6 +10317,7 @@ def public_hky_game_detail(
             "events_meta": events_meta,
             "shift_timeline_rows": shift_timeline_rows,
             "show_shift_data": bool(show_shift_data),
+            "previous_meetings": previous_meetings,
             "scoring_by_period_rows": scoring_by_period_rows,
             "game_event_stats_rows": game_event_stats_rows,
             "user_video_clip_len_s": (
