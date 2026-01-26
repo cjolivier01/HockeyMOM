@@ -1270,7 +1270,7 @@ def should_attribute_bench_penalties_to_head_coach_when_present(client_and_model
         id=503,
         user_id=10,
         team_id=101,
-        name="Charles Coach",
+        name="Head Coach",
         jersey_number="HC",
         position=None,
         shoots=None,
@@ -1292,7 +1292,7 @@ def should_attribute_bench_penalties_to_head_coach_when_present(client_and_model
     )
     assert row is not None
     assert int(row.get("player_id") or 0) == 503
-    assert str(row.get("attributed_players") or "") == "Charles Coach"
+    assert str(row.get("attributed_players") or "") == "Head Coach"
     assert str(row.get("attributed_jerseys") or "") == "B"
 
 
