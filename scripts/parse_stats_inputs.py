@@ -7311,6 +7311,8 @@ def _write_all_events_summary(
     t2s_events: Optional[List[Dict[str, Any]]] = None,
     conv_segments_by_period: Dict[int, List[Tuple[int, int, int, int]]],
     spreadsheet_event_mapping_summary: Optional[SpreadsheetEventMappingSummary] = None,
+    allow_long_goals_and_assists: bool = False,
+    goals_xlsx_exists: bool = False,
 ) -> None:
     """
     Write a single per-game table of all known events, including:
@@ -7474,12 +7476,23 @@ def _write_all_events_summary(
     # Long-sheet / event-log events.
     if event_log_context is not None:
         for (etype, team), inst_list in sorted((event_log_context.event_instances or {}).items()):
-            if goals and str(etype) == "Goal":
+            etype_norm = str(etype or "").strip().casefold()
+            if etype_norm == "assist":
                 # Prefer canonical Goal/Assist rows from the goals list when available.
-                # Exception: for TimeToScore-linked games, we keep long-sheet goal rows in this CSV so the webapp
-                # can enrich TimeToScore goal events with long-sheet video times (server ignores long-only goals).
-                if t2s_game_id is None:
+                if goals:
                     continue
+                # Ignore long-sheet assists by default, and always ignore them when the game is linked to
+                # TimeToScore or has a goals.xlsx. (Assist video times are derived from the associated goal.)
+                if (
+                    (not allow_long_goals_and_assists)
+                    or (t2s_game_id is not None)
+                    or goals_xlsx_exists
+                ):
+                    continue
+            elif etype_norm == "goal":
+                # Keep long-sheet Goal rows as video-time hints (even when a goals list exists), but the
+                # server will only use them for video-time backfill unless long scoring is explicitly allowed.
+                pass
             for inst in inst_list or []:
                 period = int(inst.get("period") or 0)
                 video_s = inst.get("video_s")
@@ -10775,6 +10788,8 @@ def process_sheet(
     long_xls_paths: Optional[List[Path]] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
+    allow_long_goals_and_assists: bool = False,
+    goals_xlsx_exists: bool = False,
     write_events_summary: Optional[bool] = None,
     skip_validation: bool = False,
     create_scripts: bool = True,
@@ -11305,6 +11320,8 @@ def process_sheet(
             t2s_events=t2s_events,
             conv_segments_by_period=conv_segments_full,
             spreadsheet_event_mapping_summary=spreadsheet_event_mapping_summary,
+            allow_long_goals_and_assists=bool(allow_long_goals_and_assists),
+            goals_xlsx_exists=bool(goals_xlsx_exists),
         )
 
     # Pre-group team-level events by period for on-ice for/against counts.
@@ -11908,6 +11925,8 @@ def process_long_only_sheets(
     away_team_name_hint: Optional[str] = None,
     focus_team_override: Optional[str] = None,
     include_shifts_in_stats: bool = False,
+    allow_long_goals_and_assists: bool = False,
+    goals_xlsx_exists: bool = False,
     write_events_summary: Optional[bool] = None,
     create_scripts: bool = True,
     allow_remote: bool = True,
@@ -12222,6 +12241,8 @@ def process_long_only_sheets(
             t2s_events=t2s_events,
             conv_segments_by_period=conv_segments_full,
             spreadsheet_event_mapping_summary=spreadsheet_event_mapping_summary,
+            allow_long_goals_and_assists=bool(allow_long_goals_and_assists),
+            goals_xlsx_exists=bool(goals_xlsx_exists),
         )
 
     if verbose:
@@ -12569,6 +12590,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Prefer primary shift spreadsheets when both primary and '*-long*' are present. "
             "Falls back to '*-long*' only if no primary sheet exists for a game."
+        ),
+    )
+    p.add_argument(
+        "--allow-long-goals-and-assists",
+        action="store_true",
+        help=(
+            "By default, ignore Goal/Assist events derived from '*-long*' spreadsheets to avoid "
+            "drifting from authoritative scoring. Enable this flag to allow long-sheet Goal/Assist "
+            "events only when the game has no TimeToScore id and no goals.xlsx."
         ),
     )
     p.add_argument(
@@ -12967,6 +12997,7 @@ def _upload_shift_package_to_webapp(
     roster_home: Optional[List[Dict[str, Any]]] = None,
     roster_away: Optional[List[Dict[str, Any]]] = None,
     create_missing_players: bool = False,
+    allow_long_goals_and_assists: bool = False,
     include_events: bool = True,
     source_label_suffix: Optional[str] = None,
 ) -> None:
@@ -12993,6 +13024,8 @@ def _upload_shift_package_to_webapp(
         ),
         "replace": bool(replace),
     }
+    if allow_long_goals_and_assists:
+        payload["allow_long_goals_and_assists"] = True
     if t2s_game_id is not None:
         payload["timetoscore_game_id"] = int(t2s_game_id)
     if external_game_key:
@@ -13961,6 +13994,10 @@ def main() -> None:
                     long_xls_paths=long_paths_for_sheet,
                     focus_team_override=focus_team_override,
                     include_shifts_in_stats=include_shifts_in_stats,
+                    allow_long_goals_and_assists=bool(
+                        getattr(args, "allow_long_goals_and_assists", False)
+                    ),
+                    goals_xlsx_exists=bool((Path(sheet_path).parent / "goals.xlsx").exists()),
                     write_events_summary=write_events_summary,
                     skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
@@ -14355,6 +14392,14 @@ def main() -> None:
                         away_team_name_hint=away_team_name_hint,
                         focus_team_override=focus_team_override,
                         include_shifts_in_stats=include_shifts_in_stats,
+                        allow_long_goals_and_assists=bool(
+                            getattr(args, "allow_long_goals_and_assists", False)
+                        ),
+                        goals_xlsx_exists=(
+                            bool((Path(long_paths_for_compare[0]).parent / "goals.xlsx").exists())
+                            if long_paths_for_compare
+                            else False
+                        ),
                         write_events_summary=write_events_summary,
                         create_scripts=create_scripts,
                         allow_remote=t2s_allow_remote,
@@ -14383,6 +14428,10 @@ def main() -> None:
                     long_xls_paths=long_paths,
                     focus_team_override=focus_team_override,
                     include_shifts_in_stats=include_shifts_in_stats,
+                    allow_long_goals_and_assists=bool(
+                        getattr(args, "allow_long_goals_and_assists", False)
+                    ),
+                    goals_xlsx_exists=bool((Path(in_path).parent / "goals.xlsx").exists()),
                     write_events_summary=write_events_summary,
                     skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
@@ -14676,6 +14725,9 @@ def main() -> None:
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             stats_note=_meta("stats_note", "schedule_note"),
                             create_missing_players=False,
+                            allow_long_goals_and_assists=bool(
+                                getattr(args, "allow_long_goals_and_assists", False)
+                            ),
                             source_label_suffix=f":{primary_side}",
                         )
                         upload_ok += 1
@@ -14754,6 +14806,9 @@ def main() -> None:
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
                             stats_note=_meta("stats_note", "schedule_note"),
                             create_missing_players=False,
+                            allow_long_goals_and_assists=bool(
+                                getattr(args, "allow_long_goals_and_assists", False)
+                            ),
                             include_events=False,
                             source_label_suffix=f":{other_side}",
                         )
@@ -14817,6 +14872,9 @@ def main() -> None:
                             stats_note=_meta("stats_note", "schedule_note"),
                             create_missing_players=bool(
                                 getattr(args, "webapp_create_missing_players", False)
+                            ),
+                            allow_long_goals_and_assists=bool(
+                                getattr(args, "allow_long_goals_and_assists", False)
                             ),
                             source_label_suffix=f":{primary_side}",
                         )
@@ -14900,6 +14958,9 @@ def main() -> None:
                                 stats_note=_meta("stats_note", "schedule_note"),
                                 create_missing_players=bool(
                                     getattr(args, "webapp_create_missing_players", False)
+                                ),
+                                allow_long_goals_and_assists=bool(
+                                    getattr(args, "allow_long_goals_and_assists", False)
                                 ),
                                 include_events=False,
                                 source_label_suffix=f":{other_side}",

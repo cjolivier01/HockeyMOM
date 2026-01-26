@@ -306,6 +306,8 @@ def _upsert_game_event_rows_from_events_csv(
     incoming_source_label: Optional[str] = None,
     prefer_incoming_for_event_types: Optional[set[str]] = None,
     skip_create_for_event_types: Optional[set[str]] = None,
+    allow_long_goals_and_assists: bool = False,
+    block_long_goals_and_assists: bool = False,
 ) -> dict[str, Any]:
     """
     Parse a merged events CSV and upsert normalized per-row events into DB tables.
@@ -317,6 +319,29 @@ def _upsert_game_event_rows_from_events_csv(
     headers, rows = logic.parse_events_csv(str(events_csv or ""))
     if not headers or not rows:
         return {"ok": True, "created": 0, "updated": 0, "linked_players": 0}
+
+    def _is_goals_source(src: str) -> bool:
+        s = str(src or "").strip().casefold()
+        return s in {"goals", "goals.xlsx", "goals_xlsx"}
+
+    incoming_has_goals_source_scoring = False
+    for r0 in rows:
+        if not isinstance(r0, dict):
+            continue
+        src_cf = str(r0.get("Source") or "").strip().casefold()
+        if not src_cf or not _is_goals_source(src_cf):
+            continue
+        raw_type0 = str(r0.get("Event Type") or r0.get("Event") or "").strip()
+        et_key0 = _event_type_key(raw_type0)
+        if et_key0 in {"goal", "assist"}:
+            incoming_has_goals_source_scoring = True
+            break
+
+    ignore_long_scoring = (
+        (not bool(allow_long_goals_and_assists))
+        or bool(block_long_goals_and_assists)
+        or bool(incoming_has_goals_source_scoring)
+    )
 
     game = (
         m.HkyGame.objects.filter(id=int(game_id))
@@ -446,6 +471,10 @@ def _upsert_game_event_rows_from_events_csv(
     }
 
     parsed: list[dict[str, Any]] = []
+    # When long-sheet goal/assist scoring is disabled, we still want to keep any goal video time
+    # as a hint to backfill video time on authoritative goal rows (TimeToScore/goals.xlsx), without
+    # creating additional scoring rows.
+    long_goal_video_hints: dict[str, dict[str, Any]] = {}
 
     def _unique_pid(candidates: list[int]) -> Optional[int]:
         uniq = sorted(set(int(x) for x in (candidates or []) if int(x) > 0))
@@ -601,6 +630,27 @@ def _upsert_game_event_rows_from_events_csv(
         source = _norm_ws(r.get("Source"))
         if not source and default_source:
             source = default_source
+        source_cf = str(source or "").strip().casefold()
+        if ignore_long_scoring and source_cf.startswith("long") and et_key in {"goal", "assist"}:
+            if (
+                et_key == "goal"
+                and isinstance(video_seconds, int)
+                and video_seconds > 0
+                and isinstance(period, int)
+                and period > 0
+                and isinstance(game_seconds, int)
+                and game_seconds >= 0
+                and side_norm in {"home", "away"}
+            ):
+                long_goal_video_hints.setdefault(
+                    str(import_key),
+                    {
+                        "video_seconds": int(video_seconds),
+                        "video_time": str(video_time or "").strip()
+                        or logic.format_seconds_to_mmss_or_hhmmss(int(video_seconds)),
+                    },
+                )
+            continue
 
         game_time_txt = _norm_ws(r.get("Game Time") or r.get("GameTime") or r.get("Time"))
         if not game_time_txt and game_seconds is not None:
@@ -981,6 +1031,204 @@ def _upsert_game_event_rows_from_events_csv(
                 batch_size=500,
             )
             updated = len(to_update)
+
+        # Backfill goal video time:
+        #   1) from shift ends at the same scoreboard time, then
+        #   2) from long-sheet goal rows (video-time hints only).
+        #
+        # This ensures shift-derived anchors take precedence over long-sheet video times, and
+        # long sheets are only used when neither goals.xlsx nor shifts could provide a video time.
+        try:
+            goal_rows = list(
+                m.HkyGameEventRow.objects.filter(
+                    game_id=int(game_id),
+                    event_type__key="goal",
+                    period__isnull=False,
+                    game_seconds__isnull=False,
+                ).values(
+                    "id",
+                    "import_key",
+                    "team_side",
+                    "period",
+                    "game_seconds",
+                    "video_time",
+                    "video_seconds",
+                )
+            )
+            missing_goals: list[dict[str, Any]] = []
+            need_times: set[int] = set()
+            need_periods: set[int] = set()
+            need_sides: set[str] = set()
+            for g0 in goal_rows:
+                _vt0, vs0 = logic.normalize_video_time_and_seconds(
+                    g0.get("video_time"), g0.get("video_seconds")
+                )
+                if vs0 is not None and int(vs0) > 0:
+                    continue
+                side_norm0, side_label0 = _normalize_team_side(g0.get("team_side"))
+                if side_norm0 not in {"home", "away"} or not side_label0:
+                    continue
+                gs0 = g0.get("game_seconds")
+                if not isinstance(gs0, int):
+                    continue
+                per0 = g0.get("period")
+                if not isinstance(per0, int) or per0 <= 0:
+                    continue
+                missing_goals.append(
+                    {
+                        "id": int(g0["id"]),
+                        "import_key": str(g0.get("import_key") or ""),
+                        "team_side_label": str(side_label0),
+                        "period": int(per0),
+                        "game_seconds": int(gs0),
+                    }
+                )
+                need_times.add(int(gs0))
+                need_periods.add(int(per0))
+                need_sides.add(str(side_label0))
+
+            shift_end_video: dict[tuple[str, int, int], int] = {}
+            if missing_goals and need_times and need_periods and need_sides:
+                for side_lbl, per, gs_end, vs_end in m.HkyGameShiftRow.objects.filter(
+                    game_id=int(game_id),
+                    team_side__in=list(need_sides),
+                    period__in=list(need_periods),
+                    game_seconds_end__in=list(need_times),
+                    video_seconds_end__isnull=False,
+                ).values_list("team_side", "period", "game_seconds_end", "video_seconds_end"):
+                    if side_lbl is None or per is None or gs_end is None or vs_end is None:
+                        continue
+                    try:
+                        key = (str(side_lbl), int(per), int(gs_end))
+                        vs_i = int(vs_end)
+                    except Exception:
+                        continue
+                    if vs_i <= 0:
+                        continue
+                    prev = shift_end_video.get(key)
+                    if prev is None or vs_i < int(prev):
+                        shift_end_video[key] = int(vs_i)
+
+            goal_video_updates: list[Any] = []
+            updated_goal_keys: set[str] = set()
+            for g1 in missing_goals:
+                vs = shift_end_video.get(
+                    (
+                        str(g1["team_side_label"]),
+                        int(g1["period"]),
+                        int(g1["game_seconds"]),
+                    )
+                )
+                if vs is None:
+                    continue
+                goal_video_updates.append(
+                    m.HkyGameEventRow(
+                        id=int(g1["id"]),
+                        video_seconds=int(vs),
+                        video_time=logic.format_seconds_to_mmss_or_hhmmss(int(vs)),
+                        updated_at=now,
+                    )
+                )
+                if g1.get("import_key"):
+                    updated_goal_keys.add(str(g1["import_key"]))
+
+            if long_goal_video_hints:
+                for g1 in missing_goals:
+                    ik = str(g1.get("import_key") or "")
+                    if not ik or ik in updated_goal_keys:
+                        continue
+                    hint = long_goal_video_hints.get(ik)
+                    if not hint:
+                        continue
+                    vs = hint.get("video_seconds")
+                    if not isinstance(vs, int) or vs <= 0:
+                        continue
+                    vt = str(
+                        hint.get("video_time") or ""
+                    ).strip() or logic.format_seconds_to_mmss_or_hhmmss(int(vs))
+                    goal_video_updates.append(
+                        m.HkyGameEventRow(
+                            id=int(g1["id"]),
+                            video_seconds=int(vs),
+                            video_time=vt,
+                            updated_at=now,
+                        )
+                    )
+
+            if goal_video_updates:
+                m.HkyGameEventRow.objects.bulk_update(
+                    goal_video_updates,
+                    ["video_seconds", "video_time", "updated_at"],
+                    batch_size=500,
+                )
+
+            # Assists should share the goal's video time for that instant.
+            goal_video_by_key: dict[tuple[int, int, str], dict[str, Any]] = {}
+            for per, gs, side, vt, vs in m.HkyGameEventRow.objects.filter(
+                game_id=int(game_id),
+                event_type__key="goal",
+                period__isnull=False,
+                game_seconds__isnull=False,
+                video_seconds__isnull=False,
+            ).values_list("period", "game_seconds", "team_side", "video_time", "video_seconds"):
+                try:
+                    per_i = int(per)
+                    gs_i = int(gs)
+                    vs_i = int(vs)
+                except Exception:
+                    continue
+                if per_i <= 0 or gs_i < 0 or vs_i <= 0:
+                    continue
+                side_s = str(side or "").strip()
+                vt_s = str(vt or "").strip() or logic.format_seconds_to_mmss_or_hhmmss(vs_i)
+                key = (per_i, gs_i, side_s)
+                prev = goal_video_by_key.get(key)
+                if prev is None or int(vs_i) < int(prev.get("video_seconds") or 0):
+                    goal_video_by_key[key] = {"video_seconds": int(vs_i), "video_time": vt_s}
+
+            if goal_video_by_key:
+                assist_rows = list(
+                    m.HkyGameEventRow.objects.filter(
+                        game_id=int(game_id),
+                        event_type__key="assist",
+                        period__isnull=False,
+                        game_seconds__isnull=False,
+                        video_seconds__isnull=True,
+                    ).values("id", "period", "game_seconds", "team_side")
+                )
+                assist_updates: list[Any] = []
+                for a0 in assist_rows:
+                    try:
+                        key = (
+                            int(a0.get("period") or 0),
+                            int(a0.get("game_seconds") or 0),
+                            str(a0.get("team_side") or "").strip(),
+                        )
+                    except Exception:
+                        continue
+                    goal_v = goal_video_by_key.get(key)
+                    if not goal_v:
+                        continue
+                    assist_updates.append(
+                        m.HkyGameEventRow(
+                            id=int(a0["id"]),
+                            video_seconds=int(goal_v["video_seconds"]),
+                            video_time=str(goal_v["video_time"]),
+                            updated_at=now,
+                        )
+                    )
+                if assist_updates:
+                    m.HkyGameEventRow.objects.bulk_update(
+                        assist_updates,
+                        ["video_seconds", "video_time", "updated_at"],
+                        batch_size=500,
+                    )
+        except Exception:
+            logger.warning(
+                "_upsert_game_event_rows_from_events_csv: failed to backfill goal/assist video time (game_id=%s)",
+                int(game_id),
+                exc_info=True,
+            )
 
         # After merging multiple sources, propagate clip metadata across all events at the same
         # instant so any row (including goals/assists/penalties) can act as a video anchor.
@@ -11648,6 +11896,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
         return auth
     payload = _json_body(request)
     replace = bool(payload.get("replace", False))
+    allow_long_goals_and_assists = bool(payload.get("allow_long_goals_and_assists", False))
 
     game_id = payload.get("game_id")
     tts_game_id = payload.get("timetoscore_game_id")
@@ -12301,70 +12550,6 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 if to_create_links:
                     m.HkyGamePlayer.objects.bulk_create(to_create_links, ignore_conflicts=True)
 
-            if isinstance(events_csv, str) and events_csv.strip():
-                try:
-                    has_existing = m.HkyGameEventRow.objects.filter(
-                        game_id=int(resolved_game_id)
-                    ).exists()
-                    has_timetoscore = m.HkyGameEventRow.objects.filter(
-                        game_id=int(resolved_game_id), source__icontains="timetoscore"
-                    ).exists()
-
-                    # Match legacy behavior: without replace, ignore follow-up shift-package uploads unless
-                    # we have TimeToScore events to merge/augment.
-                    should_upsert = True
-                    replace_events = bool(replace)
-                    if not replace_events and has_existing and not has_timetoscore:
-                        should_upsert = False
-                    # Avoid wiping authoritative TimeToScore events.
-                    if replace_events and has_timetoscore:
-                        replace_events = False
-
-                    if should_upsert:
-                        if has_timetoscore:
-                            # TimeToScore is authoritative for scoring/penalties; shift packages may include
-                            # additional goal/assist rows from long sheets or manual spreadsheets. Those can
-                            # drift from official scoring and cause aggregated Regular Season stats to differ
-                            # from TimeToScore, so:
-                            #   1) delete any existing non-TimeToScore scoring/penalty rows that don't match a
-                            #      TimeToScore import_key, and
-                            #   2) prevent creating new scoring/penalty rows from this shift-package import
-                            #      (while still allowing it to overlay fields on existing rows).
-                            scoring_types = {"goal", "assist", "penalty", "penaltyexpired"}
-                            t2s_keys = set(
-                                m.HkyGameEventRow.objects.filter(
-                                    game_id=int(resolved_game_id),
-                                    event_type__key__in=list(scoring_types),
-                                    source__icontains="timetoscore",
-                                ).values_list("import_key", flat=True)
-                            )
-                            if t2s_keys:
-                                m.HkyGameEventRow.objects.filter(
-                                    game_id=int(resolved_game_id),
-                                    event_type__key__in=list(scoring_types),
-                                ).exclude(source__icontains="timetoscore").exclude(
-                                    import_key__in=list(t2s_keys)
-                                ).delete()
-                        _upsert_game_event_rows_from_events_csv(
-                            game_id=int(resolved_game_id),
-                            events_csv=str(events_csv),
-                            replace=bool(replace_events),
-                            create_missing_players=bool(create_missing_players),
-                            incoming_source_label="shift_package",
-                            skip_create_for_event_types=(
-                                {"goal", "assist", "penalty", "penaltyexpired"}
-                                if has_timetoscore
-                                else None
-                            ),
-                        )
-                except Exception:
-                    logger.warning(
-                        "api_import_shift_package: failed to upsert event rows (game_id=%s)",
-                        int(resolved_game_id),
-                        exc_info=True,
-                    )
-                    raise
-
             if (
                 isinstance(shift_rows_csv, str)
                 and shift_rows_csv.strip()
@@ -12492,6 +12677,78 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                 if to_create:
                     m.HkyGameShiftRow.objects.bulk_create(to_create, ignore_conflicts=True)
                     imported_shifts += len(to_create)
+
+            if isinstance(events_csv, str) and events_csv.strip():
+                try:
+                    has_existing = m.HkyGameEventRow.objects.filter(
+                        game_id=int(resolved_game_id)
+                    ).exists()
+                    has_timetoscore = m.HkyGameEventRow.objects.filter(
+                        game_id=int(resolved_game_id), source__icontains="timetoscore"
+                    ).exists()
+
+                    # Match legacy behavior: without replace, ignore follow-up shift-package uploads unless
+                    # we have TimeToScore events to merge/augment.
+                    should_upsert = True
+                    replace_events = bool(replace)
+                    if not replace_events and has_existing and not has_timetoscore:
+                        should_upsert = False
+                    # Avoid wiping authoritative TimeToScore events.
+                    if replace_events and has_timetoscore:
+                        replace_events = False
+
+                    if should_upsert:
+                        notes_s = str(game_row.get("notes") or "")
+                        has_t2s_id = bool(
+                            tts_int is not None
+                            or game_row.get("timetoscore_game_id") is not None
+                            or ("timetoscore_game_id" in notes_s)
+                        )
+                        if has_timetoscore:
+                            # TimeToScore is authoritative for scoring/penalties; shift packages may include
+                            # additional goal/assist rows from long sheets or manual spreadsheets. Those can
+                            # drift from official scoring and cause aggregated Regular Season stats to differ
+                            # from TimeToScore, so:
+                            #   1) delete any existing non-TimeToScore scoring/penalty rows that don't match a
+                            #      TimeToScore import_key, and
+                            #   2) prevent creating new scoring/penalty rows from this shift-package import
+                            #      (while still allowing it to overlay fields on existing rows).
+                            scoring_types = {"goal", "assist", "penalty", "penaltyexpired"}
+                            t2s_keys = set(
+                                m.HkyGameEventRow.objects.filter(
+                                    game_id=int(resolved_game_id),
+                                    event_type__key__in=list(scoring_types),
+                                    source__icontains="timetoscore",
+                                ).values_list("import_key", flat=True)
+                            )
+                            if t2s_keys:
+                                m.HkyGameEventRow.objects.filter(
+                                    game_id=int(resolved_game_id),
+                                    event_type__key__in=list(scoring_types),
+                                ).exclude(source__icontains="timetoscore").exclude(
+                                    import_key__in=list(t2s_keys)
+                                ).delete()
+                        _upsert_game_event_rows_from_events_csv(
+                            game_id=int(resolved_game_id),
+                            events_csv=str(events_csv),
+                            replace=bool(replace_events),
+                            create_missing_players=bool(create_missing_players),
+                            incoming_source_label="shift_package",
+                            skip_create_for_event_types=(
+                                {"goal", "assist", "penalty", "penaltyexpired"}
+                                if has_timetoscore
+                                else None
+                            ),
+                            allow_long_goals_and_assists=bool(allow_long_goals_and_assists),
+                            block_long_goals_and_assists=bool(has_t2s_id or has_timetoscore),
+                        )
+                except Exception:
+                    logger.warning(
+                        "api_import_shift_package: failed to upsert event rows (game_id=%s)",
+                        int(resolved_game_id),
+                        exc_info=True,
+                    )
+                    raise
 
             if events_csv or shift_rows_csv:
                 m.HkyGame.objects.filter(id=int(resolved_game_id)).update(stats_imported_at=now)
