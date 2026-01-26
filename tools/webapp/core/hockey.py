@@ -205,6 +205,45 @@ def load_previous_meetings_summary(
         now_utc = dt.datetime.now(dt.timezone.utc)
         return bool(d_utc > now_utc)
 
+    def _meeting_dict(
+        *,
+        gid: int,
+        starts_at: Any,
+        team1_id: int,
+        team2_id: int,
+        team1_name: str,
+        team2_name: str,
+        team1_score: Any,
+        team2_score: Any,
+        is_final: bool,
+        game_type_name: Any,
+    ) -> dict[str, Any]:
+        winner_team_id, winner_name, is_tie = _winner_fields(
+            team1_score=team1_score,
+            team2_score=team2_score,
+            team1_id=team1_id,
+            team2_id=team2_id,
+            team1_name=team1_name,
+            team2_name=team2_name,
+        )
+        return {
+            "id": int(gid),
+            "starts_at": starts_at,
+            "team1_id": int(team1_id),
+            "team2_id": int(team2_id),
+            "team1_name": team1_name,
+            "team2_name": team2_name,
+            "team1_score": team1_score,
+            "team2_score": team2_score,
+            "is_final": bool(is_final),
+            "game_type_name": game_type_name,
+            "winner_team_id": winner_team_id,
+            "winner_name": winner_name or None,
+            "is_tie": bool(is_tie),
+            "is_future": _is_future(starts_at),
+            "is_current": bool(int(gid) == int(current_game_id)),
+        }
+
     if league_id is not None:
         qs = (
             m.LeagueGame.objects.filter(league_id=int(league_id))
@@ -239,32 +278,19 @@ def load_previous_meetings_summary(
             t2name = str(r0.get("game__team2__name") or "")
             team1_score = r0.get("game__team1_score")
             team2_score = r0.get("game__team2_score")
-            winner_team_id, winner_name, is_tie = _winner_fields(
-                team1_score=team1_score,
-                team2_score=team2_score,
-                team1_id=t1id,
-                team2_id=t2id,
-                team1_name=t1name,
-                team2_name=t2name,
-            )
             out.append(
-                {
-                    "id": gid,
-                    "starts_at": starts_at,
-                    "team1_id": t1id,
-                    "team2_id": t2id,
-                    "team1_name": t1name,
-                    "team2_name": t2name,
-                    "team1_score": team1_score,
-                    "team2_score": team2_score,
-                    "is_final": bool(r0.get("game__is_final")),
-                    "game_type_name": r0.get("game__game_type__name"),
-                    "winner_team_id": winner_team_id,
-                    "winner_name": winner_name or None,
-                    "is_tie": bool(is_tie),
-                    "is_future": _is_future(starts_at),
-                    "is_current": bool(gid == int(current_game_id)),
-                }
+                _meeting_dict(
+                    gid=gid,
+                    starts_at=starts_at,
+                    team1_id=t1id,
+                    team2_id=t2id,
+                    team1_name=t1name,
+                    team2_name=t2name,
+                    team1_score=team1_score,
+                    team2_score=team2_score,
+                    is_final=bool(r0.get("game__is_final")),
+                    game_type_name=r0.get("game__game_type__name"),
+                )
             )
         out.sort(key=_chronological_sort_key)
         return out
@@ -299,32 +325,19 @@ def load_previous_meetings_summary(
         t2name = str(r0.get("team2__name") or "")
         team1_score = r0.get("team1_score")
         team2_score = r0.get("team2_score")
-        winner_team_id, winner_name, is_tie = _winner_fields(
-            team1_score=team1_score,
-            team2_score=team2_score,
-            team1_id=t1id,
-            team2_id=t2id,
-            team1_name=t1name,
-            team2_name=t2name,
-        )
         out.append(
-            {
-                "id": gid,
-                "starts_at": starts_at,
-                "team1_id": t1id,
-                "team2_id": t2id,
-                "team1_name": t1name,
-                "team2_name": t2name,
-                "team1_score": team1_score,
-                "team2_score": team2_score,
-                "is_final": bool(r0.get("is_final")),
-                "game_type_name": r0.get("game_type__name"),
-                "winner_team_id": winner_team_id,
-                "winner_name": winner_name or None,
-                "is_tie": bool(is_tie),
-                "is_future": _is_future(starts_at),
-                "is_current": bool(gid == int(current_game_id)),
-            }
+            _meeting_dict(
+                gid=gid,
+                starts_at=starts_at,
+                team1_id=t1id,
+                team2_id=t2id,
+                team1_name=t1name,
+                team2_name=t2name,
+                team1_score=team1_score,
+                team2_score=team2_score,
+                is_final=bool(r0.get("is_final")),
+                game_type_name=r0.get("game_type__name"),
+            )
         )
     out.sort(key=_chronological_sort_key)
     return out
