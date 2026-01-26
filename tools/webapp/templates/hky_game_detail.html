@@ -127,7 +127,7 @@
     </div>
   {% endif %}
   
-  {% if previous_meetings %}
+  {% if previous_meetings and previous_meetings|length > 1 %}
     <div class="card" style="margin-top:1rem;">
       <h3 style="margin-top:0;">All Meetings</h3>
       <div class="meeting-list">

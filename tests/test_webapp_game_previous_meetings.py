@@ -120,3 +120,47 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "(This Game)" in public_segment
     assert "meeting-row-future" in public_segment
     assert public_segment.index("2 - 1") < public_segment.index("4 - 3")
+
+
+def should_hide_all_meetings_section_when_only_one_meeting_exists(client_and_models):
+    client, m = client_and_models
+
+    payload = {
+        "league_name": "CAHA",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "timetoscore",
+        "external_key": "caha:season31",
+        "games": [
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": "2026-01-02 10:00:00",
+                "location": "Rink 1",
+                "home_score": 1,
+                "away_score": 2,
+                "is_final": True,
+                "timetoscore_game_id": 223,
+                "season_id": 31,
+                "division_name": "12AA",
+                "game_type_name": "Regular Season",
+            }
+        ],
+    }
+
+    r = _post_json(client, "/api/import/hockey/games_batch", payload)
+    assert r.status_code == 200
+    out = json.loads(r.content)
+    assert out["ok"] is True
+    league_id = int(out["league_id"])
+    owner_user_id = int(out["owner_user_id"])
+    gid = int(out["results"][0]["game_id"])
+
+    _set_session(client, user_id=owner_user_id, email="owner@example.com", league_id=league_id)
+    html = client.get(f"/hky/games/{gid}?return_to=/schedule").content.decode()
+    assert "All Meetings" not in html
+
+    m.League.objects.filter(id=int(league_id)).update(is_public=True)
+    public_html = client.get(f"/public/leagues/{league_id}/hky/games/{gid}").content.decode()
+    assert "All Meetings" not in public_html
