@@ -305,6 +305,7 @@ def _upsert_game_event_rows_from_events_csv(
     create_missing_players: bool = False,
     incoming_source_label: Optional[str] = None,
     prefer_incoming_for_event_types: Optional[set[str]] = None,
+    skip_create_for_event_types: Optional[set[str]] = None,
 ) -> dict[str, Any]:
     """
     Parse a merged events CSV and upsert normalized per-row events into DB tables.
@@ -416,6 +417,11 @@ def _upsert_game_event_rows_from_events_csv(
     default_source = _norm_ws(incoming_source_label) if incoming_source_label else ""
     prefer_incoming_types = {
         str(k or "").casefold() for k in (prefer_incoming_for_event_types or set())
+    }
+    skip_create_types = {
+        str(k or "").casefold()
+        for k in (skip_create_for_event_types or set())
+        if str(k or "").strip()
     }
     incoming_label_cf = str(incoming_source_label or "").strip().casefold()
     incoming_is_timetoscore = incoming_label_cf.startswith("timetoscore") or incoming_label_cf in {
@@ -788,8 +794,11 @@ def _upsert_game_event_rows_from_events_csv(
 
         for rec in parsed:
             import_key = str(rec["import_key"])
+            event_type_key = str(rec.get("event_type_key") or "").casefold()
             existing_row = existing_by_key.get(import_key)
             if existing_row is None:
+                if skip_create_types and event_type_key in skip_create_types:
+                    continue
                 to_create.append(
                     m.HkyGameEventRow(
                         game_id=int(game_id),
@@ -820,7 +829,6 @@ def _upsert_game_event_rows_from_events_csv(
                     )
                 )
             else:
-                event_type_key = str(rec.get("event_type_key") or "").casefold()
                 incoming_record_source = str(rec.get("source") or "").casefold()
                 existing_record_source = str(existing_row.get("source") or "").casefold()
                 incoming_record_is_timetoscore = bool(
@@ -12285,12 +12293,41 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                         replace_events = False
 
                     if should_upsert:
+                        if has_timetoscore:
+                            # TimeToScore is authoritative for scoring/penalties; shift packages may include
+                            # additional goal/assist rows from long sheets or manual spreadsheets. Those can
+                            # drift from official scoring and cause aggregated Regular Season stats to differ
+                            # from TimeToScore, so:
+                            #   1) delete any existing non-TimeToScore scoring/penalty rows that don't match a
+                            #      TimeToScore import_key, and
+                            #   2) prevent creating new scoring/penalty rows from this shift-package import
+                            #      (while still allowing it to overlay fields on existing rows).
+                            scoring_types = {"goal", "assist", "penalty", "penaltyexpired"}
+                            t2s_keys = set(
+                                m.HkyGameEventRow.objects.filter(
+                                    game_id=int(resolved_game_id),
+                                    event_type__key__in=list(scoring_types),
+                                    source__icontains="timetoscore",
+                                ).values_list("import_key", flat=True)
+                            )
+                            if t2s_keys:
+                                m.HkyGameEventRow.objects.filter(
+                                    game_id=int(resolved_game_id),
+                                    event_type__key__in=list(scoring_types),
+                                ).exclude(source__icontains="timetoscore").exclude(
+                                    import_key__in=list(t2s_keys)
+                                ).delete()
                         _upsert_game_event_rows_from_events_csv(
                             game_id=int(resolved_game_id),
                             events_csv=str(events_csv),
                             replace=bool(replace_events),
                             create_missing_players=bool(create_missing_players),
                             incoming_source_label="shift_package",
+                            skip_create_for_event_types=(
+                                {"goal", "assist", "penalty", "penaltyexpired"}
+                                if has_timetoscore
+                                else None
+                            ),
                         )
                 except Exception:
                     logger.warning(

@@ -1221,6 +1221,48 @@ def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(
     assert "9 A" in str(merged.get("on_ice_players_away") or "")
 
 
+def should_not_create_new_assists_from_shift_package_when_timetoscore_exists(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Ziyad",
+        jersey_number="13",
+        position=None,
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    _upsert_event_rows_from_csv(
+        game_id=1001,
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+            "Goal,timetoscore,Home,1,100,9\n"
+        ),
+        replace=True,
+    )
+    assert m.HkyGameEventRow.objects.filter(game_id=1001, source__icontains="timetoscore").exists()
+    assert not m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist").exists()
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+                "Assist,long,Home,1,110,13\n"
+            ),
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+    assert not m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist").exists()
+
+
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):
     client, m = client_and_models
     r = _post_json(
