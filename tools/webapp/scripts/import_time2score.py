@@ -2774,6 +2774,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             s = str(val or "").strip()
             if not s:
                 return None
+            # Bench penalties are often represented as "B" on TimeToScore.
+            if s.upper() in {"B", "BENCH"}:
+                return "B"
             m = re.search(r"(\d+)", s)
             return m.group(1) if m else None
 
@@ -2851,6 +2854,13 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # Determine per-period time mode and fill missing penalty end times (best-effort).
         penalties_events_rows: list[dict[str, Any]] = []
+
+        def _jersey_detail_prefix(jersey: Any) -> str:
+            # Keep import_key stable: penalty import keys include Details, so avoid injecting "#B"
+            # for bench penalties.
+            j = str(jersey or "").strip()
+            return f"#{j}" if j.isdigit() else ""
+
         for side_key, recs in penalties_by_side.items():
             for rec in recs:
                 per = int(rec["period"])
@@ -2877,7 +2887,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                             [
                                 x
                                 for x in [
-                                    (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
+                                    _jersey_detail_prefix(rec.get("jersey")),
                                     str(rec.get("infraction") or "").strip(),
                                     (
                                         f"{int(rec.get('minutes'))}m"
@@ -2970,7 +2980,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                         x
                         for x in [
                             "Expired",
-                            (f"#{rec.get('jersey')}" if rec.get("jersey") else ""),
+                            _jersey_detail_prefix(rec.get("jersey")),
                             str(rec.get("infraction") or "").strip(),
                             (
                                 f"{int(rec.get('minutes'))}m"

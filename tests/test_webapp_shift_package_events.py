@@ -1221,6 +1221,314 @@ def should_merge_shift_package_overlays_missing_video_and_on_ice_for_duplicates(
     assert "9 A" in str(merged.get("on_ice_players_away") or "")
 
 
+def should_not_create_new_assists_from_shift_package_when_timetoscore_exists(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Ziyad",
+        jersey_number="13",
+        position=None,
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    _upsert_event_rows_from_csv(
+        game_id=1001,
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+            "Goal,timetoscore,Home,1,100,9\n"
+        ),
+        replace=True,
+    )
+    assert m.HkyGameEventRow.objects.filter(game_id=1001, source__icontains="timetoscore").exists()
+    assert not m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist").exists()
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+                "Assist,long,Home,1,110,13\n"
+            ),
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+    assert not m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist").exists()
+
+
+def should_attribute_bench_penalties_to_head_coach_when_present(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Head Coach",
+        jersey_number="HC",
+        position=None,
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    _upsert_event_rows_from_csv(
+        game_id=1001,
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Details,Game Seconds End\n"
+            "Penalty,timetoscore,Home,1,100,B,Unsportsmanlike 2m,220\n"
+        ),
+        replace=True,
+    )
+    row = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="penalty")
+        .values("player_id", "attributed_players", "attributed_jerseys")
+        .first()
+    )
+    assert row is not None
+    assert int(row.get("player_id") or 0) == 503
+    assert str(row.get("attributed_players") or "") == "Head Coach"
+    assert str(row.get("attributed_jerseys") or "") == "B"
+
+
+def should_ignore_long_goal_and_assist_events_by_default(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.HkyGame.objects.create(
+        id=2001,
+        user_id=10,
+        team1_id=101,
+        team2_id=102,
+        game_type_id=None,
+        starts_at=now,
+        location="Rink",
+        notes="{}",
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "game_id": 2001,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+                "Goal,long,Home,1,100,9\n"
+                "Assist,long,Home,1,100,9\n"
+            ),
+            "replace": True,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+    assert not m.HkyGameEventRow.objects.filter(game_id=2001).exists()
+
+
+def should_allow_long_goal_and_assist_events_when_flag_set(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.HkyGame.objects.create(
+        id=2002,
+        user_id=10,
+        team1_id=101,
+        team2_id=102,
+        game_type_id=None,
+        starts_at=now,
+        location="Rink",
+        notes="{}",
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "game_id": 2002,
+            "allow_long_goals_and_assists": True,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+                "Goal,long,Home,1,100,9\n"
+                "Assist,long,Home,1,100,9\n"
+            ),
+            "replace": True,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+    assert (
+        m.HkyGameEventRow.objects.filter(
+            game_id=2002, source="long", event_type__key__in=["goal", "assist"]
+        ).count()
+        == 2
+    )
+
+
+def should_ignore_long_scoring_when_goals_source_present_even_if_allowed(client_and_models):
+    client, m = client_and_models
+    now = dt.datetime.now()
+    m.HkyGame.objects.create(
+        id=2003,
+        user_id=10,
+        team1_id=101,
+        team2_id=102,
+        game_type_id=None,
+        starts_at=now,
+        location="Rink",
+        notes="{}",
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "game_id": 2003,
+            "allow_long_goals_and_assists": True,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+                "Goal,goals,Home,1,100,9\n"
+                "Assist,goals,Home,1,100,9\n"
+                "Goal,long,Home,1,120,9\n"
+            ),
+            "replace": True,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+    assert not m.HkyGameEventRow.objects.filter(
+        game_id=2003, source="long", event_type__key__in=["goal", "assist"]
+    ).exists()
+    assert (
+        m.HkyGameEventRow.objects.filter(
+            game_id=2003, source="goals", event_type__key__in=["goal", "assist"]
+        ).count()
+        == 2
+    )
+
+
+def should_backfill_goal_video_time_from_long_goal_row_and_propagate_to_assists(client_and_models):
+    client, m = client_and_models
+    _upsert_event_rows_from_csv(
+        game_id=1001,
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+            "Goal,timetoscore,Home,1,100,9\n"
+            "Assist,timetoscore,Home,1,100,9\n"
+        ),
+        replace=True,
+    )
+    goal_before = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="goal")
+        .values("video_seconds")
+        .first()
+    )
+    assert goal_before is not None
+    assert goal_before.get("video_seconds") is None
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds\n"
+                "Goal,long,Home,1,100,9,83\n"
+            ),
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    goal_after = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="goal")
+        .values("video_seconds", "video_time")
+        .first()
+    )
+    assert goal_after is not None
+    assert int(goal_after.get("video_seconds") or 0) == 83
+
+    assist_after = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist")
+        .values("video_seconds")
+        .first()
+    )
+    assert assist_after is not None
+    assert int(assist_after.get("video_seconds") or 0) == 83
+    assert not m.HkyGameEventRow.objects.filter(
+        game_id=1001, source="long", event_type__key="goal"
+    ).exists()
+
+
+def should_prefer_shift_end_video_time_over_long_goal_hint(client_and_models):
+    client, m = client_and_models
+    _upsert_event_rows_from_csv(
+        game_id=1001,
+        events_csv=(
+            "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys\n"
+            "Goal,timetoscore,Home,1,100,9\n"
+            "Assist,timetoscore,Home,1,100,9\n"
+        ),
+        replace=True,
+    )
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "timetoscore_game_id": 123,
+            "team_side": "home",
+            "shift_rows_csv": (
+                "Player,Period,Game Seconds,Game Seconds End,Video Seconds End\n"
+                "9 Alice,1,90,100,70\n"
+            ),
+            "events_csv": (
+                "Event Type,Source,Team Side,Period,Game Seconds,Attributed Jerseys,Video Seconds\n"
+                "Goal,long,Home,1,100,9,83\n"
+            ),
+            "replace": False,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    goal_after = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="goal")
+        .values("video_seconds")
+        .first()
+    )
+    assert goal_after is not None
+    assert int(goal_after.get("video_seconds") or 0) == 70
+
+    assist_after = (
+        m.HkyGameEventRow.objects.filter(game_id=1001, event_type__key="assist")
+        .values("video_seconds")
+        .first()
+    )
+    assert assist_after is not None
+    assert int(assist_after.get("video_seconds") or 0) == 70
+
+
 def should_store_game_video_url_via_shift_package_and_show_link_in_schedule(client_and_models):
     client, m = client_and_models
     r = _post_json(

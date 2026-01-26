@@ -16,6 +16,7 @@ REBUILD=0
 INCLUDE_SHIFTS=0
 IGNORE_PRIMARY=0
 IGNORE_LONG=0
+ALLOW_LONG_GOALS_ASSISTS=0
 NO_SPREADSHEETS=0
 VERBOSE=0
 T2S_LEAGUES=(3 5 18)
@@ -51,6 +52,7 @@ Options:
   --shifts          Include TOI/Shifts stats from shift spreadsheets (adds TOI/Shifts columns in webapp tables)
   --ignore-primary  Prefer '*-long*' spreadsheets when both exist (falls back to primary-only)
   --ignore-long     Prefer primary spreadsheets when both exist (falls back to '*-long*' only)
+  --allow-long-goals-and-assists  Allow Goal/Assist events from '*-long*' sheets when no T2S id and no goals.xlsx
   --verbose         Verbose spreadsheet parsing output (prints spreadsheet event mapping summary)
 EOF
 }
@@ -85,6 +87,7 @@ while [[ $# -gt 0 ]]; do
     --shifts) INCLUDE_SHIFTS=1; shift ;;
     --ignore-primary) IGNORE_PRIMARY=1; shift ;;
     --ignore-long) IGNORE_LONG=1; shift ;;
+    --allow-long-goals-and-assists) ALLOW_LONG_GOALS_ASSISTS=1; shift ;;
     --no-spreadsheets) NO_SPREADSHEETS=1; shift ;;
     --verbose|-v) VERBOSE=1; shift ;;
     --t2s-league=*)
@@ -425,6 +428,9 @@ if [[ "${IGNORE_PRIMARY}" == "1" ]]; then
 fi
 if [[ "${IGNORE_LONG}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--ignore-long" )
+fi
+if [[ "${ALLOW_LONG_GOALS_ASSISTS}" == "1" ]]; then
+  SPREADSHEET_ARGS+=( "--allow-long-goals-and-assists" )
 fi
 if [[ "${VERBOSE}" == "1" ]]; then
   SPREADSHEET_ARGS+=( "--verbose" )
