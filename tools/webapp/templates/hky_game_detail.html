@@ -138,6 +138,9 @@
                 <span class="muted nowrap">{{ g.starts_at|fmt_date }}</span>
                 <span class="muted">·</span>
                 <span class="muted">{{ g.game_type_name|default_if_none:"Game" }}</span>
+                {% if g.id == game.id %}
+                  <span class="meeting-this-game">(This Game)</span>
+                {% endif %}
               </div>
               <div class="muted">
                 {% if g.winner_team_id == g.team2_id %}
