@@ -304,7 +304,17 @@ tr.game-excluded:hover { opacity: .85; }
 }
 
 /* Game page: meetings summary */
-table.meeting-table { margin: 0; }
+table.meeting-table {
+  margin: 0;
+  --thead-bg: #7c2d12;   /* dark orange */
+  --thead-text: #fff7ed; /* warm off-white */
+  --row-odd: #fff7ed;    /* subtle warm zebra */
+  --row-even: #ffedd5;
+  --row-hover: #fed7aa;
+  border-color: rgba(124, 45, 18, 0.28);
+}
+table.meeting-table th, table.meeting-table td { border-right-color: rgba(124, 45, 18, 0.16); }
+table.meeting-table tbody td { border-bottom-color: rgba(124, 45, 18, 0.16); }
 table.meeting-table tbody tr.meeting-row-current td { color: rgba(17, 24, 39, 0.62); }
 table.meeting-table tbody tr.meeting-row-current td strong { color: inherit; }
 table.meeting-table tbody tr.meeting-row-current:hover td { background: transparent !important; }
