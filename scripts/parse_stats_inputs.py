@@ -1852,6 +1852,17 @@ class InputEntry:
     event_corrections: Any = None
 
 
+def _clone_input_entry_for_path(entry: InputEntry, path: Path) -> InputEntry:
+    return InputEntry(
+        path=Path(path),
+        side=entry.side,
+        t2s_id=entry.t2s_id,
+        label=entry.label,
+        meta=dict(entry.meta or {}),
+        event_corrections=entry.event_corrections,
+    )
+
+
 def _parse_t2s_spec(token: Any) -> Optional[Tuple[int, Optional[str], Optional[str]]]:
     """
     Parse a TimeToScore spec token, formatted like:
@@ -2006,6 +2017,85 @@ def _load_input_entries_from_yaml_file_list(
 
     warned_pipe_meta = False
 
+    def _raise_if_reserved_keys_in_metadata(meta_map: dict[Any, Any], *, where: str) -> None:
+        reserved_in_meta = {
+            "token",
+            "path",
+            "file",
+            "dir",
+            "t2s",
+            "timetoscore_game_id",
+            "side",
+            "label",
+            "meta",
+            "metadata",
+            "sheets",
+            "shared_long_path",
+            "event_corrections",
+            "event_correction",
+        }
+        bad: list[str] = []
+        for k in (meta_map or {}).keys():
+            kk = str(k or "").strip().lower()
+            if kk in reserved_in_meta:
+                bad.append(str(k))
+        if bad:
+            bad_txt = ", ".join(repr(k) for k in bad)
+            raise ValueError(
+                f"{where} contains reserved key(s) {bad_txt}. These are not metadata fields; move them out of 'metadata:' and into the game entry."
+            )
+
+    def _validate_event_patch_list(patch: Any, *, where: str) -> None:
+        if not isinstance(patch, list) or not patch:
+            raise ValueError(f"{where} must be a non-empty list")
+        for pidx, item in enumerate(patch):
+            if not isinstance(item, dict):
+                raise ValueError(f"{where}[{pidx}] must be a mapping")
+            unknown = {str(k) for k in item.keys()} - {"match", "set", "note"}
+            if unknown:
+                if "-match" in unknown and "match" not in item:
+                    raise ValueError(f"{where}[{pidx}] has key '-match'; did you mean 'match'?")
+                raise ValueError(f"{where}[{pidx}] has unknown key(s): {sorted(unknown)!r}")
+            if "match" not in item or "set" not in item:
+                raise ValueError(f"{where}[{pidx}] must contain both 'match' and 'set'")
+            if not isinstance(item.get("match"), dict):
+                raise ValueError(f"{where}[{pidx}].match must be a mapping")
+            if not isinstance(item.get("set"), dict):
+                raise ValueError(f"{where}[{pidx}].set must be a mapping")
+
+    def _validate_event_corrections_value(ev_corr: Any, *, where: str) -> None:
+        if ev_corr is None:
+            return
+        if isinstance(ev_corr, list):
+            _validate_event_patch_list(ev_corr, where=f"{where} (patch list)")
+            return
+        if not isinstance(ev_corr, dict):
+            raise ValueError(f"{where} must be a list or mapping")
+        unknown = {str(k) for k in ev_corr.keys()} - {
+            "reason",
+            "patch",
+            "suppress",
+            "upsert",
+            "owner_email",
+            "owner_user_id",
+            "game_id",
+            "timetoscore_game_id",
+            "tts_game_id",
+            "external_game_key",
+            "external_key",
+            "external_game_id",
+            "label",
+        }
+        if unknown:
+            raise ValueError(f"{where} has unknown key(s): {sorted(unknown)!r}")
+        if ev_corr.get("patch") is not None:
+            _validate_event_patch_list(ev_corr.get("patch"), where=f"{where}.patch")
+            return
+        if ev_corr.get("suppress") is not None or ev_corr.get("upsert") is not None:
+            # Legacy/raw API format; allow pass-through (server-side validation applies).
+            return
+        raise ValueError(f"{where} must include 'patch' (recommended) or 'suppress'/'upsert'")
+
     def _merge_meta(a: dict[str, str], b: dict[str, str]) -> dict[str, str]:
         out = dict(a or {})
         for k, v in (b or {}).items():
@@ -2085,10 +2175,12 @@ def _load_input_entries_from_yaml_file_list(
         }
         meta: dict[str, str] = {}
         if isinstance(item.get("meta"), dict):
+            _raise_if_reserved_keys_in_metadata(item["meta"], where=f"games[{idx}].meta")
             meta = _merge_meta(
                 meta, {str(k): str(v) for k, v in item["meta"].items() if v is not None}
             )
         if isinstance(item.get("metadata"), dict):
+            _raise_if_reserved_keys_in_metadata(item["metadata"], where=f"games[{idx}].metadata")
             meta = _merge_meta(
                 meta,
                 {str(k): str(v) for k, v in item["metadata"].items() if v is not None},
@@ -2106,6 +2198,9 @@ def _load_input_entries_from_yaml_file_list(
             event_corrections = item.get("event_correction")
         if event_corrections is not None and not isinstance(event_corrections, (list, dict)):
             raise ValueError(f"invalid event_corrections at games[{idx}] (must be list or mapping)")
+        _validate_event_corrections_value(
+            event_corrections, where=f"games[{idx}].event_corrections"
+        )
 
         if item.get("token"):
             token = str(item.get("token") or "").strip()
@@ -2252,10 +2347,16 @@ def _load_input_entries_from_yaml_file_list(
                     raise ValueError(f"games[{idx}].sheets[{sidx}] must be a string or mapping")
                 sheet_meta = dict(meta)
                 if isinstance(s.get("meta"), dict):
+                    _raise_if_reserved_keys_in_metadata(
+                        s["meta"], where=f"games[{idx}].sheets[{sidx}].meta"
+                    )
                     sheet_meta = _merge_meta(
                         sheet_meta, {str(k): str(v) for k, v in s["meta"].items() if v is not None}
                     )
                 if isinstance(s.get("metadata"), dict):
+                    _raise_if_reserved_keys_in_metadata(
+                        s["metadata"], where=f"games[{idx}].sheets[{sidx}].metadata"
+                    )
                     sheet_meta = _merge_meta(
                         sheet_meta,
                         {str(k): str(v) for k, v in s["metadata"].items() if v is not None},
@@ -13366,9 +13467,7 @@ def main() -> None:
                 print(f"Error expanding directory input {pp}: {e}", file=sys.stderr)
                 sys.exit(2)
             for fp in discovered:
-                expanded_entries.append(
-                    InputEntry(path=fp, side=entry.side, meta=dict(entry.meta or {}))
-                )
+                expanded_entries.append(_clone_input_entry_for_path(entry, fp))
         else:
             try:
                 if pp.is_file() and _is_spreadsheet_input_path(pp):
@@ -13383,11 +13482,7 @@ def main() -> None:
                             found_long.append(cand)
                         if found_long:
                             for cand in found_long:
-                                expanded_entries.append(
-                                    InputEntry(
-                                        path=cand, side=entry.side, meta=dict(entry.meta or {})
-                                    )
-                                )
+                                expanded_entries.append(_clone_input_entry_for_path(entry, cand))
                             continue
                     if ignore_long and _is_long_sheet_path(pp):
                         base_label = _base_label_from_path(pp)
@@ -13400,11 +13495,7 @@ def main() -> None:
                             found_primary.append(cand)
                         if len(found_primary) == 1:
                             expanded_entries.append(
-                                InputEntry(
-                                    path=found_primary[0],
-                                    side=entry.side,
-                                    meta=dict(entry.meta or {}),
-                                )
+                                _clone_input_entry_for_path(entry, found_primary[0])
                             )
                             continue
                         if len(found_primary) > 1:
@@ -13414,9 +13505,7 @@ def main() -> None:
                                 file=sys.stderr,
                             )
                             sys.exit(2)
-                    expanded_entries.append(
-                        InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {}))
-                    )
+                    expanded_entries.append(_clone_input_entry_for_path(entry, pp))
                     # If a primary sheet is provided directly, auto-discover any companion '*-long*' sheet(s)
                     # with the same base label in the same directory.
                     if (not ignore_primary) and (not ignore_long) and (not _is_long_sheet_path(pp)):
@@ -13426,13 +13515,9 @@ def main() -> None:
                                 continue
                             if _base_label_from_path(cand) != base_label:
                                 continue
-                            expanded_entries.append(
-                                InputEntry(path=cand, side=entry.side, meta=dict(entry.meta or {}))
-                            )
+                            expanded_entries.append(_clone_input_entry_for_path(entry, cand))
                 else:
-                    expanded_entries.append(
-                        InputEntry(path=pp, side=entry.side, meta=dict(entry.meta or {}))
-                    )
+                    expanded_entries.append(_clone_input_entry_for_path(entry, pp))
             except Exception as e:  # noqa: BLE001
                 print(f"Error processing input path {pp}: {e}", file=sys.stderr)
     input_entries = expanded_entries
