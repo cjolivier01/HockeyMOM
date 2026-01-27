@@ -8543,6 +8543,16 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             before_starts_at=None,
             limit=None,
         )
+        now = dt.datetime.now()
+        for g0 in previous_meetings:
+            sdt = logic.to_dt(g0.get("starts_at"))
+            has_score = (
+                (g0.get("team1_score") is not None)
+                or (g0.get("team2_score") is not None)
+                or bool(g0.get("is_final"))
+            )
+            started = bool((sdt is None) or (sdt <= now))
+            g0["can_view_summary"] = bool(has_score or started)
     except Exception:
         logger.exception("Failed to load previous meetings summary for game_id=%s", game_id)
         previous_meetings = []
@@ -10289,6 +10299,13 @@ def public_hky_game_detail(
             before_starts_at=None,
             limit=None,
         )
+        for g0 in previous_meetings:
+            has_score = (
+                (g0.get("team1_score") is not None)
+                or (g0.get("team2_score") is not None)
+                or bool(g0.get("is_final"))
+            )
+            g0["can_view_summary"] = bool(has_score)
     except Exception:
         logger.exception(
             "Failed to load previous meetings summary for public game_id=%s league_id=%s",
