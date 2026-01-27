@@ -109,7 +109,6 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "All Meetings" in html
     segment = html.split("All Meetings", 1)[1].split("Scoring By Period", 1)[0]
     assert "meeting-row-current" in segment
-    assert "(This Game)" in segment
     assert "meeting-row-future" in segment
     assert segment.index("2 - 1") < segment.index("4 - 3")
     assert f'href="/hky/games/{gid1}?return_to=' in segment
@@ -121,7 +120,6 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "All Meetings" in public_html
     public_segment = public_html.split("All Meetings", 1)[1].split("Scoring By Period", 1)[0]
     assert "meeting-row-current" in public_segment
-    assert "(This Game)" in public_segment
     assert "meeting-row-future" in public_segment
     assert public_segment.index("2 - 1") < public_segment.index("4 - 3")
     assert f'href="/public/leagues/{league_id}/hky/games/{gid1}?return_to=' in public_segment

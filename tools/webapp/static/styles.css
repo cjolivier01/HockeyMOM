@@ -305,10 +305,10 @@ tr.game-excluded:hover { opacity: .85; }
 
 /* Game page: meetings summary */
 table.meeting-table { margin: 0; }
-tr.meeting-row-current td { color: #eab308; } /* dark yellow */
-tr.meeting-row-current td .muted { color: rgba(234, 179, 8, 0.78); }
+table.meeting-table tbody tr.meeting-row-current td { color: rgba(17, 24, 39, 0.62); }
+table.meeting-table tbody tr.meeting-row-current td strong { color: inherit; }
+table.meeting-table tbody tr.meeting-row-current:hover td { background: transparent !important; }
 tr.meeting-row-future { opacity: .55; }
-.meeting-this-game { color: inherit; font-weight: 800; margin-left: .35rem; }
 .meeting-score { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .meeting-score-wrap { display: inline-flex; align-items: center; gap: .45rem; }
 .meeting-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 1px solid rgba(148, 163, 184, .38); background: rgba(148, 163, 184, .18); }
