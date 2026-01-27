@@ -484,7 +484,7 @@ def main():
     ap.add_argument(
         "--preload-csv",
         type=str,
-        default="none",
+        default="shard",
         choices=["none", "shard", "all"],
         help=(
             "Preload CSVs into each dataset worker process. "
