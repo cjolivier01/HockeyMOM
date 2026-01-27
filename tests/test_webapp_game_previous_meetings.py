@@ -101,6 +101,7 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     owner_user_id = int(out["owner_user_id"])
     gid1 = int(out["results"][0]["game_id"])
     gid2 = int(out["results"][1]["game_id"])
+    gid3 = int(out["results"][2]["game_id"])
     assert gid1 != gid2
 
     _set_session(client, user_id=owner_user_id, email="owner@example.com", league_id=league_id)
@@ -111,6 +112,9 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "(This Game)" in segment
     assert "meeting-row-future" in segment
     assert segment.index("2 - 1") < segment.index("4 - 3")
+    assert f'href="/hky/games/{gid1}?return_to=' in segment
+    assert f'href="/hky/games/{gid2}?return_to=' not in segment
+    assert f'href="/hky/games/{gid3}?return_to=' not in segment
 
     m.League.objects.filter(id=int(league_id)).update(is_public=True)
     public_html = client.get(f"/public/leagues/{league_id}/hky/games/{gid2}").content.decode()
@@ -120,6 +124,9 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "(This Game)" in public_segment
     assert "meeting-row-future" in public_segment
     assert public_segment.index("2 - 1") < public_segment.index("4 - 3")
+    assert f'href="/public/leagues/{league_id}/hky/games/{gid1}?return_to=' in public_segment
+    assert f'href="/public/leagues/{league_id}/hky/games/{gid2}?return_to=' not in public_segment
+    assert f'href="/public/leagues/{league_id}/hky/games/{gid3}?return_to=' not in public_segment
 
 
 def should_hide_all_meetings_section_when_only_one_meeting_exists(client_and_models):

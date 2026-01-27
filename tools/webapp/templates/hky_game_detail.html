@@ -130,46 +130,87 @@
   {% if previous_meetings and previous_meetings|length > 1 %}
     <div class="card" style="margin-top:1rem;">
       <h3 style="margin-top:0;">All Meetings</h3>
-      <div class="meeting-list">
-        {% for g in previous_meetings %}
-          <div class="meeting-row{% if g.is_current %} meeting-row-current{% endif %}{% if g.is_future %} meeting-row-future{% endif %}">
-            <div class="meeting-meta">
-              <div class="meeting-top">
-                <span class="muted nowrap">{{ g.starts_at|fmt_date }}</span>
-                <span class="muted">·</span>
-                <span class="muted">{{ g.game_type_name|default_if_none:"Game" }}</span>
-                {% if g.is_current %}
-                  <span class="meeting-this-game">(This Game)</span>
-                {% endif %}
-              </div>
-              <div class="muted">
-                {% if g.winner_team_id == g.team2_id %}
-                  <strong>{{ g.team2_name }}</strong>
-                {% else %}
-                  <span>{{ g.team2_name }}</span>
-                {% endif %}
-                <span class="muted">at</span>
-                {% if g.winner_team_id == g.team1_id %}
-                  <strong>{{ g.team1_name }}</strong>
-                {% else %}
-                  <span>{{ g.team1_name }}</span>
-                {% endif %}
-                {% if g.is_final %}<span class="muted"> (Final)</span>{% endif %}
-              </div>
-            </div>
-            <div class="meeting-score">
-              {% if g.team1_score != None and g.team2_score != None %}
-                <span
-                  class="meeting-dot {% if g.is_tie %}meeting-dot-tie{% elif g.winner_team_id == g.team2_id %}meeting-dot-away{% else %}meeting-dot-home{% endif %}"
-                  title="{% if g.is_tie %}Tie{% elif g.winner_name %}Winner: {{ g.winner_name }}{% else %}Winner{% endif %}"
-                ></span>
-                <strong>{{ g.team2_score }} - {{ g.team1_score }}</strong>
+      <div class="table-scroll">
+        <table class="table-no-scroll-mobile table-fit-always table-never-wrap table-schedule meeting-table">
+          <thead>
+            <tr>
+              <th class="nowrap">Date</th>
+              <th class="nowrap">Time</th>
+              <th>Away</th>
+              <th>Home</th>
+              <th>Type</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in previous_meetings %}
+              {% if public_league_id %}
+                {% url "public_hky_game_detail" league_id=public_league_id game_id=g.id as game_path %}
+                {% url "public_media_team_logo" league_id=public_league_id team_id=g.team1_id as team1_logo %}
+                {% url "public_media_team_logo" league_id=public_league_id team_id=g.team2_id as team2_logo %}
               {% else %}
-                <span class="muted">—</span>
+                {% url "hky_game_detail" game_id=g.id as game_path %}
+                {% url "media_team_logo" team_id=g.team1_id as team1_logo %}
+                {% url "media_team_logo" team_id=g.team2_id as team2_logo %}
               {% endif %}
-            </div>
-          </div>
-        {% endfor %}
+              {% with s1=g.team1_score s2=g.team2_score %}
+              <tr class="meeting-row{% if g.is_current %} meeting-row-current{% endif %}{% if g.is_future %} meeting-row-future{% endif %}">
+                <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
+                <td class="nowrap">{{ g.starts_at|fmt_time }}</td>
+                <td>
+                  {% if g.can_view_summary and not g.is_current %}
+                    <a href="{{ game_path }}?return_to={{ return_to_enc }}" style="text-decoration:none;color:inherit;">
+                  {% endif %}
+                  <span style="display:inline-flex;align-items:center;gap:4px;">
+                    <img src="{{ team2_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                    {% if g.winner_team_id == g.team2_id %}
+                      <strong>{{ g.team2_name }}</strong>
+                    {% else %}
+                      <span>{{ g.team2_name }}</span>
+                    {% endif %}
+                  </span>
+                  {% if g.can_view_summary and not g.is_current %}
+                    </a>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if g.can_view_summary and not g.is_current %}
+                    <a href="{{ game_path }}?return_to={{ return_to_enc }}" style="text-decoration:none;color:inherit;">
+                  {% endif %}
+                  <span style="display:inline-flex;align-items:center;gap:4px;">
+                    <img src="{{ team1_logo }}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;" onerror="this.style.display='none'" />
+                    {% if g.winner_team_id == g.team1_id %}
+                      <strong>{{ g.team1_name }}</strong>
+                    {% else %}
+                      <span>{{ g.team1_name }}</span>
+                    {% endif %}
+                  </span>
+                  {% if g.can_view_summary and not g.is_current %}
+                    </a>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if g.game_type_name %}{{ g.game_type_name }}{% else %}<span class="muted">—</span>{% endif %}
+                  {% if g.is_current %}<span class="meeting-this-game">(This Game)</span>{% endif %}
+                </td>
+                <td class="meeting-score">
+                  {% if s1 != None and s2 != None %}
+                    <span class="meeting-score-wrap">
+                      <span
+                        class="meeting-dot {% if g.is_tie %}meeting-dot-tie{% elif g.winner_team_id == g.team2_id %}meeting-dot-away{% else %}meeting-dot-home{% endif %}"
+                        title="{% if g.is_tie %}Tie{% elif g.winner_name %}Winner: {{ g.winner_name }}{% else %}Winner{% endif %}"
+                      ></span>
+                      <strong>{{ s2 }} - {{ s1 }}</strong>
+                    </span>
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
   {% endif %}
