@@ -1374,6 +1374,7 @@ def _load_game_events_for_display(
             "details",
             "attributed_players",
             "attributed_jerseys",
+            "player_id",
             "on_ice_players",
             "on_ice_players_home",
             "on_ice_players_away",
@@ -1414,6 +1415,7 @@ def _load_game_events_for_display(
         out_rows.append(
             {
                 "__hm_event_row_id": str(int(r.get("id") or 0)),
+                "__hm_player_id": "" if r.get("player_id") is None else str(int(r["player_id"])),
                 "Event Type": str(r.get("event_type__name") or "").strip(),
                 "Event ID": "" if r.get("event_id") is None else str(int(r["event_id"])),
                 "Source": str(r.get("source") or "").strip(),
@@ -4744,6 +4746,89 @@ def api_hky_team_player_events(request: HttpRequest, team_id: int, player_id: in
             lines.append(f"A1: {_jersey_name(str(assists[0]))}")
             lines.append(f"A2: {_jersey_name(str(assists[1]))}")
         r["details"] = "\n".join(lines)
+
+    # For assist events, show the goal scorer and any *other* assists (excluding the current player).
+    goal_rows_for_scorer = list(
+        qs.filter(event_type__key="goal").values(
+            "game_id",
+            "period",
+            "team_side",
+            "game_seconds",
+            "game_time",
+            "attributed_jerseys",
+            "id",
+        )
+    )
+    scorer_by_time: dict[tuple[int, int, int], str] = {}
+    scorer_by_side_time: dict[tuple[int, int, int, str], str] = {}
+    for r0 in goal_rows_for_scorer:
+        try:
+            gid = int(r0.get("game_id") or 0)
+            period = int(r0.get("period") or 0)
+        except Exception:
+            continue
+        if gid <= 0 or period <= 0:
+            continue
+        gs = r0.get("game_seconds")
+        try:
+            gs_i = int(gs) if gs is not None else None
+        except Exception:
+            gs_i = None
+        if gs_i is None:
+            gs_i = logic.parse_duration_seconds(str(r0.get("game_time") or ""))  # type: ignore[arg-type]
+        if gs_i is None:
+            continue
+        side = str(r0.get("team_side") or "").strip()
+        jerseys_raw = str(r0.get("attributed_jerseys") or "")
+        m0 = re.search(r"([0-9]+)", jerseys_raw)
+        scorer = logic.normalize_jersey_number(m0.group(1)) if m0 else None
+        if not scorer:
+            continue
+        k0 = (gid, period, int(gs_i))
+        scorer_by_time.setdefault(k0, str(scorer))
+        if side:
+            k1 = (gid, period, int(gs_i), side)
+            scorer_by_side_time.setdefault(k1, str(scorer))
+
+    for r in events_out:
+        if str(r.get("event_type_key") or "").strip().lower() != "assist":
+            continue
+        try:
+            gid = int(r.get("game_id") or 0)
+            period = int(r.get("period") or 0)
+        except Exception:
+            continue
+        if gid <= 0 or period <= 0:
+            continue
+        gs_val = r.get("game_seconds")
+        try:
+            gs_i = int(gs_val) if gs_val is not None else None
+        except Exception:
+            gs_i = None
+        if gs_i is None:
+            gs_i = logic.parse_duration_seconds(str(r.get("game_time") or ""))  # type: ignore[arg-type]
+        if gs_i is None:
+            continue
+        side = str(r.get("team_side") or "").strip()
+        assists = assists_by_side_time.get((gid, period, int(gs_i), side)) or assists_by_time.get(
+            (gid, period, int(gs_i))
+        )
+        other_assists = [a for a in (assists or []) if a and str(a) != str(jersey_norm or "")]
+        scorer = scorer_by_side_time.get((gid, period, int(gs_i), side)) or scorer_by_time.get(
+            (gid, period, int(gs_i))
+        )
+
+        lines = []
+        if scorer:
+            lines.append(f"Goal: {_jersey_name(str(scorer))}")
+        if other_assists:
+            if len(other_assists) == 1:
+                lines.append(f"Other A: {_jersey_name(str(other_assists[0]))}")
+            else:
+                lines.append(f"Other A1: {_jersey_name(str(other_assists[0]))}")
+                lines.append(f"Other A2: {_jersey_name(str(other_assists[1]))}")
+        if lines:
+            r["details"] = "\n".join(lines)
 
     # On-ice goal events (for GF/GA and plus/minus drilldown).
     goal_rows = list(
@@ -13307,6 +13392,40 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                             status=400,
                         )
 
+                    # If this patch only tweaks metadata (e.g. video_time) and doesn't change who the event
+                    # is attributed to, keep the existing row's source when possible (avoid spurious "correction").
+                    before_norm = _event_spec_norm_for_diff(match_ev)
+                    after_norm = _event_spec_norm_for_diff(upsert_ev)
+                    attribution_changed = bool(
+                        (before_norm.get("jersey") != after_norm.get("jersey"))
+                        or (before_norm.get("player_name") != after_norm.get("player_name"))
+                    )
+                    source_override_raw = (
+                        upsert_ev.get("source")
+                        or patch.get("source")
+                        or c.get("source")
+                        or payload.get("source")
+                    )
+                    existing_source: Optional[str] = None
+                    if not source_override_raw:
+                        try:
+                            existing_source = (
+                                m.HkyGameEventRow.objects.filter(
+                                    game_id=int(gid), import_key=str(import_key_match)
+                                )
+                                .values_list("source", flat=True)
+                                .first()
+                            )
+                            existing_source = (
+                                str(existing_source).strip()
+                                if existing_source is not None
+                                else None
+                            )
+                            if not existing_source:
+                                existing_source = None
+                        except Exception:
+                            existing_source = None
+
                     match_exists = m.HkyGameEventRow.objects.filter(
                         game_id=int(gid), import_key=str(import_key_match)
                     ).exists()
@@ -13452,10 +13571,14 @@ def api_internal_apply_event_corrections(request: HttpRequest) -> JsonResponse:
                         )
                         or None
                     )
-                    source = (
-                        str(upsert_ev.get("source") or patch.get("source") or "correction").strip()
-                        or "correction"
-                    )
+                    if source_override_raw is not None and str(source_override_raw).strip():
+                        source = str(source_override_raw).strip()
+                    elif attribution_changed:
+                        source = "correction"
+                    elif existing_source:
+                        source = str(existing_source).strip()
+                    else:
+                        source = "correction"
 
                     corr_json = _correction_json(
                         match_ev=match_ev, upsert_ev=upsert_ev, note=note, reason=reason

@@ -212,3 +212,4 @@ def should_show_timetoscore_assist_events_in_player_events_api(monkeypatch, weba
     assist_60 = by_gs[(60, "assist")]
     assert assist_60["video_seconds"] == 120
     assert assist_60["video_time"] == "2:00"
+    assert assist_60["details"] == "Goal: #2 Bob Helper"

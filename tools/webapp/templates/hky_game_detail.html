@@ -3026,6 +3026,8 @@
 
     var _assistsByTime = {};
     var _assistsBySideTime = {};
+    var _goalsByTime = {};
+    var _goalsBySideTime = {};
     function _pushUniqueAssist(list, jersey, name) {
       if (!list) return;
       var j = String(jersey || "").trim();
@@ -3039,6 +3041,17 @@
         }
       }
       list.push({ jersey: j, name: nm });
+    }
+    function _setGoalScorer(map, key, jersey, name) {
+      if (!map) return;
+      var j = String(jersey || "").trim();
+      if (!j) return;
+      var nm = String(name || "").trim();
+      if (!map[key]) {
+        map[key] = { jersey: j, name: nm };
+        return;
+      }
+      if (!String(map[key].name || "").trim() && nm) map[key].name = nm;
     }
     eventsRows.forEach(function (row) {
       if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "assist") return;
@@ -3057,6 +3070,23 @@
         var k1 = k0 + "|" + String(side);
         if (!_assistsBySideTime[k1]) _assistsBySideTime[k1] = [];
         _pushUniqueAssist(_assistsBySideTime[k1], jersey, assistName);
+      }
+    });
+    eventsRows.forEach(function (row) {
+      if (normTypeKey(getValue(row, ["Event Type", "Event"])) !== "goal") return;
+      var period = rowPeriod(row);
+      if (period === null) return;
+      var gs = rowGameSeconds(row);
+      if (gs === null) return;
+      var jersey = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
+      if (!jersey) return;
+      var scorerName = String(getValue(row, ["Attributed Players", "AttributedPlayers"]) || "").trim();
+      var k0 = String(period) + "|" + String(gs);
+      _setGoalScorer(_goalsByTime, k0, jersey, scorerName);
+      var side = rowSide(row);
+      if (side) {
+        var k1 = k0 + "|" + String(side);
+        _setGoalScorer(_goalsBySideTime, k1, jersey, scorerName);
       }
     });
 
@@ -3309,6 +3339,44 @@
               if (extra) outLines.push(extra);
               if (baseTag && outLines.length) outLines[0] = baseTag + " — " + outLines[0];
               details = outLines.length ? outLines.join("\n") : (baseTag || "");
+            } else if (typeKey === "assist") {
+              var period2 = rowPeriod(row);
+              var gs2 = rowGameSeconds(row);
+              var side2 = rowSide(row);
+              var pj = extractJersey((tableCtx.playerJersey || tableCtx.scorerJersey || "") || "");
+              if (period2 !== null && gs2 !== null) {
+                var k0a = String(period2) + "|" + String(gs2);
+                var k1a = side2 ? (k0a + "|" + String(side2)) : "";
+                var scorer = (k1a && _goalsBySideTime[k1a]) || _goalsByTime[k0a] || null;
+                var assists2 = (k1a && _assistsBySideTime[k1a]) || _assistsByTime[k0a] || [];
+                var other = [];
+                (assists2 || []).forEach(function (a) {
+                  var aj = String(a && a.jersey || "").trim();
+                  if (!aj) return;
+                  if (pj && aj === pj) return;
+                  for (var i = 0; i < other.length; i++) {
+                    if (String(other[i].jersey || "") === aj) return;
+                  }
+                  other.push(a);
+                });
+
+                function _fmtPerson(p) {
+                  if (!p) return "";
+                  var j = String(p.jersey || "").trim();
+                  if (!j) return "";
+                  var nm = String(p.name || "").trim();
+                  return "#" + j + (nm ? (" " + nm) : "");
+                }
+
+                var lines2 = [];
+                if (scorer && scorer.jersey) lines2.push("Goal: " + _fmtPerson(scorer));
+                if (other.length === 1) lines2.push("Other A: " + _fmtPerson(other[0]));
+                else if (other.length >= 2) {
+                  lines2.push("Other A1: " + _fmtPerson(other[0]));
+                  lines2.push("Other A2: " + _fmtPerson(other[1]));
+                }
+                if (lines2.length) details = lines2.join("\n");
+              }
             }
           }
           var src = String(getValue(row, ["Source"]) || "").trim();
@@ -3526,6 +3594,15 @@
           }
           if (allowedTypeKeys && !allowedTypeKeys[etKey]) return false;
 
+          // Prefer exact DB attribution when available.
+          try {
+            var wantPid = parseInt(String(playerId || "").trim(), 10);
+            var rowPid = parseInt(String((row && (row.__hm_player_id || row["__hm_player_id"])) || "").trim(), 10);
+            if (isFinite(wantPid) && wantPid > 0 && isFinite(rowPid) && rowPid > 0) {
+              if (wantPid === rowPid) return true;
+            }
+          } catch (e) {}
+
           var rowJ = extractJersey(getValue(row, ["Attributed Jerseys", "AttributedJerseys"]));
           if (playerJersey && rowJ && rowJ === extractJersey(playerJersey)) return true;
           var rowP = normName(getValue(row, ["Attributed Players", "AttributedPlayers", "Player", "Name"]));
@@ -3615,7 +3692,7 @@
                 var rows = pair[1] || [];
                 if (!rows.length) return;
                 bodyEl.appendChild(makeEventsHeading("h4", label));
-                buildEventsTable(bodyEl, rows, { hideGoalScorer: true, scorerName: playerName });
+                buildEventsTable(bodyEl, rows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
               });
 
               var chainKeys = { goal: true, assist: true, expectedgoal: true, xg: true, sog: true, shot: true };
@@ -3629,32 +3706,32 @@
                 byType = moveGroupToEnd(byType, "completed pass");
                 byType.order.forEach(function (k) {
                   bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
-                  buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
+                  buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
                 });
               }
             } else if (statKey === "expected_goals") {
               var xgRows = buildShotChainTables(filtered).xg;
               if (xgRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "xG (Expected Goal)"));
-                buildEventsTable(bodyEl, xgRows, { hideGoalScorer: true, scorerName: playerName });
+                buildEventsTable(bodyEl, xgRows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
               }
             } else if (statKey === "sog") {
               var sogRows = buildShotChainTables(filtered).sog;
               if (sogRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "SOG"));
-                buildEventsTable(bodyEl, sogRows, { hideGoalScorer: true, scorerName: playerName });
+                buildEventsTable(bodyEl, sogRows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
               }
             } else if (statKey === "shots") {
               var shotRows = buildShotChainTables(filtered).shot;
               if (shotRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "Shot"));
-                buildEventsTable(bodyEl, shotRows, { hideGoalScorer: true, scorerName: playerName });
+                buildEventsTable(bodyEl, shotRows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
               }
             } else if (statKey === "goals") {
               var goalRows = buildShotChainTables(filtered).goals;
               if (goalRows.length) {
                 bodyEl.appendChild(makeEventsHeading("h4", "Goals"));
-                buildEventsTable(bodyEl, goalRows, { hideGoalScorer: true, scorerName: playerName });
+                buildEventsTable(bodyEl, goalRows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
               }
             } else {
               var byType = groupRows(filtered, function (r) {
@@ -3663,7 +3740,7 @@
               byType = moveGroupToEnd(byType, "completed pass");
               byType.order.forEach(function (k) {
                 bodyEl.appendChild(makeEventsHeading("h4", byType.groups[k].label));
-                buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName });
+                buildEventsTable(bodyEl, byType.groups[k].rows, { hideGoalScorer: true, scorerName: playerName, playerName: playerName, playerJersey: playerJersey });
               });
             }
           }

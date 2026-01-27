@@ -1158,6 +1158,57 @@
         return lines.join("\n");
       }
 
+      function _normName(s) {
+        return String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+      }
+
+      function _normJersey(s) {
+        var m = String(s || "").match(/(\d+)/);
+        if (!m) return "";
+        try {
+          var n = parseInt(m[1], 10);
+          return isFinite(n) ? String(n) : String(m[1]);
+        } catch (e) {
+          return String(m[1]);
+        }
+      }
+
+      function _isAttributionCorrectionToThisPlayer(r, playerName, playerJersey) {
+        if (!r) return false;
+        var c = r.correction;
+        if (!c || typeof c !== "object") return false;
+        var pj = _normJersey(playerJersey);
+        var pn = _normName(playerName);
+        var changes = Array.isArray(c.changes) ? c.changes : [];
+        for (var i = 0; i < changes.length; i++) {
+          var ch = changes[i] || {};
+          var field = String(ch.field || "").trim();
+          if (field === "jersey" && pj) {
+            var fromJ = _normJersey(ch.from);
+            var toJ = _normJersey(ch.to);
+            if (toJ && toJ === pj && fromJ !== pj) return true;
+          }
+          if (field === "player_name" && pn) {
+            var fromN = _normName(ch.from);
+            var toN = _normName(ch.to);
+            if (toN && toN === pn && fromN !== pn) return true;
+          }
+        }
+        var before = c.match || {};
+        var after = c.set || {};
+        if (pj) {
+          var bJ = _normJersey(before.jersey);
+          var aJ = _normJersey(after.jersey);
+          if (aJ && aJ === pj && bJ && bJ !== pj) return true;
+        }
+        if (pn) {
+          var bN = _normName(before.player_name);
+          var aN = _normName(after.player_name);
+          if (aN && aN === pn && bN && bN !== pn) return true;
+        }
+        return false;
+      }
+
       function groupRows(rows, keyFn) {
         var order = [];
         var groups = {};
@@ -1489,6 +1540,8 @@
             String(data.player_name || "Player") +
             (data.jersey_number ? (" (#" + String(data.jersey_number) + ")") : "") +
             " • Eligible games: " + String(data.eligible_games || 0);
+          var playerName = String(data.player_name || "").trim();
+          var playerJersey = String(data.jersey_number || "").trim();
           bodyEl.innerHTML = "";
 
           var onIce = Array.isArray(data.on_ice_goals) ? data.on_ice_goals : [];
@@ -1547,8 +1600,11 @@
                 renderEventsTable(bodyEl, rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                   rowCells: function (r, ctx) {
-                    var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                    var isCorrected = _isAttributionCorrectionToThisPlayer(r, playerName, playerJersey);
                     var tip = isCorrected ? _correctionTooltip(r) : "";
+                    var src = String(r && r.source || "");
+                    if (isCorrected) src = "correction";
+                    else if (String(src || "").trim().toLowerCase() === "correction") src = "—";
                     return {
                       rowClassName: isCorrected ? "event-corrected" : "",
                       rowTitle: tip,
@@ -1560,7 +1616,7 @@
                         String(r.game_time || ""),
                         ctx.videoCell,
                         { text: String(r.details || ""), className: "cell-pre" },
-                        String(r.source || ""),
+                        src,
                       ],
                     };
                   },
@@ -1580,8 +1636,11 @@
                   renderEventsTable(bodyEl, g.rows, {
                   headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                     rowCells: function (r, ctx) {
-                      var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                      var isCorrected = _isAttributionCorrectionToThisPlayer(r, playerName, playerJersey);
                       var tip = isCorrected ? _correctionTooltip(r) : "";
+                      var src = String(r && r.source || "");
+                      if (isCorrected) src = "correction";
+                      else if (String(src || "").trim().toLowerCase() === "correction") src = "—";
                       return {
                         rowClassName: isCorrected ? "event-corrected" : "",
                         rowTitle: tip,
@@ -1593,7 +1652,7 @@
                           String(r.game_time || ""),
                           ctx.videoCell,
                           { text: String(r.details || ""), className: "cell-pre" },
-                          String(r.source || ""),
+                          src,
                         ],
                       };
                     },
@@ -1617,8 +1676,11 @@
               renderEventsTable(bodyEl, g.rows, {
                 headers: ["Date", "Opponent", "Type", "P", "Time", "Video", "Details", "Source"],
                 rowCells: function (r, ctx) {
-                  var isCorrected = !!(r && (r.correction || String(r.source || "").toLowerCase().indexOf("correction") >= 0));
+                  var isCorrected = _isAttributionCorrectionToThisPlayer(r, playerName, playerJersey);
                   var tip = isCorrected ? _correctionTooltip(r) : "";
+                  var src = String(r && r.source || "");
+                  if (isCorrected) src = "correction";
+                  else if (String(src || "").trim().toLowerCase() === "correction") src = "—";
                   return {
                     rowClassName: isCorrected ? "event-corrected" : "",
                     rowTitle: tip,
@@ -1630,7 +1692,7 @@
                       String(r.game_time || ""),
                       ctx.videoCell,
                       { text: String(r.details || ""), className: "cell-pre" },
-                      String(r.source || ""),
+                      src,
                     ],
                   };
                 },

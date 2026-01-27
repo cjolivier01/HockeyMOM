@@ -307,3 +307,66 @@ def should_fail_when_patch_match_does_not_match_any_event(client_and_models):
 
     assert m.HkyGameEventRow.objects.filter(game_id=int(game.id)).count() == 2
     assert m.HkyGameEventSuppression.objects.filter(game_id=int(game.id)).count() == 0
+
+
+def should_preserve_event_source_for_metadata_only_patch(client_and_models):
+    client, m, game, _team, _p3, _p13 = client_and_models
+
+    from tools.webapp.django_app import views
+
+    # Seed a goal with a non-correction source.
+    events_csv = (
+        "Event Type,Team Side,Period,Game Seconds,Video Time,Attributed Jerseys\n"
+        "Goal,Away,2,194,10:20,3\n"
+    )
+    out = views._upsert_game_event_rows_from_events_csv(
+        game_id=int(game.id),
+        events_csv=events_csv,
+        replace=True,
+        create_missing_players=False,
+        incoming_source_label="unit-test",
+    )
+    assert out["ok"] is True
+
+    payload = {
+        "corrections": [
+            {
+                "external_game_key": "utah-1",
+                "owner_email": "owner@example.com",
+                "reason": "Fix clip time only",
+                "patch": [
+                    {
+                        "match": {
+                            "event_type": "Goal",
+                            "period": 2,
+                            "game_time": "03:14",
+                            "team_side": "Away",
+                            "jersey": "3",
+                        },
+                        "set": {"video_time": "10:35"},
+                        "note": "video drift",
+                    }
+                ],
+            }
+        ]
+    }
+    resp = client.post(
+        "/api/internal/apply_event_corrections",
+        data=json.dumps(payload),
+        content_type="application/json",
+        HTTP_X_HM_IMPORT_TOKEN="sekret",
+    )
+    assert resp.status_code == 200
+    body = json.loads(resp.content)
+    assert body["ok"] is True
+
+    goal = m.HkyGameEventRow.objects.filter(
+        game_id=int(game.id),
+        event_type__key="goal",
+        team_side="Away",
+        period=2,
+        game_seconds=194,
+    ).first()
+    assert goal is not None
+    assert str(goal.video_time or "") == "10:35"
+    assert str(goal.source or "") == "unit-test"
