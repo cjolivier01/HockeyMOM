@@ -190,7 +190,13 @@
                   {% endif %}
                 </td>
                 <td>
-                  {% if g.game_type_name %}{{ g.game_type_name }}{% else %}<span class="muted">—</span>{% endif %}
+                  {% if g.game_type_name %}
+                    {{ g.game_type_name }}
+                  {% elif g.division_name|is_external_division %}
+                    Tournament
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
                 </td>
                 <td class="meeting-score">
                   {% if s1 != None and s2 != None %}

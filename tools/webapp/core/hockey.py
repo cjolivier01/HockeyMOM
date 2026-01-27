@@ -217,6 +217,7 @@ def load_previous_meetings_summary(
         team2_score: Any,
         is_final: bool,
         game_type_name: Any,
+        division_name: Any = None,
     ) -> dict[str, Any]:
         winner_team_id, winner_name, is_tie = _winner_fields(
             team1_score=team1_score,
@@ -237,6 +238,7 @@ def load_previous_meetings_summary(
             "team2_score": team2_score,
             "is_final": bool(is_final),
             "game_type_name": game_type_name,
+            "division_name": division_name,
             "winner_team_id": winner_team_id,
             "winner_name": winner_name or None,
             "is_tie": bool(is_tie),
@@ -257,6 +259,7 @@ def load_previous_meetings_summary(
             qs = qs.filter(game__starts_at__lt=before_starts_at)
         values_qs = qs.order_by("game__starts_at", "game_id").values(
             "game_id",
+            "division_name",
             "game__starts_at",
             "game__team1_id",
             "game__team2_id",
@@ -290,6 +293,7 @@ def load_previous_meetings_summary(
                     team2_score=team2_score,
                     is_final=bool(r0.get("game__is_final")),
                     game_type_name=r0.get("game__game_type__name"),
+                    division_name=r0.get("division_name"),
                 )
             )
         out.sort(key=_chronological_sort_key)

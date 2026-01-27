@@ -42,6 +42,7 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     game1_starts_at = (now - dt.timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
     game2_starts_at = (now - dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
     game3_starts_at = (now + dt.timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+    game4_starts_at = (now - dt.timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
 
     payload = {
         "league_name": "CAHA",
@@ -51,6 +52,18 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
         "source": "timetoscore",
         "external_key": "caha:season31",
         "games": [
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": game4_starts_at,
+                "location": "Rink 1",
+                "home_score": 5,
+                "away_score": 1,
+                "is_final": True,
+                "timetoscore_game_id": 122,
+                "season_id": 31,
+                "division_name": "External Tournament",
+            },
             {
                 "home_name": "Home A",
                 "away_name": "Away A",
@@ -99,10 +112,11 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert out["ok"] is True
     league_id = int(out["league_id"])
     owner_user_id = int(out["owner_user_id"])
-    gid1 = int(out["results"][0]["game_id"])
-    gid2 = int(out["results"][1]["game_id"])
-    gid3 = int(out["results"][2]["game_id"])
-    assert gid1 != gid2
+    gid4 = int(out["results"][0]["game_id"])
+    gid1 = int(out["results"][1]["game_id"])
+    gid2 = int(out["results"][2]["game_id"])
+    gid3 = int(out["results"][3]["game_id"])
+    assert gid1 != gid2 != gid3 != gid4
 
     _set_session(client, user_id=owner_user_id, email="owner@example.com", league_id=league_id)
     html = client.get(f"/hky/games/{gid2}?return_to=/schedule").content.decode()
@@ -111,6 +125,9 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "meeting-row-current" in segment
     assert "meeting-row-future" in segment
     assert segment.index("2 - 1") < segment.index("4 - 3")
+    assert "External Tournament" not in segment  # division label doesn't display in the table
+    assert "Tournament" in segment
+    assert f'href="/hky/games/{gid4}?return_to=' in segment
     assert f'href="/hky/games/{gid1}?return_to=' in segment
     assert f'href="/hky/games/{gid2}?return_to=' not in segment
     assert f'href="/hky/games/{gid3}?return_to=' not in segment
@@ -122,6 +139,8 @@ def should_render_previous_meetings_summary_for_private_and_public_game_pages(cl
     assert "meeting-row-current" in public_segment
     assert "meeting-row-future" in public_segment
     assert public_segment.index("2 - 1") < public_segment.index("4 - 3")
+    assert "Tournament" in public_segment
+    assert f'href="/public/leagues/{league_id}/hky/games/{gid4}?return_to=' in public_segment
     assert f'href="/public/leagues/{league_id}/hky/games/{gid1}?return_to=' in public_segment
     assert f'href="/public/leagues/{league_id}/hky/games/{gid2}?return_to=' not in public_segment
     assert f'href="/public/leagues/{league_id}/hky/games/{gid3}?return_to=' not in public_segment
