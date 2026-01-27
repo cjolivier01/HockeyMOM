@@ -271,6 +271,8 @@
 
       function setupTable(table) {
         if (!table) return;
+        if (table.getAttribute("data-sortable-ready") === "1") return;
+        table.setAttribute("data-sortable-ready", "1");
         var thead = table.tHead;
         var tbody = table.tBodies && table.tBodies[0];
         if (!thead || !tbody) return;
@@ -319,6 +321,115 @@
         });
       }
 
+      function clampTableHeaders(root) {
+        (root || document).querySelectorAll("table thead th").forEach(function(th) {
+          if (!th || !th.childNodes || th.childNodes.length === 0) return;
+          // Avoid double-wrapping.
+          if (
+            th.firstElementChild &&
+            th.firstElementChild.classList &&
+            th.firstElementChild.classList.contains("th-clamp")
+          ) {
+            return;
+          }
+          var wrap = document.createElement("div");
+          wrap.className = "th-clamp";
+          // Move all children into wrapper.
+          while (th.firstChild) wrap.appendChild(th.firstChild);
+          th.appendChild(wrap);
+        });
+      }
+
+      function wrapTableHeaderLabels(root) {
+        function normalize(s) {
+          return String(s || "").replace(/\s+/g, " ").trim();
+        }
+
+        function trailingParenGroup(s) {
+          var m = normalize(s).match(/^(.*?)(\s*\([^)]*\)\s*)$/);
+          if (!m) return { main: normalize(s), paren: "" };
+          return { main: normalize(m[1]), paren: normalize(m[2]) };
+        }
+
+        function shouldSplitParen(paren) {
+          var p = normalize(paren);
+          if (!p) return false;
+          // Keep "(N)" inline, but split wider parenthetical descriptors.
+          if (p.length <= 4) return false;
+          return (p.length >= 6) || (p.indexOf(" ") >= 0) || (p.indexOf("-") >= 0);
+        }
+
+        function splitLines(text) {
+          var norm = normalize(text);
+          if (!norm) return [];
+
+          var parts = trailingParenGroup(norm);
+          var main = parts.main;
+          var paren = parts.paren;
+
+          var words = main ? main.split(" ") : [];
+          var lines = [];
+          if (words.length > 2) {
+            lines.push(words.slice(0, 2).join(" "));
+            lines.push(words.slice(2).join(" "));
+          } else {
+            lines.push(main);
+          }
+          lines = lines.filter(function(x) { return normalize(x); });
+          if (paren) {
+            if (shouldSplitParen(paren)) {
+              lines.push(paren);
+            } else if (lines.length) {
+              lines[lines.length - 1] = normalize(lines[lines.length - 1] + " " + paren);
+            } else {
+              lines.push(paren);
+            }
+          }
+          return lines.filter(function(x) { return normalize(x); });
+        }
+
+        function maybeWrap(el) {
+          if (!el) return;
+          if (el.getAttribute && el.getAttribute("data-hm-th-wrapped") === "1") return;
+          // Skip complex labels that include nested markup; preserve their explicit structure.
+          if (el.children && el.children.length > 0) return;
+          var txt = (el.textContent || "");
+          if (!txt) return;
+          if (String(txt).indexOf("\n") >= 0) return;
+          var lines = splitLines(txt);
+          if (!lines || lines.length < 2) return;
+          el.textContent = lines.join("\n");
+          if (el.classList) el.classList.add("hm-th-wrap");
+          if (el.setAttribute) el.setAttribute("data-hm-th-wrapped", "1");
+        }
+
+        (root || document).querySelectorAll("table thead th").forEach(function(th) {
+          if (!th) return;
+          var clamp = (
+            th.firstElementChild &&
+            th.firstElementChild.classList &&
+            th.firstElementChild.classList.contains("th-clamp")
+          ) ? th.firstElementChild : null;
+
+          if (clamp) {
+            var labelDivs = Array.from(clamp.children || []).filter(function(el) {
+              return (
+                el &&
+                el.tagName === "DIV" &&
+                !(el.classList && el.classList.contains("th-subnote"))
+              );
+            });
+            if (labelDivs.length) {
+              labelDivs.forEach(maybeWrap);
+            } else {
+              maybeWrap(clamp);
+            }
+          } else {
+            maybeWrap(th);
+          }
+        });
+      }
+
       function setupFrozenColumns(table) {
         if (!table) return;
         var n = parseInt(table.getAttribute("data-freeze-cols") || "0", 10);
@@ -356,22 +467,13 @@
       }
 
       function init() {
+        // Ensure header wrapping is applied before measuring frozen column widths.
+        clampTableHeaders(document);
+        wrapTableHeaderLabels(document);
+
         document.querySelectorAll("table[data-sortable='1']").forEach(function(t) { setupTable(t); });
         document.querySelectorAll("table[data-freeze-cols]").forEach(function(t) { setupFrozenColumns(t); });
         setupTableExportLinks(document);
-        // Clamp table header labels to at most 2 lines (avoid very tall header rows).
-        (function clampTableHeaders() {
-          document.querySelectorAll("table thead th").forEach(function(th) {
-            if (!th || !th.childNodes || th.childNodes.length === 0) return;
-            // Avoid double-wrapping.
-            if (th.firstElementChild && th.firstElementChild.classList && th.firstElementChild.classList.contains("th-clamp")) return;
-            var wrap = document.createElement("div");
-            wrap.className = "th-clamp";
-            // Move all children into wrapper.
-            while (th.firstChild) wrap.appendChild(th.firstChild);
-            th.appendChild(wrap);
-          });
-        })();
 
         // On mobile, scale down tables explicitly marked as non-scrollable so they fit
         // horizontally without wrapping.
@@ -502,6 +604,18 @@
               queued = true;
               window.requestAnimationFrame(function () {
                 queued = false;
+                clampTableHeaders(document);
+                wrapTableHeaderLabels(document);
+                document
+                  .querySelectorAll("table[data-sortable='1']")
+                  .forEach(function (t) {
+                    setupTable(t);
+                  });
+                document
+                  .querySelectorAll("table[data-freeze-cols]")
+                  .forEach(function (t) {
+                    setupFrozenColumns(t);
+                  });
                 setupTableExportLinks(document);
               });
             });
