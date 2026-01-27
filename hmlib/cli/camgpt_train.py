@@ -455,7 +455,7 @@ def main():
         default=1000,
         help="Linearly ramp scheduled-sampling prob over this many steps (0=immediate).",
     )
-    ap.add_argument("--steps", type=int, default=2000, help="Training optimizer steps")
+    ap.add_argument("--steps", type=int, default=300000, help="Training optimizer steps")
     ap.add_argument(
         "--max-iters",
         dest="max_iters",
@@ -469,11 +469,11 @@ def main():
         default=0,
         help="Optional training budget in frames (overrides --steps when >0)",
     )
-    ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument(
         "--data-workers",
         type=int,
-        default=0,
+        default=32,
         help="DataLoader workers (0 runs data pipeline in the main process).",
     )
     ap.add_argument(
