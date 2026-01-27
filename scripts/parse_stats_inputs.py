@@ -161,10 +161,15 @@ def parse_period_label(x: object) -> Optional[int]:
     return None
 
 
-def _int_floor_seconds_component(sec_str: str) -> int:
-    """Return integer seconds, flooring if fractional (e.g., '12.7' -> 12)."""
+def _int_round_seconds_component(sec_str: str) -> int:
+    """Return integer seconds, rounding half-up if fractional (e.g., '12.7' -> 13)."""
     try:
-        return int(float(sec_str))
+        v = float(sec_str)
+        if v < 0:
+            raise ValueError(f"Negative seconds are not allowed: {v}")
+        # Use half-up rounding instead of flooring to better match human-entered times that
+        # may have been rounded from a more precise source (e.g., TimeToScore/goals.xlsx).
+        return int(v + 0.5)
     except Exception as e:  # noqa: BLE001
         raise ValueError(f"Invalid seconds component '{sec_str}': {e}")
 
@@ -172,7 +177,7 @@ def _int_floor_seconds_component(sec_str: str) -> int:
 def parse_flex_time_to_seconds(s: str) -> int:
     """
     Accepts H:MM:SS(.fff) or M:SS(.fff) or MM:SS(.fff).
-    Returns total seconds (int), flooring fractional seconds.
+    Returns total seconds (int), rounding fractional seconds (half-up).
     """
     s = str(s).strip()
     # Some spreadsheets occasionally contain malformed time strings like "10::52".
@@ -182,13 +187,13 @@ def parse_flex_time_to_seconds(s: str) -> int:
     parts = s.split(":")
     if len(parts) == 3:
         h, m, sec = parts
-        return int(h) * 3600 + int(m) * 60 + _int_floor_seconds_component(sec)
+        return int(h) * 3600 + int(m) * 60 + _int_round_seconds_component(sec)
     elif len(parts) == 2:
         m, sec = parts
-        return int(m) * 60 + _int_floor_seconds_component(sec)
+        return int(m) * 60 + _int_round_seconds_component(sec)
     elif len(parts) == 1:
         # Support 'SS(.fff)' format (e.g., '58.2' -> 0:58)
-        return _int_floor_seconds_component(parts[0])
+        return _int_round_seconds_component(parts[0])
     else:
         raise ValueError(f"Invalid time format '{s}'. Expected M:SS or H:MM:SS.")
 
@@ -848,18 +853,45 @@ def _starts_at_from_t2s_game_id(
         with _working_directory(hockey_db_dir):
             if allow_remote and not allow_full_sync:
                 _log_t2s_scrape(int(t2s_game_id), "game details (start time)")
+            fetch_stats_if_missing = bool(allow_remote and not allow_full_sync)
             info = get_game_details(
                 int(t2s_game_id),
                 season=None,
                 sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
-                fetch_stats_if_missing=False,
+                fetch_stats_if_missing=fetch_stats_if_missing,
             )
+            # In full-sync mode, prefer the schedule-derived start_time, but if it's missing
+            # fall back to scraping the scoresheet (stats) for date/time.
+            if (
+                ((info or {}).get("game") or {}).get("start_time") is None
+                and allow_remote
+                and not fetch_stats_if_missing
+            ):
+                info = get_game_details(
+                    int(t2s_game_id),
+                    season=None,
+                    sync_if_missing=(bool(allow_full_sync) if allow_remote else False),
+                    fetch_stats_if_missing=True,
+                )
     except Exception as e:  # noqa: BLE001
         _warn(f"failed to fetch TimeToScore game details for game_id={t2s_game_id}: {e}")
         return None
 
     st = ((info or {}).get("game") or {}).get("start_time")
     if st is None:
+        stats = (info or {}).get("stats") or {}
+        date_s = str((stats or {}).get("date") or "").strip()
+        time_s = str((stats or {}).get("time") or "").strip()
+        if date_s and time_s:
+            try:
+                from hmlib.time2score import util as t2s_util
+
+                dt_obj = t2s_util.parse_game_time(date_s, time_s, year=None)
+                return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as e:  # noqa: BLE001
+                _warn(
+                    f"failed to parse TimeToScore start time from scoresheet date/time for game_id={t2s_game_id}: {e}"
+                )
         return None
     if isinstance(st, datetime.datetime):
         return st.strftime("%Y-%m-%d %H:%M:%S")
@@ -1501,7 +1533,7 @@ def parse_goal_token(token: str) -> GoalEvent:
     Token: GF:2/13:45, GA:1/05:12, or GF:OT/0:45 (case-insensitive on GF/GA and OT).
     """
     token = token.strip()
-    m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([^/]+)\s*/\s*([0-9:]+)", token)
+    m = re.fullmatch(r"(?i)(GF|GA)\s*:\s*([^/]+)\s*/\s*([0-9:.]+)", token)
     if not m:
         raise ValueError(f"Bad goal token '{token}'. Expected GF:period/time or GA:period/time")
     kind = m.group(1).upper()
@@ -3443,7 +3475,7 @@ def _parse_long_mmss_time_to_seconds(cell: Any) -> Optional[int]:
             a_s, b_s, c_s = parts
             a = int(a_s)
             b = int(b_s)
-            c = int(c_s)
+            c = _int_round_seconds_component(c_s)
             # Some sheets emit long video times as H:MM:SS (e.g., 1:09:19, 1:00:00).
             # Others emit MM:SS as a time-of-day-like string HH:MM:SS (e.g., 23:56:00 meaning 23:56).
             #
@@ -3458,9 +3490,9 @@ def _parse_long_mmss_time_to_seconds(cell: Any) -> Optional[int]:
             return a * 60 + b
         if len(parts) == 2:
             mm, ss = parts
-            return int(mm) * 60 + int(ss)
+            return int(mm) * 60 + _int_round_seconds_component(ss)
         if len(parts) == 1:
-            return int(float(parts[0]))
+            return _int_round_seconds_component(parts[0])
     except Exception:
         return None
     return None
@@ -6416,9 +6448,9 @@ def _parse_event_log_layout(df: pd.DataFrame) -> Tuple[
                 return int(h) * 60 + int(m)
             if len(parts) == 2:
                 m, sec = parts
-                return int(m) * 60 + int(sec)
+                return int(m) * 60 + _int_round_seconds_component(sec)
             if len(parts) == 1:
-                return int(float(parts[0]))
+                return _int_round_seconds_component(parts[0])
         except Exception:
             return None
         return None

@@ -102,14 +102,63 @@ def infer_season_year_for_date_str(
 
 
 def parse_game_time(date_str, time_str, year=None):
-    time_str = time_str.replace("12 Noon", "12:00 PM")
-    if year is None:
-        year = str(infer_season_year_for_date_str(str(date_str or "")))
-    else:
-        year = str(year)
-    return datetime.datetime.strptime(
-        year + " " + date_str + " " + time_str, "%Y %a %b %d %I:%M %p"
-    )
+    """Parse a game date/time into a datetime.
+
+    TimeToScore pages use a few different date formats depending on which page is being scraped:
+      - Schedule pages often use: "Sun Jan 25"
+      - Scoresheet pages may use: "01-25-26" or "01/25/2026"
+
+    This helper accepts both.
+    """
+
+    ds = str(date_str or "").strip()
+    ts = str(time_str or "").strip()
+    ts = ts.replace("12 Noon", "12:00 PM")
+    # Normalize "4:45PM" -> "4:45 PM"
+    ts = re.sub(r"(?i)(\\d)(am|pm)$", r"\\1 \\2", ts)
+    if not ds or not ts:
+        raise ValueError(f"Empty game date/time: date={ds!r} time={ts!r}")
+
+    def _parse_time() -> datetime.time:
+        for fmt in ("%I:%M %p", "%I:%M:%S %p", "%H:%M", "%H:%M:%S"):
+            try:
+                return datetime.datetime.strptime(ts, fmt).time()
+            except Exception:
+                pass
+        try:
+            return datetime.time.fromisoformat(ts)
+        except Exception as e:
+            raise ValueError(f"Unrecognized game time {ts!r}") from e
+
+    # Text dates: "Sun Jan 25"
+    if re.search(r"[A-Za-z]", ds):
+        y = str(year) if year is not None else str(infer_season_year_for_date_str(ds))
+        for fmt in ("%Y %a %b %d %I:%M %p", "%Y %b %d %I:%M %p", "%Y %a %b %d %H:%M"):
+            try:
+                return datetime.datetime.strptime(f"{y} {ds} {ts}", fmt)
+            except Exception:
+                pass
+        raise ValueError(f"Unrecognized game date/time: date={ds!r} time={ts!r} year={y!r}")
+
+    # Numeric dates: "01-25-26" / "01/25/2026" / "2026-01-25"
+    ds2 = ds.replace("/", "-")
+    d: datetime.date | None = None
+    for fmt in ("%Y-%m-%d", "%m-%d-%Y", "%m-%d-%y"):
+        try:
+            d = datetime.datetime.strptime(ds2, fmt).date()
+            break
+        except Exception:
+            d = None
+    if d is None:
+        m = re.match(r"^(\\d{1,2})-(\\d{1,2})$", ds2)
+        if m:
+            mm = int(m.group(1))
+            dd = int(m.group(2))
+            yy = int(year) if year is not None else int(datetime.datetime.now().year)
+            d = datetime.date(yy, mm, dd)
+    if d is None:
+        raise ValueError(f"Unrecognized game date {ds!r}")
+    return datetime.datetime.combine(d, _parse_time())
 
 
 def get_html(url: str, params: dict[str, str] | None = None, log=False):

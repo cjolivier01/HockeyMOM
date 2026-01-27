@@ -33,11 +33,27 @@ def should_parse_period_labels_and_tokens():
 def should_parse_flex_times_and_format_seconds():
     assert pss.parse_flex_time_to_seconds("1:02") == 62
     assert pss.parse_flex_time_to_seconds("01:02") == 62
-    assert pss.parse_flex_time_to_seconds("0:58.9") == 58
+    assert pss.parse_flex_time_to_seconds("0:58.9") == 59
     assert pss.parse_flex_time_to_seconds("58.2") == 58
-    assert pss.parse_flex_time_to_seconds("1:02:03.9") == 3723
+    assert pss.parse_flex_time_to_seconds("1:02:03.9") == 3724
+    assert pss.parse_flex_time_to_seconds("13.9") == 14
 
     assert pss.seconds_to_mmss_or_hhmmss(62) == "1:02"
+
+
+def should_count_decimal_goal_time_as_rounded_second_for_plus_minus():
+    # TimeToScore/goals.xlsx may provide a goal time with fractional seconds (e.g., 13.9),
+    # while shift sheets often round to whole seconds (e.g., 14). Treat them as matchable.
+    goals_by_period = {1: [pss.GoalEvent("GF", 1, "13.9")]}
+    sb_list = [(1, "0:30", "0:14")]
+    row_map, _per_counts, _unused, _per_period_toi = pss._compute_player_stats(
+        "12_Alice",
+        sb_list,
+        video_pairs_by_player={},
+        goals_by_period=goals_by_period,
+    )
+    assert row_map.get("plus_minus") == "1"
+    assert row_map.get("gf_counted") == "1"
     assert pss.seconds_to_mmss_or_hhmmss(3723) == "1:02:03"
     assert pss.seconds_to_hhmmss(62) == "00:01:02"
 
@@ -1947,6 +1963,30 @@ def should_parse_webapp_starts_at_from_meta_date_and_starts_at(capsys):
     assert bad is None
     err = capsys.readouterr().err
     assert "could not parse date" in err
+
+
+def should_parse_webapp_starts_at_from_t2s_scoresheet_date_time(tmp_path: Path, monkeypatch):
+    # In --t2s-scrape-only mode, we may not have a schedule-derived start_time in hockey_league.db,
+    # but the scoresheet (stats) page still provides date/time.
+    import hmlib.time2score.api as t2s_api
+
+    def fake_get_game_details(game_id: int, **_kwargs):
+        return {
+            "game": {"game_id": int(game_id)},
+            "home": {"team": None, "score": None},
+            "away": {"team": None, "score": None},
+            "stats": {"date": "01-25-26", "time": "04:45 PM"},
+        }
+
+    monkeypatch.setattr(t2s_api, "get_game_details", fake_get_game_details)
+    starts_at = pss._starts_at_from_t2s_game_id(
+        53907,
+        hockey_db_dir=tmp_path / "hockey_cache",
+        allow_remote=True,
+        allow_full_sync=False,
+        warn_label="test",
+    )
+    assert starts_at == "2026-01-25 16:45:00"
 
 
 if __name__ == "__main__":
