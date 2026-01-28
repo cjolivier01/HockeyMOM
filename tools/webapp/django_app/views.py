@@ -7698,6 +7698,8 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
     _django_orm, m = _orm_modules()
 
     types_by_gid: dict[int, set[str]] = {int(gid): set() for gid in gids}
+    shift_game_ids: set[int] = set()
+    event_game_ids: set[int] = set()
 
     try:
         for gid, tts_id in m.HkyGame.objects.filter(id__in=gids).values_list(
@@ -7725,6 +7727,7 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
                 continue
             if gid_i <= 0:
                 continue
+            shift_game_ids.add(int(gid_i))
             types_by_gid.setdefault(int(gid_i), set()).add("primary")
     except Exception:
         pass
@@ -7742,6 +7745,7 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
                 continue
             if gid_i <= 0:
                 continue
+            event_game_ids.add(int(gid_i))
             src = str(src0 or "").strip()
             if not src:
                 continue
@@ -7767,6 +7771,7 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
         ("yaml-only", "YAML-only", "Y"),
     ]
 
+    today = dt.datetime.now().date()
     for g in games or []:
         try:
             gid = int(g.get("id") or 0)
@@ -7774,6 +7779,19 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
             continue
         if gid <= 0:
             continue
+        has_any_shift_or_event = int(gid) in shift_game_ids or int(gid) in event_game_ids
+        starts_at = g.get("starts_at")
+        starts_at_dt: Optional[dt.datetime] = None
+        if starts_at is not None:
+            try:
+                starts_at_dt = logic.to_dt(starts_at)
+            except Exception:
+                starts_at_dt = None
+        is_today_or_future = bool(starts_at_dt is not None and starts_at_dt.date() >= today)
+        g["untracked_upcoming"] = bool(is_today_or_future and not has_any_shift_or_event)
+        if bool(g.get("untracked_upcoming")):
+            g["can_view_summary"] = False
+
         types = set(types_by_gid.get(int(gid)) or set())
         try:
             if logic._extract_timetoscore_game_id_from_notes(g.get("notes")) is not None:

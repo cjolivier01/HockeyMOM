@@ -118,7 +118,7 @@
             {% url "media_team_logo" team_id=g.team2_id as team2_logo %}
           {% endif %}
           {% with s1=g.team1_score s2=g.team2_score %}
-          <tr{% if g.excluded_from_stats %} class="game-excluded" title="{{ g.excluded_from_stats_reason }}"{% endif %}>
+          <tr{% if g.excluded_from_stats or g.untracked_upcoming %} class="{% if g.excluded_from_stats %}game-excluded{% endif %}{% if g.untracked_upcoming %}{% if g.excluded_from_stats %} {% endif %}game-untracked-upcoming{% endif %}"{% endif %}{% if g.excluded_from_stats %} title="{{ g.excluded_from_stats_reason }}"{% endif %}>
             {% if schedule_games and schedule_games.0.division_name %}<td>{{ g.division_name|default_if_none:"" }}</td>{% endif %}
             <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
             <td class="nowrap">{{ g.starts_at|fmt_time }}</td>

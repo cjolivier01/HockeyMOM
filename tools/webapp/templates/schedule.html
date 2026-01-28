@@ -101,7 +101,7 @@
   <tbody>
     {% for g in games %}
       {% with s1=g.team1_score s2=g.team2_score %}
-      <tr>
+      <tr{% if g.untracked_upcoming %} class="game-untracked-upcoming"{% endif %}>
         {% if league_view %}<td>{{ g.division_name|default_if_none:"" }}</td>{% endif %}
         <td class="nowrap">{{ g.starts_at|fmt_date }}</td>
         <td class="nowrap">{{ g.starts_at|fmt_time }}</td>

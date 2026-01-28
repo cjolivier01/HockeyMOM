@@ -254,6 +254,11 @@ td.sticky-col, th.sticky-col { box-shadow: 1px 0 0 var(--table-border); }
 /* Team schedule: excluded games should still be visible/clickable, but visually de-emphasized. */
 tr.game-excluded { opacity: .55; }
 tr.game-excluded:hover { opacity: .85; }
+
+/* Schedules: upcoming games with no event/shift rows should look disabled and not hover-highlight. */
+tbody tr.game-untracked-upcoming { background: #fefce8; --row-hover: transparent; }
+tbody tr.game-untracked-upcoming td.sticky-col { background: #fefce8; }
+tbody tr.game-untracked-upcoming.game-excluded:hover { opacity: .55; }
 .spacer { height: 1rem; }
 
 .schedule-stats-icons {
