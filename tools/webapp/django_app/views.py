@@ -2325,6 +2325,47 @@ def _overlay_shift_stats_into_player_stat_rows(
     return
 
 
+def _compute_shift_totals_by_pid_for_game(
+    *, game_id: int, pids: Optional[set[int]] = None
+) -> dict[int, dict[str, int]]:
+    if int(game_id) <= 0:
+        return {}
+    _django_orm, m = _orm_modules()
+    from django.db.models import Count, F, IntegerField, Sum
+    from django.db.models.functions import Abs
+
+    dur_expr = Abs(F("game_seconds_end") - F("game_seconds"))
+    qs = (
+        m.HkyGameShiftRow.objects.filter(game_id=int(game_id))
+        .exclude(player_id__isnull=True)
+        .exclude(game_seconds__isnull=True)
+        .exclude(game_seconds_end__isnull=True)
+    )
+    if pids:
+        qs = qs.filter(player_id__in=sorted({int(pid) for pid in (pids or set()) if int(pid) > 0}))
+    qs = qs.values("player_id").annotate(
+        toi_seconds=Sum(dur_expr, output_field=IntegerField()), shifts=Count("id")
+    )
+    out: dict[int, dict[str, int]] = {}
+    for r in qs:
+        try:
+            pid = int(r.get("player_id") or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+        try:
+            toi = int(r.get("toi_seconds") or 0)
+        except Exception:
+            toi = 0
+        try:
+            shifts = int(r.get("shifts") or 0)
+        except Exception:
+            shifts = 0
+        out[int(pid)] = {"toi_seconds": int(toi), "shifts": int(shifts)}
+    return out
+
+
 def _mask_shift_stats_in_player_stat_rows(player_stats_rows: list[dict[str, Any]]) -> None:
     """
     When a league has shift data hidden, ensure shift-derived stats are not shown even if they
@@ -3256,6 +3297,7 @@ def _filter_game_skaters_by_shift_participation(
     *,
     skaters: list[dict[str, Any]],
     stats_by_pid: dict[int, dict[str, Any]],
+    shift_totals_by_pid: Optional[dict[int, dict[str, int]]] = None,
     player_has_events_by_pid: dict[int, bool],
     game_roster_pids: set[int],
 ) -> tuple[list[dict[str, Any]], set[int], set[int], bool]:
@@ -3268,6 +3310,25 @@ def _filter_game_skaters_by_shift_participation(
 
     Also return "mismatch" pids: skaters who have shifts/TOI but are missing from the per-game roster.
     """
+
+    def _toi_shifts(pid: int) -> tuple[int, int]:
+        if shift_totals_by_pid is not None:
+            row = shift_totals_by_pid.get(int(pid)) or {}
+            try:
+                toi = int(row.get("toi_seconds") or 0)
+            except Exception:
+                toi = 0
+            try:
+                shifts = int(row.get("shifts") or 0)
+            except Exception:
+                shifts = 0
+            return int(toi), int(shifts)
+
+        row = stats_by_pid.get(int(pid)) or {}
+        toi = logic._int0(row.get("toi_seconds"))
+        shifts = logic._int0(row.get("shifts"))
+        return int(toi), int(shifts)
+
     team_has_toi = False
     for p in skaters or []:
         try:
@@ -3276,9 +3337,7 @@ def _filter_game_skaters_by_shift_participation(
             continue
         if pid <= 0:
             continue
-        row = stats_by_pid.get(int(pid)) or {}
-        toi = logic._int0(row.get("toi_seconds"))
-        shifts = logic._int0(row.get("shifts"))
+        toi, shifts = _toi_shifts(int(pid))
         if int(toi) > 0 and int(shifts) > 0:
             team_has_toi = True
             break
@@ -3295,9 +3354,7 @@ def _filter_game_skaters_by_shift_participation(
             continue
         if pid <= 0:
             continue
-        row = stats_by_pid.get(int(pid)) or {}
-        toi = logic._int0(row.get("toi_seconds"))
-        shifts = logic._int0(row.get("shifts"))
+        toi, shifts = _toi_shifts(int(pid))
         has_events = bool(player_has_events_by_pid.get(int(pid)))
 
         if (
@@ -8575,15 +8632,36 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         # Best-effort: game roster is optional.
         pass
 
+    shift_totals_by_pid: Optional[dict[int, dict[str, int]]] = None
+    if not show_shift_data:
+        try:
+            skater_pids: set[int] = set()
+            for p in list(team1_skaters) + list(team2_skaters):
+                try:
+                    pid_i = int(p.get("id") or 0)
+                except Exception:
+                    continue
+                if pid_i > 0:
+                    skater_pids.add(int(pid_i))
+            shift_totals_by_pid = _compute_shift_totals_by_pid_for_game(
+                game_id=int(game_id),
+                pids=skater_pids,
+            )
+        except Exception:
+            # Best-effort: shift totals are used only for filtering "did not play" skaters.
+            shift_totals_by_pid = None
+
     team1_skaters, _, team1_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
         skaters=list(team1_skaters),
         stats_by_pid=stats_by_pid,
+        shift_totals_by_pid=shift_totals_by_pid,
         player_has_events_by_pid=player_has_events_by_pid,
         game_roster_pids=game_roster_pids_by_team.get(int(game["team1_id"]), set()),
     )
     team2_skaters, _, team2_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
         skaters=list(team2_skaters),
         stats_by_pid=stats_by_pid,
+        shift_totals_by_pid=shift_totals_by_pid,
         player_has_events_by_pid=player_has_events_by_pid,
         game_roster_pids=game_roster_pids_by_team.get(int(game["team2_id"]), set()),
     )
@@ -10425,15 +10503,36 @@ def public_hky_game_detail(
         # Best-effort: game roster is optional.
         pass
 
+    shift_totals_by_pid: Optional[dict[int, dict[str, int]]] = None
+    if not show_shift_data:
+        try:
+            skater_pids: set[int] = set()
+            for p in list(team1_skaters) + list(team2_skaters):
+                try:
+                    pid_i = int(p.get("id") or 0)
+                except Exception:
+                    continue
+                if pid_i > 0:
+                    skater_pids.add(int(pid_i))
+            shift_totals_by_pid = _compute_shift_totals_by_pid_for_game(
+                game_id=int(game_id),
+                pids=skater_pids,
+            )
+        except Exception:
+            # Best-effort: shift totals are used only for filtering "did not play" skaters.
+            shift_totals_by_pid = None
+
     team1_skaters, _, team1_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
         skaters=list(team1_skaters),
         stats_by_pid=stats_by_pid,
+        shift_totals_by_pid=shift_totals_by_pid,
         player_has_events_by_pid=player_has_events_by_pid,
         game_roster_pids=game_roster_pids_by_team.get(int(team1_id), set()),
     )
     team2_skaters, _, team2_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
         skaters=list(team2_skaters),
         stats_by_pid=stats_by_pid,
+        shift_totals_by_pid=shift_totals_by_pid,
         player_has_events_by_pid=player_has_events_by_pid,
         game_roster_pids=game_roster_pids_by_team.get(int(team2_id), set()),
     )
