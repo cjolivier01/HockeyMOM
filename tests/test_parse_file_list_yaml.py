@@ -20,9 +20,10 @@ games:
         encoding="utf-8",
     )
 
-    entries = pss._load_input_entries_from_yaml_file_list(
+    entries, teams = pss._load_input_entries_from_yaml_file_list(
         file_list, base_dir=tmp_path, use_t2s=True
     )
+    assert teams == {}
     assert len(entries) == 1
     e = entries[0]
     assert e.path == (tmp_path / "some_dir").resolve()
@@ -46,9 +47,10 @@ games:
         encoding="utf-8",
     )
 
-    entries = pss._load_input_entries_from_yaml_file_list(
+    entries, teams = pss._load_input_entries_from_yaml_file_list(
         file_list, base_dir=tmp_path, use_t2s=True
     )
+    assert teams == {}
     assert len(entries) == 1
     e = entries[0]
     assert e.path is None
@@ -81,9 +83,10 @@ games:
         encoding="utf-8",
     )
 
-    entries = pss._load_input_entries_from_yaml_file_list(
+    entries, teams = pss._load_input_entries_from_yaml_file_list(
         file_list, base_dir=tmp_path, use_t2s=True
     )
+    assert teams == {}
     assert len(entries) == 3
 
     # Shared long sheet entry.
@@ -98,3 +101,36 @@ games:
     assert {e.side for e in sheet_entries} == {"home", "away"}
     assert {e.label for e in sheet_entries} == {"tv-12-1-r1"}
     assert all(e.meta.get("game_video") == "https://youtu.be/example" for e in sheet_entries)
+
+
+def should_parse_yaml_file_list_team_icons_section(tmp_path: Path) -> None:
+    file_list = tmp_path / "games.yaml"
+    file_list.write_text(
+        """
+teams:
+  - name: Home Team
+    icon: home.png
+    replace_logo: true
+  - name: Away Team
+    icon: away.png
+games:
+  - t2s: 51602
+    side: HOME
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    entries, teams = pss._load_input_entries_from_yaml_file_list(
+        file_list, base_dir=tmp_path, use_t2s=True
+    )
+    assert len(entries) == 1
+    assert entries[0].t2s_id == 51602
+
+    import re
+
+    home_key = re.sub(r"\\s+", " ", "Home Team".strip()).casefold()
+    away_key = re.sub(r"\\s+", " ", "Away Team".strip()).casefold()
+    assert home_key in teams
+    assert away_key in teams
+    assert teams[home_key].icon == "home.png"
+    assert teams[home_key].replace_logo is True

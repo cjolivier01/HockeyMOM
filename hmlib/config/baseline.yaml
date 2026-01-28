@@ -236,7 +236,7 @@ rink:
       group_velocity_speed_ratio: 0.3
       # During a breakaway, what scale do we adjust the
       # maximum camera speed to allow for faster-than-normal tracking?
-      scale_speed_constraints: 2.0
+      scale_speed_constraints: 3.0
       # The number of frame steps to not allow any camera-stop conditions to
       # trigger such as cluster(s) direction change or "sticky translation" rules.
       # This is because the clusters may not have changed enough at the

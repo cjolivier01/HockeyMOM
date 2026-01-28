@@ -117,6 +117,28 @@ def client(monkeypatch, webapp_db):
         created_at=now,
         updated_at=None,
     )
+    played = m.Player.objects.create(
+        id=502,
+        user_id=int(owner.id),
+        team_id=int(team_b.id),
+        name="Played Skater",
+        jersey_number="12",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.Player.objects.create(
+        id=503,
+        user_id=int(owner.id),
+        team_id=int(team_b.id),
+        name="Bench Skater",
+        jersey_number="59",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
 
     g1 = m.HkyGame.objects.create(
         id=1001,
@@ -176,6 +198,31 @@ def client(monkeypatch, webapp_db):
     # Cross-division game (10 B West vs 12A): should still be visible in public league views.
     m.LeagueGame.objects.create(
         league_id=1, game_id=int(g3.id), division_name="10 B West", sort_order=None
+    )
+
+    # Shift rows exist for Team B in this game, but "Bench Skater" is not on the per-game roster
+    # and has no shifts/events, so they should not appear in public game rosters/stats.
+    m.HkyGamePlayer.objects.create(
+        game_id=int(g1.id),
+        player_id=int(played.id),
+        team_id=int(team_b.id),
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameShiftRow.objects.create(
+        game_id=int(g1.id),
+        import_key="g1-played",
+        source="primary",
+        team_id=int(team_b.id),
+        player_id=int(played.id),
+        team_side="Away",
+        period=1,
+        game_seconds=0,
+        game_seconds_end=30,
+        video_seconds=None,
+        video_seconds_end=None,
+        created_at=now,
+        updated_at=None,
     )
 
     ev_goal, _created = m.HkyEventType.objects.get_or_create(
@@ -248,3 +295,9 @@ def should_return_to_entry_page_when_viewing_game_from_team_page(client):
 def should_reject_private_league_public_routes(client):
     r = client.get("/public/leagues/2/teams")
     assert r.status_code == 404
+
+
+def should_hide_bench_skaters_from_public_game_roster_when_shift_rows_exist(client):
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
+    assert "Played Skater" in html
+    assert "Bench Skater" not in html

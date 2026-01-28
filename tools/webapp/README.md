@@ -105,6 +105,14 @@ Prefer a readable YAML mapping format (avoid legacy one-line `|key=value` string
 Recommended structure:
 
 ```yaml
+teams: # optional; per-team defaults (avoids repeating logos for every game)
+  - name: "San Jose Jr Sharks 12AA-2"
+    icon: /home/colivier/RVideos/logos/jrsharks.png
+    # replace_logo defaults to true (overrides existing logos like TimeToScore)
+    # replace_logo: false
+  - name: "Texas Warriors 12AA"
+    icon: /home/colivier/RVideos/logos/texas.png
+
 games:
   # Spreadsheet-backed game (directory or .xlsx path)
   - path: /home/colivier/RVideos/stockton-r2/stats
@@ -116,8 +124,9 @@ games:
       date: "2025-12-07"
       time: "16:15" # quote "HH:MM" (YAML may parse unquoted times as base-60)
       game_video: /home/colivier/RVideos/stockton-r2/game.mp4
-      home_logo: /home/colivier/RVideos/stockton-r2/home_logo.png
-      away_logo: /home/colivier/RVideos/stockton-r2/away_logo.png
+      # Optional per-game logo overrides (these take precedence over `teams:` above):
+      # home_logo: /home/colivier/RVideos/stockton-r2/home_logo.png
+      # away_logo: /home/colivier/RVideos/stockton-r2/away_logo.png
       # Alias keys (same behavior as home_logo/away_logo):
       # home_team_icon: /home/colivier/RVideos/stockton-r2/home_logo.png
       # away_team_icon: /home/colivier/RVideos/stockton-r2/away_logo.png

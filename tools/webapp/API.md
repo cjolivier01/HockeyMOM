@@ -114,6 +114,10 @@ Body highlights (many optional fields exist):
 - `owner_email` (string, optional; used when creating external games)
 - `team_side` (`"home"` or `"away"`, optional; required when uploading `shift_rows_csv`)
 - `replace` (bool, optional)
+- Team logo fields (optional; any of these work):
+  - `home_logo_b64` / `home_logo_content_type` (or `home_logo_url`)
+  - `away_logo_b64` / `away_logo_content_type` (or `away_logo_url`)
+  - `home_logo_replace` / `away_logo_replace` (bool, optional): override the `replace` behavior for that team’s logo only
 - `create_missing_players` (bool, optional)
 - CSV payloads (strings): `events_csv` plus shift-related CSVs:
   - `shift_rows_csv` (optional): per-player shift intervals (used to derive TOI/Shifts at runtime and optionally render on/off-ice markers)

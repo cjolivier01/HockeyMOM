@@ -1852,6 +1852,15 @@ class InputEntry:
     event_corrections: Any = None
 
 
+@dataclass(frozen=True)
+class TeamIconOverride:
+    name: str
+    icon: Optional[str] = None
+    icon_base64: Optional[str] = None
+    icon_content_type: Optional[str] = None
+    replace_logo: bool = True
+
+
 def _clone_input_entry_for_path(entry: InputEntry, path: Path) -> InputEntry:
     return InputEntry(
         path=Path(path),
@@ -1962,12 +1971,13 @@ def _parse_input_token_with_meta(
 
 def _load_input_entries_from_yaml_file_list(
     file_list_path: Path, *, base_dir: Path, use_t2s: bool
-) -> List[InputEntry]:
+) -> tuple[List[InputEntry], dict[str, TeamIconOverride]]:
     """
     YAML variant of `--file-list`.
 
     Supported shapes:
     - A dict with `games:` containing a list of entries (recommended)
+      - May also contain an optional top-level `teams:` section for per-team metadata
     - A list of entries
       - Each entry may be a mapping (recommended), or
       - a legacy string line (back-compat; supports optional `|key=value` metadata).
@@ -2006,11 +2016,135 @@ def _load_input_entries_from_yaml_file_list(
     raw = file_list_path.read_text(encoding="utf-8", errors="ignore").lstrip("\ufeff")
     data = yaml.safe_load(raw) if raw.strip() else None
     if data is None:
-        return []
+        return [], {}
+
+    def _normalize_team_key(name: str) -> str:
+        s = str(name or "").strip()
+        s = re.sub(r"\s+", " ", s)
+        return s.casefold()
+
+    def _boolish(raw_val: Any) -> bool:
+        if isinstance(raw_val, bool):
+            return bool(raw_val)
+        s = str(raw_val or "").strip().casefold()
+        if not s:
+            return False
+        if s in {"1", "true", "yes", "y", "on"}:
+            return True
+        if s in {"0", "false", "no", "n", "off"}:
+            return False
+        return bool(raw_val)
+
+    def _parse_teams_section(teams_raw: Any) -> dict[str, TeamIconOverride]:
+        """
+        Parse an optional top-level `teams:` section.
+
+        Supported shapes:
+          teams:
+            - name: "San Jose Jr Sharks 12AA-2"
+              icon: /path/to/logo.png
+              replace_logo: true
+          or:
+          teams:
+            "San Jose Jr Sharks 12AA-2":
+              icon: /path/to/logo.png
+              replace_logo: true
+        """
+        if teams_raw is None:
+            return {}
+
+        out: dict[str, TeamIconOverride] = {}
+
+        def _add(name: Any, spec: Any) -> None:
+            nm = str(name or "").strip()
+            if not nm:
+                return
+            icon = None
+            icon_b64 = None
+            icon_ct = None
+            replace_logo = True
+
+            if isinstance(spec, str):
+                icon = str(spec).strip() or None
+            elif isinstance(spec, dict):
+                icon = (
+                    str(
+                        spec.get("icon")
+                        or spec.get("logo")
+                        or spec.get("path")
+                        or spec.get("file")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                icon_b64 = (
+                    str(
+                        spec.get("icon_base64")
+                        or spec.get("logo_base64")
+                        or spec.get("icon_b64")
+                        or spec.get("logo_b64")
+                        or ""
+                    ).strip()
+                    or None
+                )
+                icon_ct = (
+                    str(
+                        spec.get("icon_content_type") or spec.get("logo_content_type") or ""
+                    ).strip()
+                    or None
+                )
+                if spec.get("replace_logo") is not None:
+                    replace_logo = _boolish(spec.get("replace_logo"))
+                elif spec.get("replace") is not None:
+                    replace_logo = _boolish(spec.get("replace"))
+                elif spec.get("override") is not None:
+                    replace_logo = _boolish(spec.get("override"))
+            elif spec is None:
+                return
+            else:
+                raise ValueError(f"teams entry for {nm!r} must be a string or mapping")
+
+            if not icon and not icon_b64:
+                # Allow reserving per-team sections for future use; icon is optional.
+                return
+            key = _normalize_team_key(nm)
+            prev = out.get(key)
+            cur = TeamIconOverride(
+                name=nm,
+                icon=icon,
+                icon_base64=icon_b64,
+                icon_content_type=icon_ct,
+                replace_logo=bool(replace_logo),
+            )
+            if prev and prev != cur:
+                raise ValueError(
+                    f"conflicting teams entry for {nm!r}: {prev!r} vs {cur!r} (key={key!r})"
+                )
+            out[key] = cur
+
+        if isinstance(teams_raw, dict):
+            for k, v in teams_raw.items():
+                _add(k, v)
+            return out
+
+        if isinstance(teams_raw, list):
+            for idx, item in enumerate(teams_raw):
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("team") or item.get("team_name")
+                    if not name:
+                        raise ValueError(f"teams[{idx}] must include 'name'")
+                    _add(name, item)
+                    continue
+                raise ValueError(f"teams[{idx}] must be a mapping")
+            return out
+
+        raise ValueError("teams must be a list or mapping")
 
     entries: Any = data
+    team_overrides: dict[str, TeamIconOverride] = {}
     if isinstance(data, dict):
         entries = data.get("games") or data.get("entries") or []
+        team_overrides = _parse_teams_section(data.get("teams"))
 
     if not isinstance(entries, list):
         raise ValueError("YAML file-list must be a list or a dict containing a 'games' list")
@@ -2398,7 +2532,7 @@ def _load_input_entries_from_yaml_file_list(
             )
         )
 
-    return out_entries
+    return out_entries, team_overrides
 
 
 def _is_spreadsheet_input_path(path: Path) -> bool:
@@ -4132,31 +4266,76 @@ def _parse_long_shift_tables(
 
     def _parse_team_header(s: str) -> Optional[Tuple[str, int]]:
         # Example: "San Jose Jr Sharks 12AA-2 (1st Period)"
-        m = re.match(r"(?is)^\s*(.+?)\s*\(([^)]+)\)\s*$", str(s or ""))
-        if not m:
+        raw = _clean_html_fragment(str(s or ""))
+        if not raw:
             return None
-        left = _clean_html_fragment(m.group(1))
-        right = _clean_html_fragment(m.group(2))
 
         # Common format: "<Team Name> (1st Period)"
-        p = parse_period_label(right)
-        if left and p is not None:
-            return left, int(p)
+        m = re.match(r"(?is)^\s*(.+?)\s*\(([^)]+)\)\s*$", raw)
+        if m:
+            left = _clean_html_fragment(m.group(1))
+            right = _clean_html_fragment(m.group(2))
 
-        # Older long sheets sometimes label shift tables by team color only:
-        #   "1st Period (White team)" / "1st Period (Blue team)"
-        p2 = parse_period_label(left)
-        if p2 is not None and right:
-            rl = right.casefold()
-            if "white" in rl:
-                return "White", int(p2)
-            if "blue" in rl:
-                return "Blue", int(p2)
+            p = parse_period_label(right)
+            if left and p is not None:
+                return left, int(p)
+
+            # Older long sheets sometimes label shift tables by team color only:
+            #   "1st Period (White team)" / "1st Period (Blue team)"
+            p2 = parse_period_label(left)
+            if p2 is not None and right:
+                rl = right.casefold()
+                if "white" in rl:
+                    return "White", int(p2)
+                if "blue" in rl:
+                    return "Blue", int(p2)
+            return None
+
+        # Some long sheets omit parentheses and use formats like:
+        #   "Texas Warriors 12AA 1st Period"
+        #   "Texas Warriors 12AA Period 1"
+        #
+        # Heuristic: treat these as team headers only when the team name is non-trivial
+        # (more than one token) or the header is for the 1st period. Short one-token forms
+        # like "Texas 2nd Period" are usually period markers within a team block.
+        s2 = raw.strip()
+        for m2 in (
+            re.match(r"(?is)^\s*(.+?)\s+(\d+)(?:st|nd|rd|th)?\s+period\s*$", s2),
+            re.match(r"(?is)^\s*(.+?)\s+period\s*(\d+)\s*$", s2),
+        ):
+            if not m2:
+                continue
+            team = _clean_html_fragment(m2.group(1))
+            per_s = m2.group(2)
+            if not team:
+                continue
+            try:
+                per_i = int(per_s)
+            except Exception:
+                continue
+            tokens = [t for t in team.split() if t]
+            if per_i == 1 or len(tokens) >= 2 or team.casefold() in {"blue", "white"}:
+                return team, int(per_i)
+
         return None
 
     def _parse_period_only(s: str) -> Optional[int]:
         # Example: "2nd Period"
-        return parse_period_label(s)
+        p = parse_period_label(s)
+        if p is not None:
+            return p
+
+        # Some long sheets prefix OT with a team name, e.g. "Texas OT Period".
+        # Only treat this as OT when it clearly refers to a period marker.
+        try:
+            ss = str(s or "").strip()
+        except Exception:
+            return None
+        if not ss:
+            return None
+        if re.search(r"(?i)\bperiod\b", ss) and re.search(r"(?i)\b(?:ot|overtime)\b", ss):
+            return 4
+        return None
 
     def _is_shift_table_header(row: pd.Series) -> bool:
         have_jersey = False
@@ -13125,6 +13304,8 @@ def _upload_shift_package_to_webapp(
     away_logo_content_type: Optional[str] = None,
     home_logo_url: Optional[str] = None,
     away_logo_url: Optional[str] = None,
+    home_logo_replace: bool = False,
+    away_logo_replace: bool = False,
     game_video_url: Optional[str] = None,
     stats_note: Optional[str] = None,
     roster_home: Optional[List[Dict[str, Any]]] = None,
@@ -13191,6 +13372,10 @@ def _upload_shift_package_to_webapp(
         payload["home_logo_url"] = str(home_logo_url)
     if away_logo_url:
         payload["away_logo_url"] = str(away_logo_url)
+    if home_logo_replace:
+        payload["home_logo_replace"] = True
+    if away_logo_replace:
+        payload["away_logo_replace"] = True
     if roster_home:
         payload["roster_home"] = roster_home
     if roster_away:
@@ -13316,16 +13501,16 @@ def main() -> None:
         t2s_arg_id, t2s_arg_side, t2s_arg_label = parsed
 
     input_entries: List[InputEntry] = []
+    team_icon_overrides: dict[str, TeamIconOverride] = {}
     if args.file_list:
         try:
             file_list_path = args.file_list.expanduser()
             base_dir = _stats_base_dir_from_env() or file_list_path.resolve().parent
             if file_list_path.suffix.lower() in {".yaml", ".yml"}:
-                input_entries.extend(
-                    _load_input_entries_from_yaml_file_list(
-                        file_list_path, base_dir=base_dir, use_t2s=use_t2s
-                    )
+                yaml_entries, team_icon_overrides = _load_input_entries_from_yaml_file_list(
+                    file_list_path, base_dir=base_dir, use_t2s=use_t2s
                 )
+                input_entries.extend(yaml_entries)
             else:
                 with file_list_path.open("r", encoding="utf-8") as f:
                     for line in f:
@@ -14646,6 +14831,8 @@ def main() -> None:
             upload_away = external_away
             upload_home_logo_url = None
             upload_away_logo_url = None
+            home_logo_replace = False
+            away_logo_replace = False
             roster_home_payload: Optional[List[Dict[str, Any]]] = None
             roster_away_payload: Optional[List[Dict[str, Any]]] = None
             if t2s_id is not None and (not upload_home or not upload_away):
@@ -14659,6 +14846,64 @@ def main() -> None:
                     upload_home = t2s_home
                 if not upload_away:
                     upload_away = t2s_away
+
+            def _normalize_team_key_for_override(name: Optional[str]) -> str:
+                s = str(name or "").strip()
+                s = re.sub(r"\s+", " ", s)
+                return s.casefold()
+
+            def _apply_team_icon_override(team_name: Optional[str], *, side: str) -> None:
+                nonlocal upload_home_logo_url, upload_away_logo_url, home_logo_replace, away_logo_replace
+                if not team_icon_overrides:
+                    return
+                if side not in {"home", "away"}:
+                    return
+                if logo_fields.get(f"{side}_logo_b64"):
+                    return
+                key = _normalize_team_key_for_override(team_name)
+                if not key:
+                    return
+                ov = team_icon_overrides.get(key)
+                if ov is None:
+                    return
+
+                # Prefer local/base64 icons from YAML over TimeToScore icons.
+                if ov.icon_base64:
+                    tmp_meta: dict[str, str] = {f"{side}_logo_base64": str(ov.icon_base64)}
+                    if ov.icon_content_type:
+                        tmp_meta[f"{side}_logo_content_type"] = str(ov.icon_content_type)
+                    logo_fields.update(
+                        _load_logo_fields_from_meta(
+                            tmp_meta, base_dir=file_list_base_dir, warn_label=str(label or "")
+                        )
+                    )
+                elif ov.icon:
+                    icon_raw = str(ov.icon).strip()
+                    if re.match(r"(?i)^https?://", icon_raw):
+                        if side == "home":
+                            upload_home_logo_url = icon_raw
+                        else:
+                            upload_away_logo_url = icon_raw
+                    else:
+                        logo_fields.update(
+                            _load_logo_fields_from_meta(
+                                {f"{side}_logo": icon_raw},
+                                base_dir=file_list_base_dir,
+                                warn_label=str(label or ""),
+                            )
+                        )
+
+                have_override = bool(logo_fields.get(f"{side}_logo_b64")) or bool(
+                    upload_home_logo_url if side == "home" else upload_away_logo_url
+                )
+                if have_override:
+                    if side == "home":
+                        home_logo_replace = bool(ov.replace_logo)
+                    else:
+                        away_logo_replace = bool(ov.replace_logo)
+
+            _apply_team_icon_override(upload_home, side="home")
+            _apply_team_icon_override(upload_away, side="away")
             if t2s_id is not None:
                 try:
                     rosters = _get_t2s_game_rosters(
@@ -14766,17 +15011,20 @@ def main() -> None:
                 except Exception:
                     # Best-effort: roster extraction must not block uploads.
                     pass
-            if t2s_id is not None and not (
-                logo_fields.get("home_logo_b64") or logo_fields.get("away_logo_b64")
-            ):
-                home_logo_url, away_logo_url = _t2s_team_logo_urls_for_game(
-                    int(t2s_id),
-                    allow_remote=t2s_allow_remote,
-                    allow_full_sync=t2s_allow_full_sync,
-                    hockey_db_dir=hockey_db_dir,
-                )
-                upload_home_logo_url = home_logo_url or None
-                upload_away_logo_url = away_logo_url or None
+            if t2s_id is not None:
+                need_home = not bool(logo_fields.get("home_logo_b64") or upload_home_logo_url)
+                need_away = not bool(logo_fields.get("away_logo_b64") or upload_away_logo_url)
+                if need_home or need_away:
+                    home_logo_url, away_logo_url = _t2s_team_logo_urls_for_game(
+                        int(t2s_id),
+                        allow_remote=t2s_allow_remote,
+                        allow_full_sync=t2s_allow_full_sync,
+                        hockey_db_dir=hockey_db_dir,
+                    )
+                    if need_home:
+                        upload_home_logo_url = home_logo_url or None
+                    if need_away:
+                        upload_away_logo_url = away_logo_url or None
 
             print(f"[webapp] Uploading {idx + 1}/{len(groups)}: {label}")
 
@@ -14837,6 +15085,8 @@ def main() -> None:
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             home_logo_url=upload_home_logo_url,
                             away_logo_url=upload_away_logo_url,
+                            home_logo_replace=home_logo_replace,
+                            away_logo_replace=away_logo_replace,
                             roster_home=roster_home_payload,
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
@@ -14918,6 +15168,8 @@ def main() -> None:
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             home_logo_url=upload_home_logo_url,
                             away_logo_url=upload_away_logo_url,
+                            home_logo_replace=home_logo_replace,
+                            away_logo_replace=away_logo_replace,
                             roster_home=roster_home_payload,
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
@@ -14983,6 +15235,8 @@ def main() -> None:
                             away_logo_content_type=logo_fields.get("away_logo_content_type"),
                             home_logo_url=upload_home_logo_url,
                             away_logo_url=upload_away_logo_url,
+                            home_logo_replace=home_logo_replace,
+                            away_logo_replace=away_logo_replace,
                             roster_home=roster_home_payload,
                             roster_away=roster_away_payload,
                             game_video_url=_meta("game_video", "game_video_url", "video_url"),
@@ -15069,6 +15323,8 @@ def main() -> None:
                                 away_logo_content_type=logo_fields.get("away_logo_content_type"),
                                 home_logo_url=upload_home_logo_url,
                                 away_logo_url=upload_away_logo_url,
+                                home_logo_replace=home_logo_replace,
+                                away_logo_replace=away_logo_replace,
                                 roster_home=roster_home_payload,
                                 roster_away=roster_away_payload,
                                 game_video_url=_meta("game_video", "game_video_url", "video_url"),

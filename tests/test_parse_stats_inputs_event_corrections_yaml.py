@@ -43,7 +43,9 @@ games:
         encoding="utf-8",
     )
 
-    entries = _load_input_entries_from_yaml_file_list(yml, base_dir=yml.parent, use_t2s=True)
+    entries, _teams = _load_input_entries_from_yaml_file_list(
+        yml, base_dir=yml.parent, use_t2s=True
+    )
     assert entries
     e0 = entries[0]
     assert e0.label == "utah-1"
@@ -167,7 +169,9 @@ games:
         encoding="utf-8",
     )
 
-    entries = mod._load_input_entries_from_yaml_file_list(yml, base_dir=yml.parent, use_t2s=True)
+    entries, _teams = mod._load_input_entries_from_yaml_file_list(
+        yml, base_dir=yml.parent, use_t2s=True
+    )
     assert len(entries) == 1
     e0 = entries[0]
     assert e0.event_corrections

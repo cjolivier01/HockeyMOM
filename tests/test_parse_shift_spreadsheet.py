@@ -860,6 +860,53 @@ def should_parse_long_shift_tables_for_both_teams():
     assert b_sb["34_Bob_Example"][:2] == [(1, "15:00", "14:40"), (1, "14:10", "13:50")]
 
 
+def should_parse_long_shift_tables_team_headers_without_parentheses_and_ot_period_marker():
+    # Some long sheets label team blocks without parentheses, e.g.:
+    #   "Texas Warriors 12AA 1st Period"
+    # and later period markers like:
+    #   "Texas OT Period"
+    #
+    # Ensure we:
+    #  - detect team headers without parentheses
+    #  - treat "Team X OT Period" as a period marker (period 4) without switching teams
+    import pandas as pd
+
+    header = [
+        "Jersey Number",
+        "Player Name",
+        pss.LABEL_START_SB,  # type: ignore[attr-defined]
+        pss.LABEL_END_SB,  # type: ignore[attr-defined]
+        pss.LABEL_START_V,  # type: ignore[attr-defined]
+        pss.LABEL_END_V,  # type: ignore[attr-defined]
+    ]
+
+    rows = [
+        ["Team A 1st Period", None, None, None, None, None],
+        header,
+        [12, "Alice Example", "15:00", "14:30", "0:10", "0:40"],
+        [None, None, None, None, None, None],
+        ["Team B 1st Period", None, None, None, None, None],
+        header,
+        [34, "Bob Example", "15:00", "14:10", "0:05", "0:25"],
+        # Period-only marker with team prefix (should become OT/period 4, not a new team header).
+        ["Team B OT Period", None, None, None, None, None],
+        header,
+        [34, "Bob Example", "5:00", "4:00", "1:00:05", "1:00:25"],
+    ]
+
+    df = pd.DataFrame(rows)
+    parsed = pss._parse_long_shift_tables(df)
+    assert "Team A" in parsed
+    assert "Team B" in parsed
+
+    b_sb = parsed["Team B"]["sb_pairs_by_player"]
+    assert "34_Bob_Example" in b_sb
+    # First shift: period 1
+    assert b_sb["34_Bob_Example"][0][0] == 1
+    # Last shift: OT (period 4) marker should apply
+    assert b_sb["34_Bob_Example"][-1][0] == 4
+
+
 def should_write_opponent_player_stats_from_long_shift_tables(tmp_path: Path):
     import datetime
 
