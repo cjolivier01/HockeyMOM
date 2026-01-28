@@ -4132,31 +4132,76 @@ def _parse_long_shift_tables(
 
     def _parse_team_header(s: str) -> Optional[Tuple[str, int]]:
         # Example: "San Jose Jr Sharks 12AA-2 (1st Period)"
-        m = re.match(r"(?is)^\s*(.+?)\s*\(([^)]+)\)\s*$", str(s or ""))
-        if not m:
+        raw = _clean_html_fragment(str(s or ""))
+        if not raw:
             return None
-        left = _clean_html_fragment(m.group(1))
-        right = _clean_html_fragment(m.group(2))
 
         # Common format: "<Team Name> (1st Period)"
-        p = parse_period_label(right)
-        if left and p is not None:
-            return left, int(p)
+        m = re.match(r"(?is)^\s*(.+?)\s*\(([^)]+)\)\s*$", raw)
+        if m:
+            left = _clean_html_fragment(m.group(1))
+            right = _clean_html_fragment(m.group(2))
 
-        # Older long sheets sometimes label shift tables by team color only:
-        #   "1st Period (White team)" / "1st Period (Blue team)"
-        p2 = parse_period_label(left)
-        if p2 is not None and right:
-            rl = right.casefold()
-            if "white" in rl:
-                return "White", int(p2)
-            if "blue" in rl:
-                return "Blue", int(p2)
+            p = parse_period_label(right)
+            if left and p is not None:
+                return left, int(p)
+
+            # Older long sheets sometimes label shift tables by team color only:
+            #   "1st Period (White team)" / "1st Period (Blue team)"
+            p2 = parse_period_label(left)
+            if p2 is not None and right:
+                rl = right.casefold()
+                if "white" in rl:
+                    return "White", int(p2)
+                if "blue" in rl:
+                    return "Blue", int(p2)
+            return None
+
+        # Some long sheets omit parentheses and use formats like:
+        #   "Texas Warriors 12AA 1st Period"
+        #   "Texas Warriors 12AA Period 1"
+        #
+        # Heuristic: treat these as team headers only when the team name is non-trivial
+        # (more than one token) or the header is for the 1st period. Short one-token forms
+        # like "Texas 2nd Period" are usually period markers within a team block.
+        s2 = raw.strip()
+        for m2 in (
+            re.match(r"(?is)^\s*(.+?)\s+(\d+)(?:st|nd|rd|th)?\s+period\s*$", s2),
+            re.match(r"(?is)^\s*(.+?)\s+period\s*(\d+)\s*$", s2),
+        ):
+            if not m2:
+                continue
+            team = _clean_html_fragment(m2.group(1))
+            per_s = m2.group(2)
+            if not team:
+                continue
+            try:
+                per_i = int(per_s)
+            except Exception:
+                continue
+            tokens = [t for t in team.split() if t]
+            if per_i == 1 or len(tokens) >= 2 or team.casefold() in {"blue", "white"}:
+                return team, int(per_i)
+
         return None
 
     def _parse_period_only(s: str) -> Optional[int]:
         # Example: "2nd Period"
-        return parse_period_label(s)
+        p = parse_period_label(s)
+        if p is not None:
+            return p
+
+        # Some long sheets prefix OT with a team name, e.g. "Texas OT Period".
+        # Only treat this as OT when it clearly refers to a period marker.
+        try:
+            ss = str(s or "").strip()
+        except Exception:
+            return None
+        if not ss:
+            return None
+        if re.search(r"(?i)\bperiod\b", ss) and re.search(r"(?i)\b(?:ot|overtime)\b", ss):
+            return 4
+        return None
 
     def _is_shift_table_header(row: pd.Series) -> bool:
         have_jersey = False

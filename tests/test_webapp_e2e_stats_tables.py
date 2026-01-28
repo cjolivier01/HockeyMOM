@@ -473,3 +473,76 @@ def should_run_games_batch_plus_shift_package_twice_and_keep_stable_state(client
     html = page.content.decode()
     assert _extract_game_stats_counts(html, event_type="Goal") == (1, 2)
     assert _extract_events_table_event_id(html, event_type="Penalty").isdigit()
+
+
+def should_not_attribute_shift_rows_by_jersey_when_name_mismatches(client_and_models):
+    """
+    Regression: shift_rows uploads are per-team, and spreadsheets can occasionally contain
+    rows for players not present in the roster payload. When create_missing_players=False,
+    we should not attribute those rows to a same-jersey player on the team.
+    """
+    client, m = client_and_models
+
+    games_payload = {
+        "league_name": "CAHA",
+        "shared": True,
+        "replace": False,
+        "owner_email": "owner@example.com",
+        "source": "shift_package",
+        "external_key": "caha:test",
+        "games": [
+            {
+                "home_name": "Home A",
+                "away_name": "Away A",
+                "starts_at": "2026-01-02 10:00:00",
+                "location": "Rink 1",
+                "home_score": 0,
+                "away_score": 0,
+                "is_final": True,
+                "season_id": 77,
+                "division_name": "12AA",
+                "home_division_name": "12AA",
+                "away_division_name": "12AA",
+                "home_roster": [{"name": "Adam Ro", "number": "8", "position": "F"}],
+                "away_roster": [],
+            }
+        ],
+    }
+
+    r = _post_json(client, "/api/import/hockey/games_batch", games_payload)
+    assert r.status_code == 200
+    out = json.loads(r.content)
+    assert out["ok"] is True
+    gid = int(out["results"][0]["game_id"])
+
+    shift_rows_csv = (
+        "Player,Period,Game Seconds,Game Seconds End,Source\n"
+        "8 Adam Ro,1,100,50,shift_package\n"
+        "8 Matias Chapa Gonzalez,1,200,150,shift_package\n"
+    )
+
+    shift_payload: dict[str, Any] = {
+        "game_id": int(gid),
+        "owner_email": "owner@example.com",
+        "league_name": "CAHA",
+        "team_side": "home",
+        "replace": True,
+        "events_csv": "",
+        "shift_rows_csv": shift_rows_csv,
+        "create_missing_players": False,
+    }
+
+    r_shift = _post_json(client, "/api/import/hockey/shift_package", shift_payload)
+    assert r_shift.status_code == 200
+    out_shift = json.loads(r_shift.content)
+    assert out_shift["ok"] is True
+    unmatched = out_shift.get("unmatched") or []
+    assert any("Matias" in str(x) for x in unmatched)
+
+    adam_id = (
+        m.Player.objects.filter(team_id__isnull=False, name="Adam Ro")
+        .values_list("id", flat=True)
+        .first()
+    )
+    assert adam_id is not None
+    assert m.HkyGameShiftRow.objects.filter(game_id=int(gid), player_id=int(adam_id)).count() == 1

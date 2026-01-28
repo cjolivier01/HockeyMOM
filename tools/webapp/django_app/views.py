@@ -12640,24 +12640,53 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             jersey_norm: Optional[str],
             name_norm: str,
             name_norm_no_middle: str,
+            *,
+            restrict_team_id: Optional[int] = None,
         ) -> Optional[int]:
-            candidates: list[int] = []
-            for tid in (team1_id, team2_id):
+            tids = [int(restrict_team_id)] if restrict_team_id is not None else [team1_id, team2_id]
+
+            # Shift rows are uploaded for a specific team_side (home/away). Prefer name-aware matching
+            # when a name is present so we don't accidentally attribute opponent shift rows to a
+            # same-jersey player when rosters are incomplete.
+            if name_norm:
                 if jersey_norm:
-                    candidates.extend(jersey_to_player_ids.get((tid, jersey_norm), []))
-            if len(set(candidates)) == 1:
-                return int(list(set(candidates))[0])
-            candidates = []
-            for tid in (team1_id, team2_id):
-                candidates.extend(name_to_player_ids.get((tid, name_norm), []))
-            if len(set(candidates)) == 1:
-                return int(list(set(candidates))[0])
-            if name_norm_no_middle and name_norm_no_middle != name_norm:
-                candidates = []
-                for tid in (team1_id, team2_id):
-                    candidates.extend(name_to_player_ids.get((tid, name_norm_no_middle), []))
+                    both: set[int] = set()
+                    for tid in tids:
+                        jset = set(jersey_to_player_ids.get((int(tid), jersey_norm), []))
+                        nset = set(name_to_player_ids.get((int(tid), name_norm), []))
+                        both |= jset & nset
+                    if len(both) == 1:
+                        return int(next(iter(both)))
+                    if name_norm_no_middle and name_norm_no_middle != name_norm:
+                        both = set()
+                        for tid in tids:
+                            jset = set(jersey_to_player_ids.get((int(tid), jersey_norm), []))
+                            nset = set(name_to_player_ids.get((int(tid), name_norm_no_middle), []))
+                            both |= jset & nset
+                        if len(both) == 1:
+                            return int(next(iter(both)))
+
+                candidates: list[int] = []
+                for tid in tids:
+                    candidates.extend(name_to_player_ids.get((int(tid), name_norm), []))
                 if len(set(candidates)) == 1:
                     return int(list(set(candidates))[0])
+                if name_norm_no_middle and name_norm_no_middle != name_norm:
+                    candidates = []
+                    for tid in tids:
+                        candidates.extend(
+                            name_to_player_ids.get((int(tid), name_norm_no_middle), [])
+                        )
+                    if len(set(candidates)) == 1:
+                        return int(list(set(candidates))[0])
+                return None
+
+            candidates: list[int] = []
+            for tid in tids:
+                if jersey_norm:
+                    candidates.extend(jersey_to_player_ids.get((int(tid), jersey_norm), []))
+            if len(set(candidates)) == 1:
+                return int(list(set(candidates))[0])
             return None
 
         def _boolish(raw: Any) -> bool:
@@ -12740,7 +12769,12 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
                     jersey_norm = r0.get("jersey_number")
                     name_norm = str(r0.get("name_norm") or "")
                     name_norm_no_middle = str(r0.get("name_norm_no_middle") or "")
-                    pid = _resolve_player_id(jersey_norm, name_norm, name_norm_no_middle)
+                    pid = _resolve_player_id(
+                        jersey_norm,
+                        name_norm,
+                        name_norm_no_middle,
+                        restrict_team_id=int(team_id_for_rows),
+                    )
                     if pid is None:
                         if create_missing_players and team_side in {"home", "away"}:
                             disp = str(r0.get("player_label") or "").strip()
