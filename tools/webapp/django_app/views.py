@@ -3252,6 +3252,74 @@ def _compute_player_has_events_by_pid_for_game(
     return player_has_events_by_pid
 
 
+def _filter_game_skaters_by_shift_participation(
+    *,
+    skaters: list[dict[str, Any]],
+    stats_by_pid: dict[int, dict[str, Any]],
+    player_has_events_by_pid: dict[int, bool],
+    game_roster_pids: set[int],
+) -> tuple[list[dict[str, Any]], set[int], set[int], bool]:
+    """
+    When a team has shift-derived TOI data available, hide skaters who clearly did not play:
+      - shifts == 0
+      - toi_seconds == 0
+      - no associated game events
+      - not present in the per-game roster (HkyGamePlayer), when available
+
+    Also return "mismatch" pids: skaters who have shifts/TOI but are missing from the per-game roster.
+    """
+    team_has_toi = False
+    for p in skaters or []:
+        try:
+            pid = int(p.get("id") or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+        row = stats_by_pid.get(int(pid)) or {}
+        toi = logic._int0(row.get("toi_seconds"))
+        shifts = logic._int0(row.get("shifts"))
+        if int(toi) > 0 and int(shifts) > 0:
+            team_has_toi = True
+            break
+
+    if not team_has_toi:
+        return list(skaters or []), set(), set(), False
+
+    hide_pids: set[int] = set()
+    mismatch_pids: set[int] = set()
+    for p in skaters or []:
+        try:
+            pid = int(p.get("id") or 0)
+        except Exception:
+            continue
+        if pid <= 0:
+            continue
+        row = stats_by_pid.get(int(pid)) or {}
+        toi = logic._int0(row.get("toi_seconds"))
+        shifts = logic._int0(row.get("shifts"))
+        has_events = bool(player_has_events_by_pid.get(int(pid)))
+
+        if (
+            int(toi) == 0
+            and int(shifts) == 0
+            and not has_events
+            and int(pid) not in game_roster_pids
+        ):
+            hide_pids.add(int(pid))
+
+        if (
+            game_roster_pids
+            and int(toi) > 0
+            and int(shifts) > 0
+            and int(pid) not in game_roster_pids
+        ):
+            mismatch_pids.add(int(pid))
+
+    filtered = [p for p in (skaters or []) if int(p.get("id") or 0) not in hide_pids]
+    return filtered, hide_pids, mismatch_pids, True
+
+
 # ----------------------------
 # Landing/auth
 # ----------------------------
@@ -8487,6 +8555,41 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
     except Exception:
         player_has_events_by_pid = {}
 
+    game_roster_pids_by_team: dict[int, set[int]] = {
+        int(game["team1_id"]): set(),
+        int(game["team2_id"]): set(),
+    }
+    try:
+        for tid, pid in m.HkyGamePlayer.objects.filter(
+            game_id=int(game_id),
+            team_id__in=[int(game["team1_id"]), int(game["team2_id"])],
+        ).values_list("team_id", "player_id"):
+            try:
+                tid_i = int(tid)
+                pid_i = int(pid)
+            except Exception:
+                continue
+            if tid_i > 0 and pid_i > 0:
+                game_roster_pids_by_team.setdefault(int(tid_i), set()).add(int(pid_i))
+    except Exception:
+        # Best-effort: game roster is optional.
+        pass
+
+    team1_skaters, _, team1_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
+        skaters=list(team1_skaters),
+        stats_by_pid=stats_by_pid,
+        player_has_events_by_pid=player_has_events_by_pid,
+        game_roster_pids=game_roster_pids_by_team.get(int(game["team1_id"]), set()),
+    )
+    team2_skaters, _, team2_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
+        skaters=list(team2_skaters),
+        stats_by_pid=stats_by_pid,
+        player_has_events_by_pid=player_has_events_by_pid,
+        game_roster_pids=game_roster_pids_by_team.get(int(game["team2_id"]), set()),
+    )
+    team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
+    team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
+
     display_by_pid: dict[int, dict[str, Any]] = {}
     for p in list(team1_skaters) + list(team2_skaters):
         try:
@@ -8563,6 +8666,46 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
 
                 player_stats_cell_conflicts_by_pid.setdefault(int(pid_i), {})[str(k)] = str(msg)
     player_stats_import_warning: Optional[str] = None
+    if team1_mismatch_pids or team2_mismatch_pids:
+        try:
+            players_by_pid = {}
+            for p in list(team1_players or []) + list(team2_players or []):
+                try:
+                    pid_i = int(p.get("id") or 0)
+                except Exception:
+                    continue
+                if pid_i > 0:
+                    players_by_pid[int(pid_i)] = p
+
+            def _label(pid: int) -> str:
+                p = players_by_pid.get(int(pid)) or {}
+                name = str(p.get("name") or "").strip()
+                jersey = str(p.get("jersey_number") or "").strip()
+                if jersey and name:
+                    return f"#{jersey} {name}"
+                return name or f"pid={int(pid)}"
+
+            mismatch_labels: list[str] = []
+            if team1_mismatch_pids:
+                tname = str(game.get("team1_name") or "Home").strip() or "Home"
+                for pid in sorted({int(x) for x in team1_mismatch_pids}):
+                    mismatch_labels.append(f"{tname}: {_label(pid)}")
+            if team2_mismatch_pids:
+                tname = str(game.get("team2_name") or "Away").strip() or "Away"
+                for pid in sorted({int(x) for x in team2_mismatch_pids}):
+                    mismatch_labels.append(f"{tname}: {_label(pid)}")
+
+            shown = mismatch_labels[:6]
+            extra = max(0, len(mismatch_labels) - len(shown))
+            if shown:
+                player_stats_import_warning = (
+                    "Shift stats exist for players missing from the game roster: "
+                    + ", ".join(shown)
+                    + (f" (+{extra} more)" if extra else "")
+                )
+        except Exception:
+            # Best-effort: warning should never break the page.
+            pass
 
     if request.method == "POST" and not edit_mode:
         messages.error(
@@ -10265,6 +10408,38 @@ def public_hky_game_detail(
     except Exception:
         player_has_events_by_pid = {}
 
+    game_roster_pids_by_team: dict[int, set[int]] = {int(team1_id): set(), int(team2_id): set()}
+    try:
+        for tid, pid in m.HkyGamePlayer.objects.filter(
+            game_id=int(game_id),
+            team_id__in=[int(team1_id), int(team2_id)],
+        ).values_list("team_id", "player_id"):
+            try:
+                tid_i = int(tid)
+                pid_i = int(pid)
+            except Exception:
+                continue
+            if tid_i > 0 and pid_i > 0:
+                game_roster_pids_by_team.setdefault(int(tid_i), set()).add(int(pid_i))
+    except Exception:
+        # Best-effort: game roster is optional.
+        pass
+
+    team1_skaters, _, team1_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
+        skaters=list(team1_skaters),
+        stats_by_pid=stats_by_pid,
+        player_has_events_by_pid=player_has_events_by_pid,
+        game_roster_pids=game_roster_pids_by_team.get(int(team1_id), set()),
+    )
+    team2_skaters, _, team2_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
+        skaters=list(team2_skaters),
+        stats_by_pid=stats_by_pid,
+        player_has_events_by_pid=player_has_events_by_pid,
+        game_roster_pids=game_roster_pids_by_team.get(int(team2_id), set()),
+    )
+    team1_roster = list(team1_skaters) + list(team1_goalies) + list(team1_hc) + list(team1_ac)
+    team2_roster = list(team2_skaters) + list(team2_goalies) + list(team2_hc) + list(team2_ac)
+
     display_by_pid: dict[int, dict[str, Any]] = {}
     for p in list(team1_skaters) + list(team2_skaters):
         try:
@@ -10341,6 +10516,46 @@ def public_hky_game_detail(
 
                 player_stats_cell_conflicts_by_pid.setdefault(int(pid_i), {})[str(k)] = str(msg)
     player_stats_import_warning: Optional[str] = None
+    if team1_mismatch_pids or team2_mismatch_pids:
+        try:
+            players_by_pid = {}
+            for p in list(team1_players or []) + list(team2_players or []):
+                try:
+                    pid_i = int(p.get("id") or 0)
+                except Exception:
+                    continue
+                if pid_i > 0:
+                    players_by_pid[int(pid_i)] = p
+
+            def _label(pid: int) -> str:
+                p = players_by_pid.get(int(pid)) or {}
+                name = str(p.get("name") or "").strip()
+                jersey = str(p.get("jersey_number") or "").strip()
+                if jersey and name:
+                    return f"#{jersey} {name}"
+                return name or f"pid={int(pid)}"
+
+            mismatch_labels: list[str] = []
+            if team1_mismatch_pids:
+                tname = str(game.get("team1_name") or "Home").strip() or "Home"
+                for pid in sorted({int(x) for x in team1_mismatch_pids}):
+                    mismatch_labels.append(f"{tname}: {_label(pid)}")
+            if team2_mismatch_pids:
+                tname = str(game.get("team2_name") or "Away").strip() or "Away"
+                for pid in sorted({int(x) for x in team2_mismatch_pids}):
+                    mismatch_labels.append(f"{tname}: {_label(pid)}")
+
+            shown = mismatch_labels[:6]
+            extra = max(0, len(mismatch_labels) - len(shown))
+            if shown:
+                player_stats_import_warning = (
+                    "Shift stats exist for players missing from the game roster: "
+                    + ", ".join(shown)
+                    + (f" (+{extra} more)" if extra else "")
+                )
+        except Exception:
+            # Best-effort: warning should never break the page.
+            pass
 
     default_back_url = f"/public/leagues/{int(league_id)}/schedule"
     return_to = logic._safe_return_to_url(request.GET.get("return_to"), default=default_back_url)
@@ -12460,12 +12675,32 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
     # Team logos can be provided in shift_package payloads (e.g., from file-list YAML).
     # Apply them even when the game already exists so rerunning imports can backfill missing icons.
     try:
+
+        def _boolish_logo_replace(raw: Any) -> bool:
+            if isinstance(raw, bool):
+                return bool(raw)
+            s = str(raw or "").strip().casefold()
+            if not s:
+                return False
+            if s in {"1", "true", "yes", "y", "on"}:
+                return True
+            if s in {"0", "false", "no", "n", "off"}:
+                return False
+            return bool(raw)
+
+        home_logo_replace = bool(replace)
+        away_logo_replace = bool(replace)
+        if "home_logo_replace" in payload:
+            home_logo_replace = _boolish_logo_replace(payload.get("home_logo_replace"))
+        if "away_logo_replace" in payload:
+            away_logo_replace = _boolish_logo_replace(payload.get("away_logo_replace"))
+
         _ensure_team_logo_for_import(
             team_id=int(team1_id),
             logo_b64=payload.get("home_logo_b64"),
             logo_content_type=payload.get("home_logo_content_type"),
             logo_url=payload.get("home_logo_url"),
-            replace=replace,
+            replace=bool(home_logo_replace),
             commit=False,
         )
         _ensure_team_logo_for_import(
@@ -12473,7 +12708,7 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             logo_b64=payload.get("away_logo_b64"),
             logo_content_type=payload.get("away_logo_content_type"),
             logo_url=payload.get("away_logo_url"),
-            replace=replace,
+            replace=bool(away_logo_replace),
             commit=False,
         )
     except Exception:

@@ -1045,6 +1045,135 @@ def should_store_events_via_shift_package_and_render_public_game_page(client_and
     assert "table-scroll-y" in html
 
 
+def should_hide_non_participating_skaters_from_game_roster_when_shift_toi_available(
+    client_and_models,
+):
+    client, m = client_and_models
+    m.League.objects.filter(id=1).update(show_shift_data=True)
+    now = dt.datetime.now()
+
+    m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Bench Guy",
+        jersey_number="55",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameShiftRow.objects.create(
+        game_id=1001,
+        import_key="toi-501-1",
+        source="primary",
+        team_id=101,
+        player_id=501,
+        team_side="Home",
+        period=1,
+        game_seconds=150,
+        game_seconds_end=0,
+        video_seconds=None,
+        video_seconds_end=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
+    assert "Alice" in html
+    assert "Bench Guy" not in html
+
+
+def should_keep_non_participating_skaters_on_game_roster_when_present_in_game_roster(
+    client_and_models,
+):
+    client, m = client_and_models
+    m.League.objects.filter(id=1).update(show_shift_data=True)
+    now = dt.datetime.now()
+
+    bench = m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Bench Guy",
+        jersey_number="55",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGamePlayer.objects.create(
+        game_id=1001,
+        player_id=int(bench.id),
+        team_id=101,
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameShiftRow.objects.create(
+        game_id=1001,
+        import_key="toi-501-1",
+        source="primary",
+        team_id=101,
+        player_id=501,
+        team_side="Home",
+        period=1,
+        game_seconds=150,
+        game_seconds_end=0,
+        video_seconds=None,
+        video_seconds_end=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
+    assert "Bench Guy" in html
+
+
+def should_warn_when_shift_stats_exist_for_player_missing_from_game_roster(client_and_models):
+    client, m = client_and_models
+    m.League.objects.filter(id=1).update(show_shift_data=True)
+    now = dt.datetime.now()
+
+    bench = m.Player.objects.create(
+        id=503,
+        user_id=10,
+        team_id=101,
+        name="Bench Guy",
+        jersey_number="55",
+        position="F",
+        shoots=None,
+        created_at=now,
+        updated_at=None,
+    )
+    # Per-game roster exists, but is missing a player who has shift rows.
+    m.HkyGamePlayer.objects.create(
+        game_id=1001,
+        player_id=int(bench.id),
+        team_id=101,
+        created_at=now,
+        updated_at=None,
+    )
+    m.HkyGameShiftRow.objects.create(
+        game_id=1001,
+        import_key="toi-501-1",
+        source="primary",
+        team_id=101,
+        player_id=501,
+        team_side="Home",
+        period=1,
+        game_seconds=150,
+        game_seconds_end=0,
+        video_seconds=None,
+        video_seconds_end=None,
+        created_at=now,
+        updated_at=None,
+    )
+
+    html = client.get("/public/leagues/1/hky/games/1001").content.decode()
+    assert "Warning:" in html
+    assert "Shift stats exist for players missing from the game roster" in html
+
+
 def should_credit_roster_players_via_shift_package_when_only_events_provided(client_and_models):
     client, m = client_and_models
     assert not m.HkyGamePlayer.objects.filter(game_id=1001).exists()
@@ -1931,3 +2060,67 @@ def should_apply_team_logos_on_existing_game_via_shift_package(
         p = Path(str(logo_path))
         assert p.exists()
         assert p.read_bytes() == png_bytes
+
+
+def should_override_existing_team_logo_when_home_logo_replace_is_true(
+    tmp_path, client_and_models, monkeypatch
+):
+    import base64
+    from pathlib import Path
+
+    from tools.webapp import app as logic
+
+    client, m = client_and_models
+    monkeypatch.setattr(logic, "INSTANCE_DIR", tmp_path, raising=False)
+
+    now = dt.datetime.now()
+    m.HkyGame.objects.create(
+        id=2003,
+        user_id=10,
+        team1_id=101,
+        team2_id=102,
+        game_type_id=None,
+        starts_at=None,
+        location=None,
+        notes=None,
+        team1_score=None,
+        team2_score=None,
+        is_final=False,
+        stats_imported_at=None,
+        timetoscore_game_id=None,
+        external_game_key="ext-logos-override",
+        created_at=now,
+        updated_at=None,
+    )
+
+    old_home = tmp_path / "old_home.png"
+    old_away = tmp_path / "old_away.png"
+    old_home.write_bytes(b"OLDHOME")
+    old_away.write_bytes(b"OLDAWAY")
+    m.Team.objects.filter(id=101).update(logo_path=str(old_home))
+    m.Team.objects.filter(id=102).update(logo_path=str(old_away))
+
+    new_png_bytes = b"\x89PNG\r\n\x1a\nNEW"
+    b64 = base64.b64encode(new_png_bytes).decode("ascii")
+
+    r = _post_json(
+        client,
+        "/api/import/hockey/shift_package",
+        {
+            "external_game_key": "ext-logos-override",
+            "owner_email": "owner@example.com",
+            "replace": False,
+            "home_logo_b64": b64,
+            "home_logo_content_type": "image/png",
+            "home_logo_replace": True,
+        },
+    )
+    assert r.status_code == 200
+    assert json.loads(r.content)["ok"] is True
+
+    home_logo_path = m.Team.objects.filter(id=101).values_list("logo_path", flat=True).first()
+    assert home_logo_path and Path(str(home_logo_path)).exists()
+    assert Path(str(home_logo_path)).read_bytes() == new_png_bytes
+
+    away_logo_path = m.Team.objects.filter(id=102).values_list("logo_path", flat=True).first()
+    assert str(away_logo_path) == str(old_away)
