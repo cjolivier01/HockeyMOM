@@ -14835,6 +14835,7 @@ def main() -> None:
             away_logo_replace = False
             roster_home_payload: Optional[List[Dict[str, Any]]] = None
             roster_away_payload: Optional[List[Dict[str, Any]]] = None
+            t2s_rosters: Optional[Dict[str, Dict[str, str]]] = None
             if t2s_id is not None and (not upload_home or not upload_away):
                 t2s_home, t2s_away = _t2s_team_names_for_game(
                     int(t2s_id),
@@ -14906,7 +14907,7 @@ def main() -> None:
             _apply_team_icon_override(upload_away, side="away")
             if t2s_id is not None:
                 try:
-                    rosters = _get_t2s_game_rosters(
+                    t2s_rosters = _get_t2s_game_rosters(
                         int(t2s_id),
                         hockey_db_dir,
                         allow_remote=t2s_allow_remote,
@@ -14915,7 +14916,7 @@ def main() -> None:
 
                     def _roster_list(side: str) -> List[Dict[str, Any]]:
                         out: List[Dict[str, Any]] = []
-                        for jersey, name in (rosters.get(side) or {}).items():
+                        for jersey, name in (t2s_rosters.get(side) or {}).items():
                             jj = str(jersey or "").strip()
                             nn = str(name or "").strip()
                             if not jj or not nn:
@@ -14931,6 +14932,7 @@ def main() -> None:
                     roster_home_payload = _roster_list("home")
                     roster_away_payload = _roster_list("away")
                 except Exception:
+                    t2s_rosters = None
                     roster_home_payload = None
                     roster_away_payload = None
 
@@ -15057,6 +15059,34 @@ def main() -> None:
                     if primary_side not in {"home", "away"}:
                         primary_side = "home"
                     primary_stats = dirs.get(primary_side, final_outdir / "stats")
+
+                    def _shift_rows_jerseys(stats_dir: Path) -> set[str]:
+                        path = stats_dir / "shift_rows.csv"
+                        try:
+                            if not path.exists() or not path.is_file() or path.stat().st_size <= 0:
+                                return set()
+                        except Exception:
+                            return set()
+                        try:
+                            df = pd.read_csv(path, dtype=str)
+                        except Exception:
+                            return set()
+                        jersey_col = None
+                        for c in df.columns:
+                            key = str(c).strip().casefold()
+                            if key in {"jersey #", "jersey#", "jersey", "jersey_number"}:
+                                jersey_col = c
+                                break
+                        if jersey_col is None:
+                            return set()
+                        out: set[str] = set()
+                        for v in df[jersey_col].dropna().tolist():
+                            jn = _normalize_jersey_number(v)
+                            if jn:
+                                out.add(str(jn))
+                        return out
+
+                    primary_shift_jerseys = _shift_rows_jerseys(primary_stats)
                     if _has_uploadable_stats(primary_stats):
                         _upload_shift_package_to_webapp(
                             webapp_url=str(getattr(args, "webapp_url", "") or "").strip()
@@ -15139,6 +15169,33 @@ def main() -> None:
 
                     other_side = "away" if primary_side == "home" else "home"
                     other_stats = dirs.get(other_side)
+                    if other_stats is not None and _has_uploadable_stats(other_stats):
+                        other_shift_jerseys = _shift_rows_jerseys(other_stats)
+                        if not other_shift_jerseys:
+                            other_stats = None
+                        elif primary_shift_jerseys:
+                            overlap = len(primary_shift_jerseys & other_shift_jerseys)
+                            min_sz = min(len(primary_shift_jerseys), len(other_shift_jerseys))
+                            if min_sz > 0 and (overlap / float(min_sz)) >= 0.6:
+                                print(
+                                    f"[webapp] Skipping secondary shift upload for {label}: "
+                                    f"Home/Away shift rosters overlap ({overlap}/{min_sz})",
+                                    file=sys.stderr,
+                                )
+                                other_stats = None
+                        if other_stats is not None and t2s_rosters:
+                            roster_jerseys = set((t2s_rosters.get(other_side) or {}).keys())
+                            if roster_jerseys:
+                                roster_match = len(other_shift_jerseys & roster_jerseys)
+                                if roster_match < 2:
+                                    print(
+                                        f"[webapp] Skipping secondary shift upload for {label}: "
+                                        f"{other_side} shift rows do not match T2S roster "
+                                        f"({roster_match}/{len(other_shift_jerseys)} jerseys)",
+                                        file=sys.stderr,
+                                    )
+                                    other_stats = None
+
                     if other_stats is not None and _has_uploadable_stats(other_stats):
                         # Avoid overwriting per-game events: upload only the other side's shift rows (no events).
                         _upload_shift_package_to_webapp(

@@ -708,6 +708,89 @@
             return iconKey;
           }
 
+          function inferColorSideMap(rows) {
+            // Some long-sheet imports record Team Side as "Blue"/"White" rather than Home/Away.
+            // Best-effort: infer a stable mapping from (period, time) co-occurrence with goal/shot-family
+            // events that do have Home/Away.
+            var absFinishByKey = {};
+
+            function parsePeriodAndWithin(r) {
+              var period = parsePeriod(getValue(r, ["Period"]));
+              if (period === null) return null;
+              var gs = String(getValue(r, ["Game Seconds", "GameSeconds"]) || "").trim();
+              var tWithin = null;
+              if (gs && gs.match(/^-?\\d+$/)) {
+                tWithin = parseInt(gs, 10);
+              } else {
+                tWithin = parseTimeToSecondsLoose(getValue(r, ["Game Time", "GameTime", "Time"]));
+              }
+              if (tWithin === null || !isFinite(tWithin)) return null;
+              if (tWithin < 0) tWithin = 0;
+              if (tWithin > 1500) {
+                var tAlt = parseTimeToSecondsLoose(getValue(r, ["Game Time", "GameTime", "Time"]));
+                if (tAlt !== null && isFinite(tAlt)) tWithin = tAlt;
+                if (tWithin !== null && isFinite(tWithin) && tWithin > 1500) return null;
+              }
+              return { period: period, tWithin: tWithin };
+            }
+
+            function absSideFromRow(r) {
+              var tr = String(getValue(r, ["Team Side", "TeamSide", "Team Rel", "TeamRel", "Side", "Team"]) || "").trim();
+              var trl = tr.toLowerCase();
+              if (trl === "home" || trl === "team1") return "Home";
+              if (trl === "away" || trl === "team2") return "Away";
+              return null;
+            }
+
+            for (var i = 0; i < rows.length; i++) {
+              var r = rows[i] || {};
+              var pt = parsePeriodAndWithin(r);
+              if (!pt) continue;
+              var label = normalizeTypeLabel(getValue(r, ["Event Type", "EventType", "Event", "Type"]));
+              if (!label) continue;
+              var ik = typeKey(label);
+              if (!isFinishFamily(ik)) continue;
+              var abs = absSideFromRow(r);
+              if (!abs) continue;
+              var key = pt.period + "|" + pt.tWithin;
+              var pri = finishPriority(ik);
+              var cur = absFinishByKey[key];
+              if (!cur || pri > cur.pri) absFinishByKey[key] = { side: abs, pri: pri };
+            }
+
+            var counts = { blue: { Home: 0, Away: 0 }, white: { Home: 0, Away: 0 } };
+            for (var j = 0; j < rows.length; j++) {
+              var r2 = rows[j] || {};
+              var tr2 = String(getValue(r2, ["Team Side", "TeamSide", "Side", "Team"]) || "").trim().toLowerCase();
+              if (tr2 !== "blue" && tr2 !== "white") continue;
+              var pt2 = parsePeriodAndWithin(r2);
+              if (!pt2) continue;
+              var match = absFinishByKey[pt2.period + "|" + pt2.tWithin];
+              if (match && (match.side === "Home" || match.side === "Away")) {
+                counts[tr2][match.side] += 1;
+              }
+            }
+
+            var out = {};
+            function choose(color) {
+              var h = counts[color].Home || 0;
+              var a = counts[color].Away || 0;
+              if (h > a && h > 0) return "Home";
+              if (a > h && a > 0) return "Away";
+              return null;
+            }
+            var blue = choose("blue");
+            var white = choose("white");
+            if (blue) out.blue = blue;
+            if (white) out.white = white;
+            if (out.blue && !out.white) out.white = (out.blue === "Home" ? "Away" : "Home");
+            if (out.white && !out.blue) out.blue = (out.white === "Home" ? "Away" : "Home");
+            return out;
+          }
+
+          var colorSideMap = null;
+          try { colorSideMap = inferColorSideMap(eventsRows); } catch (e) { colorSideMap = null; }
+
             function parseSide(row) {
             // Absolute side (Home/Away). Do NOT treat For/Against as a team; it's only a relative
             // direction *with respect to* Home or Away.
@@ -715,6 +798,14 @@
             var trl = tr.toLowerCase();
             if (trl === "home" || trl === "team1") return "Home";
             if (trl === "away" || trl === "team2") return "Away";
+            if (trl === "blue" || trl === "white") {
+              if (colorSideMap && (colorSideMap[trl] === "Home" || colorSideMap[trl] === "Away")) return colorSideMap[trl];
+              // Fallback: if the row only has one of the split on-ice columns, place it accordingly.
+              var oih = String(getValue(row, ["On-Ice Players (Home)", "OnIce Players (Home)"]) || "").trim();
+              var oia = String(getValue(row, ["On-Ice Players (Away)", "OnIce Players (Away)"]) || "").trim();
+              if (oih && !oia) return "Home";
+              if (oia && !oih) return "Away";
+            }
               return "Neutral";
             }
   

@@ -13292,7 +13292,10 @@ def api_import_shift_package(request: HttpRequest) -> JsonResponse:
             "game_id": int(resolved_game_id),
             "imported_players": int(imported),
             "imported_shifts": int(imported_shifts),
-            "unmatched": [u for u in unmatched if u],
+            "unmatched": list(
+                dict.fromkeys([str(u).strip() for u in unmatched if str(u or "").strip()])
+            ),
+            "unmatched_count": int(len([u for u in unmatched if str(u or "").strip()])),
         }
     )
 
