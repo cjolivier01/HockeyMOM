@@ -166,6 +166,23 @@
             <td>{{ g.location|default_if_none:"" }}</td>
             <td>
               {% if s1 != None and s2 != None %}
+                {% if team.id == g.team1_id %}
+                  {% if s1 > s2 %}
+                    <strong class="schedule-result-prefix schedule-result-win">W </strong>
+                  {% elif s1 < s2 %}
+                    <strong class="schedule-result-prefix schedule-result-loss">L </strong>
+                  {% else %}
+                    <strong class="schedule-result-prefix schedule-result-tie">T </strong>
+                  {% endif %}
+                {% elif team.id == g.team2_id %}
+                  {% if s2 > s1 %}
+                    <strong class="schedule-result-prefix schedule-result-win">W </strong>
+                  {% elif s2 < s1 %}
+                    <strong class="schedule-result-prefix schedule-result-loss">L </strong>
+                  {% else %}
+                    <strong class="schedule-result-prefix schedule-result-tie">T </strong>
+                  {% endif %}
+                {% endif %}
                 {{ s2 }} - {{ s1 }}
               {% else %}
                 <span class="muted">—</span>
