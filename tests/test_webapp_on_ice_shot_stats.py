@@ -113,11 +113,12 @@ def should_compute_on_ice_sog_for_and_against_from_shift_and_event_rows(webapp_d
         updated_at=None,
     )
 
-    def _add_ev(*, import_key: str, et, team_id: int, team_side: str, t: int) -> None:
+    def _add_ev(*, import_key: str, et, team_id: int, team_side: str, t: int, source: str) -> None:
         m.HkyGameEventRow.objects.create(
             game_id=int(g.id),
             event_type_id=int(et.id),
             import_key=str(import_key),
+            source=str(source),
             team_id=int(team_id),
             team_side=str(team_side),
             for_against=None,
@@ -145,9 +146,30 @@ def should_compute_on_ice_sog_for_and_against_from_shift_and_event_rows(webapp_d
     #  - 15: Team A Shot (only Alice on)
     #  - 45: Team B SOG (Alice + Carol on)
     #  - 75: Team A Goal (only Carol on; counts as SOG evidence)
-    _add_ev(import_key="ev-1", et=et_shot, team_id=int(team_a.id), team_side="Home", t=15)
-    _add_ev(import_key="ev-2", et=et_sog, team_id=int(team_b.id), team_side="Away", t=45)
-    _add_ev(import_key="ev-4", et=et_goal, team_id=int(team_a.id), team_side="Home", t=75)
+    _add_ev(
+        import_key="ev-1",
+        et=et_shot,
+        team_id=int(team_a.id),
+        team_side="Home",
+        t=15,
+        source="long",
+    )
+    _add_ev(
+        import_key="ev-2",
+        et=et_sog,
+        team_id=int(team_b.id),
+        team_side="Away",
+        t=45,
+        source="long",
+    )
+    _add_ev(
+        import_key="ev-4",
+        et=et_goal,
+        team_id=int(team_a.id),
+        team_side="Home",
+        t=75,
+        source="goals",
+    )
 
     from tools.webapp.django_app import views
 

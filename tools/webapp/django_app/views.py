@@ -2649,6 +2649,8 @@ def _player_stat_rows_from_event_tables_for_team_games(
     shot_game_ids: set[int] = set()
     sog_evidence_rows_by_game: dict[int, list[dict[str, Any]]] = {}
     shot_attempt_rows_by_game: dict[int, list[dict[str, Any]]] = {}
+    long_shot_game_ids: set[int] = set()
+    long_sog_game_ids: set[int] = set()
     pim_game_ids: set[int] = set()
     completed_pass_game_ids: set[int] = set()
     giveaway_game_ids: set[int] = set()
@@ -2665,6 +2667,19 @@ def _player_stat_rows_from_event_tables_for_team_games(
     ot_goals_by_pid_gid: dict[tuple[int, int], int] = {}
     ot_assists_by_pid_gid: dict[tuple[int, int], int] = {}
 
+    def _split_sources(raw: Any) -> list[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
+    def _has_source(raw: Any, token: str) -> bool:
+        tok_cf = str(token or "").strip().casefold()
+        if not tok_cf:
+            return False
+        return any(str(t).casefold() == tok_cf for t in _split_sources(raw))
+
     for r0 in event_rows or []:
         try:
             gid = int(r0.get("game_id") or 0)
@@ -2675,6 +2690,12 @@ def _player_stat_rows_from_event_tables_for_team_games(
         et = str(r0.get("event_type__key") or "").strip().casefold()
         if not et:
             continue
+
+        is_long = _has_source(r0.get("source"), "long")
+        if is_long and et == "shot":
+            long_shot_game_ids.add(int(gid))
+        if is_long and et in {"sog", "shotongoal"}:
+            long_sog_game_ids.add(int(gid))
 
         # Goal rows are used for scoring coverage + GT/GW derivation + on-ice goal stats.
         if et == "goal":
@@ -2800,6 +2821,8 @@ def _player_stat_rows_from_event_tables_for_team_games(
     except Exception:
         t2s_game_ids = set()
     pim_game_ids |= {int(gid) for gid in t2s_game_ids or []}
+
+    pseudo_cf_game_ids: set[int] = {int(gid) for gid in (long_shot_game_ids & long_sog_game_ids)}
 
     # ----------------------------
     # Determine per-game participation ("played") for GP/denominators.
@@ -3169,7 +3192,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
         # so they can be used for a Pseudo-CF% style share metric.
         # ----------------------------
         for gid in sorted(list(shift_game_ids)):
-            if int(gid) not in shot_game_ids:
+            if int(gid) not in pseudo_cf_game_ids:
                 continue
 
             g2 = games_by_id.get(int(gid)) or {}
