@@ -9987,6 +9987,7 @@ def _write_season_highlight_scripts(
     *,
     create_scripts: bool,
     clip_transition_seconds: Optional[float] = None,
+    allow_missing_videos: bool = False,
 ) -> None:
     """
     For multi-game runs, write no-arg per-player season highlight scripts that:
@@ -10018,20 +10019,60 @@ def _write_season_highlight_scripts(
         return False
 
     players: set[str] = set()
+    missing_video_by_game: dict[str, str] = {}
     for r in results:
-        outdir = r.get("outdir")
-        if not outdir:
+        outdir_raw = r.get("outdir")
+        if not outdir_raw:
             continue
+        outdir = Path(outdir_raw)
+
+        has_any_ts = False
         try:
-            for p in Path(outdir).glob(f"{prefix}*{suffix}"):
+            for p in outdir.glob(f"{prefix}*{suffix}"):
                 name = p.name
-                if not name.startswith(prefix) or not name.endswith(suffix):
-                    continue
-                pk = name[len(prefix) : -len(suffix)]
-                if pk:
-                    players.add(pk)
+                if name.startswith(prefix) and name.endswith(suffix):
+                    pk = name[len(prefix) : -len(suffix)]
+                    if pk:
+                        players.add(pk)
+                if not has_any_ts and _has_timestamps(p):
+                    has_any_ts = True
         except Exception:
             continue
+
+        if not has_any_ts:
+            continue
+        sheet_path = r.get("sheet_path")
+        if sheet_path is None:
+            # T2S-only games don't have a reliable scoreboard->video mapping.
+            continue
+        game_label = str(r.get("label") or "").strip() or str(sheet_path)
+        video_path = r.get("video_path")
+        video = (
+            Path(video_path)
+            if video_path is not None
+            else _find_tracking_output_video_for_sheet_path(Path(sheet_path))
+        )
+        if video is None or not video.exists():
+            missing_video_by_game[game_label] = str(video) if video is not None else "<missing>"
+
+    if missing_video_by_game and not allow_missing_videos:
+        lines = "\n".join(
+            f"  - {game_label}: {video_path}"
+            for game_label, video_path in sorted(missing_video_by_game.items())
+        )
+        raise RuntimeError(
+            "Season highlight script generation requires a local tracking video for each game.\n"
+            "Missing `tracking_output-with-audio*.mp4` for:\n"
+            f"{lines}\n\n"
+            "Fix: create the tracking output video(s) next to each game's `stats/` directory, "
+            "or re-run with `--allow-missing-videos` to skip those games."
+        )
+    if missing_video_by_game and allow_missing_videos:
+        miss_str = ", ".join(
+            f"{game_label} -> {video_path}"
+            for game_label, video_path in sorted(missing_video_by_game.items())
+        )
+        print(f"[season-highlights] WARNING: Missing video(s): {miss_str}", file=sys.stderr)
 
     if not players:
         return
@@ -10075,11 +10116,11 @@ def _write_season_highlight_scripts(
 
             game_entries.append((game_label, video, ts_file, sanitize_name(game_label)))
 
-        if missing_videos:
+        if missing_videos and not allow_missing_videos:
             miss_str = ", ".join(f"{g} -> {vp}" for g, vp in missing_videos)
-            print(
-                f"[season-highlights] WARNING: Missing video(s) for {_display_player_name(player_key)}: {miss_str}",
-                file=sys.stderr,
+            raise RuntimeError(
+                f"Missing video(s) for season highlights ({_display_player_name(player_key)}): {miss_str}. "
+                "Re-run with `--allow-missing-videos` to skip those games."
             )
 
         if not game_entries:
@@ -13265,6 +13306,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--allow-missing-videos",
+        action="store_true",
+        help=(
+            "When generating season highlight scripts, allow missing `tracking_output-with-audio*.mp4` "
+            "videos by skipping those games. By default, missing videos raise an error."
+        ),
+    )
+    p.add_argument(
         "--skip-validation",
         action="store_true",
         help="Skip validation checks on start/end ordering and excessive durations.",
@@ -13733,6 +13782,7 @@ def main() -> None:
         )
         sys.exit(2)
     clip_transition_seconds: Optional[float] = args.clip_transition_seconds
+    allow_missing_videos = bool(args.allow_missing_videos)
 
     t2s_arg_id: Optional[int] = None
     t2s_arg_side: Optional[str] = None
@@ -15828,6 +15878,7 @@ def main() -> None:
             results,
             create_scripts=create_scripts,
             clip_transition_seconds=clip_transition_seconds,
+            allow_missing_videos=allow_missing_videos,
         )
 
 

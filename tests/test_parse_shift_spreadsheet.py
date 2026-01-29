@@ -209,6 +209,54 @@ def should_write_shift_rows_csv_for_long_shift_team_when_enabled(tmp_path: Path)
     assert "15:00" not in text  # stored as seconds, not raw strings
 
 
+def should_error_season_highlights_when_video_missing_unless_allowed(tmp_path: Path):
+    base_outdir = tmp_path / "player_focus"
+    base_outdir.mkdir(parents=True, exist_ok=True)
+
+    g1_outdir = base_outdir / "g1" / "Home" / "per_player"
+    g2_outdir = base_outdir / "g2" / "Home" / "per_player"
+    g1_outdir.mkdir(parents=True, exist_ok=True)
+    g2_outdir.mkdir(parents=True, exist_ok=True)
+
+    (g1_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:01 00:00:02\n", encoding="utf-8"
+    )
+    (g2_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:03 00:00:04\n", encoding="utf-8"
+    )
+
+    g2_video = tmp_path / "g2" / "tracking_output-with-audio.mp4"
+    g2_video.parent.mkdir(parents=True, exist_ok=True)
+    g2_video.write_text("", encoding="utf-8")
+
+    results = [
+        {
+            "label": "g1",
+            "outdir": g1_outdir,
+            "sheet_path": tmp_path / "g1" / "stats" / "sheet.xlsx",
+            "video_path": tmp_path / "g1" / "tracking_output-with-audio.mp4",
+        },
+        {
+            "label": "g2",
+            "outdir": g2_outdir,
+            "sheet_path": tmp_path / "g2" / "stats" / "sheet.xlsx",
+            "video_path": g2_video,
+        },
+    ]
+
+    with pytest.raises(RuntimeError, match=r"Missing `tracking_output-with-audio"):
+        pss._write_season_highlight_scripts(base_outdir, results, create_scripts=True)
+
+    pss._write_season_highlight_scripts(
+        base_outdir, results, create_scripts=True, allow_missing_videos=True
+    )
+    script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
+    assert script.exists()
+    text = script.read_text(encoding="utf-8")
+    assert str(g2_video.resolve()) in text
+    assert "g1" not in text
+
+
 def should_parse_per_player_layout_reports_validation_errors():
     header = [
         "Jersey No",
