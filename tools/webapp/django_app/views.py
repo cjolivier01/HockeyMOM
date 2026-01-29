@@ -7668,6 +7668,47 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
     Add `stats_icons` (+ optional `stats_note`) to schedule game dicts for UI badges.
     """
 
+    def _local_today_date() -> dt.date:
+        """
+        Django may set the process timezone (via `TZ`) when initializing settings; this can make naive
+        `datetime.now()` return UTC even on a machine configured for a local timezone.
+
+        For "today" UI logic (e.g., "untracked upcoming"), prefer the host's configured timezone when
+        available so "games today" behaves as expected around UTC midnight.
+        """
+        try:
+            from zoneinfo import ZoneInfo
+        except Exception:
+            return dt.datetime.now().date()
+
+        tz_name: Optional[str] = None
+        try:
+            from pathlib import Path
+
+            tz_name = Path("/etc/timezone").read_text(encoding="utf-8").strip() or None
+        except Exception:
+            tz_name = None
+
+        if not tz_name:
+            try:
+                from pathlib import Path
+
+                localtime = Path("/etc/localtime")
+                resolved = str(localtime.resolve())
+                marker = "/zoneinfo/"
+                if marker in resolved:
+                    tz_name = resolved.split(marker, 1)[1].strip() or None
+            except Exception:
+                tz_name = None
+
+        if tz_name:
+            try:
+                tz = ZoneInfo(tz_name)
+                return dt.datetime.now(dt.timezone.utc).astimezone(tz).date()
+            except Exception:
+                pass
+        return dt.datetime.now().date()
+
     def _compact_ws(v: Any) -> Any:
         if v is None:
             return None
@@ -7771,7 +7812,7 @@ def _attach_schedule_stats_icons(games: list[dict[str, Any]]) -> None:
         ("yaml-only", "YAML-only", "Y"),
     ]
 
-    today = dt.datetime.now().date()
+    today = _local_today_date()
     for g in games or []:
         try:
             gid = int(g.get("id") or 0)
@@ -8669,6 +8710,22 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             # Best-effort: shift totals are used only for filtering "did not play" skaters.
             shift_totals_by_pid = None
 
+    timeline_roster_by_jersey: dict[str, dict[str, str]] = {"home": {}, "away": {}}
+    try:
+        for side_key, roster in (("home", team1_roster), ("away", team2_roster)):
+            out: dict[str, str] = {}
+            for p in roster:
+                jn = logic.normalize_jersey_number(p.get("jersey_number"))
+                if not jn:
+                    continue
+                name = str(p.get("name") or "").strip()
+                if not name:
+                    continue
+                out[str(jn)] = name
+            timeline_roster_by_jersey[str(side_key)] = out
+    except Exception:
+        timeline_roster_by_jersey = {"home": {}, "away": {}}
+
     team1_skaters, _, team1_mismatch_pids, _ = _filter_game_skaters_by_shift_participation(
         skaters=list(team1_skaters),
         stats_by_pid=stats_by_pid,
@@ -8902,6 +8959,7 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
             "edit_mode": bool(edit_mode),
             "back_url": return_to,
             "return_to": return_to,
+            "timeline_roster_by_jersey": timeline_roster_by_jersey,
             "events_headers": events_headers,
             "events_rows": events_rows,
             "events_meta": events_meta,
@@ -10731,6 +10789,22 @@ def public_hky_game_detail(
         )
         previous_meetings = []
 
+    timeline_roster_by_jersey: dict[str, dict[str, str]] = {"home": {}, "away": {}}
+    try:
+        for side_key, roster in (("home", team1_roster), ("away", team2_roster)):
+            out: dict[str, str] = {}
+            for p in roster:
+                jn = logic.normalize_jersey_number(p.get("jersey_number"))
+                if not jn:
+                    continue
+                name = str(p.get("name") or "").strip()
+                if not name:
+                    continue
+                out[str(jn)] = name
+            timeline_roster_by_jersey[str(side_key)] = out
+    except Exception:
+        timeline_roster_by_jersey = {"home": {}, "away": {}}
+
     return render(
         request,
         "hky_game_detail.html",
@@ -10746,6 +10820,7 @@ def public_hky_game_detail(
             "public_league_id": int(league_id),
             "back_url": return_to,
             "return_to": return_to,
+            "timeline_roster_by_jersey": timeline_roster_by_jersey,
             "events_headers": events_headers,
             "events_rows": events_rows,
             "events_meta": events_meta,

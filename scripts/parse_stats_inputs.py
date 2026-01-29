@@ -3867,6 +3867,66 @@ def _parse_long_left_event_table_with_mapping(
         sog_col = _col_for(header_r, "Shots on Goal", "Shot on Goal", "SOG")
         xg_col = _col_for(header_r, "Expected Goal", "Expected Goals", "xG", "XG")
         assist_col = _col_for(header_r, "Assist", "Assists")
+        if shots_col is None and team_col is not None:
+            # Some long sheets omit an explicit "Shots"/"Shot" header for the jersey column.
+            # Heuristic: pick the first column after "Team" that contains many pure jersey values
+            # (e.g. "#91", "16"), and avoid the embedded shift tables further right.
+            try:
+                shift_header_col: Optional[int] = None
+                scan_r = int(header_r) + 1
+                if 0 <= scan_r < int(df.shape[0]):
+                    for c in range(int(df.shape[1])):
+                        v = df.iat[scan_r, c]
+                        if not isinstance(v, str):
+                            continue
+                        key = _normalize_header_label(v)
+                        if key in {
+                            "jerseynumber",
+                            "playername",
+                            "shiftstartscoreboardtime",
+                            "shiftstartscoreboard",
+                            "shiftstart",
+                        }:
+                            shift_header_col = (
+                                int(c)
+                                if shift_header_col is None
+                                else min(int(shift_header_col), int(c))
+                            )
+                max_event_col = (
+                    int(shift_header_col) if shift_header_col is not None else int(df.shape[1])
+                )
+                start_c = int(team_col) + 1
+                end_c = min(int(max_event_col), start_c + 10)
+                sample_end = min(int(end_r), int(header_r) + 1 + 50)
+
+                best_c: Optional[int] = None
+                best_score = 0
+                for c in range(start_c, end_c):
+                    if c in {video_col, sb_col, team_col}:
+                        continue
+                    pure = 0
+                    anyj = 0
+                    for rr in range(int(header_r) + 1, sample_end):
+                        v = df.iat[rr, c]
+                        if v is None or (isinstance(v, float) and pd.isna(v)):
+                            continue
+                        s = str(v).strip()
+                        if not s:
+                            continue
+                        if re.fullmatch(r"#?\s*\d+\s*", s):
+                            pure += 1
+                        if _extract_jerseys_from_cell(v):
+                            anyj += 1
+                    score = pure * 3 + anyj
+                    if score > best_score:
+                        best_score = score
+                        best_c = int(c)
+
+                if best_c is not None and best_score >= 6:
+                    shots_col = int(best_c)
+            except Exception:
+                # Best-effort: never block long-sheet parsing if inference fails.
+                shots_col = None
         if xg_col is None and sog_col is not None:
             try:
                 cand = int(sog_col) + 1

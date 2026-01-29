@@ -530,10 +530,12 @@
       </div>
       <script type="application/json" id="game-events-timeline-data">{{ events_rows|tojson }}</script>
       <script type="application/json" id="game-shifts-timeline-data">{{ shift_timeline_rows|tojson }}</script>
+      <script type="application/json" id="game-events-timeline-roster">{{ timeline_roster_by_jersey|tojson }}</script>
       <script>
         (function () {
           var dataEl = document.getElementById("game-events-timeline-data");
           var shiftEl = document.getElementById("game-shifts-timeline-data");
+          var rosterEl = document.getElementById("game-events-timeline-roster");
           var svg = document.getElementById("game-events-timeline-svg");
           var legendEl = document.getElementById("game-events-timeline-legend");
           var clipControlsEl = document.getElementById("timeline-clip-controls");
@@ -575,6 +577,16 @@
             eventsRows = [];
           }
           if (!Array.isArray(eventsRows)) eventsRows = [];
+
+          var rosterByJersey = { home: {}, away: {} };
+          try {
+            rosterByJersey = JSON.parse((rosterEl && rosterEl.textContent) ? rosterEl.textContent : "{}") || {};
+          } catch (e) {
+            rosterByJersey = { home: {}, away: {} };
+          }
+          if (!rosterByJersey || typeof rosterByJersey !== "object") rosterByJersey = { home: {}, away: {} };
+          if (!rosterByJersey.home || typeof rosterByJersey.home !== "object") rosterByJersey.home = {};
+          if (!rosterByJersey.away || typeof rosterByJersey.away !== "object") rosterByJersey.away = {};
           // Shift on-ice/off-ice events are intentionally not shown on the game events timeline.
           if (eventsRows.length === 0) return;
 
@@ -2207,6 +2219,17 @@
                 return parts;
               }
 
+              function normalizeJerseyToken(v) {
+                var s = String(v || "").trim();
+                if (!s) return "";
+                var m = s.match(/(\d+)/);
+                if (!m) return "";
+                var n = 0;
+                try { n = parseInt(String(m[1] || "0"), 10); } catch (e) { n = 0; }
+                if (!isFinite(n) || n <= 0) return "";
+                return String(n);
+              }
+
               function addMultiline(label, v) {
                 var items = splitList(v);
                 if (!items.length) return;
@@ -2248,8 +2271,47 @@
                     if (!gameVideoUrl) addLine("Video URL", "missing");
                   }
                 })();
-                addLine("Players", getValue(ev.row, ["Attributed Players"]));
-                addLine("Jerseys", getValue(ev.row, ["Attributed Jerseys"]));
+                (function () {
+                  var playersRaw = getValue(ev.row, ["Attributed Players"]);
+                  var jerseysRaw = getValue(ev.row, ["Attributed Jerseys"]);
+                  var jerseys = splitList(jerseysRaw).map(normalizeJerseyToken).filter(Boolean);
+                  // Dedupe while preserving order.
+                  var seen = {};
+                  var uniq = [];
+                  for (var i = 0; i < jerseys.length; i++) {
+                    var j = String(jerseys[i] || "").trim();
+                    if (!j || seen[j]) continue;
+                    seen[j] = true;
+                    uniq.push(j);
+                  }
+                  var names = splitList(playersRaw);
+
+                  var roster = null;
+                  if (ev.side === "Home") roster = rosterByJersey.home || null;
+                  if (ev.side === "Away") roster = rosterByJersey.away || null;
+
+                  var lines = [];
+                  if (uniq.length) {
+                    for (var k = 0; k < uniq.length; k++) {
+                      var jj = uniq[k];
+                      var nm = (roster && roster[jj]) ? String(roster[jj] || "").trim() : "";
+                      if (!nm && names.length === uniq.length) nm = String(names[k] || "").trim();
+                      lines.push(nm ? ("#" + jj + " " + nm) : ("#" + jj));
+                    }
+                  } else if (names.length) {
+                    for (var n0 = 0; n0 < names.length; n0++) {
+                      var s0 = String(names[n0] || "").trim();
+                      if (s0) lines.push(s0);
+                    }
+                  }
+
+                  if (lines.length) {
+                    addSectionBlock("Players", lines.join("\n"));
+                    return;
+                  }
+                  addLine("Players", playersRaw);
+                  addLine("Jerseys", jerseysRaw);
+                })();
                 addLine("Details", getValue(ev.row, ["Details"]));
                 (function () {
                   var onIceHome = getValue(ev.row, ["On-Ice Players (Home)", "On-Ice Home", "OnIceHome"]);
