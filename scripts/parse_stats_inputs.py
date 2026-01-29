@@ -230,6 +230,66 @@ def _clip_pre_post_s_for_event_type(event_type: str) -> Tuple[int, int]:
     return EVENT_CLIP_PRE_S, EVENT_CLIP_POST_S
 
 
+def _split_window_pre_post_seconds(total_s: int) -> Tuple[int, int]:
+    """
+    Split a total window in seconds into (pre, post) with a 2/3 pre, 1/3 post bias.
+
+    We use ceiling for the pre portion so short windows still bias toward "before".
+    """
+    total = int(total_s or 0)
+    if total <= 0:
+        return (0, 0)
+    pre = (2 * total + 2) // 3  # ceil(2/3 * total)
+    post = total - pre
+    return (int(pre), int(post))
+
+
+def _parse_season_highlight_types(spec: str) -> Tuple[str, ...]:
+    """
+    Parse a comma/space-separated list of event types for season highlight timestamps.
+
+    Accepts common aliases like 'xg' -> 'ExpectedGoal'. Unknown tokens are passed through.
+    """
+    raw = str(spec or "").strip()
+    if not raw:
+        return ()
+
+    alias: Dict[str, str] = {
+        "goal": "Goal",
+        "goals": "Goal",
+        "assist": "Assist",
+        "assists": "Assist",
+        "expectedgoal": "ExpectedGoal",
+        "expectedgoals": "ExpectedGoal",
+        "xg": "ExpectedGoal",
+        "sog": "SOG",
+        "shot": "Shot",
+        "shots": "Shot",
+        "takeaway": "Takeaway",
+        "takeaways": "Takeaway",
+        "giveaway": "Giveaway",
+        "giveaways": "Giveaway",
+        "turnoverforced": "TurnoverForced",
+        "createdturnover": "CreatedTurnover",
+        "goaliechange": "GoalieChange",
+        "controlledentry": "ControlledEntry",
+        "controlledexit": "ControlledExit",
+        "completedpass": "CompletedPass",
+        "penalty": "Penalty",
+    }
+
+    out: List[str] = []
+    for tok in re.split(r"[,\s]+", raw):
+        t = str(tok or "").strip()
+        if not t:
+            continue
+        key = re.sub(r"[^a-z0-9]+", "", t.casefold())
+        canon = alias.get(key, t)
+        if canon not in out:
+            out.append(canon)
+    return tuple(out)
+
+
 def _clean_html_fragment(s: str) -> str:
     if not s:
         return ""
@@ -5627,6 +5687,9 @@ def _write_team_stats_from_long_shift_team(
     xls_path: Path,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     create_scripts: bool = False,
+    season_highlight_types: Tuple[str, ...] = ("Goal", "Assist", "ExpectedGoal", "Takeaway"),
+    season_highlight_window_seconds: Optional[int] = None,
+    clip_transition_seconds: Optional[float] = None,
     skip_if_exists: bool = False,
 ) -> Tuple[
     Path,
@@ -5686,7 +5749,10 @@ def _write_team_stats_from_long_shift_team(
     if include_shifts_in_stats:
         try:
             _write_video_times_and_scripts(
-                outdir, video_pairs_by_player, create_scripts=create_scripts
+                outdir,
+                video_pairs_by_player,
+                create_scripts=create_scripts,
+                clip_transition_seconds=clip_transition_seconds,
             )
             _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
         except Exception:
@@ -6197,6 +6263,7 @@ def _write_team_stats_from_long_shift_team(
                 conv_segments_by_period,
                 create_scripts=create_scripts,
                 focus_team=focus_team,
+                clip_transition_seconds=clip_transition_seconds,
             )
             _write_player_event_highlights(
                 outdir,
@@ -6204,6 +6271,7 @@ def _write_team_stats_from_long_shift_team(
                 conv_segments_by_period,
                 sb_pairs_by_player.keys(),
                 create_scripts=create_scripts,
+                clip_transition_seconds=clip_transition_seconds,
             )
             _write_player_combined_highlights(
                 outdir,
@@ -6212,6 +6280,8 @@ def _write_team_stats_from_long_shift_team(
                 per_player_goal_events=per_player_goal_events,
                 player_keys=sb_pairs_by_player.keys(),
                 create_scripts=create_scripts,
+                highlight_types=season_highlight_types,
+                highlight_window_seconds=season_highlight_window_seconds,
             )
         except Exception:
             pass
@@ -6224,6 +6294,8 @@ def _write_team_stats_from_long_shift_team(
                 per_player_goal_events=per_player_goal_events,
                 player_keys=sb_pairs_by_player.keys(),
                 create_scripts=create_scripts,
+                highlight_types=season_highlight_types,
+                highlight_window_seconds=season_highlight_window_seconds,
             )
         except Exception:
             pass
@@ -7364,9 +7436,20 @@ def _write_video_times_and_scripts(
     outdir: Path,
     video_pairs_by_player: Dict[str, List[Tuple[str, str]]],
     create_scripts: bool,
+    *,
+    clip_transition_seconds: Optional[float] = None,
 ) -> None:
     if not create_scripts:
         return
+    transition_args = ""
+    if clip_transition_seconds is not None:
+        try:
+            v = float(clip_transition_seconds)
+            if not (v > 0.0):
+                v = 0.0
+            transition_args = f"--transition-seconds {v} "
+        except Exception:
+            transition_args = ""
     for player_key, v_pairs in video_pairs_by_player.items():
         norm_pairs = []
         for a, b in v_pairs:
@@ -7414,9 +7497,12 @@ if [ \"$HQ\" -gt 0 ]; then
   export VIDEO_CLIPPER_HQ=1
 fi
 
-python -m hmlib.cli.video_clipper -j {nr_jobs} --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{player_key}\" \"{player_label} vs $OPP\" \"${{EXTRA_FLAGS[@]}}\"
+python -m hmlib.cli.video_clipper -j {nr_jobs} {transition_args}--input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{player_key}\" \"{player_label} vs $OPP\" \"${{EXTRA_FLAGS[@]}}\"
 """.format(
-            nr_jobs=4, player_key=player_key, player_label=player_label
+            nr_jobs=4,
+            transition_args=transition_args,
+            player_key=player_key,
+            player_label=player_label,
         )
         script_path.write_text(script_body, encoding="utf-8")
         try:
@@ -9900,6 +9986,7 @@ def _write_season_highlight_scripts(
     results: List[Dict[str, Any]],
     *,
     create_scripts: bool,
+    clip_transition_seconds: Optional[float] = None,
 ) -> None:
     """
     For multi-game runs, write no-arg per-player season highlight scripts that:
@@ -9950,6 +10037,15 @@ def _write_season_highlight_scripts(
         return
 
     written_scripts: List[str] = []
+    transition_arg = ""
+    if clip_transition_seconds is not None:
+        try:
+            v = float(clip_transition_seconds)
+            if not (v > 0.0):
+                v = 0.0
+            transition_arg = f"--transition-seconds {v}"
+        except Exception:
+            transition_arg = ""
     for player_key in sorted(players):
         # Determine which games this player has highlight events for, in game order.
         game_entries: List[Tuple[str, Path, Path, str]] = []
@@ -10045,8 +10141,10 @@ def _write_season_highlight_scripts(
                     'mkdir -p "$TEMP_DIR"',
                     "(",
                     '  cd "$OUT_DIR"',
-                    '  python -m hmlib.cli.video_clipper -j 4 --input "$VIDEO" --timestamps "$TS_FILE" --temp-dir "$TEMP_DIR" '
-                    f'"{label_safe}" "${{EXTRA_FLAGS[@]}}"',
+                    "  python -m hmlib.cli.video_clipper -j 4 "
+                    + (f"{transition_arg} " if transition_arg else "")
+                    + '--input "$VIDEO" --timestamps "$TS_FILE" --temp-dir "$TEMP_DIR" '
+                    + f'"{label_safe}" "${{EXTRA_FLAGS[@]}}"',
                     ")",
                     f'GAME_CLIPS+=("$OUT_DIR/clips-{label_safe}.mp4")',
                     "",
@@ -10408,6 +10506,7 @@ def _write_event_summaries_and_clips(
     create_scripts: bool,
     *,
     focus_team: Optional[str] = None,
+    clip_transition_seconds: Optional[float] = None,
 ) -> None:
     raw_evt_by_team = dict(event_log_context.event_counts_by_type_team or {})
     raw_instances = event_log_context.event_instances or {}
@@ -10520,6 +10619,16 @@ def _write_event_summaries_and_clips(
     # clip-related timestamp files and helper scripts.
     if not create_scripts:
         return
+
+    transition_args = ""
+    if clip_transition_seconds is not None:
+        try:
+            v = float(clip_transition_seconds)
+            if not (v > 0.0):
+                v = 0.0
+            transition_args = f"--transition-seconds {v} "
+        except Exception:
+            transition_args = ""
 
     instances: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for (etype, team), lst in raw_instances.items():
@@ -10655,7 +10764,7 @@ OPP=\"$2\"
     THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
     TS_FILE=\"$THIS_DIR/{vfile.name}\"
     shift 2 || true
-    python -m hmlib.cli.video_clipper -j 4 --blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
+    python -m hmlib.cli.video_clipper -j 4 {transition_args}--blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype_safe}_{team_safe}\" \"{label} vs $OPP\" \"$@\"
     """
                 script.write_text(body, encoding="utf-8")
                 try:
@@ -10727,6 +10836,7 @@ def _write_player_event_highlights(
     create_scripts: bool,
     *,
     highlight_types: Tuple[str, ...] = ("Goal", "SOG"),
+    clip_transition_seconds: Optional[float] = None,
 ) -> None:
     """
     Generate per-player highlight timestamp files + helper scripts for selected event types.
@@ -10742,6 +10852,16 @@ def _write_player_event_highlights(
     player_set = set(player_keys or [])
     if not player_set:
         return
+
+    transition_args = ""
+    if clip_transition_seconds is not None:
+        try:
+            v = float(clip_transition_seconds)
+            if not (v > 0.0):
+                v = 0.0
+            transition_args = f"--transition-seconds {v} "
+        except Exception:
+            transition_args = ""
 
     def map_sb_to_video(period: int, t_sb: int) -> Optional[int]:
         segs = conv_segments_by_period.get(period)
@@ -10852,7 +10972,7 @@ OPP=\"$2\"
 THIS_DIR=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"
 TS_FILE=\"$THIS_DIR/{vfile.name}\"
 shift 2 || true
-python -m hmlib.cli.video_clipper -j 4 --blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{pk}\" \"{label} vs $OPP\" \"$@\"
+python -m hmlib.cli.video_clipper -j 4 {transition_args}--blink-event-text --blink-event-label \"{blink_label}\" --input \"$INPUT\" --timestamps \"$TS_FILE\" --temp-dir \"$THIS_DIR/temp_clips/{etype}_{pk}\" \"{label} vs $OPP\" \"$@\"
 """
         script.write_text(body, encoding="utf-8")
         try:
@@ -10872,6 +10992,7 @@ def _write_player_combined_highlights(
     player_keys: Iterable[str],
     create_scripts: bool,
     highlight_types: Tuple[str, ...] = ("Goal", "Assist", "ExpectedGoal", "Takeaway"),
+    highlight_window_seconds: Optional[int] = None,
 ) -> None:
     """
     Generate a per-player "Highlights" timestamp file that mixes multiple event types
@@ -11029,7 +11150,10 @@ def _write_player_combined_highlights(
         evs_sorted = sorted(evs, key=lambda x: x[0])
         windows: List[Tuple[int, int]] = []
         for vsec, etype, _period, _gsec in evs_sorted:
-            pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
+            if highlight_window_seconds is not None:
+                pre_s, post_s = _split_window_pre_post_seconds(int(highlight_window_seconds))
+            else:
+                pre_s, post_s = _clip_pre_post_s_for_event_type(str(etype))
             windows.append((max(0, int(vsec) - int(pre_s)), int(vsec) + int(post_s)))
 
         windows = merge_windows(windows)
@@ -11165,6 +11289,9 @@ def process_sheet(
     write_events_summary: Optional[bool] = None,
     skip_validation: bool = False,
     create_scripts: bool = True,
+    season_highlight_types: Tuple[str, ...] = ("Goal", "Assist", "ExpectedGoal", "Takeaway"),
+    season_highlight_window_seconds: Optional[int] = None,
+    clip_transition_seconds: Optional[float] = None,
     write_opponent_stats_from_long_shifts: bool = True,
     verbose: bool = False,
 ) -> Tuple[
@@ -11211,7 +11338,12 @@ def process_sheet(
 
     # Per-player time files and clip scripts
     if include_shifts_in_stats:
-        _write_video_times_and_scripts(outdir, video_pairs_by_player, create_scripts=create_scripts)
+        _write_video_times_and_scripts(
+            outdir,
+            video_pairs_by_player,
+            create_scripts=create_scripts,
+            clip_transition_seconds=clip_transition_seconds,
+        )
         _write_scoreboard_times(outdir, sb_pairs_by_player, create_scripts=create_scripts)
 
     if write_events_summary is None:
@@ -12140,6 +12272,7 @@ def process_sheet(
             conv_segments_by_period,
             create_scripts=create_scripts,
             focus_team=focus_team,
+            clip_transition_seconds=clip_transition_seconds,
         )
         _write_player_event_highlights(
             outdir,
@@ -12147,6 +12280,7 @@ def process_sheet(
             conv_segments_by_period,
             sb_pairs_by_player.keys(),
             create_scripts=create_scripts,
+            clip_transition_seconds=clip_transition_seconds,
         )
         _write_player_combined_highlights(
             outdir,
@@ -12155,6 +12289,8 @@ def process_sheet(
             per_player_goal_events=per_player_goal_events,
             player_keys=sb_pairs_by_player.keys(),
             create_scripts=create_scripts,
+            highlight_types=season_highlight_types,
+            highlight_window_seconds=season_highlight_window_seconds,
         )
     else:
         # Still write combined per-player highlights for goals/assists when available.
@@ -12165,6 +12301,8 @@ def process_sheet(
             per_player_goal_events=per_player_goal_events,
             player_keys=sb_pairs_by_player.keys(),
             create_scripts=create_scripts,
+            highlight_types=season_highlight_types,
+            highlight_window_seconds=season_highlight_window_seconds,
         )
 
     # Aggregate clip runner (optional scripts)
@@ -12301,6 +12439,9 @@ def process_long_only_sheets(
     goals_xlsx_exists: bool = False,
     write_events_summary: Optional[bool] = None,
     create_scripts: bool = True,
+    season_highlight_types: Tuple[str, ...] = ("Goal", "Assist", "ExpectedGoal", "Takeaway"),
+    season_highlight_window_seconds: Optional[int] = None,
+    clip_transition_seconds: Optional[float] = None,
     allow_remote: bool = True,
     allow_full_sync: bool = True,
     verbose: bool = False,
@@ -12549,6 +12690,9 @@ def process_long_only_sheets(
             xls_path=Path(primary_long_path),
             t2s_rosters_by_side=t2s_rosters_by_side,
             create_scripts=create_scripts,
+            season_highlight_types=season_highlight_types,
+            season_highlight_window_seconds=season_highlight_window_seconds,
+            clip_transition_seconds=clip_transition_seconds,
             skip_if_exists=False,
         )
     )
@@ -13091,6 +13235,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Do not generate clip helper scripts or any '*_times.txt' timestamp files used for clipping.",
     )
     p.add_argument(
+        "--season-highlight-types",
+        type=str,
+        default="Goal,Assist,ExpectedGoal,Takeaway",
+        help=(
+            "Comma/space-separated event types to include in per-player season highlight timestamps "
+            "(`events_Highlights_*_video_times.txt`). Example: 'Goal' or 'Goal,Assist'. "
+            "Aliases: xg -> ExpectedGoal."
+        ),
+    )
+    p.add_argument(
+        "--season-highlight-window-seconds",
+        type=int,
+        default=None,
+        help=(
+            "Override the clip window size used when generating `events_Highlights_*_video_times.txt`. "
+            "Total seconds around the event, split 2/3 before and 1/3 after. "
+            "Default: per-event windows (goals/assists 30s total; other events 15s total)."
+        ),
+    )
+    p.add_argument(
+        "--clip-transition-seconds",
+        type=float,
+        default=None,
+        help=(
+            "For generated clip scripts (season highlights, event clips, etc.), pass "
+            "`--transition-seconds` through to `hmlib.cli.video_clipper`. "
+            "Default: omit (video_clipper default is 3.0); 0 disables transitions."
+        ),
+    )
+    p.add_argument(
         "--skip-validation",
         action="store_true",
         help="Skip validation checks on start/end ordering and excessive durations.",
@@ -13543,6 +13717,22 @@ def main() -> None:
         focus_team_override = "White"
     elif getattr(args, "dark", False):
         focus_team_override = "Blue"
+
+    season_highlight_types = _parse_season_highlight_types(args.season_highlight_types)
+    if not season_highlight_types:
+        print(
+            "Error: --season-highlight-types must include at least one event type.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    season_highlight_window_seconds: Optional[int] = args.season_highlight_window_seconds
+    if season_highlight_window_seconds is not None and int(season_highlight_window_seconds) <= 0:
+        print(
+            "Error: --season-highlight-window-seconds must be a positive integer.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    clip_transition_seconds: Optional[float] = args.clip_transition_seconds
 
     t2s_arg_id: Optional[int] = None
     t2s_arg_side: Optional[str] = None
@@ -14363,6 +14553,9 @@ def main() -> None:
                     write_events_summary=write_events_summary,
                     skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
+                    season_highlight_types=season_highlight_types,
+                    season_highlight_window_seconds=season_highlight_window_seconds,
+                    clip_transition_seconds=clip_transition_seconds,
                     write_opponent_stats_from_long_shifts=False,
                     verbose=bool(args.verbose),
                 )
@@ -14764,6 +14957,9 @@ def main() -> None:
                         ),
                         write_events_summary=write_events_summary,
                         create_scripts=create_scripts,
+                        season_highlight_types=season_highlight_types,
+                        season_highlight_window_seconds=season_highlight_window_seconds,
+                        clip_transition_seconds=clip_transition_seconds,
                         allow_remote=t2s_allow_remote,
                         verbose=bool(args.verbose),
                     )
@@ -14797,6 +14993,9 @@ def main() -> None:
                     write_events_summary=write_events_summary,
                     skip_validation=args.skip_validation,
                     create_scripts=create_scripts,
+                    season_highlight_types=season_highlight_types,
+                    season_highlight_window_seconds=season_highlight_window_seconds,
+                    clip_transition_seconds=clip_transition_seconds,
                     verbose=bool(args.verbose),
                 )
         video_path = _find_tracking_output_video_for_sheet_path(in_path) if create_scripts else None
@@ -15624,7 +15823,12 @@ def main() -> None:
         )
 
         # Season (multi-game) highlight reel scripts (skipped with --no-scripts).
-        _write_season_highlight_scripts(base_outdir, results, create_scripts=create_scripts)
+        _write_season_highlight_scripts(
+            base_outdir,
+            results,
+            create_scripts=create_scripts,
+            clip_transition_seconds=clip_transition_seconds,
+        )
 
 
 if __name__ == "__main__":

@@ -124,6 +124,7 @@ aspen:
 **Video Clipper**
 - Binary: `hmlib/cli/video_clipper.py`
 - New options:
+  - `--transition-seconds`: seconds for per-clip title cards (default 3.0; 0 disables transitions).
   - `--blink-circle`: overlays a blinking orange circle near the top-left around the clip midpoint.
   - `--blink-pre` / `--blink-post`: seconds before/after midpoint to blink (default 2.0/2.0).
 - Behavior notes:
@@ -161,3 +162,6 @@ aspen:
     - `python scripts/parse_stats_inputs.py --input /home/colivier/Videos/sharks-12-1-r2/stats --outdir player_shifts`
   - Season run from a list (files and/or directories):
     - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats`
+  - Season highlight scripts (goals only) with a 30s window (20s before / 10s after) and no title-card transitions:
+    - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats --season-highlight-types Goal --season-highlight-window-seconds 30 --clip-transition-seconds 0`
+    - Run all per-player season reels: `bash season_stats/season_highlights/clip_season_highlights_all.sh`
