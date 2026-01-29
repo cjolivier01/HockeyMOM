@@ -93,6 +93,7 @@ from core.events import (  # noqa: E402
     compute_goalie_stats_for_game,
     compute_goalie_stats_for_team_games,
     compute_team_scoring_by_period_from_events,
+    enrich_goal_video_times_from_long_events,
     enrich_timetoscore_goals_with_long_video_times,
     enrich_timetoscore_penalties_with_video_times,
     filter_events_csv_drop_event_types,

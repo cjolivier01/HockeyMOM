@@ -795,6 +795,181 @@ def enrich_timetoscore_goals_with_long_video_times(
     return out_headers, out_rows
 
 
+def enrich_goal_video_times_from_long_events(
+    *,
+    headers: list[str],
+    rows: list[dict[str, str]],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """
+    If a game has long-sheet events, prefer their goal clip timing for goal events in the unified
+    game events stream.
+
+    Motivation: some imports provide Goal rows from TimeToScore/goals.xlsx, while the long
+    spreadsheet has better video_time/video_seconds alignment for the corresponding goal moment.
+
+    Policy:
+      - Never modifies rows that were explicitly corrected (e.g. via embedded YAML event_corrections).
+      - Overwrites the goal row's Video Time/Seconds when a matching long-sheet event exists.
+      - Adds "long" to the Source field when enrichment is applied.
+    """
+    if not headers or not rows:
+        return headers, rows
+
+    def _norm(s: Any) -> str:
+        return str(s or "").strip().casefold()
+
+    def _split_sources(raw: Any) -> list[str]:
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        parts = re.split(r"[,+;/\s]+", s)
+        return [p for p in (pp.strip() for pp in parts) if p]
+
+    def _has_source(row: dict[str, str], token: str) -> bool:
+        return any(_norm(t) == _norm(token) for t in _split_sources(row.get("Source") or ""))
+
+    def _add_source(row: dict[str, str], token: str) -> None:
+        toks = _split_sources(row.get("Source") or "")
+        toks_cf = {_norm(t) for t in toks}
+        if _norm(token) not in toks_cf:
+            toks.append(str(token))
+        row["Source"] = ",".join([t for t in toks if t])
+
+    def _parse_int(v: Any) -> Optional[int]:
+        try:
+            return int(str(v or "").strip())
+        except Exception:
+            return None
+
+    def _norm_side(row: dict[str, str]) -> Optional[str]:
+        for k in (
+            "Team Side",
+            "TeamSide",
+            "Side",
+            "Team Rel",
+            "TeamRel",
+            "Team Raw",
+            "TeamRaw",
+            "Team",
+        ):
+            v = str(row.get(k) or "").strip().casefold()
+            if v in {"home", "team1"}:
+                return "home"
+            if v in {"away", "team2"}:
+                return "away"
+        return None
+
+    def _period(row: dict[str, str]) -> Optional[int]:
+        p = _parse_int(row.get("Period"))
+        return p if p is not None and p > 0 else None
+
+    def _game_seconds(row: dict[str, str]) -> Optional[int]:
+        gs = _parse_int(row.get("Game Seconds") or row.get("GameSeconds"))
+        if gs is not None:
+            return gs
+        return parse_duration_seconds(
+            row.get("Game Time") or row.get("GameTime") or row.get("Time")
+        )
+
+    def _video_seconds(row: dict[str, str]) -> Optional[int]:
+        vs = _parse_int(row.get("Video Seconds") or row.get("VideoSeconds"))
+        if vs is not None:
+            return vs
+        return parse_duration_seconds(row.get("Video Time") or row.get("VideoTime"))
+
+    def _video_time(row: dict[str, str]) -> str:
+        return str(row.get("Video Time") or row.get("VideoTime") or "").strip()
+
+    def _player_id(row: dict[str, str]) -> Optional[int]:
+        pid = _parse_int(row.get("__hm_player_id"))
+        return pid if pid is not None and pid > 0 else None
+
+    def _is_corrected(row: dict[str, str]) -> bool:
+        # `_load_game_events_for_display()` injects `__hm_has_correction` for corrected rows.
+        if str(row.get("__hm_has_correction") or "").strip():
+            return True
+        # Best-effort fallback for older rows/tests.
+        return _has_source(row, "correction")
+
+    # Build a lookup of long-sheet events that can anchor a goal clip.
+    # Prefer Goal > xG > SOG > Shot at the same instant (and player when available).
+    def _etype_prio(row: dict[str, str]) -> int:
+        k = normalize_event_type_key(row.get("Event Type") or row.get("Event") or "")
+        if k == "goal":
+            return 0
+        if k in {"xg", "expectedgoal", "expectedgoals"}:
+            return 1
+        if k in {"sog", "shotongoal", "shotsongoal"}:
+            return 2
+        if k in {"shot", "shots"}:
+            return 3
+        return 9
+
+    def _row_prio(row: dict[str, str]) -> tuple[int, int, int]:
+        vs = _video_seconds(row)
+        vt = _video_time(row)
+        return (_etype_prio(row), 0 if vs is not None else 1, 0 if vt else 1)
+
+    long_by_pid: dict[tuple[int, str, int, int], dict[str, str]] = {}
+    long_by_time: dict[tuple[int, str, int], dict[str, str]] = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if not _has_source(r, "long"):
+            continue
+        per = _period(r)
+        side = _norm_side(r)
+        gs = _game_seconds(r)
+        if per is None or side is None or gs is None:
+            continue
+        vs = _video_seconds(r)
+        vt = _video_time(r)
+        if vs is None and not vt:
+            continue
+        pid = _player_id(r)
+        if pid is not None:
+            k1 = (int(per), str(side), int(gs), int(pid))
+            prev = long_by_pid.get(k1)
+            if prev is None or _row_prio(r) < _row_prio(prev):
+                long_by_pid[k1] = r
+        k2 = (int(per), str(side), int(gs))
+        prev2 = long_by_time.get(k2)
+        if prev2 is None or _row_prio(r) < _row_prio(prev2):
+            long_by_time[k2] = r
+
+    if not long_by_pid and not long_by_time:
+        return headers, rows
+
+    out_rows: list[dict[str, str]] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        rr = dict(r)
+        if normalize_event_type_key(rr.get("Event Type") or rr.get("Event") or "") == "goal":
+            if not _is_corrected(rr):
+                per = _period(rr)
+                side = _norm_side(rr)
+                gs = _game_seconds(rr)
+                if per is not None and side is not None and gs is not None:
+                    match: Optional[dict[str, str]] = None
+                    pid = _player_id(rr)
+                    if pid is not None:
+                        match = long_by_pid.get((int(per), str(side), int(gs), int(pid)))
+                    if match is None:
+                        match = long_by_time.get((int(per), str(side), int(gs)))
+                    if match is not None:
+                        vs = _video_seconds(match)
+                        vt = _video_time(match)
+                        if vs is not None:
+                            rr["Video Seconds"] = str(int(vs))
+                        if vt:
+                            rr["Video Time"] = str(vt)
+                        _add_source(rr, "long")
+        out_rows.append(rr)
+
+    return headers, out_rows
+
+
 def enrich_timetoscore_penalties_with_video_times(
     *,
     existing_headers: list[str],
@@ -1649,6 +1824,72 @@ def compute_game_event_stats_by_side(events_rows: list[dict[str, str]]) -> list[
             continue
         rec = counts.setdefault(et, {"home": 0, "away": 0})
         rec[side] += 1
+
+    # Shot-tracking display semantics:
+    #   Goals ⊆ xG ⊆ SOG ⊆ Shots
+    #
+    # Some event sources log shot attempts as mutually-exclusive categories:
+    #   - "Goal" rows (goals)
+    #   - "xG"/"Expected Goal" rows (non-goal xG)
+    #   - "SOG"/"Shot on Goal" rows (non-xG shots on goal)
+    #   - "Shot" rows (non-SOG shots)
+    #
+    # Player stat rows use these to build cumulative totals (shots_total = goals + xg + sog + shot),
+    # so apply the same implication to the game-level event-count table for consistency.
+    def _norm_et_key(et: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(et or "").casefold())
+
+    goal_keys = {"goal"}
+    xg_keys = {"xg", "expectedgoal", "expectedgoals"}
+    sog_keys = {"sog", "shotongoal", "shotsongoal"}
+    shot_keys = {"shot", "shots"}
+
+    # Compute cumulative totals once, then override per-row counts for the corresponding types.
+    derived: dict[str, dict[str, int]] = {
+        "xg": {"home": 0, "away": 0},
+        "sog": {"home": 0, "away": 0},
+        "shot": {"home": 0, "away": 0},
+    }
+    if counts:
+        for side in ("home", "away"):
+            goals_n = sum(
+                int(rec.get(side) or 0)
+                for et, rec in counts.items()
+                if _norm_et_key(et) in goal_keys
+            )
+            xg_n = sum(
+                int(rec.get(side) or 0) for et, rec in counts.items() if _norm_et_key(et) in xg_keys
+            )
+            sog_n = sum(
+                int(rec.get(side) or 0)
+                for et, rec in counts.items()
+                if _norm_et_key(et) in sog_keys
+            )
+            shot_n = sum(
+                int(rec.get(side) or 0)
+                for et, rec in counts.items()
+                if _norm_et_key(et) in shot_keys
+            )
+
+            expected_goals_total = int(goals_n) + int(xg_n)
+            sog_total = int(expected_goals_total) + int(sog_n)
+            shots_total = int(sog_total) + int(shot_n)
+
+            derived["xg"][side] = int(expected_goals_total)
+            derived["sog"][side] = int(sog_total)
+            derived["shot"][side] = int(shots_total)
+
+        for et, rec in counts.items():
+            k = _norm_et_key(et)
+            if k in xg_keys:
+                rec["home"] = int(derived["xg"]["home"])
+                rec["away"] = int(derived["xg"]["away"])
+            elif k in sog_keys:
+                rec["home"] = int(derived["sog"]["home"])
+                rec["away"] = int(derived["sog"]["away"])
+            elif k in shot_keys:
+                rec["home"] = int(derived["shot"]["home"])
+                rec["away"] = int(derived["shot"]["away"])
 
     def _prio(et: str) -> int:
         key = et.casefold().replace(" ", "")

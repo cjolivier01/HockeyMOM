@@ -28,6 +28,10 @@ PLAYER_STATS_DB_KEYS: tuple[str, ...] = (
     "turnovers_forced",
     "created_turnovers",
     "takeaways",
+    # Shift-derived on-ice shot metrics (SOG for/against) are computed at runtime from
+    # `hky_game_event_rows` + `hky_game_shift_rows` when enabled.
+    "sog_for_on_ice",
+    "sog_against_on_ice",
     "controlled_entry_for",
     "controlled_entry_against",
     "controlled_exit_for",
@@ -80,6 +84,8 @@ PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("giveaways_per_game", "Giveaways per Game"),
     ("takeaways", "Takeaways"),
     ("takeaways_per_game", "Takeaways per Game"),
+    ("sog_for_on_ice", "SOG For (On-Ice)"),
+    ("sog_against_on_ice", "SOG Against (On-Ice)"),
     ("controlled_entry_for", "Controlled Entry For (On-Ice)"),
     ("controlled_entry_for_per_game", "Controlled Entry For (On-Ice) per Game"),
     ("controlled_entry_against", "Controlled Entry Against (On-Ice)"),

@@ -1372,6 +1372,7 @@ def _load_game_events_for_display(
             "game_seconds_end",
             "video_seconds",
             "details",
+            "correction",
             "attributed_players",
             "attributed_jerseys",
             "player_id",
@@ -1416,6 +1417,7 @@ def _load_game_events_for_display(
             {
                 "__hm_event_row_id": str(int(r.get("id") or 0)),
                 "__hm_player_id": "" if r.get("player_id") is None else str(int(r["player_id"])),
+                "__hm_has_correction": "1" if str(r.get("correction") or "").strip() else "",
                 "Event Type": str(r.get("event_type__name") or "").strip(),
                 "Event ID": "" if r.get("event_id") is None else str(int(r["event_id"])),
                 "Source": str(r.get("source") or "").strip(),
@@ -2645,6 +2647,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
     has_any_goal_row: set[int] = set()
     scoring_game_ids: set[int] = set()
     shot_game_ids: set[int] = set()
+    sog_evidence_rows_by_game: dict[int, list[dict[str, Any]]] = {}
     pim_game_ids: set[int] = set()
     completed_pass_game_ids: set[int] = set()
     giveaway_game_ids: set[int] = set()
@@ -2676,6 +2679,9 @@ def _player_stat_rows_from_event_tables_for_team_games(
         if et == "goal":
             has_any_goal_row.add(int(gid))
             goal_rows_by_game.setdefault(int(gid), []).append(r0)
+
+        if et in {"goal", "xg", "expectedgoal", "sog", "shotongoal"}:
+            sog_evidence_rows_by_game.setdefault(int(gid), []).append(r0)
 
         # Track per-game availability for "measured" stats.
         if et in {"goal", "assist"}:
@@ -2997,7 +3003,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
     # Prefer shift-derived on-ice attribution when shift rows exist for this team/game, even when
     # the goal event rows lack explicit on-ice lists (e.g. TimeToScore-only goal streams).
     # ----------------------------
-    def _goal_seconds(row: dict[str, Any]) -> Optional[int]:
+    def _event_seconds(row: dict[str, Any]) -> Optional[int]:
         gs = _int_or_none(row.get("game_seconds"))
         if gs is not None:
             return int(gs)
@@ -3035,7 +3041,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
             if scoring_tid not in {team1_id, team2_id}:
                 continue
             per = _int_or_none(gr.get("period"))
-            t = _goal_seconds(gr)
+            t = _event_seconds(gr)
             if per is None or int(per) <= 0 or t is None:
                 continue
             goals_seen += 1
@@ -3073,6 +3079,83 @@ def _player_stat_rows_from_event_tables_for_team_games(
             row["gf_counted"] = int(gf)
             row["ga_counted"] = int(ga)
             row["plus_minus"] = int(gf) - int(ga)
+
+    # ----------------------------
+    # On-ice SOG stats (for/against).
+    #
+    # These are shift-derived and therefore only computed when shift data is enabled for the league.
+    # ----------------------------
+    if show_shift_data:
+        for gid in sorted(list(shift_game_ids)):
+            if int(gid) not in shot_game_ids:
+                continue
+
+            g2 = games_by_id.get(int(gid)) or {}
+            team1_id = _int_or_none(g2.get("team1_id")) or 0
+            team2_id = _int_or_none(g2.get("team2_id")) or 0
+            if team1_id <= 0 or team2_id <= 0:
+                continue
+            if int(team_id) not in {int(team1_id), int(team2_id)}:
+                continue
+
+            events = list(sog_evidence_rows_by_game.get(int(gid), []) or [])
+            if not events:
+                continue
+
+            sogf_by_pid: dict[int, int] = {}
+            soga_by_pid: dict[int, int] = {}
+
+            seen = 0
+            counted = 0
+            on_ice_cache: dict[tuple[int, int], set[int]] = {}
+
+            for ev in events:
+                ev_tid = _event_team_id(ev)
+                if ev_tid not in {team1_id, team2_id}:
+                    continue
+                per = _int_or_none(ev.get("period"))
+                t = _event_seconds(ev)
+                if per is None or int(per) <= 0 or t is None:
+                    continue
+                seen += 1
+
+                cache_key = (int(per), int(t))
+                on_ice = on_ice_cache.get(cache_key)
+                if on_ice is None:
+                    period_shifts = shifts_by_gid_period.get(int(gid), {}).get(int(per), []) or []
+                    s: set[int] = set()
+                    for pid, start, end in period_shifts:
+                        if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                            s.add(int(pid))
+                    on_ice_cache[cache_key] = s
+                    on_ice = s
+
+                if not on_ice:
+                    continue
+                counted += 1
+
+                is_for_us = bool(int(ev_tid) == int(team_id))
+
+                if is_for_us:
+                    for pid in on_ice:
+                        sogf_by_pid[int(pid)] = sogf_by_pid.get(int(pid), 0) + 1
+                else:
+                    for pid in on_ice:
+                        soga_by_pid[int(pid)] = soga_by_pid.get(int(pid), 0) + 1
+
+            # If we have SOG evidence but couldn't map any of it to on-ice shifts, treat the
+            # on-ice SOG stats as unknown for this game.
+            if seen > 0 and counted <= 0:
+                continue
+
+            # Only apply on-ice stats to players that have shift rows in this game.
+            for (pid, g0), row in list(by_key.items()):
+                if int(g0) != int(gid):
+                    continue
+                if (int(pid), int(gid)) not in shift_pairs:
+                    continue
+                row["sog_for_on_ice"] = int(sogf_by_pid.get(int(pid), 0) or 0)
+                row["sog_against_on_ice"] = int(soga_by_pid.get(int(pid), 0) or 0)
 
     # Fallback for games without shift rows: use goal event on-ice lists when present.
     for gid, goals in (goal_rows_by_game or {}).items():
@@ -8593,6 +8676,14 @@ def hky_game_detail(request: HttpRequest, game_id: int) -> HttpResponse:  # prag
         events_rows, tts_linked=tts_linked
     )
     try:
+        events_headers, events_rows = logic.enrich_goal_video_times_from_long_events(
+            headers=events_headers,
+            rows=events_rows,
+        )
+    except Exception:
+        # Best-effort: goal clip enrichment is optional.
+        pass
+    try:
         events_headers, events_rows = logic.normalize_events_video_time_for_display(
             events_headers, events_rows
         )
@@ -10484,6 +10575,14 @@ def public_hky_game_detail(
     events_rows = logic.filter_events_rows_prefer_timetoscore_for_goal_assist(
         events_rows, tts_linked=tts_linked
     )
+    try:
+        events_headers, events_rows = logic.enrich_goal_video_times_from_long_events(
+            headers=events_headers,
+            rows=events_rows,
+        )
+    except Exception:
+        # Best-effort: goal clip enrichment is optional.
+        pass
     try:
         events_headers, events_rows = logic.normalize_events_video_time_for_display(
             events_headers, events_rows
