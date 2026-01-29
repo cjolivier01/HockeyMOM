@@ -183,6 +183,24 @@ def should_compute_on_ice_sog_for_and_against_from_shift_and_event_rows(webapp_d
     assert by_pid[int(carol.id)]["sog_for_on_ice"] == 1
     assert by_pid[int(carol.id)]["sog_against_on_ice"] == 1
 
+    assert by_pid[int(alice.id)]["shots_for_on_ice"] == 1
+    assert by_pid[int(alice.id)]["shots_against_on_ice"] == 1
+
+    assert by_pid[int(carol.id)]["shots_for_on_ice"] == 1
+    assert by_pid[int(carol.id)]["shots_against_on_ice"] == 1
+
+    from tools.webapp import app as logic
+
+    alice_display = logic.compute_player_display_stats(
+        {"player_id": int(alice.id), "gp": 1, **dict(by_pid[int(alice.id)])}
+    )
+    assert alice_display["pseudo_cf_pct"] == 50.0
+
+    carol_display = logic.compute_player_display_stats(
+        {"player_id": int(carol.id), "gp": 1, **dict(by_pid[int(carol.id)])}
+    )
+    assert carol_display["pseudo_cf_pct"] == 50.0
+
     # When shift data display is disabled, on-ice SOG stats should be treated as unknown.
     rows_hidden = views._player_stat_rows_from_event_tables_for_team_games(
         team_id=int(team_a.id),
@@ -193,3 +211,5 @@ def should_compute_on_ice_sog_for_and_against_from_shift_and_event_rows(webapp_d
     by_pid_hidden = {int(r["player_id"]): r for r in rows_hidden}
     assert by_pid_hidden[int(alice.id)]["sog_for_on_ice"] is None
     assert by_pid_hidden[int(alice.id)]["sog_against_on_ice"] is None
+    assert by_pid_hidden[int(alice.id)]["shots_for_on_ice"] is None
+    assert by_pid_hidden[int(alice.id)]["shots_against_on_ice"] is None

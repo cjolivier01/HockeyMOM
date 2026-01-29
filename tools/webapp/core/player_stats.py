@@ -32,6 +32,10 @@ PLAYER_STATS_DB_KEYS: tuple[str, ...] = (
     # `hky_game_event_rows` + `hky_game_shift_rows` when enabled.
     "sog_for_on_ice",
     "sog_against_on_ice",
+    # Shift-derived on-ice shot attempt metrics (for Pseudo-CF%) computed at runtime from
+    # `hky_game_event_rows` + `hky_game_shift_rows` when enabled.
+    "shots_for_on_ice",
+    "shots_against_on_ice",
     "controlled_entry_for",
     "controlled_entry_against",
     "controlled_exit_for",
@@ -86,6 +90,7 @@ PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("takeaways_per_game", "Takeaways per Game"),
     ("sog_for_on_ice", "SOG For (On-Ice)"),
     ("sog_against_on_ice", "SOG Against (On-Ice)"),
+    ("pseudo_cf_pct", "Pseudo-CF%"),
     ("controlled_entry_for", "Controlled Entry For (On-Ice)"),
     ("controlled_entry_for_per_game", "Controlled Entry For (On-Ice) per Game"),
     ("controlled_entry_against", "Controlled Entry Against (On-Ice)"),
@@ -526,6 +531,9 @@ def compute_player_display_stats(
     goalie_saves = _int0(sums.get("goalie_saves"))
     goalie_sa = _int0(sums.get("goalie_sa"))
 
+    shots_for_on_ice = _int0(sums.get("shots_for_on_ice"))
+    shots_against_on_ice = _int0(sums.get("shots_against_on_ice"))
+
     def _denom_for(key: str) -> int:
         if per_game_denoms is not None and str(key) in per_game_denoms:
             try:
@@ -596,6 +604,11 @@ def compute_player_display_stats(
     out["expected_goals_per_sog"] = _rate_or_none(xg, sog)
     out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
     out["goalie_sv_pct"] = _rate_or_none(goalie_saves, goalie_sa)
+
+    pseudo_cf = _rate_or_none(
+        float(shots_for_on_ice), float(shots_for_on_ice + shots_against_on_ice)
+    )
+    out["pseudo_cf_pct"] = (float(pseudo_cf) * 100.0) if pseudo_cf is not None else None
     if per_game_denoms is not None:
         out["_per_game_denoms"] = {str(k): int(v) for k, v in dict(per_game_denoms).items()}
     return out

@@ -2648,6 +2648,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
     scoring_game_ids: set[int] = set()
     shot_game_ids: set[int] = set()
     sog_evidence_rows_by_game: dict[int, list[dict[str, Any]]] = {}
+    shot_attempt_rows_by_game: dict[int, list[dict[str, Any]]] = {}
     pim_game_ids: set[int] = set()
     completed_pass_game_ids: set[int] = set()
     giveaway_game_ids: set[int] = set()
@@ -2682,6 +2683,9 @@ def _player_stat_rows_from_event_tables_for_team_games(
 
         if et in {"goal", "xg", "expectedgoal", "sog", "shotongoal"}:
             sog_evidence_rows_by_game.setdefault(int(gid), []).append(r0)
+
+        if et in {"goal", "xg", "expectedgoal", "sog", "shotongoal", "shot"}:
+            shot_attempt_rows_by_game.setdefault(int(gid), []).append(r0)
 
         # Track per-game availability for "measured" stats.
         if et in {"goal", "assist"}:
@@ -3156,6 +3160,82 @@ def _player_stat_rows_from_event_tables_for_team_games(
                     continue
                 row["sog_for_on_ice"] = int(sogf_by_pid.get(int(pid), 0) or 0)
                 row["sog_against_on_ice"] = int(soga_by_pid.get(int(pid), 0) or 0)
+
+        # ----------------------------
+        # On-ice shot-attempt stats (for/against).
+        #
+        # These use the same "Shots" semantics as player stats:
+        #   Shots = Goals + xG + SOG + Shot
+        # so they can be used for a Pseudo-CF% style share metric.
+        # ----------------------------
+        for gid in sorted(list(shift_game_ids)):
+            if int(gid) not in shot_game_ids:
+                continue
+
+            g2 = games_by_id.get(int(gid)) or {}
+            team1_id = _int_or_none(g2.get("team1_id")) or 0
+            team2_id = _int_or_none(g2.get("team2_id")) or 0
+            if team1_id <= 0 or team2_id <= 0:
+                continue
+            if int(team_id) not in {int(team1_id), int(team2_id)}:
+                continue
+
+            events = list(shot_attempt_rows_by_game.get(int(gid), []) or [])
+            if not events:
+                continue
+
+            sf_by_pid: dict[int, int] = {}
+            sa_by_pid: dict[int, int] = {}
+
+            seen = 0
+            counted = 0
+            on_ice_cache: dict[tuple[int, int], set[int]] = {}
+
+            for ev in events:
+                ev_tid = _event_team_id(ev)
+                if ev_tid not in {team1_id, team2_id}:
+                    continue
+                per = _int_or_none(ev.get("period"))
+                t = _event_seconds(ev)
+                if per is None or int(per) <= 0 or t is None:
+                    continue
+                seen += 1
+
+                cache_key = (int(per), int(t))
+                on_ice = on_ice_cache.get(cache_key)
+                if on_ice is None:
+                    period_shifts = shifts_by_gid_period.get(int(gid), {}).get(int(per), []) or []
+                    s: set[int] = set()
+                    for pid, start, end in period_shifts:
+                        if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                            s.add(int(pid))
+                    on_ice_cache[cache_key] = s
+                    on_ice = s
+
+                if not on_ice:
+                    continue
+                counted += 1
+
+                is_for_us = bool(int(ev_tid) == int(team_id))
+                if is_for_us:
+                    for pid in on_ice:
+                        sf_by_pid[int(pid)] = sf_by_pid.get(int(pid), 0) + 1
+                else:
+                    for pid in on_ice:
+                        sa_by_pid[int(pid)] = sa_by_pid.get(int(pid), 0) + 1
+
+            # If we have shot events but couldn't map any of them to on-ice shifts, treat the
+            # on-ice shot stats as unknown for this game.
+            if seen > 0 and counted <= 0:
+                continue
+
+            for (pid, g0), row in list(by_key.items()):
+                if int(g0) != int(gid):
+                    continue
+                if (int(pid), int(gid)) not in shift_pairs:
+                    continue
+                row["shots_for_on_ice"] = int(sf_by_pid.get(int(pid), 0) or 0)
+                row["shots_against_on_ice"] = int(sa_by_pid.get(int(pid), 0) or 0)
 
     # Fallback for games without shift rows: use goal event on-ice lists when present.
     for gid, goals in (goal_rows_by_game or {}).items():
