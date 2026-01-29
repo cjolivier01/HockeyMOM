@@ -236,7 +236,10 @@ def build_table_xlsx_bytes(
     if freeze_cols_i < 0:
         freeze_cols_i = 0
     try:
-        start_col = get_column_letter(min(max(freeze_cols_i + 1, 1), ncols))
+        # Freeze panes is defined as the top-left cell of the scrollable region; the freeze
+        # coordinate can safely be beyond the rendered table width (Excel has a fixed grid),
+        # which matters when redaction removes all columns beyond the frozen identity columns.
+        start_col = get_column_letter(min(max(freeze_cols_i + 1, 1), 16384))  # Excel: XFD
         ws.freeze_panes = f"{start_col}{data_start_row}"
     except Exception:
         ws.freeze_panes = "A3"
