@@ -1367,6 +1367,8 @@ def _player_stats_required_sum_keys_for_display_key(col_key: str) -> tuple[str, 
         return ("gf_counted",)
     if k == "ga_per_game":
         return ("ga_counted",)
+    if k == "pseudo_cf_pct":
+        return ("shots_for_on_ice", "shots_against_on_ice")
     if k in set(PLAYER_STATS_SUM_KEYS):
         return (k,)
     if k == "gp":
