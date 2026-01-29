@@ -558,6 +558,7 @@ def _process_clip_from_timestamps(
     end_time: str,
     label: str,
     temp_dir: str,
+    transition_seconds: float,
     width: int,
     height: int,
     fps: float,
@@ -573,19 +574,23 @@ def _process_clip_from_timestamps(
     blink_event_span_s: float,
     event_times: List[str],
 ) -> list[str]:
-    # Transition screen
-    transition = f"{temp_dir}/transition_{idx}.mp4"
-    t_path, t_dur = create_text_video(
-        f"{label} Clip {idx + 1}",
-        3.0,
-        transition,
-        width,
-        height,
-        fps,
-        audio_sample_rate,
-        dry_run=dry_run,
-        cont=cont,
-    )
+    paths: list[str] = []
+
+    # Transition screen (optional)
+    if float(transition_seconds) > 0.0:
+        transition = f"{temp_dir}/transition_{idx}.mp4"
+        t_path, _t_dur = create_text_video(
+            f"{label} Clip {idx + 1}",
+            float(transition_seconds),
+            transition,
+            width,
+            height,
+            fps,
+            audio_sample_rate,
+            dry_run=dry_run,
+            cont=cont,
+        )
+        paths.append(t_path)
 
     # Expected duration for the numbered clip from timestamps
     exp_dur = None
@@ -626,7 +631,8 @@ def _process_clip_from_timestamps(
         expected_duration=exp_dur,
     )
 
-    return [t_path, n_path]
+    paths.append(n_path)
+    return paths
 
 
 def _process_clip_from_filelist(
@@ -635,6 +641,7 @@ def _process_clip_from_filelist(
     clip_file: str,
     label: str,
     temp_dir: str,
+    transition_seconds: float,
     width: int,
     height: int,
     fps: float,
@@ -649,19 +656,23 @@ def _process_clip_from_filelist(
     blink_event_label: str,
     blink_event_span_s: float,
 ) -> list[str]:
-    # Transition screen
-    transition = f"{temp_dir}/transition_{idx}.mp4"
-    t_path, t_dur = create_text_video(
-        f"{label}\nClip {idx + 1}",
-        3.0,
-        transition,
-        width,
-        height,
-        fps,
-        audio_sample_rate,
-        dry_run=dry_run,
-        cont=cont,
-    )
+    paths: list[str] = []
+
+    # Transition screen (optional)
+    if float(transition_seconds) > 0.0:
+        transition = f"{temp_dir}/transition_{idx}.mp4"
+        t_path, _t_dur = create_text_video(
+            f"{label}\nClip {idx + 1}",
+            float(transition_seconds),
+            transition,
+            width,
+            height,
+            fps,
+            audio_sample_rate,
+            dry_run=dry_run,
+            cont=cont,
+        )
+        paths.append(t_path)
 
     # Expected duration for overlay-only is duration of source file
     src_dur = get_media_duration_seconds(clip_file, dry_run=dry_run)
@@ -690,7 +701,8 @@ def _process_clip_from_filelist(
         expected_duration=src_dur,
     )
 
-    return [t_path, n_path]
+    paths.append(n_path)
+    return paths
 
 
 def main():
@@ -714,6 +726,12 @@ def main():
         type=int,
         default=1,
         help="Maximum number of clips to process in parallel",
+    )
+    parser.add_argument(
+        "--transition-seconds",
+        type=float,
+        default=3.0,
+        help="Seconds for per-clip transition title cards (default: 3.0; 0 disables transitions).",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="Print commands instead of executing them"
@@ -851,6 +869,10 @@ def main():
     temp_dir = args.temp_dir if args.temp_dir else "temp_clips"
     os.makedirs(temp_dir, exist_ok=True)
 
+    transition_seconds = float(args.transition_seconds)
+    if not (transition_seconds > 0.0):
+        transition_seconds = 0.0
+
     clips: List[str] = []
     # We also track expected durations to decide concat skip
     clip_expected_durations: List[Optional[float]] = []
@@ -868,6 +890,7 @@ def main():
                     clip_file=clip_file,
                     label=args.label,
                     temp_dir=temp_dir,
+                    transition_seconds=transition_seconds,
                     width=target_width,
                     height=target_height,
                     fps=fps,
@@ -887,10 +910,12 @@ def main():
             for fut in concurrent.futures.as_completed(future_map):
                 idx = future_map[fut]
                 paths = fut.result()
-                results[idx] = (
-                    paths,
-                    [3.0, get_media_duration_seconds(paths[1], dry_run=args.dry_run)],
-                )
+                durs: list[Optional[float]] = []
+                if transition_seconds > 0.0 and paths:
+                    durs.append(float(transition_seconds))
+                if paths:
+                    durs.append(get_media_duration_seconds(paths[-1], dry_run=args.dry_run))
+                results[idx] = (paths, durs)
         for i in sorted(results.keys()):
             pths, durs = results[i]
             clips.extend(pths)
@@ -931,6 +956,7 @@ def main():
                     end_time=end_time,
                     label=args.label,
                     temp_dir=temp_dir,
+                    transition_seconds=transition_seconds,
                     width=target_width,
                     height=target_height,
                     fps=fps,
@@ -959,7 +985,11 @@ def main():
                     exp_dur = hhmmss_to_duration_seconds(end_time) - hhmmss_to_duration_seconds(
                         start_time
                     )
-                results[idx] = (paths, [3.0, exp_dur])
+                durs2: list[Optional[float]] = []
+                if transition_seconds > 0.0 and paths:
+                    durs2.append(float(transition_seconds))
+                durs2.append(exp_dur)
+                results[idx] = (paths, durs2)
         for i in sorted(results.keys()):
             pths, durs = results[i]
             clips.extend(pths)
