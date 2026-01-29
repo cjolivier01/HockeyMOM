@@ -313,7 +313,7 @@ tbody tr.game-untracked-upcoming.game-excluded:hover { opacity: .55; }
 
 .schedule-result-prefix { font-weight: 900; }
 .schedule-result-win { color: var(--success); }
-.schedule-result-loss { color: #b91c1c; }
+.schedule-result-loss { color: #ef4444; }
 .schedule-result-tie { color: var(--table-text); }
 
 /* Game page: meetings summary */
