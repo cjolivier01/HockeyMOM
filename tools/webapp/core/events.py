@@ -2219,13 +2219,13 @@ def normalize_video_time_and_seconds(
       - video_time: normalized string ('' when unknown)
       - video_seconds: int seconds (None when unknown/unparseable)
     """
-    vt = str(video_time or "").strip()
+    vt_in = str(video_time or "").strip()
     vs = parse_duration_seconds(video_seconds)
-    if vs is None and vt:
-        vs = parse_duration_seconds(vt)
-    if not vt and vs is not None:
-        vt = format_seconds_to_mmss_or_hhmmss(vs)
-    return vt, vs
+    if vs is None and vt_in:
+        vs = parse_duration_seconds(vt_in)
+    if vs is None:
+        return vt_in, None
+    return format_seconds_to_mmss_or_hhmmss(int(vs)), int(vs)
 
 
 def _event_table_sort_key(r: dict[str, Any]) -> tuple[int, int, int]:

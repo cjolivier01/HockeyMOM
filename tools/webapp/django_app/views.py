@@ -274,7 +274,7 @@ def _compute_event_import_key(
         parts.append(str(int(game_seconds_end)) if game_seconds_end is not None else "")
     # Goals/assists may be enriched later with `event_id` (e.g., from shift/xG data); keep the
     # import key stable so we update the existing row instead of creating a duplicate.
-    elif et_key in {"goal", "assist"}:
+    elif et_key in {"goal", "assist", "goaliechange"}:
         pass
     elif event_id is not None:
         parts.append(str(int(event_id)))
@@ -1309,6 +1309,163 @@ def _upsert_game_event_rows_from_events_csv(
         except Exception:
             logger.warning(
                 "Failed to propagate video fields across events for game_id=%s",
+                int(game_id),
+                exc_info=True,
+            )
+
+        # GoalieChange rows should be unique by (team_side, period, game_seconds) and
+        # stable across imports regardless of source-specific event ids. Older imports
+        # could have produced duplicate rows with differing import_key formats; collapse
+        # those duplicates and normalize import_key to the current scheme.
+        try:
+            goalie_type_id = (
+                m.HkyEventType.objects.filter(key="goaliechange")
+                .values_list("id", flat=True)
+                .first()
+            )
+            if goalie_type_id is not None:
+                goalie_rows = list(
+                    m.HkyGameEventRow.objects.filter(
+                        game_id=int(game_id),
+                        event_type_id=int(goalie_type_id),
+                        period__isnull=False,
+                        game_seconds__isnull=False,
+                    ).values(
+                        "id",
+                        "import_key",
+                        "source",
+                        "team_raw",
+                        "team_side",
+                        "period",
+                        "game_seconds",
+                        "video_time",
+                        "video_seconds",
+                        "details",
+                        "correction",
+                        "player_id",
+                        "attributed_players",
+                        "attributed_jerseys",
+                    )
+                )
+
+                def _score_goalie_row(r: dict[str, Any]) -> tuple[int, int, int, int, int]:
+                    has_corr = 1 if str(r.get("correction") or "").strip() else 0
+                    has_video = 1 if r.get("video_seconds") is not None else 0
+                    has_player = 1 if r.get("player_id") is not None else 0
+                    has_details = 1 if str(r.get("details") or "").strip() else 0
+                    raw = str(r.get("team_raw") or "").strip()
+                    has_named_team = (
+                        1 if raw and raw.casefold() not in {"home", "away", "team1", "team2"} else 0
+                    )
+                    return (has_corr, has_video, has_player, has_details, has_named_team)
+
+                def _is_blank(v: object) -> bool:
+                    if v is None:
+                        return True
+                    if isinstance(v, str) and not v.strip():
+                        return True
+                    return False
+
+                by_natural: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+                for r0 in goalie_rows:
+                    per = r0.get("period")
+                    gs = r0.get("game_seconds")
+                    if not isinstance(per, int) or not isinstance(gs, int):
+                        continue
+                    side_norm, _side_label = _normalize_team_side(r0.get("team_side"))
+                    if side_norm not in {"home", "away"}:
+                        continue
+                    by_natural.setdefault((str(side_norm), int(per), int(gs)), []).append(r0)
+
+                for (side_norm, per, gs), rows_nat in by_natural.items():
+                    if not rows_nat:
+                        continue
+                    canonical_key = _compute_event_import_key(
+                        event_type_key="goaliechange",
+                        period=int(per),
+                        game_seconds=int(gs),
+                        team_side_norm=str(side_norm),
+                        jersey_norm=None,
+                        event_id=None,
+                        details=None,
+                        game_seconds_end=None,
+                    )
+
+                    canonical_row = next(
+                        (r for r in rows_nat if str(r.get("import_key") or "") == canonical_key),
+                        None,
+                    )
+                    best_row = max(rows_nat, key=_score_goalie_row)
+
+                    keep_id: int
+                    if canonical_row is None:
+                        keep_id = int(best_row["id"])
+                        m.HkyGameEventRow.objects.filter(id=int(keep_id)).update(
+                            import_key=str(canonical_key), updated_at=now
+                        )
+                    else:
+                        keep_id = int(canonical_row["id"])
+                        if int(best_row["id"]) != int(keep_id):
+                            updates: dict[str, Any] = {}
+                            for field in (
+                                "source",
+                                "team_raw",
+                                "video_time",
+                                "video_seconds",
+                                "details",
+                                "correction",
+                                "player_id",
+                                "attributed_players",
+                                "attributed_jerseys",
+                            ):
+                                if _is_blank(canonical_row.get(field)) and not _is_blank(
+                                    best_row.get(field)
+                                ):
+                                    updates[field] = best_row.get(field)
+                            if updates:
+                                updates["updated_at"] = now
+                                m.HkyGameEventRow.objects.filter(id=int(keep_id)).update(**updates)
+
+                    delete_ids = [int(r["id"]) for r in rows_nat if int(r["id"]) != int(keep_id)]
+                    if delete_ids:
+                        m.HkyGameEventRow.objects.filter(id__in=delete_ids).delete()
+        except Exception:
+            logger.warning(
+                "Failed to dedupe/normalize goaliechange rows for game_id=%s",
+                int(game_id),
+                exc_info=True,
+            )
+
+        # Normalize Video Time formatting from Video Seconds for consistent UI display.
+        try:
+            rows_with_video = list(
+                m.HkyGameEventRow.objects.filter(
+                    game_id=int(game_id),
+                    video_seconds__isnull=False,
+                ).values("id", "video_time", "video_seconds")
+            )
+            to_norm: list[Any] = []
+            for r0 in rows_with_video:
+                vs0 = r0.get("video_seconds")
+                if vs0 is None:
+                    continue
+                try:
+                    vs_i = int(vs0)
+                except Exception:
+                    continue
+                vt_norm = logic.format_seconds_to_mmss_or_hhmmss(int(vs_i))
+                if str(r0.get("video_time") or "").strip() == vt_norm:
+                    continue
+                to_norm.append(
+                    m.HkyGameEventRow(id=int(r0["id"]), video_time=str(vt_norm), updated_at=now)
+                )
+            if to_norm:
+                m.HkyGameEventRow.objects.bulk_update(
+                    to_norm, ["video_time", "updated_at"], batch_size=500
+                )
+        except Exception:
+            logger.warning(
+                "Failed to normalize video_time formatting for game_id=%s",
                 int(game_id),
                 exc_info=True,
             )
