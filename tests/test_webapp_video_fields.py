@@ -135,6 +135,98 @@ def should_enrich_timetoscore_goals_with_event_id(monkeypatch):
     assert tts_goal["Event ID"] == "54"
 
 
+def should_enrich_goal_video_times_from_long_events_for_uncorrected_goals(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    headers = [
+        "Event Type",
+        "Source",
+        "Team Side",
+        "Period",
+        "Game Seconds",
+        "Video Time",
+        "Video Seconds",
+    ]
+    rows = [
+        {
+            "__hm_player_id": "501",
+            "__hm_has_correction": "",
+            "Event Type": "Goal",
+            "Source": "goals",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Video Time": "9:99",
+            "Video Seconds": "999",
+        },
+        {
+            "__hm_player_id": "501",
+            "Event Type": "xG",
+            "Source": "long",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Video Time": "1:23",
+            "Video Seconds": "83",
+        },
+    ]
+
+    out_headers, out_rows = mod.enrich_goal_video_times_from_long_events(headers=headers, rows=rows)
+    assert out_headers == headers
+    goal = [r for r in out_rows if str(r.get("Event Type") or "").strip() == "Goal"][0]
+    assert goal["Video Seconds"] == "83"
+    assert goal["Video Time"] == "1:23"
+    assert "long" in str(goal.get("Source") or "").split(",")
+
+
+def should_not_override_goal_video_times_when_corrected(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    headers = [
+        "Event Type",
+        "Source",
+        "Team Side",
+        "Period",
+        "Game Seconds",
+        "Video Time",
+        "Video Seconds",
+    ]
+    rows = [
+        {
+            "__hm_player_id": "501",
+            "__hm_has_correction": "1",
+            "Event Type": "Goal",
+            "Source": "goals",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Video Time": "2:34",
+            "Video Seconds": "154",
+        },
+        {
+            "__hm_player_id": "501",
+            "Event Type": "xG",
+            "Source": "long",
+            "Team Side": "Home",
+            "Period": "1",
+            "Game Seconds": "100",
+            "Video Time": "1:23",
+            "Video Seconds": "83",
+        },
+    ]
+
+    _out_headers, out_rows = mod.enrich_goal_video_times_from_long_events(
+        headers=headers, rows=rows
+    )
+    goal = [r for r in out_rows if str(r.get("Event Type") or "").strip() == "Goal"][0]
+    assert goal["Video Seconds"] == "154"
+    assert goal["Video Time"] == "2:34"
+
+
 def should_merge_events_overlays_missing_video_and_on_ice_for_duplicates(monkeypatch):
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
