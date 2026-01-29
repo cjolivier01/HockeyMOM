@@ -130,7 +130,7 @@ hmfind_ice_rink --game-id ev-stockton-1 --show
 
 ## hmvideo_clipper — Make a highlight reel with bumpers
 
-Produce a single video by concatenating: a 3s title card for each clip, then the clip with an overlaid “Label <N>” in the top-right. Supports two input styles: a timestamp file for a single source video, or a list of pre-cut clip files.
+Produce a single video by concatenating: a title card for each clip (see `--transition-seconds`), then the clip with an overlaid “Label <N>” in the top-right. Supports two input styles: a timestamp file for a single source video, or a list of pre-cut clip files.
 
 ### Quick start
 ```bash
@@ -149,6 +149,7 @@ hmvideo_clipper --video-file-list clips.txt "Team vs Opponent"
 
 ### Options
 - `--threads` / `-j N` — Parallelize per-clip processing
+- `--transition-seconds <float>` — Title card duration per clip (default 3.0; 0 disables)
 - `--temp-dir DIR` — Work directory for intermediates
 - Environment: set `VIDEO_CLIPPER_HQ=1` for lossless intermediates; default uses high-quality NVENC settings
 
