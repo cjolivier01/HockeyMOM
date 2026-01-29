@@ -244,11 +244,17 @@ def should_error_season_highlights_when_video_missing_unless_allowed(tmp_path: P
         },
     ]
 
-    with pytest.raises(RuntimeError, match=r"Missing `tracking_output-with-audio"):
-        pss._write_season_highlight_scripts(base_outdir, results, create_scripts=True)
+    with pytest.raises(RuntimeError, match=r"Season highlight script generation requires"):
+        pss._write_season_highlight_scripts(
+            base_outdir, results, create_scripts=True, videos_root=tmp_path
+        )
 
     pss._write_season_highlight_scripts(
-        base_outdir, results, create_scripts=True, allow_missing_videos=True
+        base_outdir,
+        results,
+        create_scripts=True,
+        allow_missing_videos=True,
+        videos_root=tmp_path,
     )
     script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
     assert script.exists()

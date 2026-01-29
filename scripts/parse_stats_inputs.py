@@ -1855,10 +1855,13 @@ def _is_long_sheet_path(path: Path) -> bool:
 
 def _select_tracking_output_video(video_dir: Path) -> Optional[Path]:
     """
-    Choose a `tracking_output-with-audio*.mp4` file in `video_dir`.
+    Choose a highlight source video in `video_dir`.
 
     If any numbered `tracking_output-with-audio-<N>.mp4` files exist, return the one
     with the largest N. Otherwise fall back to `tracking_output-with-audio.mp4`.
+
+    If no `tracking_output-with-audio*.mp4` exists, fall back to
+    `*stitched_output-with-audio*.mp4` when present.
     """
     try:
         video_dir = Path(video_dir)
@@ -1886,7 +1889,46 @@ def _select_tracking_output_video(video_dir: Path) -> Optional[Path]:
         return best_path
 
     plain = video_dir / "tracking_output-with-audio.mp4"
-    return plain if plain.exists() else None
+    if plain.exists():
+        return plain
+
+    stitched_best_num: Optional[int] = None
+    stitched_best_path: Optional[Path] = None
+    try:
+        for p in video_dir.glob("*stitched_output-with-audio-*.mp4"):
+            m = re.match(r"^.*stitched_output-with-audio-(\d+)\.mp4$", p.name)
+            if not m:
+                continue
+            try:
+                n = int(m.group(1))
+            except Exception:
+                continue
+            if stitched_best_num is None or n > stitched_best_num:
+                stitched_best_num = n
+                stitched_best_path = p
+    except Exception:
+        stitched_best_path = None
+
+    if stitched_best_path is not None and stitched_best_path.exists():
+        return stitched_best_path
+
+    stitched_plain = video_dir / "stitched_output-with-audio.mp4"
+    if stitched_plain.exists():
+        return stitched_plain
+
+    try:
+        stitched = sorted(
+            list(video_dir.glob("*stitched_output-with-audio.mp4")), key=lambda p: p.name
+        )
+    except Exception:
+        stitched = []
+    for p in stitched:
+        try:
+            if p.exists():
+                return p
+        except Exception:
+            continue
+    return None
 
 
 def _find_tracking_output_video_for_sheet_path(sheet_path: Path) -> Optional[Path]:
@@ -1899,6 +1941,31 @@ def _find_tracking_output_video_for_sheet_path(sheet_path: Path) -> Optional[Pat
         return None
     stats_dir = sheet_path.parent
     video_dir = stats_dir.parent if stats_dir.name.lower() == "stats" else stats_dir
+    return _select_tracking_output_video(video_dir)
+
+
+def _find_tracking_output_video_for_game_label(
+    game_label: str, *, videos_root: Optional[Path] = None
+) -> Optional[Path]:
+    """
+    Locate the tracking video for a game label by looking under `$HOME/Videos/<game_label>/`.
+
+    This supports workflows where stats spreadsheets live in a git-controlled subtree, while
+    MP4s live outside that tree (e.g. on a larger data volume).
+    """
+    label = str(game_label or "").strip()
+    if not label:
+        return None
+    try:
+        root = Path(videos_root) if videos_root is not None else (Path.home() / "Videos")
+    except Exception:
+        root = Path.home() / "Videos"
+    video_dir = root / label
+    try:
+        if not video_dir.exists() or not video_dir.is_dir():
+            return None
+    except Exception:
+        return None
     return _select_tracking_output_video(video_dir)
 
 
@@ -9988,6 +10055,7 @@ def _write_season_highlight_scripts(
     create_scripts: bool,
     clip_transition_seconds: Optional[float] = None,
     allow_missing_videos: bool = False,
+    videos_root: Optional[Path] = None,
 ) -> None:
     """
     For multi-game runs, write no-arg per-player season highlight scripts that:
@@ -10018,6 +10086,73 @@ def _write_season_highlight_scripts(
             return False
         return False
 
+    def _infer_game_label(r: Dict[str, Any]) -> str:
+        label = str(r.get("label") or "").strip()
+        if label:
+            return label
+        sheet_path = r.get("sheet_path")
+        if sheet_path is None:
+            return ""
+        try:
+            sheet = Path(sheet_path)
+        except Exception:
+            return ""
+        stats_dir = sheet.parent
+        try:
+            if stats_dir.name.lower() == "stats":
+                return stats_dir.parent.name
+        except Exception:
+            return ""
+        return stats_dir.name
+
+    def _resolve_video(r: Dict[str, Any]) -> Optional[Path]:
+        video_path = r.get("video_path")
+        if video_path is not None:
+            try:
+                p = Path(video_path)
+            except Exception:
+                p = None
+            if p is not None:
+                try:
+                    if p.exists():
+                        return p
+                except Exception:
+                    pass
+        sheet_path = r.get("sheet_path")
+        if sheet_path is not None:
+            video = _find_tracking_output_video_for_sheet_path(Path(sheet_path))
+            if video is not None:
+                return video
+        label = _infer_game_label(r)
+        if label:
+            video = _find_tracking_output_video_for_game_label(label, videos_root=videos_root)
+            if video is not None:
+                return video
+        return None
+
+    def _missing_video_detail(r: Dict[str, Any]) -> str:
+        details: List[str] = []
+        video_path = r.get("video_path")
+        if video_path:
+            details.append(f"video_path={video_path}")
+        sheet_path = r.get("sheet_path")
+        if sheet_path is not None:
+            try:
+                sheet = Path(sheet_path)
+                stats_dir = sheet.parent
+                video_dir = stats_dir.parent if stats_dir.name.lower() == "stats" else stats_dir
+                details.append(f"sheet_dir={video_dir}")
+            except Exception:
+                pass
+        label = _infer_game_label(r)
+        if label:
+            try:
+                root = Path(videos_root) if videos_root is not None else (Path.home() / "Videos")
+            except Exception:
+                root = Path.home() / "Videos"
+            details.append(f"home_videos_dir={root / label}")
+        return "; ".join(details) if details else "<missing>"
+
     players: set[str] = set()
     missing_video_by_game: dict[str, str] = {}
     for r in results:
@@ -10045,15 +10180,10 @@ def _write_season_highlight_scripts(
         if sheet_path is None:
             # T2S-only games don't have a reliable scoreboard->video mapping.
             continue
-        game_label = str(r.get("label") or "").strip() or str(sheet_path)
-        video_path = r.get("video_path")
-        video = (
-            Path(video_path)
-            if video_path is not None
-            else _find_tracking_output_video_for_sheet_path(Path(sheet_path))
-        )
-        if video is None or not video.exists():
-            missing_video_by_game[game_label] = str(video) if video is not None else "<missing>"
+        game_label = _infer_game_label(r) or str(sheet_path)
+        video = _resolve_video(r)
+        if video is None:
+            missing_video_by_game[game_label] = _missing_video_detail(r)
 
     if missing_video_by_game and not allow_missing_videos:
         lines = "\n".join(
@@ -10061,10 +10191,12 @@ def _write_season_highlight_scripts(
             for game_label, video_path in sorted(missing_video_by_game.items())
         )
         raise RuntimeError(
-            "Season highlight script generation requires a local tracking video for each game.\n"
-            "Missing `tracking_output-with-audio*.mp4` for:\n"
+            "Season highlight script generation requires a local highlight source video for each game.\n"
+            "Expected `tracking_output-with-audio*.mp4` (preferred) or `*stitched_output-with-audio*.mp4`.\n"
+            "Missing for:\n"
             f"{lines}\n\n"
-            "Fix: create the tracking output video(s) next to each game's `stats/` directory, "
+            "Fix: create the video next to each game's `stats/` directory, or under "
+            "`$HOME/Videos/<game_label>/`, "
             "or re-run with `--allow-missing-videos` to skip those games."
         )
     if missing_video_by_game and allow_missing_videos:
@@ -10096,22 +10228,15 @@ def _write_season_highlight_scripts(
             if sheet_path is None:
                 # T2S-only games don't have a reliable scoreboard->video mapping.
                 continue
-            game_label = str(r.get("label") or "")
+            game_label = _infer_game_label(r) or str(sheet_path)
             outdir = Path(r.get("outdir"))
             ts_file = outdir / f"{prefix}{player_key}{suffix}"
             if not ts_file.exists() or not _has_timestamps(ts_file):
                 continue
 
-            video_path = r.get("video_path")
-            video = (
-                Path(video_path)
-                if video_path is not None
-                else _find_tracking_output_video_for_sheet_path(Path(sheet_path))
-            )
-            if video is None or not video.exists():
-                missing_videos.append(
-                    (game_label, str(video) if video is not None else "<missing>")
-                )
+            video = _resolve_video(r)
+            if video is None:
+                missing_videos.append((game_label, _missing_video_detail(r)))
                 continue
 
             game_entries.append((game_label, video, ts_file, sanitize_name(game_label)))
