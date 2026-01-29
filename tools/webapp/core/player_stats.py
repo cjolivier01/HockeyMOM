@@ -148,6 +148,7 @@ GAME_PLAYER_STATS_DISPLAY_KEYS: tuple[str, ...] = (
     "plus_minus",
     "sog",
     "expected_goals",
+    "pseudo_cf_pct",
     "completed_passes",
     "controlled_entry_for",
     "controlled_entry_against",
