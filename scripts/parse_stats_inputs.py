@@ -10105,6 +10105,39 @@ def _write_season_highlight_scripts(
             return ""
         return stats_dir.name
 
+    def _infer_opponent_team_name(r: Dict[str, Any]) -> Optional[str]:
+        meta_raw = r.get("meta") or {}
+        meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
+
+        def _meta(*keys: str) -> Optional[str]:
+            for k in keys:
+                v = meta.get(str(k).strip().lower())
+                if v is None:
+                    continue
+                s = str(v).strip()
+                if s:
+                    return s
+            return None
+
+        # Allow an explicit opponent field regardless of side.
+        explicit = _meta(
+            "opponent",
+            "opponent_team",
+            "opponent_team_name",
+            "opposing_team",
+            "opposing_team_name",
+            "opp",
+        )
+        if explicit:
+            return explicit
+
+        side = str(r.get("side") or "").strip().lower() or None
+        if side == "home":
+            return _meta("away_team", "away_team_name", "away", "visitor")
+        if side == "away":
+            return _meta("home_team", "home_team_name", "home")
+        return None
+
     def _resolve_video(r: Dict[str, Any]) -> Optional[Path]:
         video_path = r.get("video_path")
         if video_path is not None:
@@ -10226,7 +10259,7 @@ def _write_season_highlight_scripts(
             transition_arg = ""
     for player_key in sorted(players):
         # Determine which games this player has highlight events for, in game order.
-        game_entries: List[Tuple[str, Path, Path, str]] = []
+        game_entries: List[Tuple[str, Path, Path, str, Optional[str]]] = []
         for r in results:
             sheet_path = r.get("sheet_path")
             if sheet_path is None:
@@ -10242,7 +10275,15 @@ def _write_season_highlight_scripts(
             if video is None:
                 continue
 
-            game_entries.append((game_label, video, ts_file, sanitize_name(game_label)))
+            game_entries.append(
+                (
+                    game_label,
+                    video,
+                    ts_file,
+                    sanitize_name(game_label),
+                    _infer_opponent_team_name(r),
+                )
+            )
 
         if not game_entries:
             continue
@@ -10283,7 +10324,7 @@ def _write_season_highlight_scripts(
             "",
         ]
 
-        for game_label, video, ts_file, game_safe in game_entries:
+        for game_label, video, ts_file, game_safe, opponent_team in game_entries:
             try:
                 video_abs = str(Path(video).resolve())
             except Exception:
@@ -10292,23 +10333,33 @@ def _write_season_highlight_scripts(
                 ts_abs = str(Path(ts_file).resolve())
             except Exception:
                 ts_abs = str(ts_file)
-            label_safe = sanitize_name(f"{player_key}__{game_label}__highlights")
+
+            opp_disp = str(opponent_team or "").strip()
+            # Prefer opponent team name (if known) for the video clipper label shown on
+            # title/transition cards; fall back to the game label.
+            clipper_label = sanitize_name(opp_disp) if opp_disp else ""
+            if not clipper_label:
+                clipper_label = sanitize_name(game_label) or game_safe or "Game"
+
             temp_dir = f"$THIS_DIR/temp_clips/{player_key}/{game_safe}"
+            game_out_dir = f"$OUT_DIR/{game_safe}"
             script_lines.extend(
                 [
-                    f'echo "[{_display_player_name(player_key)}] {game_label}"',
+                    f'echo "[{_display_player_name(player_key)}] {opp_disp or game_label}"',
                     f'VIDEO="{video_abs}"',
                     f'TS_FILE="{ts_abs}"',
                     f'TEMP_DIR="{temp_dir}"',
                     'mkdir -p "$TEMP_DIR"',
+                    f'GAME_OUT_DIR="{game_out_dir}"',
+                    'mkdir -p "$GAME_OUT_DIR"',
                     "(",
-                    '  cd "$OUT_DIR"',
+                    '  cd "$GAME_OUT_DIR"',
                     "  python -m hmlib.cli.video_clipper -j 4 "
                     + (f"{transition_arg} " if transition_arg else "")
                     + '--input "$VIDEO" --timestamps "$TS_FILE" --temp-dir "$TEMP_DIR" '
-                    + f'"{label_safe}" "${{EXTRA_FLAGS[@]}}"',
+                    + f'"{clipper_label}" "${{EXTRA_FLAGS[@]}}"',
                     ")",
-                    f'GAME_CLIPS+=("$OUT_DIR/clips-{label_safe}.mp4")',
+                    f'GAME_CLIPS+=("$GAME_OUT_DIR/clips-{clipper_label}.mp4")',
                     "",
                 ]
             )

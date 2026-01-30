@@ -267,6 +267,47 @@ def should_warn_season_highlights_when_video_missing_and_skip(tmp_path: Path, ca
     assert "g1" not in text
 
 
+def should_use_opponent_team_name_for_season_highlight_labels(tmp_path: Path):
+    base_outdir = tmp_path / "season_stats"
+    base_outdir.mkdir(parents=True, exist_ok=True)
+
+    game_label = "stockton-r3"
+    game_outdir = base_outdir / game_label / "Home" / "per_player"
+    game_outdir.mkdir(parents=True, exist_ok=True)
+    (game_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:01 00:00:02\n", encoding="utf-8"
+    )
+
+    video = tmp_path / game_label / "tracking_output-with-audio.mp4"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_text("", encoding="utf-8")
+
+    results = [
+        {
+            "label": game_label,
+            "outdir": game_outdir,
+            "sheet_path": tmp_path / game_label / "stats" / "sheet.xlsx",
+            "video_path": video,
+            "side": "home",
+            "meta": {
+                "home_team": "San Jose Jr Sharks 12AA-1",
+                "away_team": "Stockton Colts 12AA",
+            },
+        }
+    ]
+
+    pss._write_season_highlight_scripts(
+        base_outdir, results, create_scripts=True, videos_root=tmp_path
+    )
+    script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
+    assert script.exists()
+    text = script.read_text(encoding="utf-8")
+    clipper_lines = [line for line in text.splitlines() if "hmlib.cli.video_clipper" in line]
+    assert clipper_lines
+    assert '"Stockton_Colts_12AA"' in clipper_lines[0]
+    assert '"stockton-r3"' not in clipper_lines[0]
+
+
 def should_parse_per_player_layout_reports_validation_errors():
     header = [
         "Jersey No",
