@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Default to the git-controlled season file-list when present; MP4s are expected under
 # `$HOME/Videos/<game_label>/` (or next to each game's `stats/` directory).
-DEFAULT_FILE_LIST_1="/mnt/ripper-data/Videos/jrsharks2013-2025-2026/game_list_long.yaml"
-DEFAULT_FILE_LIST_2="$HOME/Videos/jrsharks2013-2025-2026/game_list_long.yaml"
+TEAM_SEASON="${TEAM_SEASON:-jrsharks2013-2025-2026}"
+DEFAULT_FILE_LIST_1="/mnt/ripper-data/Videos/${TEAM_SEASON}/game_list_long.yaml"
+DEFAULT_FILE_LIST_2="$HOME/Videos/${TEAM_SEASON}/game_list_long.yaml"
 
 FILE_LIST="${FILE_LIST:-}"
 if [ -z "$FILE_LIST" ]; then
