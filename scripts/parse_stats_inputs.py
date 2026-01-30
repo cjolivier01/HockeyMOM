@@ -40,6 +40,7 @@ import html as _html
 import os
 import re
 import statistics
+import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -10141,7 +10142,164 @@ def _write_season_highlight_scripts(
             return _meta("home_team", "home_team_name", "home")
         return None
 
-    def _resolve_video(r: Dict[str, Any]) -> Optional[Path]:
+    duration_cache: dict[str, Optional[float]] = {}
+
+    def _probe_media_duration_seconds(path: Path) -> Optional[float]:
+        """
+        Return the media duration in seconds (via ffprobe), or None if unknown.
+        """
+        key = str(path)
+        if key in duration_cache:
+            return duration_cache[key]
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nokey=1:noprint_wrappers=1",
+            key,
+        ]
+        dur: Optional[float] = None
+        try:
+            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode(
+                "utf-8", errors="ignore"
+            )
+            out = str(out or "").strip()
+            if out:
+                dur = float(out)
+        except Exception:
+            dur = None
+        duration_cache[key] = dur
+        return dur
+
+    def _timestamp_file_max_end_seconds(path: Path) -> Optional[int]:
+        """
+        Return the maximum end time (seconds) referenced by a HH:MM:SS timestamp file.
+        """
+        best: Optional[int] = None
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    s = str(line or "").strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    parts = re.sub(r"\s+", " ", s).split(" ")
+                    tok = parts[1] if len(parts) > 1 else parts[0]
+                    try:
+                        end_s = int(parse_flex_time_to_seconds(tok))
+                    except Exception:
+                        continue
+                    if best is None or end_s > best:
+                        best = end_s
+        except Exception:
+            return None
+        return best
+
+    def _select_video_in_dir(
+        video_dir: Path, *, label: str, required_end_s: Optional[int]
+    ) -> Optional[Path]:
+        """
+        Choose a highlight source video inside a directory.
+
+        When `required_end_s` is provided, prefer a file that plausibly covers the latest
+        timestamp (by duration when known, otherwise by choosing the largest file as a fallback).
+        """
+        try:
+            video_dir = Path(video_dir)
+        except Exception:
+            return None
+        try:
+            if not video_dir.exists() or not video_dir.is_dir():
+                return None
+        except Exception:
+            return None
+
+        label_clean = str(label or "").strip()
+        candidates: List[Path] = []
+
+        preferred = _select_tracking_output_video(video_dir)
+        if preferred is not None:
+            candidates.append(preferred)
+
+        if label_clean:
+            candidates.append(video_dir / f"short-{label_clean}.mp4")
+            candidates.append(video_dir / f"{label_clean}.mp4")
+
+        try:
+            candidates.extend(
+                sorted(video_dir.glob("*tracking_output-with-audio-*.mp4"), key=lambda p: p.name)
+            )
+            candidates.extend(
+                sorted(video_dir.glob("*tracking_output-with-audio.mp4"), key=lambda p: p.name)
+            )
+            candidates.extend(
+                sorted(video_dir.glob("*stitched_output-with-audio-*.mp4"), key=lambda p: p.name)
+            )
+            candidates.extend(
+                sorted(video_dir.glob("*stitched_output-with-audio.mp4"), key=lambda p: p.name)
+            )
+            candidates.extend(sorted(video_dir.glob("short-*.mp4"), key=lambda p: p.name))
+            candidates.extend(sorted(video_dir.glob("*.mp4"), key=lambda p: p.name))
+        except Exception:
+            pass
+
+        seen: set[str] = set()
+        existing: List[Path] = []
+        for p in candidates:
+            try:
+                p = Path(p)
+            except Exception:
+                continue
+            k = str(p)
+            if k in seen:
+                continue
+            seen.add(k)
+            try:
+                if not p.exists() or not p.is_file():
+                    continue
+            except Exception:
+                continue
+            if str(p.name or "").strip().lower() in {"left.mp4", "right.mp4"}:
+                continue
+            existing.append(p)
+
+        if not existing:
+            return None
+        if required_end_s is None:
+            return existing[0]
+
+        # First pass: pick the first candidate that is known to cover the timestamps.
+        any_known = False
+        for p in existing:
+            dur = _probe_media_duration_seconds(p)
+            if dur is None:
+                continue
+            any_known = True
+            if float(dur) >= float(required_end_s):
+                return p
+
+        # If we have known durations and none cover the timestamps, treat as missing.
+        if any_known:
+            return None
+
+        # Fallback: pick the largest file as a best-effort guess (useful when ffprobe can't parse).
+        best: Optional[Path] = None
+        best_size = -1
+        for p in existing:
+            try:
+                sz = int(p.stat().st_size)
+            except Exception:
+                continue
+            if sz > best_size:
+                best = p
+                best_size = sz
+        return best
+
+    def _resolve_video(
+        r: Dict[str, Any], *, game_label: str, required_end_s: Optional[int]
+    ) -> Optional[Path]:
         video_path = r.get("video_path")
         if video_path is not None:
             try:
@@ -10150,24 +10308,50 @@ def _write_season_highlight_scripts(
                 p = None
             if p is not None:
                 try:
-                    if p.exists():
-                        return p
+                    if p.exists() and p.is_file():
+                        if required_end_s is None:
+                            return p
+                        dur = _probe_media_duration_seconds(p)
+                        if dur is not None and float(dur) >= float(required_end_s):
+                            return p
                 except Exception:
                     pass
+
         sheet_path = r.get("sheet_path")
         if sheet_path is not None:
-            video = _find_tracking_output_video_for_sheet_path(Path(sheet_path))
-            if video is not None:
-                return video
-        label = _infer_game_label(r)
+            try:
+                sheet = Path(sheet_path)
+            except Exception:
+                sheet = None
+            if sheet is not None:
+                stats_dir = sheet.parent
+                video_dir = (
+                    stats_dir.parent if str(stats_dir.name).lower() == "stats" else stats_dir
+                )
+                video = _select_video_in_dir(
+                    video_dir, label=str(game_label or ""), required_end_s=required_end_s
+                )
+                if video is not None:
+                    return video
+
+        label = str(game_label or "").strip()
         if label:
-            video = _find_tracking_output_video_for_game_label(label, videos_root=videos_root)
+            try:
+                root = Path(videos_root) if videos_root is not None else (Path.home() / "Videos")
+            except Exception:
+                root = Path.home() / "Videos"
+            video_dir = root / label
+            video = _select_video_in_dir(
+                video_dir, label=str(label or ""), required_end_s=required_end_s
+            )
             if video is not None:
                 return video
         return None
 
-    def _missing_video_detail(r: Dict[str, Any]) -> str:
+    def _missing_video_detail(r: Dict[str, Any], *, game_label: str, required_end_s: int) -> str:
         details: List[str] = []
+        if required_end_s > 0:
+            details.append(f"required_end={seconds_to_hhmmss(int(required_end_s))}")
         video_path = r.get("video_path")
         if video_path:
             details.append(f"video_path={video_path}")
@@ -10180,7 +10364,7 @@ def _write_season_highlight_scripts(
                 details.append(f"sheet_dir={video_dir}")
             except Exception:
                 pass
-        label = _infer_game_label(r)
+        label = str(game_label or "").strip()
         if label:
             try:
                 root = Path(videos_root) if videos_root is not None else (Path.home() / "Videos")
@@ -10192,6 +10376,7 @@ def _write_season_highlight_scripts(
     players: set[str] = set()
     missing_video_by_game: dict[str, str] = {}
     games_with_any_ts: set[str] = set()
+    video_by_game: dict[str, Path] = {}
     for r in results:
         outdir_raw = r.get("outdir")
         if not outdir_raw:
@@ -10199,6 +10384,7 @@ def _write_season_highlight_scripts(
         outdir = Path(outdir_raw)
 
         has_any_ts = False
+        required_end_s: Optional[int] = None
         try:
             for p in outdir.glob(f"{prefix}*{suffix}"):
                 name = p.name
@@ -10206,8 +10392,11 @@ def _write_season_highlight_scripts(
                     pk = name[len(prefix) : -len(suffix)]
                     if pk:
                         players.add(pk)
-                if not has_any_ts and _has_timestamps(p):
+                end_s = _timestamp_file_max_end_seconds(p)
+                if end_s is not None:
                     has_any_ts = True
+                    if required_end_s is None or int(end_s) > int(required_end_s):
+                        required_end_s = int(end_s)
         except Exception:
             continue
 
@@ -10219,9 +10408,13 @@ def _write_season_highlight_scripts(
             continue
         game_label = _infer_game_label(r) or str(sheet_path)
         games_with_any_ts.add(game_label)
-        video = _resolve_video(r)
+        video = _resolve_video(r, game_label=game_label, required_end_s=required_end_s)
         if video is None:
-            missing_video_by_game[game_label] = _missing_video_detail(r)
+            missing_video_by_game[game_label] = _missing_video_detail(
+                r, game_label=game_label, required_end_s=int(required_end_s or 0)
+            )
+            continue
+        video_by_game[game_label] = video
 
     if missing_video_by_game and error_missing_videos:
         lines = "\n".join(
@@ -10332,8 +10525,8 @@ def _write_season_highlight_scripts(
             f"\n  ... (+{len(missing_dt_games) - 20} more)" if len(missing_dt_games) > 20 else ""
         )
         print(
-            "[season-highlights] WARNING: Missing game date/time for some games; season highlight scripts will append these after dated games (in file-list order).\n"
-            "Tip: add `date` (and optional `time`) metadata in your YAML file-list to enable full chronological ordering.\n"
+            "[season-highlights] WARNING: Missing game date/time for some games; season highlight scripts will keep `--file-list` order for these games.\n"
+            "Tip: add `date` (and optional `time`) metadata in your YAML file-list to enable full chronological ordering by date.\n"
             f"{shown}{extra}",
             file=sys.stderr,
         )
@@ -10362,7 +10555,7 @@ def _write_season_highlight_scripts(
             if not ts_file.exists() or not _has_timestamps(ts_file):
                 continue
 
-            video = _resolve_video(r)
+            video = video_by_game.get(game_label)
             if video is None:
                 continue
 
@@ -10379,12 +10572,14 @@ def _write_season_highlight_scripts(
         if not game_entries:
             continue
         if len(game_entries) > 1 and game_start_dt_by_label:
-            game_entries.sort(
-                key=lambda e: (
-                    1 if game_start_dt_by_label.get(e[0]) is None else 0,
-                    game_start_dt_by_label.get(e[0]) or datetime.datetime.max,
+            # Only sort when we have a full datetime ordering for this player's games; otherwise
+            # preserve `--file-list` order to avoid incorrectly bubbling dt-known games ahead of
+            # dt-unknown ones.
+            dts = [game_start_dt_by_label.get(e[0]) for e in game_entries]
+            if all(dt is not None for dt in dts):
+                game_entries.sort(
+                    key=lambda e: game_start_dt_by_label.get(e[0]) or datetime.datetime.max
                 )
-            )
 
         script_path = season_dir / f"clip_season_highlights_{player_key}.sh"
 
@@ -10434,16 +10629,23 @@ def _write_season_highlight_scripts(
 
             opp_disp = str(opponent_team or "").strip()
             # Prefer opponent team name (if known) for the video clipper label shown on
-            # title/transition cards; fall back to the game label.
-            clipper_label = sanitize_name(opp_disp) if opp_disp else ""
-            if not clipper_label:
-                clipper_label = sanitize_name(game_label) or game_safe or "Game"
+            # title/transition cards, and append the game label in parentheses.
+            game_label_safe = sanitize_name(game_label) or game_safe or "Game"
+            opp_safe = sanitize_name(opp_disp) if opp_disp else ""
+            if opp_safe:
+                clipper_label = f"{opp_safe}_({game_label_safe})"
+            else:
+                clipper_label = game_label_safe
 
             temp_dir = f"$THIS_DIR/temp_clips/{player_key}/{game_safe}"
             game_out_dir = f"$OUT_DIR/{game_safe}"
             script_lines.extend(
                 [
-                    f'echo "[{_display_player_name(player_key)}] {opp_disp or game_label}"',
+                    (
+                        f'echo "[{_display_player_name(player_key)}] {opp_disp} ({game_label})"'
+                        if opp_disp
+                        else f'echo "[{_display_player_name(player_key)}] {game_label}"'
+                    ),
                     f'VIDEO="{video_abs}"',
                     f'TS_FILE="{ts_abs}"',
                     f'TEMP_DIR="{temp_dir}"',

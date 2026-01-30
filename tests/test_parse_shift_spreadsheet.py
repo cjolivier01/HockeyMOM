@@ -304,8 +304,7 @@ def should_use_opponent_team_name_for_season_highlight_labels(tmp_path: Path):
     text = script.read_text(encoding="utf-8")
     clipper_lines = [line for line in text.splitlines() if "hmlib.cli.video_clipper" in line]
     assert clipper_lines
-    assert '"Stockton_Colts_12AA"' in clipper_lines[0]
-    assert '"stockton-r3"' not in clipper_lines[0]
+    assert '"Stockton_Colts_12AA_(stockton-r3)"' in clipper_lines[0]
 
 
 def should_sort_season_highlight_games_chronologically_by_metadata(tmp_path: Path) -> None:
@@ -358,6 +357,45 @@ def should_sort_season_highlight_games_chronologically_by_metadata(tmp_path: Pat
     assert script.exists()
     text = script.read_text(encoding="utf-8")
     assert text.index("temp_clips/12_Alice/g2") < text.index("temp_clips/12_Alice/g1")
+
+
+def should_fallback_to_short_video_when_tracking_output_too_small_for_timestamps(tmp_path: Path):
+    base_outdir = tmp_path / "season_stats"
+    base_outdir.mkdir(parents=True, exist_ok=True)
+
+    game_label = "g1"
+    game_outdir = base_outdir / game_label / "Home" / "per_player"
+    game_outdir.mkdir(parents=True, exist_ok=True)
+    (game_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "01:00:00 01:00:10\n", encoding="utf-8"
+    )
+
+    # Provide a dummy tracking output that isn't a real mp4. ffprobe won't parse it, so the
+    # season highlight helper should fall back to the largest candidate file in the directory,
+    # which we make the `short-...` file.
+    video_dir = tmp_path / game_label
+    video_dir.mkdir(parents=True, exist_ok=True)
+    tracking_video = video_dir / "tracking_output-with-audio.mp4"
+    short_video = video_dir / f"short-{game_label}.mp4"
+    tracking_video.write_bytes(b"0" * 16)
+    short_video.write_bytes(b"0" * 1024)
+
+    results = [
+        {
+            "label": game_label,
+            "outdir": game_outdir,
+            "sheet_path": tmp_path / game_label / "stats" / "sheet.xlsx",
+            "video_path": tracking_video,
+        }
+    ]
+
+    pss._write_season_highlight_scripts(
+        base_outdir, results, create_scripts=True, videos_root=tmp_path
+    )
+    script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
+    assert script.exists()
+    text = script.read_text(encoding="utf-8")
+    assert f"short-{game_label}.mp4" in text
 
 
 def should_use_goal_event_video_time_for_combined_highlights_when_no_event_log_context(

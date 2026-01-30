@@ -26,4 +26,3 @@ fi
   --clip-transition-seconds=2 \
   --file-list "$FILE_LIST" \
   "$@"
-
