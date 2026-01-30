@@ -209,7 +209,7 @@ def should_write_shift_rows_csv_for_long_shift_team_when_enabled(tmp_path: Path)
     assert "15:00" not in text  # stored as seconds, not raw strings
 
 
-def should_error_season_highlights_when_video_missing_unless_allowed(tmp_path: Path):
+def should_warn_season_highlights_when_video_missing_and_skip(tmp_path: Path, capsys):
     base_outdir = tmp_path / "player_focus"
     base_outdir.mkdir(parents=True, exist_ok=True)
 
@@ -244,18 +244,22 @@ def should_error_season_highlights_when_video_missing_unless_allowed(tmp_path: P
         },
     ]
 
-    with pytest.raises(RuntimeError, match=r"Season highlight script generation requires"):
+    pss._write_season_highlight_scripts(
+        base_outdir, results, create_scripts=True, videos_root=tmp_path
+    )
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.err
+    assert any(line.startswith("  - g1:") for line in captured.err.splitlines())
+
+    with pytest.raises(RuntimeError, match=r"  - g1:"):
         pss._write_season_highlight_scripts(
-            base_outdir, results, create_scripts=True, videos_root=tmp_path
+            base_outdir,
+            results,
+            create_scripts=True,
+            error_missing_videos=True,
+            videos_root=tmp_path,
         )
 
-    pss._write_season_highlight_scripts(
-        base_outdir,
-        results,
-        create_scripts=True,
-        allow_missing_videos=True,
-        videos_root=tmp_path,
-    )
     script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
     assert script.exists()
     text = script.read_text(encoding="utf-8")

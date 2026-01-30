@@ -10054,7 +10054,7 @@ def _write_season_highlight_scripts(
     *,
     create_scripts: bool,
     clip_transition_seconds: Optional[float] = None,
-    allow_missing_videos: bool = False,
+    error_missing_videos: bool = False,
     videos_root: Optional[Path] = None,
 ) -> None:
     """
@@ -10185,7 +10185,7 @@ def _write_season_highlight_scripts(
         if video is None:
             missing_video_by_game[game_label] = _missing_video_detail(r)
 
-    if missing_video_by_game and not allow_missing_videos:
+    if missing_video_by_game and error_missing_videos:
         lines = "\n".join(
             f"  - {game_label}: {video_path}"
             for game_label, video_path in sorted(missing_video_by_game.items())
@@ -10197,14 +10197,19 @@ def _write_season_highlight_scripts(
             f"{lines}\n\n"
             "Fix: create the video next to each game's `stats/` directory, or under "
             "`$HOME/Videos/<game_label>/`, "
-            "or re-run with `--allow-missing-videos` to skip those games."
+            "or re-run without `--error-missing-videos` to skip those games."
         )
-    if missing_video_by_game and allow_missing_videos:
-        miss_str = ", ".join(
-            f"{game_label} -> {video_path}"
+    if missing_video_by_game and not error_missing_videos:
+        lines = "\n".join(
+            f"  - {game_label}: {video_path}"
             for game_label, video_path in sorted(missing_video_by_game.items())
         )
-        print(f"[season-highlights] WARNING: Missing video(s): {miss_str}", file=sys.stderr)
+        print(
+            "[season-highlights] WARNING: Missing highlight source video(s); skipping these games:\n"
+            f"{lines}\n"
+            "Tip: pass `--error-missing-videos` to fail instead of skipping.",
+            file=sys.stderr,
+        )
 
     if not players:
         return
@@ -10222,7 +10227,6 @@ def _write_season_highlight_scripts(
     for player_key in sorted(players):
         # Determine which games this player has highlight events for, in game order.
         game_entries: List[Tuple[str, Path, Path, str]] = []
-        missing_videos: List[Tuple[str, str]] = []
         for r in results:
             sheet_path = r.get("sheet_path")
             if sheet_path is None:
@@ -10236,17 +10240,9 @@ def _write_season_highlight_scripts(
 
             video = _resolve_video(r)
             if video is None:
-                missing_videos.append((game_label, _missing_video_detail(r)))
                 continue
 
             game_entries.append((game_label, video, ts_file, sanitize_name(game_label)))
-
-        if missing_videos and not allow_missing_videos:
-            miss_str = ", ".join(f"{g} -> {vp}" for g, vp in missing_videos)
-            raise RuntimeError(
-                f"Missing video(s) for season highlights ({_display_player_name(player_key)}): {miss_str}. "
-                "Re-run with `--allow-missing-videos` to skip those games."
-            )
 
         if not game_entries:
             continue
@@ -13434,8 +13430,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--allow-missing-videos",
         action="store_true",
         help=(
-            "When generating season highlight scripts, allow missing `tracking_output-with-audio*.mp4` "
-            "videos by skipping those games. By default, missing videos raise an error."
+            "Deprecated (now the default): when generating season highlight scripts, skip games that "
+            "are missing `tracking_output-with-audio*.mp4` / `*stitched_output-with-audio*.mp4`."
+        ),
+    )
+    p.add_argument(
+        "--error-missing-videos",
+        action="store_true",
+        help=(
+            "When generating season highlight scripts, fail if any game video is missing "
+            "(instead of warning and skipping those games)."
         ),
     )
     p.add_argument(
@@ -13907,7 +13911,7 @@ def main() -> None:
         )
         sys.exit(2)
     clip_transition_seconds: Optional[float] = args.clip_transition_seconds
-    allow_missing_videos = bool(args.allow_missing_videos)
+    error_missing_videos = bool(args.error_missing_videos)
 
     t2s_arg_id: Optional[int] = None
     t2s_arg_side: Optional[str] = None
@@ -16003,7 +16007,7 @@ def main() -> None:
             results,
             create_scripts=create_scripts,
             clip_transition_seconds=clip_transition_seconds,
-            allow_missing_videos=allow_missing_videos,
+            error_missing_videos=error_missing_videos,
         )
 
 

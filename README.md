@@ -162,6 +162,6 @@ aspen:
     - `python scripts/parse_stats_inputs.py --input /home/colivier/Videos/sharks-12-1-r2/stats --outdir player_shifts`
   - Season run from a list (files and/or directories):
     - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats`
-  - Season highlight scripts (goals only) with a 30s window (20s before / 10s after) and no title-card transitions (requires per-game `tracking_output-with-audio*.mp4` (or `*stitched_output-with-audio*.mp4`) either next to `stats/` or under `$HOME/Videos/<game_label>/`; use `--allow-missing-videos` to skip missing games):
+  - Season highlight scripts (goals only) with a 30s window (20s before / 10s after) and no title-card transitions (requires per-game `tracking_output-with-audio*.mp4` (or `*stitched_output-with-audio*.mp4`) either next to `stats/` or under `$HOME/Videos/<game_label>/`; missing games are skipped with a warning by default, or pass `--error-missing-videos` to fail):
     - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats --season-highlight-types Goal --season-highlight-window-seconds 30 --clip-transition-seconds 0`
     - Run all per-player season reels: `bash season_stats/season_highlights/clip_season_highlights_all.sh`
