@@ -106,6 +106,21 @@ def should_not_infer_shot_rates_from_goals_when_shots_missing():
     assert p10["shots_per_game"] is None
 
 
+def should_order_pseudo_cf_pct_next_to_shots_on_game_page():
+    mod = _load_app_module()
+
+    cols = mod.build_game_player_stats_display_columns(
+        rows=[
+            {"shots": 2, "pseudo_cf_pct": 55.0},
+            {"shots": 0, "pseudo_cf_pct": 0.0},
+        ]
+    )
+    keys = [c.get("key") for c in cols]
+    assert "shots" in keys
+    assert "pseudo_cf_pct" in keys
+    assert keys.index("pseudo_cf_pct") == keys.index("shots") + 1
+
+
 def should_render_recent_player_stats_section_in_team_template(webapp_test_config_path):
     _load_app_module()
     from tools.webapp import django_orm
