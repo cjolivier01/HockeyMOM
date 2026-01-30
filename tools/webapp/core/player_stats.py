@@ -32,7 +32,13 @@ PLAYER_STATS_DB_KEYS: tuple[str, ...] = (
     # `hky_game_event_rows` + `hky_game_shift_rows` when enabled.
     "sog_for_on_ice",
     "sog_against_on_ice",
-    # Shift-derived on-ice shot attempt metrics (for Pseudo-CF%) computed at runtime from
+    # Shift-derived on-ice SOG-evidence metrics (for Corsi%) computed at runtime from
+    # `hky_game_event_rows` + `hky_game_shift_rows` for games with shot tracking + shift rows.
+    # These are persisted even when shift data display is disabled (to allow share metrics without
+    # revealing raw shift intervals).
+    "corsi_for_on_ice",
+    "corsi_against_on_ice",
+    # Shift-derived on-ice shot attempt metrics (for Fenwick%) computed at runtime from
     # `hky_game_event_rows` + `hky_game_shift_rows` when enabled.
     "shots_for_on_ice",
     "shots_against_on_ice",
@@ -73,9 +79,10 @@ PLAYER_STATS_DISPLAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("ga_per_game", "GA per Game"),
     ("shots", "Shots"),
     ("shots_per_game", "Shots per Game"),
-    ("pseudo_cf_pct", "Pseudo-CF%"),
+    ("fenwick_pct", "Fenwick%"),
     ("sog", "SOG"),
     ("sog_per_game", "SOG per Game"),
+    ("corsi_pct", "Corsi%"),
     ("expected_goals", "xG"),
     ("expected_goals_per_game", "xG per Game"),
     ("expected_goals_per_sog", "xG per SOG"),
@@ -144,10 +151,11 @@ GAME_PLAYER_STATS_DISPLAY_KEYS: tuple[str, ...] = (
     "ot_goals",
     "ot_assists",
     "shots",
-    "pseudo_cf_pct",
+    "fenwick_pct",
     "pim",
     "plus_minus",
     "sog",
+    "corsi_pct",
     "expected_goals",
     "completed_passes",
     "controlled_entry_for",
@@ -534,6 +542,8 @@ def compute_player_display_stats(
 
     shots_for_on_ice = _int0(sums.get("shots_for_on_ice"))
     shots_against_on_ice = _int0(sums.get("shots_against_on_ice"))
+    corsi_for_on_ice = _int0(sums.get("corsi_for_on_ice"))
+    corsi_against_on_ice = _int0(sums.get("corsi_against_on_ice"))
 
     def _denom_for(key: str) -> int:
         if per_game_denoms is not None and str(key) in per_game_denoms:
@@ -606,10 +616,11 @@ def compute_player_display_stats(
     out["faceoff_pct"] = _rate_or_none(faceoff_wins, faceoff_attempts)
     out["goalie_sv_pct"] = _rate_or_none(goalie_saves, goalie_sa)
 
-    pseudo_cf = _rate_or_none(
-        float(shots_for_on_ice), float(shots_for_on_ice + shots_against_on_ice)
-    )
-    out["pseudo_cf_pct"] = (float(pseudo_cf) * 100.0) if pseudo_cf is not None else None
+    corsi = _rate_or_none(float(corsi_for_on_ice), float(corsi_for_on_ice + corsi_against_on_ice))
+    out["corsi_pct"] = (float(corsi) * 100.0) if corsi is not None else None
+
+    fenwick = _rate_or_none(float(shots_for_on_ice), float(shots_for_on_ice + shots_against_on_ice))
+    out["fenwick_pct"] = (float(fenwick) * 100.0) if fenwick is not None else None
     if per_game_denoms is not None:
         out["_per_game_denoms"] = {str(k): int(v) for k, v in dict(per_game_denoms).items()}
     return out
@@ -1367,7 +1378,9 @@ def _player_stats_required_sum_keys_for_display_key(col_key: str) -> tuple[str, 
         return ("gf_counted",)
     if k == "ga_per_game":
         return ("ga_counted",)
-    if k == "pseudo_cf_pct":
+    if k == "corsi_pct":
+        return ("corsi_for_on_ice", "corsi_against_on_ice")
+    if k == "fenwick_pct":
         return ("shots_for_on_ice", "shots_against_on_ice")
     if k in set(PLAYER_STATS_SUM_KEYS):
         return (k,)
