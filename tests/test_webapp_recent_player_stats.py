@@ -106,21 +106,22 @@ def should_not_infer_shot_rates_from_goals_when_shots_missing():
     assert p10["shots_per_game"] is None
 
 
-def should_order_corsi_and_fenwick_next_to_shots_on_game_page():
+def should_order_corsi_after_sog_and_fenwick_after_shots_on_game_page():
     mod = _load_app_module()
 
     cols = mod.build_game_player_stats_display_columns(
         rows=[
-            {"shots": 2, "corsi_pct": 55.0, "fenwick_pct": 60.0},
-            {"shots": 0, "corsi_pct": 0.0, "fenwick_pct": 0.0},
+            {"shots": 2, "sog": 1, "corsi_pct": 55.0, "fenwick_pct": 60.0},
+            {"shots": 0, "sog": 0, "corsi_pct": 0.0, "fenwick_pct": 0.0},
         ]
     )
     keys = [c.get("key") for c in cols]
     assert "shots" in keys
     assert "corsi_pct" in keys
     assert "fenwick_pct" in keys
-    assert keys.index("corsi_pct") == keys.index("shots") + 1
-    assert keys.index("fenwick_pct") == keys.index("corsi_pct") + 1
+    assert "sog" in keys
+    assert keys.index("fenwick_pct") == keys.index("shots") + 1
+    assert keys.index("corsi_pct") == keys.index("sog") + 1
 
 
 def should_render_recent_player_stats_section_in_team_template(webapp_test_config_path):
