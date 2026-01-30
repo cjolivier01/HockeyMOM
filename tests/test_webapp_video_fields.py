@@ -135,6 +135,60 @@ def should_enrich_timetoscore_goals_with_event_id(monkeypatch):
     assert tts_goal["Event ID"] == "54"
 
 
+def should_enrich_timetoscore_goals_with_long_video_times_within_one_second(monkeypatch):
+    monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
+    monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")
+    mod = _load_app_module()
+
+    # Some sources round fractional seconds differently (e.g., "13.9" remaining -> 13 vs 14).
+    # When a TimeToScore goal is missing video timing, prefer a near-by long-sheet Goal row over
+    # leaving the clip info blank.
+    headers = [
+        "Event Type",
+        "Source",
+        "Team Side",
+        "Period",
+        "Game Seconds",
+        "Video Time",
+        "Video Seconds",
+    ]
+    existing_rows = [
+        {
+            "Event Type": "Goal",
+            "Source": "timetoscore",
+            "Team Side": "Away",
+            "Period": "2",
+            "Game Seconds": "14",
+            "Video Time": "",
+            "Video Seconds": "",
+        }
+    ]
+    incoming_rows = [
+        {
+            "Event Type": "Goal",
+            "Source": "long",
+            "Team Side": "Away",
+            "Period": "2",
+            "Game Seconds": "13",
+            "Video Time": "1:23",
+            "Video Seconds": "83",
+        }
+    ]
+
+    out_headers, out_rows = mod.enrich_timetoscore_goals_with_long_video_times(
+        existing_headers=headers,
+        existing_rows=existing_rows,
+        incoming_headers=headers,
+        incoming_rows=incoming_rows,
+    )
+    assert "Video Time" in out_headers
+    assert "Video Seconds" in out_headers
+    tts_goal = out_rows[0]
+    assert tts_goal["Video Time"] == "1:23"
+    assert tts_goal["Video Seconds"] == "83"
+    assert "long" in str(tts_goal.get("Source") or "").split(",")
+
+
 def should_enrich_goal_video_times_from_long_events_for_uncorrected_goals(monkeypatch):
     monkeypatch.setenv("HM_WEBAPP_SKIP_DB_INIT", "1")
     monkeypatch.setenv("HM_WATCH_ROOT", "/tmp/hm-incoming-test")

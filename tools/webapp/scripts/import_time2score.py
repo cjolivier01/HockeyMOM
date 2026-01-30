@@ -99,6 +99,41 @@ def _parse_mmss_to_seconds(val: Any, *, period_len_s: Optional[int] = None) -> O
         return None
 
 
+def _parse_scoring_time_to_seconds(val: Any) -> Optional[int]:
+    """
+    Parse TimeToScore scoring-table clock strings to seconds remaining within a period.
+
+    TimeToScore scoring rows can use:
+      - "M:SS" (typical clock)
+      - "SS.d" / "SS.dd" (fractional seconds in the final minute; no colon)
+
+    We round fractional seconds half-up so e.g. "13.9" becomes 14 seconds.
+    """
+    s = str(val or "").strip()
+    if not s:
+        return None
+
+    def _round_half_up(raw: str) -> int:
+        v = float(str(raw).strip())
+        if v < 0:
+            raise ValueError("negative seconds not allowed")
+        return int(v + 0.5)
+
+    parts = s.split(":")
+    try:
+        if len(parts) == 3:
+            h, m, sec = parts
+            return int(h) * 3600 + int(m) * 60 + _round_half_up(sec)
+        if len(parts) == 2:
+            m, sec = parts
+            return int(m) * 60 + _round_half_up(sec)
+        if len(parts) == 1:
+            return _round_half_up(parts[0])
+    except Exception:
+        return None
+    return None
+
+
 def build_timetoscore_goal_and_assist_events(
     *,
     stats: dict[str, Any],
@@ -151,7 +186,8 @@ def build_timetoscore_goal_and_assist_events(
             if per is None:
                 continue
             time_txt = str(srow.get("time") or "").strip()
-            time_s = _parse_mmss_to_seconds(time_txt, period_len_s=period_len_s)
+            time_s = _parse_scoring_time_to_seconds(time_txt)
+            time_txt_norm = _format_mmss(int(time_s)) if time_s is not None else time_txt
             scorer_raw = srow.get("goal")
             a1_raw = srow.get("assist1")
             a2_raw = srow.get("assist2")
@@ -176,7 +212,7 @@ def build_timetoscore_goal_and_assist_events(
                     "Team Rel": _side_label(side_key),
                     "Team Raw": _side_label(side_key),
                     "Period": int(per),
-                    "Game Time": time_txt,
+                    "Game Time": time_txt_norm,
                     "Game Seconds": time_s if time_s is not None else "",
                     "Game Seconds End": "",
                     "Details": details,
@@ -200,7 +236,7 @@ def build_timetoscore_goal_and_assist_events(
                         "Team Rel": _side_label(side_key),
                         "Team Raw": _side_label(side_key),
                         "Period": int(per),
-                        "Game Time": time_txt,
+                        "Game Time": time_txt_norm,
                         "Game Seconds": time_s if time_s is not None else "",
                         "Game Seconds End": "",
                         "Details": a_details,
