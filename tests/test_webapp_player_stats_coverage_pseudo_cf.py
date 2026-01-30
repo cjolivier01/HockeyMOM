@@ -1,10 +1,24 @@
 from tools.webapp.core import player_stats as ps
 
 
-def should_compute_pseudo_cf_coverage_from_on_ice_shots_keys():
+def should_compute_corsi_and_fenwick_coverage_from_on_ice_keys():
     rows = [
-        {"player_id": 10, "game_id": 1, "shots_for_on_ice": 5, "shots_against_on_ice": 3},
-        {"player_id": 11, "game_id": 1, "shots_for_on_ice": 2, "shots_against_on_ice": 1},
+        {
+            "player_id": 10,
+            "game_id": 1,
+            "shots_for_on_ice": 5,
+            "shots_against_on_ice": 3,
+            "corsi_for_on_ice": 4,
+            "corsi_against_on_ice": 2,
+        },
+        {
+            "player_id": 11,
+            "game_id": 1,
+            "shots_for_on_ice": 2,
+            "shots_against_on_ice": 1,
+            "corsi_for_on_ice": 3,
+            "corsi_against_on_ice": 3,
+        },
         {"player_id": 10, "game_id": 2, "goals": 1},
     ]
 
@@ -14,4 +28,5 @@ def should_compute_pseudo_cf_coverage_from_on_ice_shots_keys():
 
     assert cov_total == 3
     assert cov_counts["gp"] == 2
-    assert cov_counts["pseudo_cf_pct"] == 1
+    assert cov_counts["fenwick_pct"] == 1
+    assert cov_counts["corsi_pct"] == 1
