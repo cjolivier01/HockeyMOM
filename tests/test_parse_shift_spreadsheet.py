@@ -308,6 +308,161 @@ def should_use_opponent_team_name_for_season_highlight_labels(tmp_path: Path):
     assert '"stockton-r3"' not in clipper_lines[0]
 
 
+def should_sort_season_highlight_games_chronologically_by_metadata(tmp_path: Path) -> None:
+    base_outdir = tmp_path / "season_stats"
+    base_outdir.mkdir(parents=True, exist_ok=True)
+
+    g1_outdir = base_outdir / "g1" / "Home" / "per_player"
+    g2_outdir = base_outdir / "g2" / "Home" / "per_player"
+    g1_outdir.mkdir(parents=True, exist_ok=True)
+    g2_outdir.mkdir(parents=True, exist_ok=True)
+
+    (g1_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:01 00:00:02\n", encoding="utf-8"
+    )
+    (g2_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:03 00:00:04\n", encoding="utf-8"
+    )
+
+    g1_video = tmp_path / "g1" / "tracking_output-with-audio.mp4"
+    g2_video = tmp_path / "g2" / "tracking_output-with-audio.mp4"
+    g1_video.parent.mkdir(parents=True, exist_ok=True)
+    g2_video.parent.mkdir(parents=True, exist_ok=True)
+    g1_video.write_text("", encoding="utf-8")
+    g2_video.write_text("", encoding="utf-8")
+
+    # Intentionally pass results in reverse chronological order; script should reorder.
+    results = [
+        {
+            "label": "g1",
+            "outdir": g1_outdir,
+            "sheet_path": tmp_path / "g1" / "stats" / "sheet.xlsx",
+            "video_path": g1_video,
+            "side": "home",
+            "meta": {"date": "2026-01-02", "time": "10:00"},
+        },
+        {
+            "label": "g2",
+            "outdir": g2_outdir,
+            "sheet_path": tmp_path / "g2" / "stats" / "sheet.xlsx",
+            "video_path": g2_video,
+            "side": "home",
+            "meta": {"date": "2026-01-01", "time": "10:00"},
+        },
+    ]
+
+    pss._write_season_highlight_scripts(
+        base_outdir, results, create_scripts=True, videos_root=tmp_path
+    )
+    script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
+    assert script.exists()
+    text = script.read_text(encoding="utf-8")
+    assert text.index("temp_clips/12_Alice/g2") < text.index("temp_clips/12_Alice/g1")
+
+
+def should_use_goal_event_video_time_for_combined_highlights_when_no_event_log_context(
+    tmp_path: Path,
+) -> None:
+    outdir = tmp_path / "game" / "Home" / "per_player"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    goal = pss.GoalEvent("GF", 3, "04:47", video_t_str="58:23", scorer="1")
+    per_player_goal_events = {
+        "1_Alice": {"goals": [goal], "assists": [], "gf_on_ice": [], "ga_on_ice": []}
+    }
+
+    pss._write_player_combined_highlights(
+        outdir,
+        event_log_context=None,
+        conv_segments_by_period={},
+        per_player_goal_events=per_player_goal_events,
+        player_keys=["1_Alice"],
+        create_scripts=True,
+        highlight_types=("Goal",),
+        highlight_window_seconds=None,
+    )
+
+    ts_file = outdir / "events_Highlights_1_Alice_video_times.txt"
+    assert ts_file.exists()
+    assert ts_file.read_text(encoding="utf-8").strip() == "00:58:03 00:58:33"
+
+
+def should_apply_event_corrections_video_time_locally_for_highlights(tmp_path: Path) -> None:
+    outdir = tmp_path / "game" / "Away" / "per_player"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    ctx = pss.EventLogContext(
+        event_counts_by_player={},
+        event_counts_by_type_team={},
+        event_instances={
+            ("Goal", "Blue"): [
+                {"period": 3, "video_s": None, "game_s": pss.parse_flex_time_to_seconds("04:47")}
+            ]
+        },
+        event_player_rows=[
+            {
+                "event_type": "Goal",
+                "team": "Blue",
+                "player": "1_Alice",
+                "jersey": 1,
+                "period": 3,
+                "video_s": None,
+                "game_s": pss.parse_flex_time_to_seconds("04:47"),
+            }
+        ],
+        team_roster={},
+        team_excluded={},
+    )
+
+    goals = [pss.GoalEvent("GF", 3, "04:47", scorer="1")]
+    event_corrections = {
+        "reason": "Fix goal clip time",
+        "patch": [
+            {
+                "match": {
+                    "event_type": "Goal",
+                    "period": 3,
+                    "game_time": "04:47",
+                    "team_side": "Away",
+                    "jersey": 1,
+                },
+                "set": {"video_time": "58:23"},
+            }
+        ],
+    }
+
+    pss._apply_event_corrections_to_local_game(
+        label="game",
+        event_corrections=event_corrections,
+        event_log_context=ctx,
+        goals=goals,
+        focus_team="Blue",
+        team_side="away",
+    )
+    assert ctx.event_player_rows[0]["video_s"] == pss.parse_flex_time_to_seconds("58:23")
+    assert ctx.event_instances[("Goal", "Blue")][0]["video_s"] == pss.parse_flex_time_to_seconds(
+        "58:23"
+    )
+    assert goals[0].video_t_sec == pss.parse_flex_time_to_seconds("58:23")
+
+    pss._write_player_combined_highlights(
+        outdir,
+        event_log_context=ctx,
+        conv_segments_by_period={},
+        per_player_goal_events={},
+        player_keys=["1_Alice"],
+        create_scripts=True,
+        highlight_types=("Goal",),
+        highlight_window_seconds=None,
+    )
+    ts_file = outdir / "events_Highlights_1_Alice_video_times.txt"
+    assert ts_file.exists()
+    assert ts_file.read_text(encoding="utf-8").strip() == "00:58:03 00:58:33"
+
+    pss._write_goal_window_files(outdir, goals, conv_segments_by_period={})
+    assert (outdir / "goals_for.txt").read_text(encoding="utf-8").strip() == "00:58:03 00:58:33"
+
+
 def should_parse_per_player_layout_reports_validation_errors():
     header = [
         "Jersey No",

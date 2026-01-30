@@ -10056,6 +10056,9 @@ def _write_season_highlight_scripts(
     clip_transition_seconds: Optional[float] = None,
     error_missing_videos: bool = False,
     videos_root: Optional[Path] = None,
+    hockey_db_dir: Optional[Path] = None,
+    allow_remote: bool = True,
+    allow_full_sync: bool = True,
 ) -> None:
     """
     For multi-game runs, write no-arg per-player season highlight scripts that:
@@ -10188,6 +10191,7 @@ def _write_season_highlight_scripts(
 
     players: set[str] = set()
     missing_video_by_game: dict[str, str] = {}
+    games_with_any_ts: set[str] = set()
     for r in results:
         outdir_raw = r.get("outdir")
         if not outdir_raw:
@@ -10214,6 +10218,7 @@ def _write_season_highlight_scripts(
             # T2S-only games don't have a reliable scoreboard->video mapping.
             continue
         game_label = _infer_game_label(r) or str(sheet_path)
+        games_with_any_ts.add(game_label)
         video = _resolve_video(r)
         if video is None:
             missing_video_by_game[game_label] = _missing_video_detail(r)
@@ -10246,6 +10251,92 @@ def _write_season_highlight_scripts(
 
     if not players:
         return
+
+    def _parse_dt(starts_at: Optional[str]) -> Optional[datetime.datetime]:
+        ss = str(starts_at or "").strip()
+        if not ss:
+            return None
+        ss = ss.replace("T", " ").strip()
+        try:
+            return datetime.datetime.fromisoformat(ss)
+        except Exception:
+            return None
+
+    def _game_starts_at_dt(r: Dict[str, Any], *, game_label: str) -> Optional[datetime.datetime]:
+        meta_raw = r.get("meta") or {}
+        meta_in: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
+        meta: dict[str, str] = {}
+        for k, v in (meta_in or {}).items():
+            if v is None:
+                continue
+            kk = str(k or "").strip().lower()
+            if not kk:
+                continue
+            vv = str(v).strip()
+            if vv:
+                meta[kk] = vv
+
+        dt1 = _parse_dt(_starts_at_from_meta(meta, warn_label=str(game_label or "")))
+        if dt1 is not None:
+            return dt1
+
+        t2s_id = r.get("t2s_id")
+        if t2s_id is None:
+            return None
+        try:
+            t2s_i = int(t2s_id)
+        except Exception:
+            return None
+        try:
+            db_dir = (
+                Path(hockey_db_dir)
+                if hockey_db_dir is not None
+                else (Path.home() / ".cache" / "hockeymom")
+            )
+        except Exception:
+            db_dir = Path.home() / ".cache" / "hockeymom"
+        dt2 = _parse_dt(
+            _starts_at_from_t2s_game_id(
+                t2s_i,
+                hockey_db_dir=db_dir,
+                warn_label=str(game_label or ""),
+                allow_remote=bool(allow_remote),
+                allow_full_sync=bool(allow_full_sync),
+            )
+        )
+        return dt2
+
+    game_start_dt_by_label: dict[str, Optional[datetime.datetime]] = {}
+    for r in results:
+        sheet_path = r.get("sheet_path")
+        if sheet_path is None:
+            continue
+        game_label = _infer_game_label(r) or str(sheet_path)
+        if game_label in game_start_dt_by_label:
+            continue
+        try:
+            game_start_dt_by_label[game_label] = _game_starts_at_dt(r, game_label=game_label)
+        except Exception:
+            game_start_dt_by_label[game_label] = None
+
+    # If we can't infer a start time for some games, they will remain in file-list order after
+    # the dated games in the season highlight scripts.
+    missing_dt_games = [
+        g
+        for g in sorted(games_with_any_ts)
+        if g not in missing_video_by_game and game_start_dt_by_label.get(g) is None
+    ]
+    if missing_dt_games:
+        shown = "\n".join(f"  - {g}" for g in missing_dt_games[:20])
+        extra = (
+            f"\n  ... (+{len(missing_dt_games) - 20} more)" if len(missing_dt_games) > 20 else ""
+        )
+        print(
+            "[season-highlights] WARNING: Missing game date/time for some games; season highlight scripts will append these after dated games (in file-list order).\n"
+            "Tip: add `date` (and optional `time`) metadata in your YAML file-list to enable full chronological ordering.\n"
+            f"{shown}{extra}",
+            file=sys.stderr,
+        )
 
     written_scripts: List[str] = []
     transition_arg = ""
@@ -10287,6 +10378,13 @@ def _write_season_highlight_scripts(
 
         if not game_entries:
             continue
+        if len(game_entries) > 1 and game_start_dt_by_label:
+            game_entries.sort(
+                key=lambda e: (
+                    1 if game_start_dt_by_label.get(e[0]) is None else 0,
+                    game_start_dt_by_label.get(e[0]) or datetime.datetime.max,
+                )
+            )
 
         script_path = season_dir / f"clip_season_highlights_{player_key}.sh"
 
@@ -11344,7 +11442,7 @@ def _write_player_combined_highlights(
                 player=pk,
                 event_type="Goal",
                 period=int(getattr(ev, "period", 0) or 0),
-                video_s=None,
+                video_s=getattr(ev, "video_t_sec", None),
                 game_s=int(getattr(ev, "t_sec", 0) or 0),
             )
         for ev in (info or {}).get("assists", []) or []:
@@ -11352,7 +11450,7 @@ def _write_player_combined_highlights(
                 player=pk,
                 event_type="Assist",
                 period=int(getattr(ev, "period", 0) or 0),
-                video_s=None,
+                video_s=getattr(ev, "video_t_sec", None),
                 game_s=int(getattr(ev, "t_sec", 0) or 0),
             )
 
@@ -11416,7 +11514,15 @@ def _write_goal_window_files(
             start_sb = max(0, start_sb)
             end_sb = max(0, end_sb)
 
-        v_center = map_sb_to_video(ev.period, ev.t_sec)
+        v_center: Optional[int] = None
+        try:
+            vs = getattr(ev, "video_t_sec", None)
+            if isinstance(vs, (int, float)):
+                v_center = int(vs)
+        except Exception:
+            v_center = None
+        if v_center is None:
+            v_center = map_sb_to_video(ev.period, ev.t_sec)
         if v_center is not None:
             v_start = max(0, v_center - GOAL_CLIP_PRE_S)
             v_end = v_center + GOAL_CLIP_POST_S
@@ -11488,6 +11594,7 @@ def process_sheet(
     outdir: Path,
     keep_goalies: bool,
     goals: List[GoalEvent],
+    event_corrections: Any = None,
     roster_map: Optional[Dict[str, str]] = None,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     t2s_side: Optional[str] = None,
@@ -11929,6 +12036,24 @@ def process_sheet(
                 per_player_goal_events[pk]["assists"].append(ev)
 
     event_log_context = merged_event_context
+
+    # Apply embedded YAML event_corrections locally (so season highlight timestamps honor manual
+    # video_time edits, not just webapp uploads).
+    if event_corrections:
+        try:
+            _apply_event_corrections_to_local_game(
+                label=str(outdir.parent.parent.name),
+                event_corrections=event_corrections,
+                event_log_context=event_log_context,
+                goals=goals,
+                focus_team=focus_team,
+                team_side=t2s_side,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[corrections] WARNING: {outdir.parent.parent.name}: failed to apply event_corrections locally: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
 
     # Determine which long-sheet/player-attributed event types exist in this game.
     # This is used to avoid treating missing stats as 0 when a game lacks a `*-long*` sheet
@@ -12640,6 +12765,7 @@ def process_long_only_sheets(
     long_xls_paths: List[Path],
     outdir: Path,
     goals: List[GoalEvent],
+    event_corrections: Any = None,
     roster_map: Optional[Dict[str, str]] = None,
     t2s_rosters_by_side: Optional[Dict[str, Dict[str, str]]] = None,
     t2s_side: Optional[str] = None,
@@ -12881,6 +13007,22 @@ def process_long_only_sheets(
             jerseys_by_team=jerseys_by_team_all,
             roster_name_by_team=roster_name_by_team,
         )
+
+    if event_corrections:
+        try:
+            _apply_event_corrections_to_local_game(
+                label=str(outdir.name),
+                event_corrections=event_corrections,
+                event_log_context=merged_event_context,
+                goals=goals,
+                focus_team=focus_team,
+                team_side=side,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[corrections] WARNING: {outdir.name}: failed to apply event_corrections locally: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
 
     # Write our team stats from the selected long shift table.
     primary_long_path = (
@@ -13645,6 +13787,354 @@ def _dump_game_events_from_outdir(*, label: str, outdir: Path) -> None:
             )
     finally:
         sys.stdout.flush()
+
+
+def _apply_event_corrections_to_local_game(
+    *,
+    label: str,
+    event_corrections: Any,
+    event_log_context: Optional[EventLogContext],
+    goals: Optional[List[GoalEvent]],
+    focus_team: Optional[str],
+    team_side: Optional[str],
+) -> None:
+    """
+    Best-effort local application of `event_corrections` (from YAML file-lists) so manually
+    curated `video_time` values override estimated scoreboard->video mappings in generated
+    timestamp files and clip scripts.
+
+    Supported patch shape:
+      - event_corrections: {patch: [{match: {...}, set: {...}}]}
+      - event_corrections: [{match: {...}, set: {...}}]
+
+    Currently applies `set.video_time` (and common aliases) to:
+      - `EventLogContext.event_player_rows[*].video_s`
+      - `EventLogContext.event_instances[*].video_s`
+      - `GoalEvent.video_t_sec` (for Goal/Assist matches)
+    """
+
+    def _norm_side_token(x: Any) -> Optional[str]:
+        raw = str(x or "").strip().lower()
+        if raw in {"home", "h"}:
+            return "home"
+        if raw in {"away", "visitor", "v"}:
+            return "away"
+        return None
+
+    def _norm_event_type_token(x: Any) -> str:
+        raw = str(x or "").strip()
+        if not raw:
+            return ""
+        key = re.sub(r"[^a-z0-9]+", "", raw.lower())
+        alias = {
+            "xg": "expectedgoal",
+            "expectedgoals": "expectedgoal",
+            "expectedgoal": "expectedgoal",
+            "shotongoal": "sog",
+            "shotsongoal": "sog",
+        }
+        return alias.get(key, key)
+
+    def _parse_video_seconds(set_map: dict[str, Any]) -> Optional[int]:
+        for k in (
+            "video_time",
+            "videoTime",
+            "video",
+            "video_s",
+            "video_sec",
+            "video_seconds",
+            "videoSeconds",
+        ):
+            if k not in set_map:
+                continue
+            v = set_map.get(k)
+            if v is None:
+                continue
+            try:
+                return int(parse_flex_time_to_seconds(str(v)))
+            except Exception:
+                continue
+        return None
+
+    def _parse_game_seconds(match_map: dict[str, Any]) -> Optional[int]:
+        for k in ("game_time", "gameTime", "time"):
+            if k not in match_map:
+                continue
+            v = match_map.get(k)
+            if v is None:
+                continue
+            try:
+                return int(parse_flex_time_to_seconds(str(v)))
+            except Exception:
+                continue
+        return None
+
+    def _parse_match_period(match_map: dict[str, Any]) -> Optional[int]:
+        if "period" not in match_map:
+            return None
+        v = match_map.get("period")
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    def _parse_match_team_side(match_map: dict[str, Any]) -> Optional[str]:
+        for k in ("team_side", "teamSide", "side"):
+            if k not in match_map:
+                continue
+            v = match_map.get(k)
+            if v is None:
+                continue
+            side_l = _norm_side_token(v)
+            if side_l:
+                return side_l
+        return None
+
+    def _parse_match_jersey(match_map: dict[str, Any]) -> Optional[int]:
+        for k in ("jersey", "number", "player_number", "playerNumber"):
+            if k not in match_map:
+                continue
+            v = match_map.get(k)
+            if v is None:
+                continue
+            norm = _normalize_jersey_number(v)
+            if not norm:
+                continue
+            try:
+                return int(norm)
+            except Exception:
+                continue
+        return None
+
+    def _row_team_side(team_token: Any) -> Optional[str]:
+        ft = str(focus_team or "").strip()
+        if ft not in {"Blue", "White"}:
+            return None
+        our_side_l = str(team_side or "").strip().lower()
+        if our_side_l not in {"home", "away"}:
+            return None
+        opp_side_l = "away" if our_side_l == "home" else "home"
+        team_txt = str(team_token or "").strip()
+        if team_txt == ft:
+            return our_side_l
+        if team_txt in {"Blue", "White"}:
+            return opp_side_l
+        return None
+
+    def _matches_event_row(row: dict[str, Any], match_map: dict[str, Any]) -> bool:
+        mt = match_map.get("event_type") or match_map.get("eventType") or match_map.get("type")
+        if mt is not None:
+            if _norm_event_type_token(row.get("event_type")) != _norm_event_type_token(mt):
+                return False
+
+        mp = _parse_match_period(match_map)
+        if mp is not None:
+            try:
+                if int(row.get("period") or 0) != int(mp):
+                    return False
+            except Exception:
+                return False
+
+        mg = _parse_game_seconds(match_map)
+        if mg is not None:
+            gs = row.get("game_s")
+            if not isinstance(gs, (int, float)):
+                return False
+            if int(gs) != int(mg):
+                return False
+
+        mside = _parse_match_team_side(match_map)
+        if mside is not None:
+            row_side_l = _row_team_side(row.get("team"))
+            if row_side_l is None or row_side_l != mside:
+                return False
+
+        mteam = match_map.get("team") or match_map.get("team_raw") or match_map.get("teamRaw")
+        if mteam is not None:
+            if str(row.get("team") or "").strip().lower() != str(mteam).strip().lower():
+                return False
+
+        mj = _parse_match_jersey(match_map)
+        if mj is not None:
+            try:
+                if int(row.get("jersey") or 0) != int(mj):
+                    return False
+            except Exception:
+                return False
+
+        mplayer = (
+            match_map.get("player") or match_map.get("player_key") or match_map.get("playerKey")
+        )
+        if mplayer is not None:
+            if str(row.get("player") or "").strip() != str(mplayer).strip():
+                return False
+
+        return True
+
+    def _matches_event_instance(
+        *, event_type: str, team: str, inst: dict[str, Any], match_map: dict[str, Any]
+    ) -> bool:
+        # Instances don't carry jersey attribution. If a patch is jersey-scoped, require it to
+        # also be time-scoped so we don't accidentally apply broad patches to many instances.
+        if _parse_match_jersey(match_map) is not None and _parse_game_seconds(match_map) is None:
+            return False
+
+        mt = match_map.get("event_type") or match_map.get("eventType") or match_map.get("type")
+        if mt is not None and _norm_event_type_token(event_type) != _norm_event_type_token(mt):
+            return False
+
+        mp = _parse_match_period(match_map)
+        if mp is not None:
+            try:
+                if int(inst.get("period") or 0) != int(mp):
+                    return False
+            except Exception:
+                return False
+
+        mg = _parse_game_seconds(match_map)
+        if mg is not None:
+            gs = inst.get("game_s")
+            if not isinstance(gs, (int, float)):
+                return False
+            if int(gs) != int(mg):
+                return False
+
+        mside = _parse_match_team_side(match_map)
+        if mside is not None:
+            inst_side_l = _row_team_side(team)
+            if inst_side_l is None or inst_side_l != mside:
+                return False
+
+        mteam = match_map.get("team") or match_map.get("team_raw") or match_map.get("teamRaw")
+        if mteam is not None:
+            if str(team or "").strip().lower() != str(mteam).strip().lower():
+                return False
+
+        return True
+
+    def _goal_event_team_side_l(ev: GoalEvent) -> Optional[str]:
+        our_side_l = str(team_side or "").strip().lower()
+        if our_side_l not in {"home", "away"}:
+            return None
+        opp_side_l = "away" if our_side_l == "home" else "home"
+        kind = str(getattr(ev, "kind", "") or "").strip().upper()
+        if kind == "GF":
+            return our_side_l
+        if kind == "GA":
+            return opp_side_l
+        return None
+
+    def _matches_goal_event(ev: GoalEvent, match_map: dict[str, Any]) -> bool:
+        mt = match_map.get("event_type") or match_map.get("eventType") or match_map.get("type")
+        et_key = _norm_event_type_token(mt) if mt is not None else ""
+        if et_key and et_key not in {"goal", "assist"}:
+            return False
+
+        mp = _parse_match_period(match_map)
+        if mp is not None and int(getattr(ev, "period", 0) or 0) != int(mp):
+            return False
+
+        mg = _parse_game_seconds(match_map)
+        if mg is not None and int(getattr(ev, "t_sec", 0) or 0) != int(mg):
+            return False
+
+        mside = _parse_match_team_side(match_map)
+        if mside is not None:
+            side_l = _goal_event_team_side_l(ev)
+            if side_l is None or side_l != mside:
+                return False
+
+        mj = _parse_match_jersey(match_map)
+        if mj is not None:
+            scorer_norm = _normalize_jersey_number(getattr(ev, "scorer", None))
+            assists_norm = [
+                _normalize_jersey_number(a) for a in (getattr(ev, "assists", None) or [])
+            ]
+            if et_key == "assist":
+                if str(mj) not in {str(x) for x in assists_norm if x}:
+                    return False
+            else:
+                # Default to Goal matching (scorer).
+                if not scorer_norm or int(scorer_norm) != int(mj):
+                    return False
+
+        return True
+
+    if event_corrections is None:
+        return
+
+    patches_raw: Any = event_corrections
+    patches: List[Dict[str, Any]] = []
+    if isinstance(patches_raw, list):
+        patches = [p for p in patches_raw if isinstance(p, dict)]
+    elif isinstance(patches_raw, dict):
+        patch_list = patches_raw.get("patch")
+        if isinstance(patch_list, list):
+            patches = [p for p in patch_list if isinstance(p, dict)]
+        else:
+            return
+    else:
+        return
+
+    if not patches:
+        return
+
+    total_patches = 0
+    unmatched_patches = 0
+    for patch in patches:
+        match_map = patch.get("match")
+        set_map = patch.get("set")
+        if not isinstance(match_map, dict) or not isinstance(set_map, dict):
+            continue
+
+        video_s_new = _parse_video_seconds(set_map)
+        if video_s_new is None:
+            continue
+
+        total_patches += 1
+        any_match = False
+
+        if event_log_context is not None:
+            for row in event_log_context.event_player_rows or []:
+                if not isinstance(row, dict):
+                    continue
+                if not _matches_event_row(row, match_map):
+                    continue
+                row["video_s"] = int(video_s_new)
+                any_match = True
+
+            for (etype, team), inst_list in (event_log_context.event_instances or {}).items():
+                for inst in inst_list or []:
+                    if not isinstance(inst, dict):
+                        continue
+                    if not _matches_event_instance(
+                        event_type=str(etype), team=str(team), inst=inst, match_map=match_map
+                    ):
+                        continue
+                    inst["video_s"] = int(video_s_new)
+                    any_match = True
+
+        if goals:
+            for ev in goals or []:
+                try:
+                    if not _matches_goal_event(ev, match_map):
+                        continue
+                    ev.video_t_sec = int(video_s_new)
+                    ev.video_t_str = seconds_to_mmss_or_hhmmss(int(video_s_new))
+                    any_match = True
+                except Exception:
+                    continue
+
+        if not any_match:
+            unmatched_patches += 1
+
+    if total_patches and unmatched_patches:
+        print(
+            f"[corrections] WARNING: {label}: {unmatched_patches}/{total_patches} event_corrections patch(es) did not match any local events.",
+            file=sys.stderr,
+        )
 
 
 def _apply_event_corrections_to_webapp(
@@ -14767,6 +15257,7 @@ def main() -> None:
                     outdir=outdir,
                     keep_goalies=args.keep_goalies,
                     goals=goals,
+                    event_corrections=g.get("event_corrections"),
                     roster_map=roster_map,
                     t2s_rosters_by_side=t2s_rosters_by_side,
                     t2s_side=sheet_side,
@@ -15169,6 +15660,7 @@ def main() -> None:
                         long_xls_paths=list(long_paths_for_compare),
                         outdir=outdir,
                         goals=goals,
+                        event_corrections=g.get("event_corrections"),
                         roster_map=roster_map,
                         t2s_rosters_by_side=t2s_rosters_by_side,
                         t2s_side=side_to_use,
@@ -15207,6 +15699,7 @@ def main() -> None:
                     outdir=outdir,
                     keep_goalies=args.keep_goalies,
                     goals=goals,
+                    event_corrections=g.get("event_corrections"),
                     roster_map=roster_map,
                     t2s_rosters_by_side=t2s_rosters_by_side,
                     t2s_side=side_to_use,
@@ -16059,6 +16552,9 @@ def main() -> None:
             create_scripts=create_scripts,
             clip_transition_seconds=clip_transition_seconds,
             error_missing_videos=error_missing_videos,
+            hockey_db_dir=hockey_db_dir,
+            allow_remote=t2s_allow_remote,
+            allow_full_sync=t2s_allow_full_sync,
         )
 
 
