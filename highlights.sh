@@ -22,7 +22,7 @@ fi
 
 ./p scripts/parse_stats_inputs.py \
   --season-highlight-types Goal \
-  --season-highlight-window-seconds=20 \
+  --season-highlight-window-seconds=15 \
   --clip-transition-seconds=2 \
   --file-list "$FILE_LIST" \
   "$@"
