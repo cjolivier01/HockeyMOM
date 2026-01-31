@@ -10594,7 +10594,8 @@ def _write_season_highlight_scripts(
                     game_start_dt_by_label.get(e[0]) or datetime.datetime.max,
                     file_list_index_by_label.get(e[0], 1_000_000_000),
                     str(e[0]),
-                )
+                ),
+            )
 
         script_path = season_dir / f"clip_season_highlights_{player_key}.sh"
 
