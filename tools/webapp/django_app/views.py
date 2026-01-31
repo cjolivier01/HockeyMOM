@@ -2979,7 +2979,7 @@ def _player_stat_rows_from_event_tables_for_team_games(
         t2s_game_ids = set()
     pim_game_ids |= {int(gid) for gid in t2s_game_ids or []}
 
-    pseudo_cf_game_ids: set[int] = {int(gid) for gid in (long_shot_game_ids & long_sog_game_ids)}
+    fenwick_game_ids: set[int] = {int(gid) for gid in (long_shot_game_ids & long_sog_game_ids)}
 
     # ----------------------------
     # Determine per-game participation ("played") for GP/denominators.
@@ -3265,94 +3265,101 @@ def _player_stat_rows_from_event_tables_for_team_games(
             row["plus_minus"] = int(gf) - int(ga)
 
     # ----------------------------
-    # On-ice SOG stats (for/against).
+    # On-ice SOG-evidence stats (for/against).
     #
-    # These are shift-derived and therefore only computed when shift data is enabled for the league.
+    # These are shift-derived but do not expose raw shift intervals. We compute them whenever
+    # shot-tracking + shift rows exist so they can be used for a Corsi% share metric even when
+    # shift data display is disabled. The raw on-ice SOG columns are only filled when
+    # `show_shift_data` is enabled.
     # ----------------------------
-    if show_shift_data:
-        for gid in sorted(list(shift_game_ids)):
-            if int(gid) not in shot_game_ids:
+    for gid in sorted(list(shift_game_ids)):
+        if int(gid) not in shot_game_ids:
+            continue
+
+        g2 = games_by_id.get(int(gid)) or {}
+        team1_id = _int_or_none(g2.get("team1_id")) or 0
+        team2_id = _int_or_none(g2.get("team2_id")) or 0
+        if team1_id <= 0 or team2_id <= 0:
+            continue
+        if int(team_id) not in {int(team1_id), int(team2_id)}:
+            continue
+
+        events = list(sog_evidence_rows_by_game.get(int(gid), []) or [])
+        if not events:
+            continue
+
+        sogf_by_pid: dict[int, int] = {}
+        soga_by_pid: dict[int, int] = {}
+
+        seen = 0
+        counted = 0
+        on_ice_cache: dict[tuple[int, int], set[int]] = {}
+
+        for ev in events:
+            ev_tid = _event_team_id(ev)
+            if ev_tid not in {team1_id, team2_id}:
                 continue
-
-            g2 = games_by_id.get(int(gid)) or {}
-            team1_id = _int_or_none(g2.get("team1_id")) or 0
-            team2_id = _int_or_none(g2.get("team2_id")) or 0
-            if team1_id <= 0 or team2_id <= 0:
+            per = _int_or_none(ev.get("period"))
+            t = _event_seconds(ev)
+            if per is None or int(per) <= 0 or t is None:
                 continue
-            if int(team_id) not in {int(team1_id), int(team2_id)}:
+            seen += 1
+
+            cache_key = (int(per), int(t))
+            on_ice = on_ice_cache.get(cache_key)
+            if on_ice is None:
+                period_shifts = shifts_by_gid_period.get(int(gid), {}).get(int(per), []) or []
+                s: set[int] = set()
+                for pid, start, end in period_shifts:
+                    if _shift_contains(t=int(t), start=int(start), end=int(end)):
+                        s.add(int(pid))
+                on_ice_cache[cache_key] = s
+                on_ice = s
+
+            if not on_ice:
                 continue
+            counted += 1
 
-            events = list(sog_evidence_rows_by_game.get(int(gid), []) or [])
-            if not events:
+            is_for_us = bool(int(ev_tid) == int(team_id))
+
+            if is_for_us:
+                for pid in on_ice:
+                    sogf_by_pid[int(pid)] = sogf_by_pid.get(int(pid), 0) + 1
+            else:
+                for pid in on_ice:
+                    soga_by_pid[int(pid)] = soga_by_pid.get(int(pid), 0) + 1
+
+        # If we have SOG evidence but couldn't map any of it to on-ice shifts, treat the
+        # on-ice SOG stats as unknown for this game.
+        if seen > 0 and counted <= 0:
+            continue
+
+        # Only apply on-ice stats to players that have shift rows in this game.
+        for (pid, g0), row in list(by_key.items()):
+            if int(g0) != int(gid):
                 continue
-
-            sogf_by_pid: dict[int, int] = {}
-            soga_by_pid: dict[int, int] = {}
-
-            seen = 0
-            counted = 0
-            on_ice_cache: dict[tuple[int, int], set[int]] = {}
-
-            for ev in events:
-                ev_tid = _event_team_id(ev)
-                if ev_tid not in {team1_id, team2_id}:
-                    continue
-                per = _int_or_none(ev.get("period"))
-                t = _event_seconds(ev)
-                if per is None or int(per) <= 0 or t is None:
-                    continue
-                seen += 1
-
-                cache_key = (int(per), int(t))
-                on_ice = on_ice_cache.get(cache_key)
-                if on_ice is None:
-                    period_shifts = shifts_by_gid_period.get(int(gid), {}).get(int(per), []) or []
-                    s: set[int] = set()
-                    for pid, start, end in period_shifts:
-                        if _shift_contains(t=int(t), start=int(start), end=int(end)):
-                            s.add(int(pid))
-                    on_ice_cache[cache_key] = s
-                    on_ice = s
-
-                if not on_ice:
-                    continue
-                counted += 1
-
-                is_for_us = bool(int(ev_tid) == int(team_id))
-
-                if is_for_us:
-                    for pid in on_ice:
-                        sogf_by_pid[int(pid)] = sogf_by_pid.get(int(pid), 0) + 1
-                else:
-                    for pid in on_ice:
-                        soga_by_pid[int(pid)] = soga_by_pid.get(int(pid), 0) + 1
-
-            # If we have SOG evidence but couldn't map any of it to on-ice shifts, treat the
-            # on-ice SOG stats as unknown for this game.
-            if seen > 0 and counted <= 0:
+            if (int(pid), int(gid)) not in shift_pairs:
                 continue
-
-            # Only apply on-ice stats to players that have shift rows in this game.
-            for (pid, g0), row in list(by_key.items()):
-                if int(g0) != int(gid):
-                    continue
-                if (int(pid), int(gid)) not in shift_pairs:
-                    continue
-                row["sog_for_on_ice"] = int(sogf_by_pid.get(int(pid), 0) or 0)
-                row["sog_against_on_ice"] = int(soga_by_pid.get(int(pid), 0) or 0)
+            sogf = int(sogf_by_pid.get(int(pid), 0) or 0)
+            soga = int(soga_by_pid.get(int(pid), 0) or 0)
+            row["corsi_for_on_ice"] = int(sogf)
+            row["corsi_against_on_ice"] = int(soga)
+            if show_shift_data:
+                row["sog_for_on_ice"] = int(sogf)
+                row["sog_against_on_ice"] = int(soga)
 
     # ----------------------------
     # On-ice shot-attempt stats (for/against).
     #
     # These use the same "Shots" semantics as player stats:
     #   Shots = Goals + xG + SOG + Shot
-    # so they can be used for a Pseudo-CF% style share metric.
+    # so they can be used for a Fenwick% style share metric.
     #
-    # Note: These are shift-derived, but Pseudo-CF% is useful even when TOI/Shifts are hidden, so
+    # Note: These are shift-derived, but Fenwick% is useful even when TOI/Shifts are hidden, so
     # we compute them as long as the game has long-sheet Shot+SOG coverage and shift rows exist.
     # ----------------------------
     for gid in sorted(list(shift_game_ids)):
-        if int(gid) not in pseudo_cf_game_ids:
+        if int(gid) not in fenwick_game_ids:
             continue
 
         g2 = games_by_id.get(int(gid)) or {}

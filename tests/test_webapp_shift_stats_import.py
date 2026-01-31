@@ -1034,7 +1034,7 @@ def should_write_season_highlight_script_with_embedded_video_paths():
         ]
 
         mod._write_season_highlight_scripts(  # type: ignore[attr-defined]
-            base_outdir, results, create_scripts=True
+            base_outdir, results, create_scripts=True, use_yaml_order=True
         )
 
         script = base_outdir / "season_highlights" / "clip_season_highlights_1_Ethan.sh"

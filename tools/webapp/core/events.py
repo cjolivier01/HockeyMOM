@@ -684,6 +684,37 @@ def enrich_timetoscore_goals_with_long_video_times(
     def _video_time(row: dict[str, str]) -> str:
         return str(row.get("Video Time") or row.get("VideoTime") or "").strip()
 
+    def _near_key_match(
+        lookup: dict[tuple[int, str, int], dict[str, str]],
+        *,
+        period: int,
+        side: str,
+        game_seconds: int,
+        tol_s: int = 1,
+    ) -> Optional[dict[str, str]]:
+        """
+        Best-effort key lookup with a small time tolerance.
+
+        Motivation: some sources provide fractional seconds (e.g., "13.9" remaining) that get
+        rounded differently across imports (e.g., 13 vs 14). For clip timing, prefer a close
+        long-sheet match over leaving video_time blank.
+        """
+        if tol_s <= 0:
+            return None
+        best: Optional[dict[str, str]] = None
+        best_delta: Optional[int] = None
+        for delta in range(-int(tol_s), int(tol_s) + 1):
+            if delta == 0:
+                continue
+            cand = lookup.get((int(period), str(side), int(game_seconds) + int(delta)))
+            if cand is None:
+                continue
+            d = abs(int(delta))
+            if best is None or (best_delta is not None and d < int(best_delta)):
+                best = cand
+                best_delta = d
+        return best
+
     # Lookups from incoming Goal rows.
     long_by_key: dict[tuple[int, str, int], dict[str, str]] = {}
     on_ice_by_key: dict[tuple[int, str, int], dict[str, str]] = {}
@@ -751,7 +782,9 @@ def enrich_timetoscore_goals_with_long_video_times(
             gs = _game_seconds(rr)
             if per is not None and side is not None and gs is not None:
                 k = (per, side, int(gs))
-                match = long_by_key.get(k)
+                match = long_by_key.get(k) or _near_key_match(
+                    long_by_key, period=int(per), side=str(side), game_seconds=int(gs), tol_s=1
+                )
                 if match is not None:
                     vs = _video_seconds(match)
                     vt = _video_time(match)
@@ -766,7 +799,9 @@ def enrich_timetoscore_goals_with_long_video_times(
                     if eid is not None and str(eid[1]).strip():
                         rr["Event ID"] = str(eid[1]).strip()
 
-                match_on_ice = on_ice_by_key.get(k)
+                match_on_ice = on_ice_by_key.get(k) or _near_key_match(
+                    on_ice_by_key, period=int(per), side=str(side), game_seconds=int(gs), tol_s=1
+                )
                 if match_on_ice is not None:
                     copied = False
                     copied |= _set_if_blank(

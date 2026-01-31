@@ -10056,6 +10056,7 @@ def _write_season_highlight_scripts(
     create_scripts: bool,
     clip_transition_seconds: Optional[float] = None,
     error_missing_videos: bool = False,
+    use_yaml_order: bool = False,
     videos_root: Optional[Path] = None,
     hockey_db_dir: Optional[Path] = None,
     allow_remote: bool = True,
@@ -10445,6 +10446,20 @@ def _write_season_highlight_scripts(
     if not players:
         return
 
+    use_yaml_order = bool(use_yaml_order)
+    file_list_index_by_label: dict[str, int] = {}
+    for idx, r in enumerate(results):
+        sheet_path = r.get("sheet_path")
+        if sheet_path is None:
+            continue
+        game_label = _infer_game_label(r) or str(sheet_path)
+        if game_label not in file_list_index_by_label:
+            file_list_index_by_label[game_label] = int(idx)
+
+    included_games = [
+        g for g in sorted(games_with_any_ts) if g not in missing_video_by_game and str(g).strip()
+    ]
+
     def _parse_dt(starts_at: Optional[str]) -> Optional[datetime.datetime]:
         ss = str(starts_at or "").strip()
         if not ss:
@@ -10500,36 +10515,38 @@ def _write_season_highlight_scripts(
         return dt2
 
     game_start_dt_by_label: dict[str, Optional[datetime.datetime]] = {}
-    for r in results:
-        sheet_path = r.get("sheet_path")
-        if sheet_path is None:
-            continue
-        game_label = _infer_game_label(r) or str(sheet_path)
-        if game_label in game_start_dt_by_label:
-            continue
-        try:
-            game_start_dt_by_label[game_label] = _game_starts_at_dt(r, game_label=game_label)
-        except Exception:
-            game_start_dt_by_label[game_label] = None
+    if not use_yaml_order and len(included_games) > 1:
+        included_set = set(included_games)
+        for r in results:
+            sheet_path = r.get("sheet_path")
+            if sheet_path is None:
+                continue
+            game_label = _infer_game_label(r) or str(sheet_path)
+            if game_label not in included_set:
+                continue
+            if game_label in game_start_dt_by_label:
+                continue
+            try:
+                game_start_dt_by_label[game_label] = _game_starts_at_dt(r, game_label=game_label)
+            except Exception:
+                game_start_dt_by_label[game_label] = None
 
-    # If we can't infer a start time for some games, they will remain in file-list order after
-    # the dated games in the season highlight scripts.
-    missing_dt_games = [
-        g
-        for g in sorted(games_with_any_ts)
-        if g not in missing_video_by_game and game_start_dt_by_label.get(g) is None
-    ]
-    if missing_dt_games:
-        shown = "\n".join(f"  - {g}" for g in missing_dt_games[:20])
-        extra = (
-            f"\n  ... (+{len(missing_dt_games) - 20} more)" if len(missing_dt_games) > 20 else ""
-        )
-        print(
-            "[season-highlights] WARNING: Missing game date/time for some games; season highlight scripts will keep `--file-list` order for these games.\n"
-            "Tip: add `date` (and optional `time`) metadata in your YAML file-list to enable full chronological ordering by date.\n"
-            f"{shown}{extra}",
-            file=sys.stderr,
-        )
+        missing_dt_games = [g for g in included_games if game_start_dt_by_label.get(g) is None]
+        if missing_dt_games:
+            shown = "\n".join(f"  - {g}" for g in missing_dt_games[:20])
+            extra = (
+                f"\n  ... (+{len(missing_dt_games) - 20} more)"
+                if len(missing_dt_games) > 20
+                else ""
+            )
+            raise RuntimeError(
+                "Season highlight scripts require a game date/time for every game so they can be "
+                "sorted chronologically (oldest to newest).\n"
+                "Missing game date/time for:\n"
+                f"{shown}{extra}\n\n"
+                "Fix: add `date` (and optional `time`) metadata in your YAML file-list entries, "
+                "or pass `--use-yaml-order` to preserve YAML/file-list order."
+            )
 
     written_scripts: List[str] = []
     transition_arg = ""
@@ -10571,14 +10588,12 @@ def _write_season_highlight_scripts(
 
         if not game_entries:
             continue
-        if len(game_entries) > 1 and game_start_dt_by_label:
-            # Only sort when we have a full datetime ordering for this player's games; otherwise
-            # preserve `--file-list` order to avoid incorrectly bubbling dt-known games ahead of
-            # dt-unknown ones.
-            dts = [game_start_dt_by_label.get(e[0]) for e in game_entries]
-            if all(dt is not None for dt in dts):
-                game_entries.sort(
-                    key=lambda e: game_start_dt_by_label.get(e[0]) or datetime.datetime.max
+        if not use_yaml_order and len(game_entries) > 1:
+            game_entries.sort(
+                key=lambda e: (
+                    game_start_dt_by_label.get(e[0]) or datetime.datetime.max,
+                    file_list_index_by_label.get(e[0], 1_000_000_000),
+                    str(e[0]),
                 )
 
         script_path = season_dir / f"clip_season_highlights_{player_key}.sh"
@@ -13838,6 +13853,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--use-yaml-order",
+        action="store_true",
+        help=(
+            "For season highlight scripts, preserve the YAML/file-list order instead of requiring "
+            "game date/time metadata for chronological ordering."
+        ),
+    )
+    p.add_argument(
         "--skip-validation",
         action="store_true",
         help="Skip validation checks on start/end ordering and excessive durations.",
@@ -14655,6 +14678,7 @@ def main() -> None:
         sys.exit(2)
     clip_transition_seconds: Optional[float] = args.clip_transition_seconds
     error_missing_videos = bool(args.error_missing_videos)
+    use_yaml_order = bool(args.use_yaml_order)
 
     t2s_arg_id: Optional[int] = None
     t2s_arg_side: Optional[str] = None
@@ -16754,6 +16778,7 @@ def main() -> None:
             create_scripts=create_scripts,
             clip_transition_seconds=clip_transition_seconds,
             error_missing_videos=error_missing_videos,
+            use_yaml_order=use_yaml_order,
             hockey_db_dir=hockey_db_dir,
             allow_remote=t2s_allow_remote,
             allow_full_sync=t2s_allow_full_sync,

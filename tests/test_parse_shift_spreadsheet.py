@@ -245,7 +245,11 @@ def should_warn_season_highlights_when_video_missing_and_skip(tmp_path: Path, ca
     ]
 
     pss._write_season_highlight_scripts(
-        base_outdir, results, create_scripts=True, videos_root=tmp_path
+        base_outdir,
+        results,
+        create_scripts=True,
+        use_yaml_order=True,
+        videos_root=tmp_path,
     )
     captured = capsys.readouterr()
     assert "WARNING" in captured.err
@@ -257,6 +261,7 @@ def should_warn_season_highlights_when_video_missing_and_skip(tmp_path: Path, ca
             results,
             create_scripts=True,
             error_missing_videos=True,
+            use_yaml_order=True,
             videos_root=tmp_path,
         )
 
@@ -297,7 +302,11 @@ def should_use_opponent_team_name_for_season_highlight_labels(tmp_path: Path):
     ]
 
     pss._write_season_highlight_scripts(
-        base_outdir, results, create_scripts=True, videos_root=tmp_path
+        base_outdir,
+        results,
+        create_scripts=True,
+        use_yaml_order=True,
+        videos_root=tmp_path,
     )
     script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
     assert script.exists()
@@ -359,6 +368,102 @@ def should_sort_season_highlight_games_chronologically_by_metadata(tmp_path: Pat
     assert text.index("temp_clips/12_Alice/g2") < text.index("temp_clips/12_Alice/g1")
 
 
+def should_error_when_missing_season_highlight_game_datetime(tmp_path: Path) -> None:
+    base_outdir = tmp_path / "season_stats"
+    base_outdir.mkdir(parents=True, exist_ok=True)
+
+    g1_outdir = base_outdir / "g1" / "Home" / "per_player"
+    g2_outdir = base_outdir / "g2" / "Home" / "per_player"
+    g1_outdir.mkdir(parents=True, exist_ok=True)
+    g2_outdir.mkdir(parents=True, exist_ok=True)
+
+    (g1_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:01 00:00:02\n", encoding="utf-8"
+    )
+    (g2_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:03 00:00:04\n", encoding="utf-8"
+    )
+
+    g1_video = tmp_path / "g1" / "tracking_output-with-audio.mp4"
+    g2_video = tmp_path / "g2" / "tracking_output-with-audio.mp4"
+    g1_video.parent.mkdir(parents=True, exist_ok=True)
+    g2_video.parent.mkdir(parents=True, exist_ok=True)
+    g1_video.write_text("", encoding="utf-8")
+    g2_video.write_text("", encoding="utf-8")
+
+    results = [
+        {
+            "label": "g1",
+            "outdir": g1_outdir,
+            "sheet_path": tmp_path / "g1" / "stats" / "sheet.xlsx",
+            "video_path": g1_video,
+        },
+        {
+            "label": "g2",
+            "outdir": g2_outdir,
+            "sheet_path": tmp_path / "g2" / "stats" / "sheet.xlsx",
+            "video_path": g2_video,
+        },
+    ]
+
+    with pytest.raises(RuntimeError, match=r"Missing game date/time for:\n  - g1"):
+        pss._write_season_highlight_scripts(
+            base_outdir, results, create_scripts=True, videos_root=tmp_path
+        )
+
+
+def should_preserve_yaml_order_when_missing_season_highlight_game_datetime(tmp_path: Path) -> None:
+    base_outdir = tmp_path / "season_stats"
+    base_outdir.mkdir(parents=True, exist_ok=True)
+
+    g1_outdir = base_outdir / "g1" / "Home" / "per_player"
+    g2_outdir = base_outdir / "g2" / "Home" / "per_player"
+    g1_outdir.mkdir(parents=True, exist_ok=True)
+    g2_outdir.mkdir(parents=True, exist_ok=True)
+
+    (g1_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:01 00:00:02\n", encoding="utf-8"
+    )
+    (g2_outdir / "events_Highlights_12_Alice_video_times.txt").write_text(
+        "00:00:03 00:00:04\n", encoding="utf-8"
+    )
+
+    g1_video = tmp_path / "g1" / "tracking_output-with-audio.mp4"
+    g2_video = tmp_path / "g2" / "tracking_output-with-audio.mp4"
+    g1_video.parent.mkdir(parents=True, exist_ok=True)
+    g2_video.parent.mkdir(parents=True, exist_ok=True)
+    g1_video.write_text("", encoding="utf-8")
+    g2_video.write_text("", encoding="utf-8")
+
+    # Intentionally pass results out of order; --use-yaml-order should preserve this ordering.
+    results = [
+        {
+            "label": "g2",
+            "outdir": g2_outdir,
+            "sheet_path": tmp_path / "g2" / "stats" / "sheet.xlsx",
+            "video_path": g2_video,
+        },
+        {
+            "label": "g1",
+            "outdir": g1_outdir,
+            "sheet_path": tmp_path / "g1" / "stats" / "sheet.xlsx",
+            "video_path": g1_video,
+        },
+    ]
+
+    pss._write_season_highlight_scripts(
+        base_outdir,
+        results,
+        create_scripts=True,
+        use_yaml_order=True,
+        videos_root=tmp_path,
+    )
+    script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
+    assert script.exists()
+    text = script.read_text(encoding="utf-8")
+    assert text.index("temp_clips/12_Alice/g2") < text.index("temp_clips/12_Alice/g1")
+
+
 def should_fallback_to_short_video_when_tracking_output_too_small_for_timestamps(tmp_path: Path):
     base_outdir = tmp_path / "season_stats"
     base_outdir.mkdir(parents=True, exist_ok=True)
@@ -390,7 +495,11 @@ def should_fallback_to_short_video_when_tracking_output_too_small_for_timestamps
     ]
 
     pss._write_season_highlight_scripts(
-        base_outdir, results, create_scripts=True, videos_root=tmp_path
+        base_outdir,
+        results,
+        create_scripts=True,
+        use_yaml_order=True,
+        videos_root=tmp_path,
     )
     script = base_outdir / "season_highlights" / "clip_season_highlights_12_Alice.sh"
     assert script.exists()
