@@ -12,7 +12,6 @@ from .shift_stats import (
     parse_shift_stats_player_stats_csv,
 )
 
-
 # Stats persisted in `player_stats` DB rows. Derived shift/time stats (TOI/shifts) are computed
 # from `hky_game_shift_rows` at runtime and are intentionally excluded here.
 PLAYER_STATS_DB_KEYS: tuple[str, ...] = (
@@ -154,7 +153,9 @@ GAME_PLAYER_STATS_DISPLAY_KEYS: tuple[str, ...] = (
     "controlled_entry_against",
     "controlled_exit_for",
     "controlled_exit_against",
+    "turnovers_forced",
     "giveaways",
+    "created_turnovers",
     "takeaways",
     "gf_counted",
     "ga_counted",
@@ -1643,12 +1644,9 @@ def sort_players_table_default(rows: list[dict[str, Any]]) -> list[dict[str, Any
 def aggregate_players_totals(db_conn, team_id: int, user_id: int) -> dict:
     del db_conn
     _django_orm, m = _orm_modules()
-    from django.db.models import Count, F, IntegerField, Sum
-    from django.db.models.functions import Coalesce
-    from django.db.models.functions import Abs
-
     # Exclude outlier games from aggregated totals (outliers are allowed for MHR-like ratings only).
-    from django.db.models import Q
+    from django.db.models import Count, F, IntegerField, Q, Sum
+    from django.db.models.functions import Abs, Coalesce
 
     eligible_game_ids: list[int] = []
     for r in (
@@ -1817,8 +1815,7 @@ def aggregate_players_totals_league(db_conn, team_id: int, league_id: int) -> di
     del db_conn
     _django_orm, m = _orm_modules()
     from django.db.models import Count, F, IntegerField, Q, Sum
-    from django.db.models.functions import Coalesce
-    from django.db.models.functions import Abs
+    from django.db.models.functions import Abs, Coalesce
 
     league_name = _get_league_name(None, int(league_id))
     league_team_div: dict[int, str] = {
