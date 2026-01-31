@@ -938,38 +938,56 @@ def _starts_at_from_t2s_game_id(
         _warn(f"failed to fetch TimeToScore game details for game_id={t2s_game_id}: {e}")
         return None
 
-    st = ((info or {}).get("game") or {}).get("start_time")
-    if st is None:
-        stats = (info or {}).get("stats") or {}
-        date_s = str((stats or {}).get("date") or "").strip()
-        time_s = str((stats or {}).get("time") or "").strip()
-        if date_s and time_s:
-            try:
-                from hmlib.time2score import util as t2s_util
-
-                dt_obj = t2s_util.parse_game_time(date_s, time_s, year=None)
-                return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
-            except Exception as e:  # noqa: BLE001
-                _warn(
-                    f"failed to parse TimeToScore start time from scoresheet date/time for game_id={t2s_game_id}: {e}"
-                )
-        return None
-    if isinstance(st, datetime.datetime):
-        return st.strftime("%Y-%m-%d %H:%M:%S")
-    ss = str(st).strip()
-    if not ss:
-        return None
-    ss = ss.replace("T", " ").strip()
-    try:
-        dt_obj = datetime.datetime.fromisoformat(ss)
-        return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        # If we only get a date, normalize to midnight.
+    stats = (info or {}).get("stats") or {}
+    stats_date_s = str((stats or {}).get("date") or "").strip()
+    stats_time_s = str((stats or {}).get("time") or "").strip()
+    dt_stats: Optional[datetime.datetime] = None
+    if stats_date_s and stats_time_s:
         try:
-            d = datetime.date.fromisoformat(ss)
-            return f"{d.isoformat()} 00:00:00"
-        except Exception:
-            return None
+            from hmlib.time2score import util as t2s_util
+
+            dt_stats = t2s_util.parse_game_time(stats_date_s, stats_time_s, year=None)
+        except Exception as e:  # noqa: BLE001
+            _warn(
+                f"failed to parse TimeToScore start time from scoresheet date/time for game_id={t2s_game_id}: {e}"
+            )
+            dt_stats = None
+
+    st = ((info or {}).get("game") or {}).get("start_time")
+    dt_start: Optional[datetime.datetime] = None
+    if isinstance(st, datetime.datetime):
+        dt_start = st
+    else:
+        ss = str(st or "").strip()
+        if ss:
+            ss = ss.replace("T", " ").strip()
+            try:
+                dt_start = datetime.datetime.fromisoformat(ss)
+            except Exception:
+                # If we only get a date, normalize to midnight.
+                try:
+                    d = datetime.date.fromisoformat(ss)
+                    dt_start = datetime.datetime.combine(d, datetime.time(0, 0, 0))
+                except Exception:
+                    dt_start = None
+
+    if dt_stats is not None and dt_start is not None:
+        # TimeToScore schedule-derived start_time can be wrong around season year boundaries
+        # (e.g., January games recorded with the season's first year). Prefer the scoresheet's
+        # explicit date/time when they disagree.
+        if dt_start.date() != dt_stats.date():
+            _warn(
+                f"start_time={dt_start.strftime('%Y-%m-%d %H:%M:%S')} disagrees with scoresheet "
+                f"date/time ({stats_date_s} {stats_time_s}); using scoresheet."
+            )
+            return dt_stats.strftime("%Y-%m-%d %H:%M:%S")
+        return dt_start.strftime("%Y-%m-%d %H:%M:%S")
+
+    if dt_start is not None:
+        return dt_start.strftime("%Y-%m-%d %H:%M:%S")
+    if dt_stats is not None:
+        return dt_stats.strftime("%Y-%m-%d %H:%M:%S")
+    return None
 
 
 def _normalize_header_label(label: str) -> str:

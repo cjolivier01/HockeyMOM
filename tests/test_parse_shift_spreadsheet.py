@@ -2437,6 +2437,34 @@ def should_parse_webapp_starts_at_from_t2s_scoresheet_date_time(tmp_path: Path, 
     assert starts_at == "2026-01-25 16:45:00"
 
 
+def should_prefer_t2s_scoresheet_date_time_when_start_time_disagrees(
+    tmp_path: Path, monkeypatch, capsys
+):
+    # Some TimeToScore schedule-derived start_time values are wrong around season year boundaries
+    # (e.g., January games recorded with the season's first year). Prefer the scoresheet date/time.
+    import hmlib.time2score.api as t2s_api
+
+    def fake_get_game_details(game_id: int, **_kwargs):
+        return {
+            "game": {"game_id": int(game_id), "start_time": "2025-01-25 16:45:00"},
+            "home": {"team": None, "score": None},
+            "away": {"team": None, "score": None},
+            "stats": {"date": "01-25-26", "time": "04:45 PM"},
+        }
+
+    monkeypatch.setattr(t2s_api, "get_game_details", fake_get_game_details)
+    starts_at = pss._starts_at_from_t2s_game_id(
+        53907,
+        hockey_db_dir=tmp_path / "hockey_cache",
+        allow_remote=True,
+        allow_full_sync=True,
+        warn_label="test",
+    )
+    assert starts_at == "2026-01-25 16:45:00"
+    err = capsys.readouterr().err
+    assert "disagrees with scoresheet" in err
+
+
 if __name__ == "__main__":
     # Make `bazel test //tests:test_parse_stats_inputs` run pytest collection.
     raise SystemExit(
