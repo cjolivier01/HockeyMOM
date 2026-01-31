@@ -11,8 +11,6 @@ This folder contains user-facing CLI commands that are installed with hm-prefixe
 - **hmorientation** — Inspect a game directory and label left/right camera sets
 - **hmconcatenate_videos** — Normalize and concatenate multiple videos with ffmpeg
 
-Note: the video clipper and TimeToScore tools have moved to the `HockeyMOMWeb` repo.
-
 ### Conventions and prerequisites
 - **Game directory layout**: Most tools expect a game-id directory under `$HOME/Videos/<game-id>` with `config.yaml` and a stitched frame `s.png` (some tools will generate these). Example: `$HOME/Videos/ev-stockton-1`.
 - **GPU acceleration**: Many commands can use CUDA for decoding/encoding or ML inference. Set `--gpus` or device flags as needed. CPU-only can work but is slower.

@@ -4,14 +4,6 @@ HockeyMOM
 - Repository guidelines: see [AGENTS.md](AGENTS.md).
 - How to contribute: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Webapp / Imports
-The Django webapp and all import tooling (TimeToScore, shift parsing, clipper helpers) live in the **HockeyMOMWeb** repo.
-
-This repo keeps thin shims for convenience:
-- `./import_webapp.sh`
-- `./gcp_import_webapp.sh`
-- `scripts/parse_stats_inputs.py`
-
 ## System dependencies and native tools
 
 For a fresh Ubuntu/Debian machine you should run, from the repo root:
@@ -121,17 +113,3 @@ aspen:
 
 - Configure via YAML `aspen.pipeline`: `threaded: bool`, `queue_size: int`, `cuda_streams: bool`.
 - CLI toggles: `--aspen-threaded`, `--aspen-thread-queue-size`, `--aspen-thread-cuda-streams` or `--no-aspen-thread-cuda-streams`.
-
-**Video Clipper**
-- Moved to HockeyMOMWeb: `hockeymomweb/cli/video_clipper.py` (run `python -m hockeymomweb.cli.video_clipper`)
-- New options:
-  - `--transition-seconds`: seconds for per-clip title cards (default 3.0; 0 disables transitions).
-  - `--blink-circle`: overlays a blinking orange circle near the top-left around the clip midpoint.
-  - `--blink-pre` / `--blink-post`: seconds before/after midpoint to blink (default 2.0/2.0).
-- Behavior notes:
-  - Circle is a 250px radius image mask overlaid at `x=10,y=10` and blinks 0.2s on/0.2s off.
-  - When trimming with timestamps, decode-side `-t` is used and overlay uses `shortest=1` to ensure exact clip duration.
-
-**Shift Spreadsheet Parser**
-- Moved to HockeyMOMWeb: `../HockeyMOMWeb/scripts/parse_stats_inputs.py`
-- In this repo, `scripts/parse_stats_inputs.py` is a shim that forwards to HockeyMOMWeb when present.

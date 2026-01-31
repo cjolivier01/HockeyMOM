@@ -22,13 +22,6 @@
 - Run TensorRT-enabled tracking on a short clip (5s) for `chicago-3`:
   - `PYTHONPATH=$(pwd) python hmlib/cli/hmtrack.py --game-id=chicago-3 --async-post-processing=0 --async-video-out=0 --show-scaled=0.5 --camera-ui=1 --detector-trt-enable --detector-static-detections --detector-static-max-detections=800 --plot-tracking -t=5`
 
-## Webapp / Import Tooling (Moved)
-- The webapp, TimeToScore, shift parsing, and deployment/import scripts live in the **HockeyMOMWeb** repo now.
-- This repo keeps thin shims for convenience:
-  - `./import_webapp.sh`
-  - `./gcp_import_webapp.sh`
-  - `scripts/parse_stats_inputs.py`
-
 ## Coding Style & Naming Conventions
 - Python: Black (see `pyproject.toml`) and isort; run `./format.sh` before committing.
 - Before finalizing changes, run `python -m black` and `ruff check` on any modified/new Python files and fix issues until clean.
