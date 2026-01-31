@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -450,7 +449,9 @@ class AspenAuditHook:
         except Exception:
             pass
 
-        out_dir = self._out_dir / "images" / _sanitize_component(phase) / _sanitize_component(plugin_name)
+        out_dir = (
+            self._out_dir / "images" / _sanitize_component(phase) / _sanitize_component(plugin_name)
+        )
         out_dir = out_dir / _sanitize_component(key.replace(".", "_"))
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"frame_{int(frame_id):06d}.png"

@@ -20,14 +20,9 @@ ENTRY_POINTS = {
     "hmcreate_control_points": "hmlib.cli.create_control_points:main",
     "hmplayers": "hmlib.cli.players:main",
     "hmfind_ice_rink": "hmlib.cli.find_ice_rink:main",
-    "hmvideo_clipper": "hmlib.cli.video_clipper:main",
-    "hmanalyze_shifts": "hmlib.cli.analyze_shifts:main",
     "hmpostprocess_shifts": "hmlib.cli.postprocess_shifts:main",
     "hmorientation": "hmlib.cli.hmorientation:main",
     "hmconcatenate_videos": "hmlib.cli.concatenate_videos:main",
-    "hmcaha_sync": "hmlib.cli.caha_sync:main",
-    "hmcaha_summary": "hmlib.cli.caha_summary:main",
-    "hmcaha_game": "hmlib.cli.caha_game:main",
     "hmcamera_annotate": "hmlib.cli.camera_annotate:main",
 }
 
