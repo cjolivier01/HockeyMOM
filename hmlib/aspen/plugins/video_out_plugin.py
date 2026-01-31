@@ -94,7 +94,9 @@ class VideoOutPlugin(Plugin):
         #   3. Fallback to <work_dir>/tracking_output.mkv
         out_path = self._out_path
         if not out_path or "/" not in out_path:
-            candidate = get_nested_value(cfg, "aspen.video_out.output_video_path", default_value=None)
+            candidate = get_nested_value(
+                cfg, "aspen.video_out.output_video_path", default_value=None
+            )
             if not candidate:
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
                 candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")

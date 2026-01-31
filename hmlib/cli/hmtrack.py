@@ -261,18 +261,18 @@ def configure_model(config: dict, args: argparse.Namespace):
 
 
 def find_stitched_file(dir_name: str, game_id: str):
-    exts = ["mp4", "mkv", "avi"]
-    basenames = [
-        # "stitched_output",
-        "stitched_output-with-audio",
-        # "stitched_output-" + game_id,
-        # "stitched_output-with-audio-" + game_id,
-    ]
-    for basename in basenames:
-        for ext in exts:
-            path = os.path.join(dir_name, basename + "." + ext)
-            if os.path.exists(path):
-                return path
+    # exts = ["mp4", "mkv", "avi"]
+    # basenames = [
+    #     # "stitched_output",
+    #     "stitched_output-with-audio",
+    #     # "stitched_output-" + game_id,
+    #     # "stitched_output-with-audio-" + game_id,
+    # ]
+    # for basename in basenames:
+    #     for ext in exts:
+    #         path = os.path.join(dir_name, basename + "." + ext)
+    #         if os.path.exists(path):
+    #             return path
     return None
 
 
@@ -629,9 +629,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params["tracker_class"] = (
-                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
-                        )
+                        tracker_params[
+                            "tracker_class"
+                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
@@ -1302,13 +1302,14 @@ def main():
                 game_dir = None
 
         # Validate imports for the pieces hmtrack expects to have available.
-        import hockeymom._hockeymom  # noqa: F401
         import lightglue  # noqa: F401
         import mmcv  # noqa: F401
         import mmdet  # noqa: F401
         import mmengine  # noqa: F401
         import mmpose  # noqa: F401
         import mmyolo  # noqa: F401
+
+        import hockeymom._hockeymom  # noqa: F401
 
         print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
         return 0

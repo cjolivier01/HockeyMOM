@@ -107,9 +107,10 @@ class ApplyCameraPlugin(Plugin):
 
         # Width and height should be even numbers
         if final_w % 2 != 0:
-            final_w += 1
+            # Round down to avoid creating small upsample/distortion steps
+            final_w = final_w - 1 if final_w > 1 else 2
         if final_h % 2 != 0:
-            final_h += 1
+            final_h = final_h - 1 if final_h > 1 else 2
 
         self._video_frame_cfg = {
             "output_frame_width": final_w,

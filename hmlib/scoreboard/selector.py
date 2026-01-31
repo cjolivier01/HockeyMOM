@@ -215,30 +215,21 @@ class ScoreboardSelector:
                 "No available GUI backend to select scoreboard points (Tkinter unusable and OpenCV not available)."
             )
 
-    def _scale_points_for_display(
-        self, points: List[Tuple[int, int]]
-    ) -> List[Tuple[int, int]]:
+    def _scale_points_for_display(self, points: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
         if not points:
             return []
         if self._display_scale == 1.0:
             return [(int(pt[0]), int(pt[1])) for pt in points]
         scale = self._display_scale
-        return [
-            (int(round(pt[0] * scale)), int(round(pt[1] * scale))) for pt in points
-        ]
+        return [(int(round(pt[0] * scale)), int(round(pt[1] * scale))) for pt in points]
 
-    def _scale_points_to_original(
-        self, points: List[Tuple[int, int]]
-    ) -> List[Tuple[int, int]]:
+    def _scale_points_to_original(self, points: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
         if not points:
             return []
         if self._display_scale == 1.0:
             return [(int(pt[0]), int(pt[1])) for pt in points]
         inv_scale = 1.0 / self._display_scale
-        return [
-            (int(round(pt[0] * inv_scale)), int(round(pt[1] * inv_scale)))
-            for pt in points
-        ]
+        return [(int(round(pt[0] * inv_scale)), int(round(pt[1] * inv_scale))) for pt in points]
 
     def draw_points_and_lines(self) -> None:
         if self._backend == "tk":

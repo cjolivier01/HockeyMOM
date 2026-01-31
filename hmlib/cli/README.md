@@ -8,7 +8,6 @@ This folder contains user-facing CLI commands that are installed with hm-prefixe
 - **hmcreate_control_points** — Compute Hugin control points with SuperPoint/LightGlue and update a .pto
 - **hmplayers** — Analyze tracked players and generate per-player timestamp files
 - **hmfind_ice_rink** — Detect the ice rink mask and save configuration for a game
-- **hmvideo_clipper** — Create a highlight reel from timestamps or a file list
 - **hmorientation** — Inspect a game directory and label left/right camera sets
 - **hmconcatenate_videos** — Normalize and concatenate multiple videos with ffmpeg
 
@@ -128,33 +127,6 @@ hmfind_ice_rink --game-id ev-stockton-1 --show
 
 ---
 
-## hmvideo_clipper — Make a highlight reel with bumpers
-
-Produce a single video by concatenating: a title card for each clip (see `--transition-seconds`), then the clip with an overlaid “Label <N>” in the top-right. Supports two input styles: a timestamp file for a single source video, or a list of pre-cut clip files.
-
-### Quick start
-```bash
-# From timestamps
-hmvideo_clipper -i input.mp4 -t timestamps.txt "Team vs Opponent"
-
-# From a file list
-hmvideo_clipper --video-file-list clips.txt "Team vs Opponent"
-```
-
-### Timestamps format
-- Each non-empty line: `START [END]` with times in `HH:MM:SS` (END optional to continue to EOF)
-- Example:
-	- `00:02:15 00:03:05`
-	- `00:10:00 00:11:42`
-
-### Options
-- `--threads` / `-j N` — Parallelize per-clip processing
-- `--transition-seconds <float>` — Title card duration per clip (default 3.0; 0 disables)
-- `--temp-dir DIR` — Work directory for intermediates
-- Environment: set `VIDEO_CLIPPER_HQ=1` for lossless intermediates; default uses high-quality NVENC settings
-
----
-
 ## hmorientation — Label left/right inputs and save to private config
 
 Discover available video files in a game directory, infer which perspective is left vs right using rink masks, and write an ordered chapter list per side to the private config.
@@ -233,7 +205,7 @@ Some commands accept these shared flags:
 - Use `hmorientation` first on new game folders to auto-label left/right and save chapter lists.
 - If alignment drifts, run `hmcreate_control_points` to refresh control points; then `hmstitch`.
 - After stitching, run `hmfind_ice_rink` to cache the rink mask; `hmtrack` will use it to improve boundaries.
-- Use `hmplayers` to generate per-player time ranges, then `hmvideo_clipper` or `hmconcatenate_videos` to produce highlight reels.
+- Use `hmplayers` to generate per-player time ranges, then `hmconcatenate_videos` to produce highlight reels.
 
 ---
 
