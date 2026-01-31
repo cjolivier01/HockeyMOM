@@ -4,12 +4,13 @@ HockeyMOM
 - Repository guidelines: see [AGENTS.md](AGENTS.md).
 - How to contribute: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Web App (Django UI)
-- Install (sudo): `sudo python3 tools/webapp/ops/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008`. This creates `/opt/hm-webapp/app`, a venv at `/opt/hm-webapp/venv`, `hm-webapp.service`, and an nginx proxy on port 80 → 8008 (override with `--nginx-port`).
-- Config: `/opt/hm-webapp/app/config.json`; uploads/watch root: `/data/incoming` (overridable via flag). Uninstall with `sudo python3 tools/webapp/ops/uninstall_webapp.py`.
-- Seed demo data: `/opt/hm-webapp/venv/bin/python tools/webapp/scripts/seed_demo.py --config /opt/hm-webapp/app/config.json --email demo@example.com --name "Demo User"`.
-- Access: `http://localhost/` (or `http://localhost:<nginx-port>/` if you used `--nginx-port`). Logs: `journalctl -u hm-webapp` and nginx error log in `/var/log/nginx/`.
-- If nginx fails to start with `Address already in use`, stop/disable whatever is bound to the nginx listen port (often `apache2`), or rerun the installer with `--disable-apache2` / `--nginx-port`.
+## Webapp / Imports
+The Django webapp and all import tooling (TimeToScore, shift parsing, clipper helpers) live in the **HockeyMOMWeb** repo.
+
+This repo keeps thin shims for convenience:
+- `./import_webapp.sh`
+- `./gcp_import_webapp.sh`
+- `scripts/parse_stats_inputs.py`
 
 ## System dependencies and native tools
 
@@ -122,7 +123,7 @@ aspen:
 - CLI toggles: `--aspen-threaded`, `--aspen-thread-queue-size`, `--aspen-thread-cuda-streams` or `--no-aspen-thread-cuda-streams`.
 
 **Video Clipper**
-- Binary: `hmlib/cli/video_clipper.py`
+- Moved to HockeyMOMWeb: `hockeymomweb/cli/video_clipper.py` (run `python -m hockeymomweb.cli.video_clipper`)
 - New options:
   - `--transition-seconds`: seconds for per-clip title cards (default 3.0; 0 disables transitions).
   - `--blink-circle`: overlays a blinking orange circle near the top-left around the clip midpoint.
@@ -132,36 +133,5 @@ aspen:
   - When trimming with timestamps, decode-side `-t` is used and overlay uses `shortest=1` to ensure exact clip duration.
 
 **Shift Spreadsheet Parser**
-- Script: `scripts/parse_stats_inputs.py`
-- Inputs:
-  - `--input` can be a single `.xls/.xlsx` file or a directory (it will auto-discover the primary shift sheet plus optional `*-long*` companion sheets).
-  - `--file-list` accepts one file/dir per line or `t2s=<game_id>[:HOME|AWAY][:game_label]` for a TimeToScore-only game (comments starting with `#` are ignored).
-- Goals (highest priority wins):
-  - `--goal` / `--goals-file`
-  - TimeToScore via `--t2s <game_id>[:HOME|AWAY][:game_label]` (or inferred from filenames like `game-54111.xlsx` where the trailing number is `>= 10000`), using `--home/--away` or `:HOME/:AWAY` if needed.
-  - `goals.xlsx` in the same directory as the input sheet (fallback when no TimeToScore id is in use).
-- Optional `*-long*` sheet support:
-  - Parses the leftmost per-period event table to add Shots/SOG/xG, Giveaways/Takeaways, and controlled entries/exits, plus generates event clip scripts and per-player SOG/goal highlight scripts.
-  - If the script can’t infer whether your team is Blue or White, provide `--dark` (Blue) or `--light` (White).
-- Privacy default:
-  - Shift counts and TOI are omitted from parent-facing stats outputs by default. Use `--shifts` to include them.
-  - Outputs (per game):
-  - Writes under `<outdir>/(per_player|event_log)/` for single-game runs, or `<outdir>/<label>/(per_player|event_log)/` for multi-game runs.
-  - Stats: `stats/player_stats.txt`, `stats/player_stats.csv`, `stats/player_stats.xlsx`, plus per-player `stats/*_stats.txt`.
-  - Game stats: `stats/game_stats.csv` and `stats/game_stats.xlsx` (team-level, no TOI; stats are rows with the game as the column header).
-  - Clip helpers (unless `--no-scripts`): `clip_events_<Event>_<Team>.sh`, `clip_goal_<player>.sh`, `clip_sog_<player>.sh`, and `clip_all.sh` (plus `clip_<player>.sh` for per-player shifts when `--shifts` is set).
-  - Timestamp windows: per-player shift `*_video_times.txt` / `*_scoreboard_times.txt` (only with `--shifts`), plus `events_*_video_times.txt`, `events_*_scoreboard_times.txt`, and `goals_for.txt` / `goals_against.txt` (events: 10s before / 5s after; goals: 20s before / 10s after). `*_times.txt` files are not written with `--no-scripts`.
-- Outputs (multi-game):
-  - Consolidated workbook: `<outdir>/player_stats_consolidated.xlsx` with a `Cumulative` sheet and per-game sheets.
-  - Consolidated CSV: `<outdir>/player_stats_consolidated.csv` (the `Cumulative` sheet).
-  - Consolidated game stats: `<outdir>/game_stats_consolidated.xlsx` and `<outdir>/game_stats_consolidated.csv` (stats as rows, games as columns).
-  - Long-sheet stats caveat: per-game averages for long-sheet-derived stats (Shots/SOG/xG/Giveaways/Takeaways, etc.) only count games where that stat exists, and the `... per Game` column headers include `(N)` to show the number of games in the denominator.
-  - Per-player season summaries in `<outdir>/cumulative_per_player/`.
-- Examples:
-  - Single game by stats directory:
-    - `python scripts/parse_stats_inputs.py --input /home/colivier/Videos/sharks-12-1-r2/stats --outdir player_shifts`
-  - Season run from a list (files and/or directories):
-    - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats`
-  - Season highlight scripts (goals only) with a 30s window (20s before / 10s after) and no title-card transitions (requires per-game `tracking_output-with-audio*.mp4` (or `*stitched_output-with-audio*.mp4`) either next to `stats/` or under `$HOME/Videos/<game_label>/`; games are ordered chronologically using `date`/`time` metadata from YAML file-lists (or TimeToScore start times); if date/time is missing for any game, pass `--use-yaml-order` to preserve YAML order; if `home_team`/`away_team` metadata is present, per-game clip labels use the opponent team name; missing videos are skipped with a warning by default, or pass `--error-missing-videos` to fail):
-    - `python scripts/parse_stats_inputs.py --file-list /mnt/ripper-data/Videos/game_list.txt --outdir season_stats --season-highlight-types Goal --season-highlight-window-seconds 30 --clip-transition-seconds 0`
-    - Run all per-player season reels: `bash season_stats/season_highlights/clip_season_highlights_all.sh`
+- Moved to HockeyMOMWeb: `../HockeyMOMWeb/scripts/parse_stats_inputs.py`
+- In this repo, `scripts/parse_stats_inputs.py` is a shim that forwards to HockeyMOMWeb when present.

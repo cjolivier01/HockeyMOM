@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from collections import deque
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 from mmengine.structures import InstanceData
-
-from pathlib import Path
 
 from hmlib.bbox.box_functions import center, clamp_box, make_box_at_center
 from hmlib.builder import HM

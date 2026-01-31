@@ -22,14 +22,12 @@
 - Run TensorRT-enabled tracking on a short clip (5s) for `chicago-3`:
   - `PYTHONPATH=$(pwd) python hmlib/cli/hmtrack.py --game-id=chicago-3 --async-post-processing=0 --async-video-out=0 --show-scaled=0.5 --camera-ui=1 --detector-trt-enable --detector-static-detections --detector-static-max-detections=800 --plot-tracking -t=5`
 
-## Webapp Deployment Notes
-- Webapp-specific agent notes live in `tools/webapp/AGENTS.md` (Django, deployment, import flow, tests).
-- Install via sudo: `python3 tools/webapp/ops/install_webapp.py --watch-root /data/incoming --server-name _ --port 8008` (creates `/opt/hm-webapp/venv`, installs gunicorn/pymysql/django, sets up `hm-webapp.service` and nginx proxy).
-- Fast local redeploy: `tools/webapp/ops/redeploy_local.sh` (copies code to `/opt/hm-webapp/app`, restarts services, verifies endpoints).
-- End-to-end local import: `./import_webapp.sh` (redeploy + TimeToScore import + shift spreadsheet upload; add `--rebuild` to reset league data first).
-- DB setup: installer creates `hm_app_db` and user; ensure MariaDB is running/healthy before install. If prior DB state is corrupt, drop `hm_app_db` then rerun the installer.
-- Use the app venv for helpers: `/opt/hm-webapp/venv/bin/python tools/webapp/scripts/seed_demo.py --config /opt/hm-webapp/app/config.json --email demo@example.com --name "Demo User"` (same for reset/import scripts).
-- Watch root ownership: installer chowns the watch directory to the app user so uploads work.
+## Webapp / Import Tooling (Moved)
+- The webapp, TimeToScore, shift parsing, and deployment/import scripts live in the **HockeyMOMWeb** repo now.
+- This repo keeps thin shims for convenience:
+  - `./import_webapp.sh`
+  - `./gcp_import_webapp.sh`
+  - `scripts/parse_stats_inputs.py`
 
 ## Coding Style & Naming Conventions
 - Python: Black (see `pyproject.toml`) and isort; run `./format.sh` before committing.
