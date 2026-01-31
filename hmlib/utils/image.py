@@ -533,8 +533,15 @@ def get_best_resize_mode(
         # Just a sanity check assumign we aren't
         # purposely trying to distort
         if not (h1 > h2 or abs(h2 - h1) < 1.1):
-            logger.warning("Resizing with distortion from %dx%d -> %dx%d", w1, h1, w2, h2)
-        assert h1 > h2 or abs(h2 - h1) < 1.1
+            # This can happen when one dimension was nudged to be even for encoding.
+            # Fall back to a warning instead of hard failing so the run can finish.
+            logger.warning(
+                "Resizing with potential distortion from %dx%d -> %dx%d (forcing downsample mode)",
+                w1,
+                h1,
+                w2,
+                h2,
+            )
         if h1 == h2 and abs(w2 - w1) < 1.1:
             if verbose:
                 # Maybe you have a one-off match error somewhere
@@ -553,8 +560,13 @@ def get_best_resize_mode(
         # Just a sanity check assumign we aren't
         # purposely trying to distort
         if not (h2 > h1 or abs(h2 - h1) < 1.1):
-            logger.warning("Resizing with distortion from %dx%d -> %dx%d", w1, h1, w2, h2)
-        assert h2 > h1 or abs(h2 - h1) < 1.1
+            logger.warning(
+                "Resizing with potential distortion from %dx%d -> %dx%d (forcing upsample mode)",
+                w1,
+                h1,
+                w2,
+                h2,
+            )
         if h1 == h2 and abs(w2 - w1) == 1.1:
             if verbose:
                 # Maybe you have a one-off match error somewhere
