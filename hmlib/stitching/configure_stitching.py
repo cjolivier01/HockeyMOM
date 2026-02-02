@@ -268,7 +268,7 @@ def build_stitching_project(
                 right_image_file,
             ]
             cmd_str = " ".join(cmd)
-            os.system(cmd_str)
+            run_result = os.system(cmd_str)
         else:
             use_hugin = True
         if True:
