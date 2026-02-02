@@ -28,6 +28,8 @@ class IceRinkSegmBoundariesPlugin(Plugin):
 
     def __init__(
         self,
+        raise_bbox_center_by_height_ratio: float,
+        lower_bbox_bottom_by_height_ratio: float,
         enabled: bool = True,
         det_thresh: float = 0.05,
         max_detections_in_mask: Optional[int] = None,
@@ -44,6 +46,8 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         self._cuda_graph_enabled = bool(cuda_graph) and not plot_ice_mask
         self._cg: Optional[CudaGraphCallable] = None
         self._cg_device: Optional[torch.device] = None
+        self._raise_bbox_center_by_height_ratio = raise_bbox_center_by_height_ratio
+        self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
 
     def _ensure_pipeline(self, context: Dict[str, Any], draw: bool):
         if self._segm is not None:
@@ -62,6 +66,8 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             det_thresh=self._det_thresh,
             max_detections_in_mask=self._max_detections_in_mask,
             draw=bool(draw),
+            raise_bbox_center_by_height_ratio=self._raise_bbox_center_by_height_ratio,
+            lower_bbox_bottom_by_height_ratio=self._lower_bbox_bottom_by_height_ratio,
         )
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]

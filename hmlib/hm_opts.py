@@ -326,6 +326,7 @@ class hm_opts(object):
             "--no-plot-tracking-circles",
             dest="no_plot_tracking_circles",
             action="store_true",
+            default=True,
             help="Disable tracking circles and draw bounding boxes instead.",
         )
         plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")

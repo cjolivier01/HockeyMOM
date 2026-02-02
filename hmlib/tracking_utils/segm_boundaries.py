@@ -14,6 +14,7 @@ from hmlib.utils.image import image_height, image_width, make_channels_first
 
 @PIPELINES.register_module()
 class SegmBoundaries:
+
     def __init__(
         self,
         segment_mask: Optional[torch.Tensor] = None,
@@ -22,7 +23,8 @@ class SegmBoundaries:
         det_thresh: float = 0.05,
         max_detections_in_mask: Optional[int] = None,
         draw: bool = False,
-        raise_bbox_center_by_height_ratio: float = -0.2,  # FIXME: used to be 0.1, Jr Gulls Game 1 Hack
+        # raise_bbox_center_by_height_ratio: float = -0.2,  # FIXME: used to be 0.1, Jr Gulls Game 1 Hack
+        raise_bbox_center_by_height_ratio: float = -0.1,  # FIXME: used to be 0.1, Jr Gulls Game 1 Hack
         lower_bbox_bottom_by_height_ratio: float = 0.1,
     ):
         if isinstance(original_clip_box, list) and len(original_clip_box):
