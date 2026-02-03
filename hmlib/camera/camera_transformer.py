@@ -58,11 +58,9 @@ def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
     else:
         n = len(tlwh)
         lefts = tlwh[:, 0]
-        tops = tlwh[:, 1]
         widths = tlwh[:, 2]
-        heights = tlwh[:, 3]
         cxs = lefts + widths * 0.5
-        cys = tops + heights * 0.5
+        cys = tlwh[:, 1] + tlwh[:, 3] * 0.5
     # normalize
     num_players = min(n / max(1, norm.max_players), 1.0)
     cxn = np.clip(cxs / max(1e-6, norm.scale_x), 0.0, 1.0)
@@ -92,6 +90,85 @@ def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
             group_width_ratio,
         ],
         dtype=np.float32,
+    )
+    return feat
+
+
+def build_frame_features_torch(
+    tlwh: torch.Tensor,
+    norm: CameraNorm,
+    prev_cam_center: Optional[Tuple[float, float]] = None,
+    prev_cam_h: Optional[float] = None,
+) -> torch.Tensor:
+    """Torch variant of build_frame_features (stays on the input device)."""
+    base = build_frame_base_features_torch(tlwh=tlwh, norm=norm)
+    device = base.device
+    dtype = base.dtype
+    if prev_cam_center is None:
+        prev_cx = torch.zeros((), device=device, dtype=dtype)
+        prev_cy = torch.zeros((), device=device, dtype=dtype)
+    elif torch.is_tensor(prev_cam_center):
+        prev_cx = prev_cam_center[0].to(device=device, dtype=dtype)
+        prev_cy = prev_cam_center[1].to(device=device, dtype=dtype)
+    else:
+        prev_cx = torch.tensor(float(prev_cam_center[0]), device=device, dtype=dtype)
+        prev_cy = torch.tensor(float(prev_cam_center[1]), device=device, dtype=dtype)
+    if prev_cam_h is None:
+        prev_h = torch.zeros((), device=device, dtype=dtype)
+    elif torch.is_tensor(prev_cam_h):
+        prev_h = prev_cam_h.to(device=device, dtype=dtype)
+    else:
+        prev_h = torch.tensor(float(prev_cam_h), device=device, dtype=dtype)
+    prev = torch.stack([prev_cx, prev_cy, prev_h], dim=0)
+    return torch.cat([base, prev], dim=0)
+
+
+def build_frame_base_features_torch(tlwh: torch.Tensor, norm: CameraNorm) -> torch.Tensor:
+    """Torch variant of build_frame_base_features (stays on the input device)."""
+    if tlwh is None or tlwh.numel() == 0:
+        device = tlwh.device if isinstance(tlwh, torch.Tensor) else torch.device("cpu")
+        cxs = torch.zeros(1, device=device, dtype=torch.float32)
+        cys = torch.zeros(1, device=device, dtype=torch.float32)
+        n = 0
+        lefts = cxs
+        widths = cxs
+    else:
+        tlwh = tlwh.to(dtype=torch.float32)
+        n = int(tlwh.shape[0])
+        lefts = tlwh[:, 0]
+        tops = tlwh[:, 1]
+        widths = tlwh[:, 2]
+        heights = tlwh[:, 3]
+        cxs = lefts + widths * 0.5
+        cys = tops + heights * 0.5
+    num_players = min(float(n) / max(1, norm.max_players), 1.0)
+    scale_x = max(1e-6, float(norm.scale_x))
+    scale_y = max(1e-6, float(norm.scale_y))
+    cxn = torch.clamp(cxs / scale_x, 0.0, 1.0)
+    cyn = torch.clamp(cys / scale_y, 0.0, 1.0)
+    min_cx = torch.min(cxn)
+    max_cx = torch.max(cxn)
+    mean_cx = torch.mean(cxn)
+    mean_cy = torch.mean(cyn)
+    std_cx = torch.std(cxn, unbiased=False)
+    std_cy = torch.std(cyn, unbiased=False)
+    if n == 0:
+        group_width_ratio = torch.zeros((), device=cxn.device, dtype=cxn.dtype)
+    else:
+        group_width_ratio = (torch.max(lefts + widths) - torch.min(lefts)) / scale_x
+        group_width_ratio = torch.clamp(group_width_ratio, 0.0, 1.0)
+    feat = torch.stack(
+        [
+            torch.tensor(num_players, device=cxn.device, dtype=cxn.dtype),
+            mean_cx,
+            mean_cy,
+            std_cx,
+            std_cy,
+            min_cx,
+            max_cx,
+            group_width_ratio,
+        ],
+        dim=0,
     )
     return feat
 

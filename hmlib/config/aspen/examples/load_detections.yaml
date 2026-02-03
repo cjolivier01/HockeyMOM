@@ -59,6 +59,8 @@ aspen:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmBoundariesPlugin
       depends: [load_detections, ice_config]
       params:
+        raise_bbox_center_by_height_ratio: GLOBAL.aspen.ice_boundaries.raise_bbox_center_by_height_ratio
+        lower_bbox_bottom_by_height_ratio: GLOBAL.aspen.ice_boundaries.lower_bbox_bottom_by_height_ratio
         max_detections_in_mask: 50
 
     tracker:

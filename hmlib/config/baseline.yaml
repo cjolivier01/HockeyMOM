@@ -104,6 +104,9 @@ aspen:
       refresh_from_config: true
   play_tracker:
     no_wide_start: true
+  ice_boundaries:
+    raise_bbox_center_by_height_ratio: -0.1
+    lower_bbox_bottom_by_height_ratio: 0.1
 
 #
 # Rink config
