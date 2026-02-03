@@ -8,6 +8,7 @@ from hmlib.bbox.box_functions import center, clamp_box, height, make_box_at_cent
 from hmlib.camera.camera import HockeyMOM
 from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
+from hmlib.utils.path import add_prefix_to_filename
 from hmlib.video.video_stream import MAX_VIDEO_WIDTH
 
 from .base import Plugin
@@ -166,6 +167,18 @@ class CamPostProcessPlugin(Plugin):
         )
         if not output_video_path:
             output_video_path = os.path.join(work_dir, "tracking_output.mkv")
+        output_label = (
+            shared.get("output_label")
+            or shared.get("label")
+            or getattr(args_ns, "label", None)
+        )
+        if output_label:
+            try:
+                output_video_path = str(
+                    add_prefix_to_filename(output_video_path, str(output_label))
+                )
+            except Exception:
+                pass
 
         video_out_pipeline = getattr(args_ns, "video_out_pipeline", None) or shared.get(
             "video_out_pipeline"

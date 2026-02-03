@@ -28,6 +28,7 @@ from hmlib.ui import Shower
 from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import image_height, image_width, resize_image
 from hmlib.utils.iterators import CachedIterator
+from hmlib.utils.path import add_prefix_to_filename
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
@@ -298,10 +299,16 @@ def stitch_videos(
         plugins_cfg: Dict[str, Any] = aspen_graph_cfg.get("plugins", {}) or {}
         video_out_spec: Dict[str, Any] = plugins_cfg.get("video_out", {}) or {}
         video_out_params: Dict[str, Any] = video_out_spec.get("params", {}) or {}
-        if output_stitched_video_file:
-            video_out_params.setdefault("output_video_path", output_stitched_video_file)
-        else:
-            video_out_params.setdefault("output_video_path", "stitched_output.mkv")
+        output_label = None
+        if args is not None:
+            output_label = getattr(args, "label", None) or getattr(args, "output_label", None)
+        output_path = output_stitched_video_file or "stitched_output.mkv"
+        if output_label:
+            try:
+                output_path = str(add_prefix_to_filename(output_path, str(output_label)))
+            except Exception:
+                pass
+        video_out_params.setdefault("output_video_path", output_path)
         video_out_spec["params"] = video_out_params
         plugins_cfg["video_out"] = video_out_spec
         aspen_graph_cfg["plugins"] = plugins_cfg
@@ -331,6 +338,7 @@ def stitch_videos(
             aspen_shared["game_id"] = getattr(args, "game_id", None)
             aspen_shared["game_config"] = getattr(args, "game_config", None)
             aspen_shared["game_dir"] = dir_name
+            aspen_shared["output_label"] = output_label
         aspen_name = game_id or "stitch"
         aspen_net = AspenNet(aspen_name, aspen_graph_cfg, shared=aspen_shared)
         aspen_net = aspen_net.to(encoder_device)

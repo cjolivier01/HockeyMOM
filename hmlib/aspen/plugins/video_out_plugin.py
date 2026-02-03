@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from hmlib.builder import HM
 from hmlib.config import get_nested_value
 from hmlib.video.video_out import VideoOutput
+from hmlib.utils.path import add_prefix_to_filename
 
 from .base import Plugin
 
@@ -101,6 +102,14 @@ class VideoOutPlugin(Plugin):
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
                 candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
             out_path = candidate
+        label = None
+        if isinstance(shared, dict):
+            label = shared.get("output_label") or shared.get("label")
+        if label:
+            try:
+                out_path = str(add_prefix_to_filename(out_path, str(label)))
+            except Exception:
+                pass
         self._out_path = out_path
 
         fps = None

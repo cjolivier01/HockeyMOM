@@ -246,6 +246,16 @@ class hm_opts(object):
             help="The output video file name",
         )
         io.add_argument(
+            "--label",
+            dest="label",
+            type=str,
+            default=None,
+            help=(
+                "Optional label prepended to output filenames (videos/CSVs), e.g. "
+                "'my_test-1234_tracking_output.mkv'."
+            ),
+        )
+        io.add_argument(
             "--no-save-video",
             "--no_save_video",
             dest="no_save_video",
