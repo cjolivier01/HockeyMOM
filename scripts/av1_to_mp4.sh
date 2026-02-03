@@ -61,6 +61,11 @@ if ! command -v ffmpeg >/dev/null; then
   exit 1
 fi
 
+if ! command -v ffprobe >/dev/null; then
+  echo "Error: ffprobe not found in PATH"
+  exit 1
+fi
+
 # ------------------------------------------------------------
 # Video input (raw AV1/IVF → needs fps + pts if missing)
 # ------------------------------------------------------------
