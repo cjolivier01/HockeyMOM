@@ -203,7 +203,7 @@ rink:
     # Frames to brake to a stop on resize direction change
     resizing_stop_on_dir_change_delay: 4
     # Cancel resizing brake when inputs flip opposite (true/false)
-    resizing_cancel_stop_on_opposite_dir: true
+    resizing_cancel_stop_on_opposite_dir: false
     # Consecutive opposite-direction frames required to cancel resize braking
     resizing_stop_cancel_hysteresis_frames: 10
     # Cooldown frames after a resize stop-delay finishes/cancels before another can start
