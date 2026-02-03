@@ -80,8 +80,8 @@ class PyNvVideoEncoder:
       it to a sidecar ``.h264`` / ``.h265`` / ``.ivf`` file before invoking
       ``ffmpeg`` once at ``close()`` time to mux into the requested
       container (MP4/MKV/etc., based on the output file extension).
-    - Alternative backends using PyAV or a streaming ffmpeg pipe remain
-      available via HM_VIDEO_ENCODER_BACKEND or the ``use_pyav`` argument.
+    - Alternative backend using PyAV remains available via
+      HM_VIDEO_ENCODER_BACKEND or the ``use_pyav`` argument.
     """
 
     @typechecked
@@ -136,10 +136,14 @@ class PyNvVideoEncoder:
         backend: str
         if use_pyav is not None:
             # Explicit caller override wins: True -> pyav, False -> ffmpeg pipe.
-            backend = "pyav" if use_pyav else "ffmpeg"
-        elif backend_env in {"pyav", "ffmpeg", "raw"}:
+            backend = "pyav" if use_pyav else "raw"
+        elif backend_env in {"pyav", "raw"}:
             # Environment variable controls backend when set to a known value.
             backend = backend_env
+        elif backend_env:
+            raise ValueError(
+                f"Unsupported HM_VIDEO_ENCODER_BACKEND={backend_env!r}; supported backends are: raw, pyav."
+            )
         else:
             # Default to writing a raw elementary bitstream sidecar and
             # invoking ffmpeg once at close() to mux into the container.
@@ -151,7 +155,6 @@ class PyNvVideoEncoder:
             raise ValueError("Width and height must be even for YUV420 encoding.")
 
         self._encoder: Optional[nvc.PyNvEncoder] = None  # type: ignore[assignment]
-        self._ffmpeg_proc: Optional[subprocess.Popen[bytes]] = None
         self._av_container = None
         self._av_stream = None
         self._next_pts: int = 0
@@ -188,8 +191,6 @@ class PyNvVideoEncoder:
         self._encoder = self._create_encoder()
         if self._backend == "pyav":
             self._open_bitstream_file()
-        elif self._backend == "ffmpeg":
-            self._ffmpeg_proc = self._spawn_ffmpeg()
         elif self._backend == "raw":
             self._open_bitstream_file()
         else:
@@ -280,28 +281,9 @@ class PyNvVideoEncoder:
                                 )
                             self._bitstream_file.write(bytearray(bitstream))
                         else:
-                            assert (
-                                self._ffmpeg_proc is not None
-                                and self._ffmpeg_proc.stdin is not None
+                            raise RuntimeError(
+                                f"Unsupported NVENC encoder backend: {self._backend}"
                             )
-                            try:
-                                self._ffmpeg_proc.stdin.write(bytearray(bitstream))
-                            except BrokenPipeError as exc:
-                                rc = None
-                                stderr_output = ""
-                                try:
-                                    rc = self._ffmpeg_proc.poll()
-                                    out, err = self._ffmpeg_proc.communicate(timeout=0.1)
-                                    if err:
-                                        stderr_output = err.decode("utf-8", errors="ignore")
-                                except Exception:
-                                    pass
-                                raise RuntimeError(
-                                    "ffmpeg muxer exited unexpectedly while writing NVENC bitstream. "
-                                    "Check that codec/format settings are valid and disk space is available. "
-                                    "See ffmpeg logs for more details. "
-                                    f"(returncode={rc}, stderr={stderr_output!r})"
-                                ) from exc
 
     def close(self) -> None:
         """Flush pending frames, finalize container, and release resources."""
@@ -318,8 +300,8 @@ class PyNvVideoEncoder:
                             "Bitstream backend is selected but bitstream file is not open."
                         )
                     self._bitstream_file.write(bytearray(bitstream))
-                elif self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
-                    self._ffmpeg_proc.stdin.write(bytearray(bitstream))
+                else:
+                    raise RuntimeError(f"Unsupported NVENC encoder backend: {self._backend}")
 
         if self._backend in {"pyav", "raw"}:
             bitstream_path = self._bitstream_path
@@ -337,15 +319,12 @@ class PyNvVideoEncoder:
                     self._mux_bitstream_file_with_pyav(bitstream_path)
                 elif self._backend == "raw":
                     self._mux_bitstream_file_with_ffmpeg(bitstream_path)
+                else:
+                    raise RuntimeError(f"Unsupported NVENC encoder backend: {self._backend}")
         else:
             assert self._bitstream_file is None
-            if self._ffmpeg_proc is not None and self._ffmpeg_proc.stdin is not None:
-                # Close ffmpeg stdin and wait for it to finish writing the container
-                self._ffmpeg_proc.stdin.close()
-                self._ffmpeg_proc.wait()
 
         self._encoder = None
-        self._ffmpeg_proc = None
         self._av_container = None
         self._av_stream = None
         self._bitstream_path = None
@@ -502,6 +481,8 @@ class PyNvVideoEncoder:
             cmd += ["-movflags", "+faststart"]
             if stream_format == "hevc":
                 cmd += ["-tag:v", "hvc1"]
+            elif stream_format == "av1":
+                cmd += ["-tag:v", "av01"]
         if muxer:
             cmd += ["-f", muxer]
         cmd.append(str(self.output_path))
@@ -637,65 +618,6 @@ class PyNvVideoEncoder:
                 output_container.close()
         finally:
             input_container.close()
-
-    def _spawn_ffmpeg(self) -> subprocess.Popen[bytes]:
-        """
-        Launch ffmpeg to remux an elementary bitstream into a container.
-
-        No re-encoding is done; ffmpeg simply copies the video stream into
-        the requested container format based on the output file extension.
-        """
-        import ctypes
-        import signal
-        from shutil import which
-
-        ffmpeg = which("ffmpeg")
-        if ffmpeg is None:
-            raise RuntimeError("ffmpeg is required for container muxing but was not found in PATH.")
-
-        stream_format = self._bitstream_format()
-
-        cmd = [
-            ffmpeg,
-            "-y",
-            "-loglevel",
-            "error",
-            "-fflags",
-            "+genpts",
-            "-r",
-            str(self.fps),
-            "-f",
-            stream_format,
-            "-i",
-            "pipe:0",
-            "-c:v",
-            "libx265" if self.codec in ("hevc", "h265") else "libx264",
-            "-preset",
-            "medium",
-            str(self.output_path),
-        ]
-
-        kwargs: dict[str, object] = {
-            "stdin": subprocess.PIPE,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-        }
-
-        if os.name == "posix":
-
-            def _set_pdeathsig() -> None:
-                try:
-                    libc = ctypes.CDLL("libc.so.6", use_errno=True)
-                    PR_SET_PDEATHSIG = 1
-                    libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-                except Exception:
-                    # Best-effort; keep encoder usable even if prctl fails.
-                    pass
-
-            kwargs["preexec_fn"] = _set_pdeathsig
-
-        proc: subprocess.Popen[bytes] = subprocess.Popen(cmd, **kwargs)  # type: ignore[arg-type]
-        return proc
 
     def _open_pyav_container(self) -> None:
         import av

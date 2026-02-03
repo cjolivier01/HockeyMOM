@@ -18,6 +18,7 @@ from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import cuda_stream_scope
 from hmlib.utils.image import make_channels_first
 from hmlib.utils.iterators import CachedIterator
+from hmlib.utils.path import add_prefix_to_filename
 from hmlib.utils.progress_bar import (
     ProgressBar,
     build_aspen_graph_renderable,
@@ -283,6 +284,12 @@ def run_mmtrack(
                     pp = trunks_cfg["postprocess"]
                     if isinstance(pp, dict):
                         pp["enabled"] = False
+                output_label = (
+                    config.get("label")
+                    or config.get("output_label")
+                    or initial_args.get("label")
+                    or initial_args.get("output_label")
+                )
                 shared = dict(
                     model=model,
                     postprocessor=postprocessor,
@@ -312,6 +319,7 @@ def run_mmtrack(
                     camera_ui=int(initial_args.get("camera_ui") or config.get("camera_ui") or 0),
                     # Optional stitching rotation controller (e.g., StitchDataset instance)
                     stitch_rotation_controller=config.get("stitch_rotation_controller"),
+                    output_label=output_label,
                 )
                 # Optional per-plugin audit hook for debugging CUDA stream correctness.
                 audit_dir = initial_args.get("audit_dir")
@@ -566,9 +574,20 @@ def run_mmtrack(
         if config.get("save_pose_data") and work_dir:
             try:
                 Path(work_dir).mkdir(parents=True, exist_ok=True)
-                (Path(work_dir) / "pose.csv").touch(exist_ok=True)
+                pose_name = "pose.csv"
+                label = config.get("label") or config.get("output_label")
+                if label:
+                    try:
+                        pose_name = str(add_prefix_to_filename(pose_name, str(label)))
+                    except Exception:
+                        logger.exception(
+                            "Failed to add prefix '%s' to pose file name '%s'", label, pose_name
+                        )
+                (Path(work_dir) / pose_name).touch(exist_ok=True)
             except Exception:
-                pass
+                logger.exception(
+                    "Failed to create or update pose data file in work_dir '%s'", work_dir
+                )
         if aspen_net is not None:
             try:
                 aspen_net.finalize()

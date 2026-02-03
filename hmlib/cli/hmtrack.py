@@ -45,7 +45,7 @@ from hmlib.tasks.tracking import run_mmtrack
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
-from hmlib.utils.path import add_suffix_to_filename
+from hmlib.utils.path import add_prefix_to_filename, add_suffix_to_filename
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -1040,6 +1040,17 @@ def _main(args, num_gpu):
         output_video_path = None
         if not args.no_save_video:
             output_video_path = os.path.join(results_folder, "tracking_output.mkv")
+        label = getattr(args, "label", None) or getattr(args, "output_label", None)
+        if label and output_video_path:
+            try:
+                output_video_path = str(add_prefix_to_filename(output_video_path, str(label)))
+            except Exception:
+                pass
+        if label and getattr(args, "output_video", None):
+            try:
+                args.output_video = str(add_prefix_to_filename(args.output_video, str(label)))
+            except Exception:
+                pass
         args.output_video_path = output_video_path
 
         if not args.audio_only:

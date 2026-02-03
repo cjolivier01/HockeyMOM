@@ -15,6 +15,7 @@ from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
+from hmlib.utils.path import add_prefix_to_filename
 
 from .base import Plugin
 
@@ -28,6 +29,24 @@ def _ctx_value(context: Dict[str, Any], key: str) -> Optional[Any]:
     if isinstance(shared, dict):
         return shared.get(key)
     return None
+
+
+def _output_label(context: Dict[str, Any]) -> Optional[str]:
+    label = _ctx_value(context, "output_label") or _ctx_value(context, "label")
+    if label is None:
+        return None
+    label_str = str(label).strip()
+    return label_str if label_str else None
+
+
+def _apply_output_label(filename: str, context: Dict[str, Any]) -> str:
+    label = _output_label(context)
+    if not label:
+        return filename
+    try:
+        return str(add_prefix_to_filename(filename, label))
+    except Exception:
+        return filename
 
 
 def _apply_track_mask(inst, tids, tlbr, scores, labels):
@@ -91,7 +110,7 @@ class SaveDetectionsPlugin(SavePluginBase):
         if not work_dir:
             return None
         os.makedirs(work_dir, exist_ok=True)
-        output_path = os.path.join(work_dir, self._output_filename)
+        output_path = os.path.join(work_dir, _apply_output_label(self._output_filename, context))
         self._detection_dataframe = DetectionDataFrame(
             output_file=output_path, write_interval=self._write_interval
         )
@@ -197,7 +216,7 @@ class SaveTrackingPlugin(SavePluginBase):
         if not work_dir:
             return None
         os.makedirs(work_dir, exist_ok=True)
-        output_path = os.path.join(work_dir, self._output_filename)
+        output_path = os.path.join(work_dir, _apply_output_label(self._output_filename, context))
         self._tracking_dataframe = TrackingDataFrame(
             output_file=output_path,
             input_batch_size=1,
@@ -329,7 +348,7 @@ class SavePosePlugin(SavePluginBase):
         if not work_dir:
             return None
         os.makedirs(work_dir, exist_ok=True)
-        output_path = os.path.join(work_dir, self._output_filename)
+        output_path = os.path.join(work_dir, _apply_output_label(self._output_filename, context))
         Path(output_path).touch(exist_ok=True)
         self._pose_dataframe = PoseDataFrame(
             output_file=output_path, write_interval=self._write_interval
@@ -452,7 +471,7 @@ class SaveActionsPlugin(SavePluginBase):
         if not work_dir:
             return None
         os.makedirs(work_dir, exist_ok=True)
-        output_path = os.path.join(work_dir, self._output_filename)
+        output_path = os.path.join(work_dir, _apply_output_label(self._output_filename, context))
         self._action_dataframe = ActionDataFrame(
             output_file=output_path, write_interval=self._write_interval
         )
@@ -561,7 +580,7 @@ class SaveCameraPlugin(SavePluginBase):
         if not work_dir:
             return None
         os.makedirs(work_dir, exist_ok=True)
-        output_path = os.path.join(work_dir, self._output_filename)
+        output_path = os.path.join(work_dir, _apply_output_label(self._output_filename, context))
         self._camera_dataframe = CameraTrackingDataFrame(
             output_file=output_path,
             input_batch_size=1,
@@ -578,7 +597,9 @@ class SaveCameraPlugin(SavePluginBase):
         if not work_dir:
             return None
         os.makedirs(work_dir, exist_ok=True)
-        output_path = os.path.join(work_dir, self._fast_output_filename)
+        output_path = os.path.join(
+            work_dir, _apply_output_label(self._fast_output_filename, context)
+        )
         self._camera_fast_dataframe = CameraTrackingDataFrame(
             output_file=output_path,
             input_batch_size=1,
