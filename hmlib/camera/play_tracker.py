@@ -1236,6 +1236,28 @@ class PlayTracker(torch.nn.Module):
 
                     current_box_list.append(current_box)
                     current_fast_box_list.append(fast_roi_bounding_box)
+                    if self._plot_moving_boxes:
+                        online_im = vis.plot_rectangle(
+                            img=online_im,
+                            box=fast_roi_bounding_box,
+                            color=(255, 128, 64),
+                            thickness=4,
+                            label="fast",
+                        )
+                        online_im = vis.plot_rectangle(
+                            img=online_im,
+                            box=current_box,
+                            color=(255, 0, 255),
+                            thickness=4,
+                            label="slow",
+                        )
+                        online_im = vis.plot_line(
+                            online_im,
+                            center(fast_roi_bounding_box),
+                            center(current_box),
+                            color=(255, 255, 255),
+                            thickness=2,
+                        )
                 else:
                     # Only apply Python breakaway if no external controller and not transformer.
                     if (not use_external_cam) and (self._camera_controller != "transformer"):
