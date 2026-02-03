@@ -13,10 +13,10 @@ Options:
   --fps <rate>           Input video frame rate (default: 30000/1001)
 
 Examples:
-  $0 in.h265 out.mp4
-  $0 in.h265 out.mp4 --audio audio.mkv
-  $0 in.h265 out.mp4 --audio audio.mp4 --audio-offset 0.25
-  $0 in.h265 out.mp4 --audio audio.mkv --audio-stream 1
+  $0 in.av1 out.mp4
+  $0 in.ivf out.mp4 --audio audio.mkv
+  $0 in.av1 out.mp4 --audio audio.mp4 --audio-offset 0.25
+  $0 in.ivf out.mp4 --audio audio.mkv --audio-stream 1
 EOF
 }
 
