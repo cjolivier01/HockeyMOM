@@ -580,10 +580,14 @@ def run_mmtrack(
                     try:
                         pose_name = str(add_prefix_to_filename(pose_name, str(label)))
                     except Exception:
-                        pass
+                        logger.exception(
+                            "Failed to add prefix '%s' to pose file name '%s'", label, pose_name
+                        )
                 (Path(work_dir) / pose_name).touch(exist_ok=True)
             except Exception:
-                pass
+                logger.exception(
+                    "Failed to create or update pose data file in work_dir '%s'", work_dir
+                )
         if aspen_net is not None:
             try:
                 aspen_net.finalize()
