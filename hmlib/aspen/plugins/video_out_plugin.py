@@ -36,6 +36,7 @@ class VideoOutPlugin(Plugin):
       - save_frame_dir: optional frame dump dir
       - encoder_backend: optional encoder/muxer backend selection
       - output_width: optional target output width
+      - output_height: optional target output height
       - show_image: enable live preview window
       - show_scaled: optional preview scale factor
       - bit_rate: optional encoder bit rate
@@ -53,6 +54,7 @@ class VideoOutPlugin(Plugin):
         save_frame_dir: Optional[str] = None,
         encoder_backend: Optional[str] = None,
         output_width: Optional[str | int] = None,
+        output_height: Optional[str | int] = None,
         show_image: Optional[bool] = None,
         show_scaled: Optional[float] = None,
         bit_rate: Optional[int] = None,
@@ -68,6 +70,7 @@ class VideoOutPlugin(Plugin):
         self._save_dir = save_frame_dir
         self._encoder_backend = encoder_backend
         self._output_width = output_width
+        self._output_height = output_height
         self._show_image = bool(show_image) if show_image is not None else None
         self._show_scaled = show_scaled
         self._bit_rate = bit_rate
@@ -135,6 +138,7 @@ class VideoOutPlugin(Plugin):
             cache_size=self._cache,
             device=vo_dev,
             output_width=self._output_width,
+            output_height=self._output_height,
             show_image=bool(
                 self._show_image
                 if self._show_image is not None

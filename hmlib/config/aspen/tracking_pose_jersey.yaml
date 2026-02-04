@@ -359,6 +359,7 @@ aspen:
         skip_final_save: GLOBAL.aspen.video_out.skip_final_save
         encoder_backend: GLOBAL.aspen.video_out.encoder_backend
         output_width: GLOBAL.aspen.video_out.output_width
+        output_height: GLOBAL.aspen.video_out.output_height
         bit_rate: GLOBAL.aspen.video_out.bit_rate
         show_image: GLOBAL.aspen.video_out.show_image
         show_scaled: GLOBAL.aspen.video_out.show_scaled

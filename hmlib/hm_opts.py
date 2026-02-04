@@ -992,6 +992,16 @@ class hm_opts(object):
             help="Resize the rendered output video to this width (keeps aspect ratio).",
         )
         parser.add_argument(
+            "--output-height",
+            dest="output_height",
+            type=int,
+            default=None,
+            help=(
+                "Resize/letterbox the rendered output video to this height "
+                "(keeps aspect ratio unless --output-width is also provided)."
+            ),
+        )
+        parser.add_argument(
             "--lfo",
             "--left-frame-offset",
             dest="lfo",
@@ -1390,6 +1400,13 @@ class hm_opts(object):
                 [
                     "aspen.video_out.output_width",
                     "aspen.plugins.video_out.params.output_width",
+                ],
+            ),
+            (
+                "output_height",
+                [
+                    "aspen.video_out.output_height",
+                    "aspen.plugins.video_out.params.output_height",
                 ],
             ),
             ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),

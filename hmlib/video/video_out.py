@@ -16,12 +16,20 @@ from typing import Any, Dict, Literal, Optional, Set, Tuple, Union
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from hmlib.log import logger
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import get_gpu_capabilities, unwrap_tensor, wrap_tensor
-from hmlib.utils.image import image_height, image_width, resize_image, to_uint8_image
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    resize_image,
+    to_uint8_image,
+)
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
@@ -183,6 +191,7 @@ class VideoOutput(torch.nn.ModuleDict):
         dtype: torch.dtype | None = None,
         device: Union[torch.device, str, None] = None,
         output_width: int | str | None = None,
+        output_height: int | str | None = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
         profiler: Any = None,
@@ -227,6 +236,8 @@ class VideoOutput(torch.nn.ModuleDict):
         @param output_width: Optional width (in pixels) to resize the final
                              rendered frames to before encoding. Aspect ratio
                              is preserved.
+        @param output_height: Optional height (in pixels) to resize/letterbox
+                              the final rendered frames to before encoding.
         @param show_image: When True, enables an interactive OpenCV window that
                            displays frames as they are written.
         @param show_scaled: Optional scale factor for the interactive viewer.
@@ -249,7 +260,9 @@ class VideoOutput(torch.nn.ModuleDict):
             None if (not encoder_backend or encoder_backend == "auto") else encoder_backend
         )
         self._output_width = output_width
+        self._output_height = output_height
         self._output_resize_wh: Optional[Tuple[int, int]] = None
+        self._output_canvas_wh: Optional[Tuple[int, int]] = None
 
         if device is not None:
             self._device = device if isinstance(device, torch.device) else torch.device(device)
@@ -301,45 +314,110 @@ class VideoOutput(torch.nn.ModuleDict):
 
         self._mean_tracker: Optional[MeanTracker] = None
 
-    def _get_output_resize_wh(self, width: int, height: int) -> Optional[Tuple[int, int]]:
-        """Return (width, height) to resize output frames to, if configured."""
-        output_width = self._output_width
-        if output_width is None:
+    def _parse_output_dim(
+        self, value: Any, dim_label: str, natural: int
+    ) -> Optional[int]:
+        if value is None:
             return None
-        if not is_number(output_width):
-            if str(output_width).strip().lower() == "auto":
-                return width, height
-            if str(output_width).strip().lower() == "4k":
-                target_w = 4096
-            elif str(output_width).strip().lower() == "8k":
-                target_w = 8192
-            else:
-                raise ValueError(f'Invalid output width: "{output_width}"')
-        else:
-            target_w = int(output_width)
-        if target_w <= 0:
-            raise ValueError(f"output_width must be positive; got {target_w}")
-        if target_w == int(width):
-            return None
-        if target_w % 2 != 0:
-            adjusted = target_w + 1
+        if not is_number(value):
+            key = str(value).strip().lower()
+            if key == "auto":
+                return None
+            if dim_label == "width":
+                if key == "4k":
+                    return 4096
+                if key == "8k":
+                    return 8192
+            if dim_label == "height":
+                if key == "4k":
+                    return 2160
+                if key == "8k":
+                    return 4320
+            raise ValueError(f'Invalid output {dim_label}: "{value}"')
+        return int(value)
+
+    def _coerce_even(self, value: int, label: str) -> int:
+        if value % 2 != 0:
+            adjusted = value + 1
             logger.warning(
-                "output_width=%d is not even; adjusting to %d for YUV420 encoders",
-                target_w,
+                "output_%s=%d is not even; adjusting to %d for YUV420 encoders",
+                label,
+                value,
                 adjusted,
             )
-            target_w = adjusted
-        scale = float(target_w) / float(width)
-        target_h = int(round(float(height) * scale))
-        if target_h <= 0:
+            return adjusted
+        return value
+
+    def _get_output_resize_and_canvas(
+        self, width: int, height: int
+    ) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+        """Return (resize_wh, canvas_wh) for output scaling/letterboxing."""
+        target_w = self._parse_output_dim(self._output_width, "width", width)
+        target_h = self._parse_output_dim(self._output_height, "height", height)
+
+        if target_w is None and target_h is None:
+            return None, None
+
+        if target_w is None:
+            if target_h is None or target_h <= 0:
+                raise ValueError(f"output_height must be positive; got {target_h}")
+            scale = float(target_h) / float(height)
+            resize_w = int(round(float(width) * scale))
+            resize_h = int(target_h)
+            resize_w = self._coerce_even(resize_w, "width")
+            resize_h = self._coerce_even(resize_h, "height")
+            if resize_w == int(width) and resize_h == int(height):
+                return None, None
+            return (resize_w, resize_h), None
+
+        if target_h is None:
+            if target_w <= 0:
+                raise ValueError(f"output_width must be positive; got {target_w}")
+            target_w = self._coerce_even(int(target_w), "width")
+            scale = float(target_w) / float(width)
+            resize_h = int(round(float(height) * scale))
+            resize_h = self._coerce_even(resize_h, "height")
+            if target_w == int(width) and resize_h == int(height):
+                return None, None
+            return (target_w, resize_h), None
+
+        target_w = self._coerce_even(int(target_w), "width")
+        target_h = self._coerce_even(int(target_h), "height")
+        if target_w <= 0 or target_h <= 0:
             raise ValueError(
-                f"Invalid resize height computed from output_width={target_w} and input={width}x{height}"
+                f"output_width/output_height must be positive; got {target_w}x{target_h}"
             )
-        if target_h % 2 != 0:
-            target_h += 1
-        if target_w == int(width) and target_h == int(height):
-            return None
-        return target_w, target_h
+        scale = min(float(target_w) / float(width), float(target_h) / float(height))
+        resize_w = int(round(float(width) * scale))
+        resize_h = int(round(float(height) * scale))
+        resize_w = self._coerce_even(max(1, resize_w), "width")
+        resize_h = self._coerce_even(max(1, resize_h), "height")
+        resize_w = min(resize_w, target_w)
+        resize_h = min(resize_h, target_h)
+        if resize_w == target_w and resize_h == target_h:
+            if resize_w == int(width) and resize_h == int(height):
+                return None, None
+            return (resize_w, resize_h), None
+        return (resize_w, resize_h), (target_w, target_h)
+
+    @staticmethod
+    def _letterbox_tensor(
+        img: torch.Tensor, target_w: int, target_h: int
+    ) -> torch.Tensor:
+        """Pad a channels-last tensor to (target_w, target_h) with black bars."""
+        w = image_width(img)
+        h = image_height(img)
+        pad_w = max(0, int(target_w) - int(w))
+        pad_h = max(0, int(target_h) - int(h))
+        if pad_w == 0 and pad_h == 0:
+            return img
+        pad_left = pad_w // 2
+        pad_right = pad_w - pad_left
+        pad_top = pad_h // 2
+        pad_bottom = pad_h - pad_top
+        x = make_channels_first(img)
+        x = F.pad(x, [pad_left, pad_right, pad_top, pad_bottom], "constant", 0)
+        return make_channels_last(x)
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
         """Resolve device and codec configuration before the first write.
@@ -530,19 +608,22 @@ class VideoOutput(torch.nn.ModuleDict):
                 # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
                 online_im = online_im.unsqueeze(0)
 
-            # Optional output resize (keeps aspect ratio).
+            # Optional output resize/letterbox (keeps aspect ratio).
             resize_wh = self._output_resize_wh
-            if self._output_width is not None:
-                if resize_wh is None:
-                    resize_wh = self._get_output_resize_wh(
+            canvas_wh = self._output_canvas_wh
+            if self._output_width is not None or self._output_height is not None:
+                if resize_wh is None and canvas_wh is None:
+                    resize_wh, canvas_wh = self._get_output_resize_and_canvas(
                         width=image_width(online_im),
                         height=image_height(online_im),
                     )
                     self._output_resize_wh = resize_wh
-                if resize_wh is not None:
+                    self._output_canvas_wh = canvas_wh
+                output_wh = canvas_wh or resize_wh
+                if output_wh is not None:
                     video_frame_cfg = results.get("video_frame_cfg")
                     if isinstance(video_frame_cfg, dict):
-                        target_w, target_h = resize_wh
+                        target_w, target_h = output_wh
                         video_frame_cfg_local = dict(video_frame_cfg)
                         video_frame_cfg_local["output_frame_width"] = target_w
                         video_frame_cfg_local["output_frame_height"] = target_h
@@ -585,19 +666,25 @@ class VideoOutput(torch.nn.ModuleDict):
                         new_height=target_h,
                     )
                     online_im = to_uint8_image(online_im_t).contiguous()
+            if canvas_wh is not None:
+                target_w, target_h = canvas_wh
+                online_im = self._letterbox_tensor(unwrap_tensor(online_im), target_w, target_h)
+                online_im = to_uint8_image(online_im).contiguous()
 
-                ez_img = results.get("end_zone_img")
-                if ez_img is not None:
-                    if isinstance(ez_img, np.ndarray):
-                        ez_img = torch.from_numpy(ez_img)
-                    if ez_img.ndim == 3:
-                        ez_img = ez_img.unsqueeze(0)
-                    if (
-                        not self._skip_final_save
-                        and self._device is not None
-                        and str(ez_img.device) != str(self._device)
-                    ):
-                        ez_img = unwrap_tensor(ez_img).to(self._device)
+            ez_img = results.get("end_zone_img")
+            if ez_img is not None and (resize_wh is not None or canvas_wh is not None):
+                if isinstance(ez_img, np.ndarray):
+                    ez_img = torch.from_numpy(ez_img)
+                if ez_img.ndim == 3:
+                    ez_img = ez_img.unsqueeze(0)
+                if (
+                    not self._skip_final_save
+                    and self._device is not None
+                    and str(ez_img.device) != str(self._device)
+                ):
+                    ez_img = unwrap_tensor(ez_img).to(self._device)
+                if resize_wh is not None:
+                    target_w, target_h = resize_wh
                     if image_width(ez_img) != target_w or image_height(ez_img) != target_h:
                         ez_t = unwrap_tensor(ez_img)
                         ez_t = resize_image(
@@ -606,7 +693,11 @@ class VideoOutput(torch.nn.ModuleDict):
                             new_height=target_h,
                         )
                         ez_img = to_uint8_image(ez_t).contiguous()
-                    results["end_zone_img"] = ez_img
+                if canvas_wh is not None:
+                    canvas_w, canvas_h = canvas_wh
+                    ez_img = self._letterbox_tensor(unwrap_tensor(ez_img), canvas_w, canvas_h)
+                    ez_img = to_uint8_image(ez_img).contiguous()
+                results["end_zone_img"] = ez_img
 
             results["img"] = online_im
 

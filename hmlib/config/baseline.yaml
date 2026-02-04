@@ -69,6 +69,7 @@ aspen:
     # The CLI flag --video-encoder-backend overrides this when provided.
     encoder_backend: "auto"
     output_width: "auto"
+    output_height: null
     bit_rate: 55000000
     show_image: false
     show_scaled: null
