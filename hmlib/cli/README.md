@@ -44,6 +44,51 @@ hmtrack --input-video path/to/stitched_output-with-audio.mp4 --output tracking.m
 - `--output-video <file>` and `--no-save-video` — Control rendered output
 - `--checkpoint` / `--detector` / `--reid` — Override model weights
 
+### Variant sweeps (experiment YAML)
+Run the same clip multiple times with different config overrides and combine the results into a single video (concat or tiled grid). Each variant is labeled on-screen with its parameter overrides.
+
+Example experiment file:
+```yaml
+experiment:
+  name: zoom_sweep
+  clip:
+    start_time: "00:10:00"
+    duration: "00:00:08"
+  overlay:
+    prefix: "variant: "
+    color: [255, 255, 255]
+    position: [40, 60]
+    max_lines: 6
+  output:
+    mode: tile
+    path: output_workdirs/ev-stockton-1/experiments/zoom_sweep.mkv
+    tile:
+      rows: 2
+      cols: 2
+  variants:
+    - name: base
+      config: {}
+    - name: hyst20
+      config:
+        rink:
+          camera:
+            resizing_stop_cancel_hysteresis_frames: 20
+    - name: stop_thresh
+      config:
+        rink:
+          camera:
+            resizing_time_to_dest_stop_speed_threshold: 0.2
+```
+
+Run it:
+```bash
+hmtrack --game-id ev-stockton-1 --experiment-config zoom_sweep.yaml
+```
+
+Notes:
+- `clip` settings in the experiment file override `--start-time` / `--max-time`.
+- Per-variant `args:` overrides can be added if needed (e.g., `plot_pose: true`).
+
 ### Data artifacts and cross‑references
 - `tracking.csv` stores per-frame track boxes (TLWH), IDs, scores/labels, and optional action columns.
 - `detections.csv` stores per-frame detection boxes (TLBR), scores, and labels.

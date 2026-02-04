@@ -1,7 +1,9 @@
 import argparse
 import copy
+import datetime
 import math
 import os
+import re
 import shutil
 
 # import sys
@@ -13,7 +15,9 @@ from typing import Any, Dict, List, Optional, Tuple
 # We need this to get registered
 import torch
 import torch.backends.cudnn as cudnn
+import torch.nn.functional as F
 from mmcv.transforms import Compose
+import yaml
 
 # from mmdet.apis import init_track_model
 # from mmengine.config import Config
@@ -48,8 +52,19 @@ from hmlib.utils.gpu import select_gpus
 from hmlib.utils.path import add_prefix_to_filename, add_suffix_to_filename
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+from hmlib.utils.image import (
+    image_height,
+    image_width,
+    make_channels_first,
+    make_channels_last,
+    resize_image,
+)
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hmlib.video.video_stream import time_to_frame
+from hmlib.video.video_stream import (
+    VideoStreamReader,
+    create_output_video_stream,
+    time_to_frame,
+)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -185,7 +200,74 @@ def make_parser(parser: argparse.ArgumentParser = None):
         ),
     )
     parser.add_argument(
+        "--experiment-config",
+        dest="experiment_config",
+        type=str,
+        default=None,
+        help=(
+            "YAML file describing multiple hmtrack variants to run on the same clip "
+            "and combine (concat/tile) into a single output."
+        ),
+    )
+    parser.add_argument(
+        "--experiment-output",
+        dest="experiment_output",
+        type=str,
+        default=None,
+        help="Override the combined experiment output video path.",
+    )
+    parser.add_argument(
+        "--experiment-mode",
+        dest="experiment_mode",
+        type=str,
+        choices=["concat", "tile", "tiles", "grid"],
+        default=None,
+        help="Override the experiment combine mode (concat or tile/grid).",
+    )
+    parser.add_argument(
         "--test-size", type=str, default=None, help="WxH of test box size (format WxH)"
+    )
+    parser.add_argument(
+        "--overlay-text",
+        dest="overlay_text",
+        type=str,
+        default=None,
+        help="Overlay custom text on the output video (applied via HmImageOverlays).",
+    )
+    parser.add_argument(
+        "--overlay-text-origin",
+        dest="overlay_text_origin",
+        type=str,
+        default=None,
+        help="Overlay text origin as 'x,y' (pixels).",
+    )
+    parser.add_argument(
+        "--overlay-text-color",
+        dest="overlay_text_color",
+        type=str,
+        default=None,
+        help="Overlay text color as 'r,g,b'.",
+    )
+    parser.add_argument(
+        "--overlay-text-scale",
+        dest="overlay_text_scale",
+        type=float,
+        default=None,
+        help="Overlay text scale (overrides auto scale).",
+    )
+    parser.add_argument(
+        "--overlay-text-thickness",
+        dest="overlay_text_thickness",
+        type=int,
+        default=None,
+        help="Overlay text thickness.",
+    )
+    parser.add_argument(
+        "--overlay-text-max-lines",
+        dest="overlay_text_max_lines",
+        type=int,
+        default=None,
+        help="Maximum number of overlay text lines to draw.",
     )
     # Save frame dir moved to hm_opts.parser
     parser.add_argument(
@@ -227,6 +309,510 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "See also --smooth-filter-cfg.",
     )
     return parser
+
+
+def _slugify_label(value: str) -> str:
+    if value is None:
+        return ""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value)).strip("_")
+    return cleaned or "variant"
+
+
+def _parse_int_tuple(value: Any, length: int) -> Optional[Tuple[int, ...]]:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)) and len(value) == length:
+        return tuple(int(float(v)) for v in value)
+    if isinstance(value, str):
+        parts = [p for p in re.split(r"[x, ]+", value.strip()) if p]
+        if len(parts) == length:
+            return tuple(int(float(p)) for p in parts)
+    return None
+
+
+def _parse_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _flatten_config_for_label(config: Dict[str, Any], prefix: str = "") -> List[Tuple[str, Any]]:
+    items: List[Tuple[str, Any]] = []
+    for key, value in (config or {}).items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            items.extend(_flatten_config_for_label(value, path))
+        else:
+            items.append((path, value))
+    return items
+
+
+def _normalize_experiment_mode(mode: Optional[str]) -> str:
+    if not mode:
+        return "concat"
+    mode_key = str(mode).strip().lower()
+    if mode_key in ("tile", "tiles", "grid"):
+        return "tile"
+    return "concat"
+
+
+def _build_overlay_cfg_from_args(args: argparse.Namespace) -> Dict[str, Any]:
+    overlay_cfg: Dict[str, Any] = {}
+    if not args.overlay_text:
+        return overlay_cfg
+    overlay_cfg["overlay_text"] = args.overlay_text
+    origin = _parse_int_tuple(args.overlay_text_origin, 2)
+    if origin is not None:
+        overlay_cfg["overlay_text_origin"] = origin
+    color = _parse_int_tuple(args.overlay_text_color, 3)
+    if color is not None:
+        overlay_cfg["overlay_text_color"] = color
+    if args.overlay_text_scale is not None:
+        overlay_cfg["overlay_text_scale"] = float(args.overlay_text_scale)
+    if args.overlay_text_thickness is not None:
+        overlay_cfg["overlay_text_thickness"] = int(args.overlay_text_thickness)
+    if args.overlay_text_max_lines is not None:
+        overlay_cfg["overlay_text_max_lines"] = int(args.overlay_text_max_lines)
+    return overlay_cfg
+
+
+def _inject_overlay_text(video_out_pipeline: Any, overlay_cfg: Dict[str, Any]) -> Any:
+    if not overlay_cfg or not overlay_cfg.get("overlay_text"):
+        return video_out_pipeline
+    if not isinstance(video_out_pipeline, list):
+        return video_out_pipeline
+    for stage in video_out_pipeline:
+        if isinstance(stage, dict) and stage.get("type") == "HmImageOverlays":
+            stage.update(overlay_cfg)
+            return video_out_pipeline
+    overlay_stage = {"type": "HmImageOverlays", **overlay_cfg}
+    for idx, stage in enumerate(video_out_pipeline):
+        if isinstance(stage, dict) and stage.get("type") == "HmMakeVisibleImage":
+            video_out_pipeline.insert(idx, overlay_stage)
+            return video_out_pipeline
+    video_out_pipeline.append(overlay_stage)
+    return video_out_pipeline
+
+
+def _parse_experiment_overlay_spec(
+    overlay_spec: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    if not overlay_spec:
+        return {}, {"show_params": True, "prefix": None}
+    if overlay_spec.get("enabled") is False:
+        return {}, {"show_params": False, "prefix": None}
+    overlay_cfg: Dict[str, Any] = {}
+    label_cfg: Dict[str, Any] = {
+        "show_params": overlay_spec.get("show_params", True),
+        "prefix": overlay_spec.get("prefix"),
+    }
+    origin = _parse_int_tuple(overlay_spec.get("origin") or overlay_spec.get("position"), 2)
+    if origin is not None:
+        overlay_cfg["overlay_text_origin"] = origin
+    color = _parse_int_tuple(overlay_spec.get("color"), 3)
+    if color is not None:
+        overlay_cfg["overlay_text_color"] = color
+    scale = _parse_float(overlay_spec.get("scale"))
+    if scale is not None:
+        overlay_cfg["overlay_text_scale"] = scale
+    thickness = overlay_spec.get("thickness")
+    if thickness is not None:
+        overlay_cfg["overlay_text_thickness"] = int(thickness)
+    max_lines = overlay_spec.get("max_lines")
+    if max_lines is not None:
+        overlay_cfg["overlay_text_max_lines"] = int(max_lines)
+    return overlay_cfg, label_cfg
+
+
+def _build_variant_label_text(
+    name: str,
+    variant_cfg: Optional[Dict[str, Any]],
+    label_cfg: Dict[str, Any],
+    explicit_text: Optional[str] = None,
+) -> str:
+    if explicit_text:
+        return str(explicit_text)
+    lines: List[str] = []
+    prefix = label_cfg.get("prefix")
+    if prefix is not None:
+        lines.append(f"{prefix}{name}")
+    else:
+        lines.append(str(name))
+    if label_cfg.get("show_params", True) and variant_cfg:
+        for key, value in _flatten_config_for_label(variant_cfg):
+            lines.append(f"{key}={value}")
+    return "\n".join(lines)
+
+
+def _apply_clip_cfg(args: argparse.Namespace, clip_cfg: Optional[Dict[str, Any]]) -> None:
+    if not clip_cfg:
+        return
+    start_time = clip_cfg.get("start_time") or clip_cfg.get("start_frame_time")
+    if start_time:
+        args.start_frame_time = str(start_time)
+    if "start_frame" in clip_cfg and clip_cfg["start_frame"] is not None:
+        args.start_frame = int(clip_cfg["start_frame"])
+    duration = clip_cfg.get("duration") or clip_cfg.get("max_time")
+    if duration:
+        args.max_time = str(duration)
+    if "max_frames" in clip_cfg and clip_cfg["max_frames"] is not None:
+        args.max_frames = int(clip_cfg["max_frames"])
+
+
+def _resolve_base_output_path(game_config: Dict[str, Any], work_dir: str) -> str:
+    out_path = get_nested_value(
+        game_config, "aspen.plugins.video_out.params.output_video_path", default_value=None
+    )
+    if not out_path:
+        out_path = get_nested_value(game_config, "aspen.video_out.output_video_path", None)
+    if not out_path or "/" not in str(out_path):
+        out_path = os.path.join(work_dir, out_path or "tracking_output.mkv")
+    return str(out_path)
+
+
+def _ensure_three_channel(frame: torch.Tensor) -> torch.Tensor:
+    if frame.ndim != 3:
+        raise AssertionError(f"Expected frame tensor HxWxC, got shape {frame.shape}")
+    if frame.shape[-1] == 3:
+        return frame
+    if frame.shape[-1] == 4:
+        return frame[:, :, :3]
+    if frame.shape[-1] == 1:
+        return frame.repeat(1, 1, 3)
+    raise AssertionError(f"Unsupported channel count: {frame.shape[-1]}")
+
+
+def _frame_to_tensor(frame: Any) -> torch.Tensor:
+    if isinstance(frame, torch.Tensor):
+        tensor = frame
+    else:
+        tensor = torch.from_numpy(frame)
+    if tensor.ndim == 4:
+        tensor = tensor[0]
+    if tensor.ndim == 3 and tensor.shape[0] in (1, 3, 4):
+        tensor = make_channels_last(tensor)
+    if tensor.dtype != torch.uint8:
+        tensor = tensor.to(torch.uint8)
+    return _ensure_three_channel(tensor)
+
+
+def _resize_letterbox(frame: torch.Tensor, target_w: int, target_h: int) -> torch.Tensor:
+    h = int(image_height(frame))
+    w = int(image_width(frame))
+    if h == target_h and w == target_w:
+        return frame
+    scale = min(float(target_w) / float(w), float(target_h) / float(h))
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    resized = resize_image(frame, new_width=new_w, new_height=new_h)
+    if resized.ndim == 3 and resized.shape[0] in (1, 3, 4):
+        resized = make_channels_last(resized)
+    pad_w = max(0, target_w - new_w)
+    pad_h = max(0, target_h - new_h)
+    pad_left = pad_w // 2
+    pad_right = pad_w - pad_left
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
+    if pad_w == 0 and pad_h == 0:
+        return resized
+    cf = make_channels_first(resized)
+    cf = F.pad(cf, [pad_left, pad_right, pad_top, pad_bottom], "constant", 0)
+    return make_channels_last(cf)
+
+
+def _default_codec_for_output(path: str) -> str:
+    suffix = os.path.splitext(path)[1].lower()
+    if suffix == ".mp4":
+        return "mp4v"
+    return "XVID"
+
+
+def _combine_videos_concat(
+    video_paths: List[str],
+    output_path: str,
+    codec: Optional[str],
+    bit_rate: Optional[int],
+) -> None:
+    if not video_paths:
+        raise ValueError("No videos provided for concatenation.")
+    infos = [BasicVideoInfo(p) for p in video_paths]
+    fps = infos[0].fps
+    width = infos[0].width
+    height = infos[0].height
+    for info in infos[1:]:
+        if abs(info.fps - fps) > 0.01:
+            logger.warning("Concat FPS mismatch: %.2f vs %.2f", fps, info.fps)
+    output_codec = codec or _default_codec_for_output(output_path)
+    writer = create_output_video_stream(
+        filename=output_path,
+        fps=fps,
+        width=width,
+        height=height,
+        codec=output_codec,
+        device=torch.device("cpu"),
+        bit_rate=int(bit_rate) if bit_rate else int(55e6),
+    )
+    try:
+        for path, info in zip(video_paths, infos):
+            reader = VideoStreamReader(path, type="cv2", batch_size=1, device=torch.device("cpu"))
+            iterator = iter(reader)
+            while True:
+                try:
+                    frame = next(iterator)
+                except StopIteration:
+                    break
+                frame_tensor = _frame_to_tensor(frame)
+                if info.width != width or info.height != height:
+                    frame_tensor = _resize_letterbox(frame_tensor, width, height)
+                writer.write(frame_tensor)
+            reader.close()
+    finally:
+        writer.close()
+
+
+def _combine_videos_tile(
+    video_paths: List[str],
+    output_path: str,
+    codec: Optional[str],
+    bit_rate: Optional[int],
+    rows: int,
+    cols: int,
+    padding: int = 0,
+    background: Tuple[int, int, int] = (0, 0, 0),
+) -> None:
+    if not video_paths:
+        raise ValueError("No videos provided for tiling.")
+    infos = [BasicVideoInfo(p) for p in video_paths]
+    fps = infos[0].fps
+    cell_w = max(info.width for info in infos)
+    cell_h = max(info.height for info in infos)
+    for info in infos[1:]:
+        if abs(info.fps - fps) > 0.01:
+            logger.warning("Tile FPS mismatch: %.2f vs %.2f", fps, info.fps)
+    out_w = cols * cell_w + max(0, cols - 1) * padding
+    out_h = rows * cell_h + max(0, rows - 1) * padding
+    output_codec = codec or _default_codec_for_output(output_path)
+    writer = create_output_video_stream(
+        filename=output_path,
+        fps=fps,
+        width=out_w,
+        height=out_h,
+        codec=output_codec,
+        device=torch.device("cpu"),
+        bit_rate=int(bit_rate) if bit_rate else int(55e6),
+    )
+    readers = [
+        VideoStreamReader(path, type="cv2", batch_size=1, device=torch.device("cpu"))
+        for path in video_paths
+    ]
+    iters = [iter(r) for r in readers]
+    done = [False] * len(readers)
+    bg_color = torch.tensor(background, dtype=torch.uint8).view(1, 1, 3)
+    try:
+        while True:
+            if all(done):
+                break
+            frames: List[Optional[torch.Tensor]] = []
+            any_frame = False
+            for idx, it in enumerate(iters):
+                if done[idx]:
+                    frames.append(None)
+                    continue
+                try:
+                    frame = next(it)
+                except StopIteration:
+                    done[idx] = True
+                    frames.append(None)
+                    continue
+                any_frame = True
+                frames.append(_frame_to_tensor(frame))
+            if not any_frame:
+                break
+            canvas = bg_color.repeat(out_h, out_w, 1)
+            for idx in range(rows * cols):
+                r = idx // cols
+                c = idx % cols
+                y0 = r * (cell_h + padding)
+                x0 = c * (cell_w + padding)
+                if idx >= len(frames) or frames[idx] is None:
+                    continue
+                tile = _resize_letterbox(frames[idx], cell_w, cell_h)
+                canvas[y0 : y0 + cell_h, x0 : x0 + cell_w, :] = tile
+            writer.write(canvas)
+    finally:
+        for reader in readers:
+            reader.close()
+        writer.close()
+
+
+def _run_experiment(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    base_game_config: Dict[str, Any],
+) -> int:
+    if not args.experiment_config:
+        raise ValueError("experiment_config path missing")
+    with open(args.experiment_config, "r", encoding="utf-8") as f:
+        raw_spec = yaml.safe_load(f) or {}
+    if isinstance(raw_spec, dict) and "experiment" in raw_spec:
+        spec = raw_spec.get("experiment") or {}
+    else:
+        spec = raw_spec
+    if isinstance(spec, list):
+        spec = {"variants": spec}
+    variants = spec.get("variants") if isinstance(spec, dict) else None
+    if not variants:
+        raise ValueError("Experiment config must define a non-empty 'variants' list.")
+
+    exp_name = spec.get("name") if isinstance(spec, dict) else None
+    if not exp_name:
+        exp_name = f"experiment_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    clip_cfg = spec.get("clip") if isinstance(spec, dict) else None
+    output_cfg = spec.get("output") if isinstance(spec, dict) else {}
+    overlay_spec = spec.get("overlay") if isinstance(spec, dict) else None
+    overlay_cfg_base, label_cfg = _parse_experiment_overlay_spec(overlay_spec)
+
+    exp_mode = _normalize_experiment_mode(args.experiment_mode or output_cfg.get("mode"))
+    exp_dir = os.path.join(".", "output_workdirs", args.game_id, "experiments", exp_name)
+    os.makedirs(exp_dir, exist_ok=True)
+    combined_output = args.experiment_output or output_cfg.get("path")
+    if not combined_output:
+        combined_output = os.path.join(exp_dir, f"{exp_name}_{exp_mode}.mkv")
+    combined_output = str(combined_output)
+
+    # Save resolved experiment spec for reference.
+    try:
+        exp_yaml_path = os.path.join(exp_dir, f"{exp_name}.yaml")
+        with open(exp_yaml_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(spec, f, sort_keys=False)
+    except Exception:
+        pass
+
+    variant_outputs: List[str] = []
+
+    for idx, variant in enumerate(variants):
+        if not isinstance(variant, dict):
+            variant = {"name": f"variant_{idx+1}", "config": {}}
+        name = variant.get("name") or f"variant_{idx+1}"
+        safe_label = _slugify_label(name)
+
+        variant_args = copy_opts(src=args, dest=argparse.Namespace(), parser=parser)
+        variant_args.experiment_config = None
+        variant_args.experiment_output = None
+        variant_args.experiment_mode = None
+
+        # Apply clip settings (global + per-variant overrides).
+        _apply_clip_cfg(variant_args, clip_cfg)
+        _apply_clip_cfg(variant_args, variant.get("clip"))
+
+        # Apply any direct arg overrides if provided.
+        arg_overrides = variant.get("args") or {}
+        if isinstance(arg_overrides, dict):
+            for key, value in arg_overrides.items():
+                if hasattr(variant_args, key):
+                    setattr(variant_args, key, value)
+                else:
+                    logger.warning("Unknown hmtrack arg in experiment: %s", key)
+
+        # Build per-variant config.
+        from hmlib.config import recursive_update
+
+        variant_config = copy.deepcopy(base_game_config)
+        variant_cfg_patch = variant.get("config") or {}
+        if isinstance(variant_cfg_patch, dict):
+            recursive_update(variant_config, variant_cfg_patch)
+        variant_config = resolve_global_refs(variant_config)
+
+        # Overlay text
+        overlay_cfg = dict(overlay_cfg_base)
+        overlay_text = _build_variant_label_text(
+            name=name,
+            variant_cfg=variant_cfg_patch if isinstance(variant_cfg_patch, dict) else None,
+            label_cfg=label_cfg,
+            explicit_text=variant.get("overlay_text"),
+        )
+        if overlay_text:
+            overlay_cfg["overlay_text"] = overlay_text
+            variant_args.overlay_text = overlay_text
+            if "overlay_text_origin" in overlay_cfg:
+                variant_args.overlay_text_origin = overlay_cfg["overlay_text_origin"]
+            if "overlay_text_color" in overlay_cfg:
+                variant_args.overlay_text_color = overlay_cfg["overlay_text_color"]
+            if "overlay_text_scale" in overlay_cfg:
+                variant_args.overlay_text_scale = overlay_cfg["overlay_text_scale"]
+            if "overlay_text_thickness" in overlay_cfg:
+                variant_args.overlay_text_thickness = overlay_cfg["overlay_text_thickness"]
+            if "overlay_text_max_lines" in overlay_cfg:
+                variant_args.overlay_text_max_lines = overlay_cfg["overlay_text_max_lines"]
+
+        variant_args.output_label = safe_label
+        variant_config["initial_args"] = vars(variant_args)
+        variant_args.game_config = variant_config
+
+        # Set up task flags
+        variant_args.tracking = False
+        tokens = variant_args.tasks.split(",")
+        for t in tokens:
+            setattr(variant_args, t, True)
+
+        variant_args = configure_model(config=variant_args.game_config, args=variant_args)
+
+        if getattr(variant_args, "smoke_test", False):
+            logger.info("Smoke test requested; skipping experiment execution.")
+            return 0
+
+        if variant_args.game_id:
+            num_gpus = 1
+        else:
+            if isinstance(variant_args.gpus, str):
+                variant_args.gpus = [int(g) for g in variant_args.gpus.split(",")]
+            num_gpus = len(variant_args.gpus) if variant_args.gpus else 0
+            num_gpus = min(num_gpus, torch.cuda.device_count())
+
+        _main(variant_args, num_gpus)
+
+        work_dir = os.path.join(".", "output_workdirs", variant_args.game_id)
+        base_out = _resolve_base_output_path(variant_config, work_dir)
+        out_path = str(add_prefix_to_filename(base_out, safe_label))
+        if os.path.exists(out_path):
+            variant_outputs.append(out_path)
+        else:
+            logger.warning("Expected output not found for variant '%s': %s", name, out_path)
+
+    if not variant_outputs:
+        raise ValueError("No variant outputs were produced; cannot combine.")
+
+    if exp_mode == "concat":
+        _combine_videos_concat(
+            variant_outputs,
+            combined_output,
+            codec=output_cfg.get("codec"),
+            bit_rate=output_cfg.get("bit_rate"),
+        )
+    else:
+        tile_cfg = output_cfg.get("tile") or {}
+        n = len(variant_outputs)
+        cols = int(tile_cfg.get("cols") or math.ceil(math.sqrt(n)))
+        rows = int(tile_cfg.get("rows") or math.ceil(n / cols))
+        padding = int(tile_cfg.get("padding") or 0)
+        bg_tuple = _parse_int_tuple(tile_cfg.get("background"), 3) or (0, 0, 0)
+        _combine_videos_tile(
+            variant_outputs,
+            combined_output,
+            codec=output_cfg.get("codec"),
+            bit_rate=output_cfg.get("bit_rate"),
+            rows=rows,
+            cols=cols,
+            padding=padding,
+            background=bg_tuple,
+        )
+
+    logger.info("Experiment combined output saved to %s", combined_output)
+    return 0
 
 
 def set_torch_multiprocessing_use_filesystem():
@@ -1072,6 +1658,9 @@ def _main(args, num_gpu):
                         video_out_pipeline = aspen_cfg_for_pipeline.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
+                overlay_cfg = _build_overlay_cfg_from_args(args)
+                if overlay_cfg:
+                    video_out_pipeline = _inject_overlay_text(video_out_pipeline, overlay_cfg)
                 # Make video_out_pipeline available to Aspen plugins via args
                 args.video_out_pipeline = video_out_pipeline
             postprocessor = None
@@ -1292,6 +1881,11 @@ def main():
     args = hm_opts.init(args, parser)
     game_config = resolve_global_refs(args.game_config)
     args.game_config = game_config
+
+    if args.experiment_config:
+        if getattr(args, "py_trace_out", None):
+            logger.warning("--py-trace-out is ignored when running experiment sweeps.")
+        return _run_experiment(args, parser, game_config)
 
     # Set up the task flags
     args.tracking = False

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -41,6 +41,12 @@ class HmImageOverlays(torch.nn.Module):
         watermark_config: Dict[str, Any] = None,
         colors: Dict[str, Tuple[int, int, int]] = None,
         device: Optional[torch.device] = None,
+        overlay_text: Optional[Union[str, List[str], Tuple[str, ...]]] = None,
+        overlay_text_color: Optional[Tuple[int, int, int]] = None,
+        overlay_text_origin: Tuple[int, int] = (40, 40),
+        overlay_text_scale: Optional[float] = None,
+        overlay_text_thickness: int = 4,
+        overlay_text_max_lines: Optional[int] = None,
         overhead_rink: bool = False,
         overhead_margin_xy: Tuple[int, int] = (20, 20),
         overhead_min_height_px: int = 120,
@@ -54,6 +60,12 @@ class HmImageOverlays(torch.nn.Module):
         self._image_height_percent: float = 0.001
         self._watermark = None
         self._device = device
+        self._overlay_text = self._normalize_overlay_text(overlay_text)
+        self._overlay_text_color = overlay_text_color
+        self._overlay_text_origin = overlay_text_origin
+        self._overlay_text_scale = overlay_text_scale
+        self._overlay_text_thickness = int(overlay_text_thickness)
+        self._overlay_text_max_lines = overlay_text_max_lines
         # Overhead rink minimap config
         self._overhead_enabled = bool(overhead_rink)
         self._overhead_margin_xy = overhead_margin_xy
@@ -65,6 +77,17 @@ class HmImageOverlays(torch.nn.Module):
         self._homog_ready: bool = False
         if self._watermark_config:
             self._load_watermark()
+
+    @staticmethod
+    def _normalize_overlay_text(
+        overlay_text: Optional[Union[str, List[str], Tuple[str, ...]]]
+    ) -> str:
+        if overlay_text is None:
+            return ""
+        if isinstance(overlay_text, (list, tuple)):
+            parts = [str(p) for p in overlay_text if p is not None and str(p).strip()]
+            return "\n".join(parts)
+        return str(overlay_text)
 
     def _load_watermark(self):
         # TODO: Make watermark separate
@@ -153,6 +176,42 @@ class HmImageOverlays(torch.nn.Module):
                 fontScale=font_scale,
                 color=self._colors.get("frame_number", (0, 0, 255)),
                 thickness=10,
+            )
+            if not icf:
+                img = make_channels_last(img)
+            results["img"] = img
+        if self._overlay_text:
+            img = results["img"]
+            icf = is_channels_first(img)
+            if not icf:
+                img = make_channels_first(img)
+            h = image_height(img)
+            if self._overlay_text_scale is None:
+                font_scale = max(h * self._image_height_percent, 2)
+            else:
+                font_scale = float(self._overlay_text_scale)
+            text = self._overlay_text
+            if self._overlay_text_max_lines is not None:
+                try:
+                    max_lines = int(self._overlay_text_max_lines)
+                    if max_lines > 0:
+                        lines = text.splitlines()
+                        if len(lines) > max_lines:
+                            text = "\n".join(lines[:max_lines])
+                except Exception:
+                    pass
+            img = vis.plot_text(
+                img=make_channels_first(img),
+                text=text,
+                org=self._overlay_text_origin,
+                fontFace=cv2.FONT_HERSHEY_PLAIN,
+                fontScale=font_scale,
+                color=(
+                    self._overlay_text_color
+                    if self._overlay_text_color is not None
+                    else self._colors.get("overlay_text", (255, 255, 255))
+                ),
+                thickness=self._overlay_text_thickness,
             )
             if not icf:
                 img = make_channels_last(img)
