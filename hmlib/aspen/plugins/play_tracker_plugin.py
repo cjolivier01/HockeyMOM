@@ -56,6 +56,8 @@ class PlayTrackerPlugin(Plugin):
         camera_model: Optional[str] = None,
         camera_window: Optional[int] = None,
         force_stitching: bool = False,
+        cluster_centroids_path: Optional[str] = None,
+        save_cluster_centroids: bool = False,
     ) -> None:
         super().__init__(enabled=enabled)
         self._hockey_mom: Optional[HockeyMOM] = None
@@ -80,6 +82,8 @@ class PlayTrackerPlugin(Plugin):
         self._camera_model = camera_model
         self._camera_window = camera_window
         self._force_stitching = bool(force_stitching)
+        self._cluster_centroids_path = cluster_centroids_path
+        self._save_cluster_centroids = bool(save_cluster_centroids)
 
     # region helpers
     @staticmethod
@@ -223,6 +227,10 @@ class PlayTrackerPlugin(Plugin):
             force_stitching=self._force_stitching,
             stitch_rotation_controller=shared.get("stitch_rotation_controller"),
             cluster_centroids=shared.get("cluster_centroids"),
+            cluster_centroids_path=self._cluster_centroids_path
+            or shared.get("cluster_centroids_path"),
+            save_cluster_centroids=self._save_cluster_centroids
+            or bool(shared.get("save_cluster_centroids", False)),
         )
         self._play_tracker.eval()
 
