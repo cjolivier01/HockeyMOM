@@ -29,6 +29,7 @@ class ClusterSnapshot:
         self._num_clusters: int = num_clusters
         self._centroids: torch.Tensor | None = centroids
         self._cpp_clusters: bool = cpp_clusters
+        self._last_centroids: Optional[torch.Tensor] = None
         self._kmeans_object: KMeans[int] | None = (
             KMeans(
                 n_clusters=num_clusters,
@@ -46,6 +47,7 @@ class ClusterSnapshot:
         self._largest_cluster_label = None
         self._largest_cluster_id_set = None
         self._cluster_counts = None
+        self._last_centroids = None
 
     def calculate_labels(self, center_points: torch.Tensor, cpp_clusters: bool) -> torch.Tensor:
         if self._kmeans_object is None or cpp_clusters:
@@ -96,6 +98,24 @@ class ClusterSnapshot:
             self._cluster_label_ids[self._largest_cluster_label].tolist()
         )
 
+        try:
+            centroids: List[torch.Tensor] = []
+            for i in range(self._num_clusters):
+                mask = labels == i
+                if torch.any(mask):
+                    centroids.append(center_points[mask].mean(dim=0))
+                else:
+                    centroids.append(
+                        torch.zeros(
+                            (center_points.shape[1],),
+                            dtype=center_points.dtype,
+                            device=center_points.device,
+                        )
+                    )
+            self._last_centroids = torch.stack(centroids).detach().cpu()
+        except Exception:
+            self._last_centroids = None
+
     def prune_not_in_largest_cluster(self, ids) -> list | torch.Tensor:
         if not self._largest_cluster_id_set:
             return []
@@ -107,6 +127,11 @@ class ClusterSnapshot:
         if not result_ids:
             return []
         return torch.tensor(result_ids, dtype=torch.int64, device=ids.device)
+
+    def last_centroids(self) -> Optional[torch.Tensor]:
+        if self._last_centroids is None:
+            return None
+        return self._last_centroids.clone()
 
 
 class ClusterMan:
@@ -153,3 +178,13 @@ class ClusterMan:
 
     def prune_not_in_largest_cluster(self, num_clusters, ids):
         return self.cluster_snapshots[num_clusters].prune_not_in_largest_cluster(ids)
+
+    def get_last_centroids(self, num_clusters: Optional[int] = None) -> Optional[torch.Tensor]:
+        if not self.cluster_snapshots:
+            return None
+        if num_clusters is None:
+            num_clusters = max(self._sizes)
+        snap = self.cluster_snapshots.get(num_clusters)
+        if snap is None:
+            return None
+        return snap.last_centroids()

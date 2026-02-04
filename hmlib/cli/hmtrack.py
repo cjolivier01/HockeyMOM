@@ -379,6 +379,86 @@ def _build_overlay_cfg_from_args(args: argparse.Namespace) -> Dict[str, Any]:
     return overlay_cfg
 
 
+def _enable_load_tracking_plugin(
+    game_config: Dict[str, Any],
+    prefer_detector: bool = True,
+    disable_detector: bool = False,
+) -> None:
+    aspen = game_config.setdefault("aspen", {}) or {}
+    plugins = aspen.setdefault("plugins", {}) or {}
+
+    load_tracking = plugins.get("load_tracking")
+    if not isinstance(load_tracking, dict):
+        load_tracking = {}
+    load_tracking["class"] = "hmlib.aspen.plugins.load_plugins.LoadTrackingPlugin"
+    load_tracking["enabled"] = True
+    depends = []
+    if prefer_detector and isinstance(plugins.get("detector"), dict) and not disable_detector:
+        depends = ["detector"]
+    elif isinstance(plugins.get("image_prep"), dict):
+        depends = ["image_prep"]
+    if depends:
+        load_tracking["depends"] = depends
+    load_tracking.setdefault("params", {})
+    plugins["load_tracking"] = load_tracking
+
+    tracker = plugins.get("tracker")
+    if isinstance(tracker, dict):
+        tracker["enabled"] = False
+        plugins["tracker"] = tracker
+
+    save_tracking = plugins.get("save_tracking")
+    if isinstance(save_tracking, dict):
+        save_tracking["enabled"] = False
+        plugins["save_tracking"] = save_tracking
+
+    save_detections = plugins.get("save_detections")
+    if isinstance(save_detections, dict):
+        save_detections["enabled"] = False
+        plugins["save_detections"] = save_detections
+
+    if disable_detector:
+        for key in (
+            "detector",
+            "detector_factory",
+            "detector_join",
+            "save_detections",
+            "ice_boundaries_join",
+            "ice_boundaries",
+        ):
+            plugin = plugins.get(key)
+            if isinstance(plugin, dict):
+                plugin["enabled"] = False
+                plugins[key] = plugin
+
+    camera_controller = plugins.get("camera_controller")
+    if isinstance(camera_controller, dict):
+        camera_controller["depends"] = ["load_tracking"]
+        plugins["camera_controller"] = camera_controller
+
+    aspen["plugins"] = plugins
+    game_config["aspen"] = aspen
+
+
+def _configure_play_tracker_cluster_cache(
+    game_config: Dict[str, Any], centroids_path: Optional[str], save_centroids: bool = True
+) -> None:
+    if not centroids_path:
+        return
+    aspen = game_config.setdefault("aspen", {}) or {}
+    plugins = aspen.setdefault("plugins", {}) or {}
+    play_tracker = plugins.get("play_tracker")
+    if not isinstance(play_tracker, dict):
+        return
+    params = play_tracker.setdefault("params", {}) or {}
+    params["cluster_centroids_path"] = centroids_path
+    params["save_cluster_centroids"] = bool(save_centroids)
+    play_tracker["params"] = params
+    plugins["play_tracker"] = play_tracker
+    aspen["plugins"] = plugins
+    game_config["aspen"] = aspen
+
+
 def _inject_overlay_text(video_out_pipeline: Any, overlay_cfg: Dict[str, Any]) -> Any:
     if not overlay_cfg or not overlay_cfg.get("overlay_text"):
         return video_out_pipeline
@@ -675,10 +755,29 @@ def _run_experiment(
     output_cfg = spec.get("output") if isinstance(spec, dict) else {}
     overlay_spec = spec.get("overlay") if isinstance(spec, dict) else None
     overlay_cfg_base, label_cfg = _parse_experiment_overlay_spec(overlay_spec)
+    reuse_tracking_default = len(variants) > 1
+    reuse_tracking_cfg = (
+        spec.get("reuse_tracking", reuse_tracking_default) if isinstance(spec, dict) else False
+    )
+    reuse_tracking = False
+    skip_detector = True
+    reuse_clusters = False
+    cluster_centroids_path: Optional[str] = None
+    if isinstance(reuse_tracking_cfg, dict):
+        reuse_tracking = bool(reuse_tracking_cfg.get("enabled", True))
+        skip_detector = bool(reuse_tracking_cfg.get("skip_detector", True))
+        reuse_clusters = bool(reuse_tracking_cfg.get("cluster_centroids", reuse_tracking))
+        cluster_centroids_path = reuse_tracking_cfg.get("cluster_centroids_path")
+    else:
+        reuse_tracking = bool(reuse_tracking_cfg)
+        skip_detector = True
+        reuse_clusters = bool(reuse_tracking)
 
     exp_mode = _normalize_experiment_mode(args.experiment_mode or output_cfg.get("mode"))
     exp_dir = os.path.join(".", "output_workdirs", args.game_id, "experiments", exp_name)
     os.makedirs(exp_dir, exist_ok=True)
+    if reuse_clusters and not cluster_centroids_path:
+        cluster_centroids_path = os.path.join(exp_dir, "cluster_centroids.csv")
     combined_output = args.experiment_output or output_cfg.get("path")
     if not combined_output:
         combined_output = os.path.join(exp_dir, f"{exp_name}_{exp_mode}.mkv")
@@ -693,6 +792,7 @@ def _run_experiment(
         pass
 
     variant_outputs: List[str] = []
+    first_tracking_csv: Optional[str] = None
 
     for idx, variant in enumerate(variants):
         if not isinstance(variant, dict):
@@ -725,7 +825,10 @@ def _run_experiment(
         variant_cfg_patch = variant.get("config") or {}
         if isinstance(variant_cfg_patch, dict):
             recursive_update(variant_config, variant_cfg_patch)
-        variant_config = resolve_global_refs(variant_config)
+        if reuse_clusters and cluster_centroids_path:
+            _configure_play_tracker_cluster_cache(
+                variant_config, cluster_centroids_path, save_centroids=True
+            )
 
         # Overlay text
         overlay_cfg = dict(overlay_cfg_base)
@@ -748,6 +851,18 @@ def _run_experiment(
                 variant_args.overlay_text_thickness = overlay_cfg["overlay_text_thickness"]
             if "overlay_text_max_lines" in overlay_cfg:
                 variant_args.overlay_text_max_lines = overlay_cfg["overlay_text_max_lines"]
+
+        if reuse_tracking and idx > 0:
+            if first_tracking_csv and not getattr(variant_args, "input_tracking_data", None):
+                variant_args.input_tracking_data = first_tracking_csv
+            if getattr(variant_args, "input_tracking_data", None):
+                _enable_load_tracking_plugin(
+                    variant_config,
+                    prefer_detector=not skip_detector,
+                    disable_detector=skip_detector,
+                )
+
+        variant_config = resolve_global_refs(variant_config)
 
         variant_args.output_label = safe_label
         variant_config["initial_args"] = vars(variant_args)
@@ -782,6 +897,18 @@ def _run_experiment(
             variant_outputs.append(out_path)
         else:
             logger.warning("Expected output not found for variant '%s': %s", name, out_path)
+
+        if reuse_tracking and idx == 0:
+            tracking_csv = os.path.join(work_dir, f"{safe_label}_tracking.csv")
+            if os.path.exists(tracking_csv):
+                first_tracking_csv = tracking_csv
+            else:
+                logger.warning("Expected tracking CSV not found: %s", tracking_csv)
+
+        if reuse_tracking and idx == 0 and not first_tracking_csv:
+            logger.warning(
+                "reuse_tracking requested but no tracking CSV was produced; subsequent runs will not reuse tracks."
+            )
 
     if not variant_outputs:
         raise ValueError("No variant outputs were produced; cannot combine.")
@@ -1215,9 +1342,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params[
-                            "tracker_class"
-                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        tracker_params["tracker_class"] = (
+                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        )
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)

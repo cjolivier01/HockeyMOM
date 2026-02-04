@@ -3,6 +3,7 @@
 from __future__ import absolute_import, division, print_function
 
 import copy
+import csv
 import os
 import sys
 from collections import deque
@@ -72,6 +73,55 @@ def _opencv_highgui_available() -> bool:
     if os.name == "nt":
         return True
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _load_cluster_centroids_csv(path: Optional[str]) -> Optional[torch.Tensor]:
+    if not path:
+        return None
+    if not os.path.exists(path):
+        return None
+    rows: List[List[float]] = []
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            for row in reader:
+                if not row:
+                    continue
+                if row[0].strip().lower() in ("x", "centroid_x"):
+                    continue
+                if row[0].strip().startswith("#"):
+                    continue
+                if len(row) < 2:
+                    continue
+                try:
+                    rows.append([float(row[0]), float(row[1])])
+                except Exception:
+                    continue
+    except Exception:
+        return None
+    if not rows:
+        return None
+    return torch.as_tensor(rows, dtype=torch.float32)
+
+
+def _save_cluster_centroids_csv(path: str, centroids: torch.Tensor) -> bool:
+    if not path:
+        return False
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    except Exception:
+        return False
+    data = centroids.detach().cpu().to(dtype=torch.float32)
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["x", "y"])
+            for row in data.tolist():
+                if len(row) >= 2:
+                    writer.writerow([row[0], row[1]])
+        return True
+    except Exception:
+        return False
 
 
 def batch_tlbrs_to_tlwhs(tlbrs: torch.Tensor) -> torch.Tensor:
@@ -150,6 +200,8 @@ class PlayTracker(torch.nn.Module):
         force_stitching: bool = False,
         stitch_rotation_controller: Optional[Any] = None,
         cluster_centroids: Optional[torch.Tensor] = None,
+        cluster_centroids_path: Optional[str] = None,
+        save_cluster_centroids: bool = False,
         cpp_boxes: bool = _CPP_BOXES,
         cpp_playtracker: bool = _CPP_PLAYTRACKER,
         plot_cluster_tracking: bool = False,
@@ -183,6 +235,8 @@ class PlayTracker(torch.nn.Module):
         @param force_stitching: Enable stitching side color UI controls.
         @param stitch_rotation_controller: Optional stitching controller handle.
         @param cluster_centroids: Optional precomputed cluster centroids.
+        @param cluster_centroids_path: Optional CSV path to load/save cluster centroids.
+        @param save_cluster_centroids: Whether to persist computed centroids when path provided.
         @param cpp_boxes: If True, use C++ BBox types internally.
         @param cpp_playtracker: If True, use the C++ PlayTracker backend.
         """
@@ -218,6 +272,9 @@ class PlayTracker(torch.nn.Module):
         self._boundaries = None
         self._cluster_man: Optional[ClusterMan] = None
         self._cluster_centroids: Optional[torch.Tensor] = None
+        self._cluster_centroids_path = cluster_centroids_path
+        self._save_cluster_centroids = bool(save_cluster_centroids)
+        self._cluster_centroids_saved = False
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
         self._camera_ui_enabled = bool(camera_ui)
@@ -246,11 +303,24 @@ class PlayTracker(torch.nn.Module):
         self._camera_prev_h: Optional[float] = None
         self._camera_aspect = float(self._final_aspect_ratio)
 
+        if cluster_centroids is None and self._cluster_centroids_path:
+            loaded_centroids = _load_cluster_centroids_csv(self._cluster_centroids_path)
+            if loaded_centroids is not None:
+                cluster_centroids = loaded_centroids
+                self._cluster_centroids_saved = True
+
         if cluster_centroids is not None:
             centroids_tensor = torch.as_tensor(cluster_centroids, dtype=torch.float32).cpu()
             if centroids_tensor.ndim != 2 or centroids_tensor.shape[1] != 2:
                 raise ValueError("cluster_centroids must be shaped (N, 2)")
             self._cluster_centroids = centroids_tensor
+            if (
+                self._cluster_centroids_path
+                and self._save_cluster_centroids
+                and not self._cluster_centroids_saved
+            ):
+                if _save_cluster_centroids_csv(self._cluster_centroids_path, centroids_tensor):
+                    self._cluster_centroids_saved = True
 
         self._jersey_tracker = JerseyTracker(show=bool(plot_jersey_numbers))
         self._action_tracker = ActionTracker(show=bool(plot_actions))
@@ -709,6 +779,21 @@ class PlayTracker(torch.nn.Module):
         self._cluster_man.calculate_all_clusters(
             center_points=center_batch(online_tlwhs), ids=online_ids
         )
+        if (
+            self._cluster_centroids is None
+            and self._cluster_centroids_path
+            and self._save_cluster_centroids
+            and not self._cluster_centroids_saved
+        ):
+            candidate = self._cluster_man.get_last_centroids()
+            if isinstance(candidate, torch.Tensor) and candidate.numel() >= 2:
+                self._cluster_centroids = candidate.detach().cpu()
+                if _save_cluster_centroids_csv(
+                    self._cluster_centroids_path, self._cluster_centroids
+                ):
+                    self._cluster_centroids_saved = True
+                # Recreate cluster manager to use the saved centroids moving forward.
+                self._cluster_man = None
         boxes_map = dict()
         boxes_list = []
         for cluster_count in cluster_counts:
