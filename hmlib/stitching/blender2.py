@@ -207,6 +207,34 @@ class PtImageBlender(torch.nn.Module):
         canvas_h = self._seam_mask.shape[0]
         canvas_w = self._seam_mask.shape[1]
 
+        # Build full-canvas versions of images/masks so we can prevent unmapped
+        # pixels from participating in blending.
+        (
+            full_left,
+            alpha_mask_left_full,
+            full_right,
+            alpha_mask_right_full,
+        ) = simple_make_full(
+            img_1=image_1,
+            mask_1=alpha_mask_1,
+            x1=x1,
+            y1=y1,
+            img_2=image_2,
+            mask_2=alpha_mask_2,
+            x2=x2,
+            y2=y2,
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+        )
+        if alpha_mask_left_full is not None and alpha_mask_right_full is not None:
+            left_valid = ~alpha_mask_left_full
+            right_valid = ~alpha_mask_right_full
+            only_left = left_valid & ~right_valid
+            only_right = right_valid & ~left_valid
+            neither = ~(left_valid | right_valid)
+        else:
+            only_left = only_right = neither = None
+
         if self._laplacian_blend is not None:
             canvas = self._laplacian_blend.forward(
                 left=image_1,
@@ -221,9 +249,6 @@ class PtImageBlender(torch.nn.Module):
                 canvas_w=canvas_w,
             )
         else:
-            full_left, full_right = simple_make_full(
-                image_1, x1, y1, image_2, x2, y2, canvas_w, canvas_h
-            )
             canvas = torch.empty(
                 size=(
                     batch_size,
@@ -240,6 +265,14 @@ class PtImageBlender(torch.nn.Module):
             canvas[:, :, self._seam_mask == self._right_value] = full_right[
                 :, :, self._seam_mask == self._right_value
             ]
+
+        # Override blended results where only one side has valid pixels.
+        if only_left is not None and only_left.any():
+            canvas[:, :, only_left] = full_left[:, :, only_left]
+        if only_right is not None and only_right.any():
+            canvas[:, :, only_right] = full_right[:, :, only_right]
+        if neither is not None and neither.any():
+            canvas[:, :, neither] = 0
 
         return canvas
 
