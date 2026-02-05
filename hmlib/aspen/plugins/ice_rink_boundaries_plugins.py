@@ -253,7 +253,7 @@ class IceRinkSegmConfigPlugin(Plugin):
                 expected_shape=exp_shape,
                 image=frame0,
             )
-        results = dict(data=data)
+        results: Dict[str, Any] = {}
         if self._rink_profile is not None:
             results["rink_profile"] = self._rink_profile
         return results
@@ -262,4 +262,4 @@ class IceRinkSegmConfigPlugin(Plugin):
         return {"data", "game_id"}
 
     def output_keys(self):
-        return {"data", "rink_profile"}
+        return {"rink_profile"}
