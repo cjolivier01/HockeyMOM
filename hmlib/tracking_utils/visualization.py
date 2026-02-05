@@ -483,9 +483,9 @@ def plot_tracking(
         assert len(speeds) == len(obj_ids)
     im = image
 
-    text_scale = max(2, image.shape[1] / 1600.0)
-    text_thickness = 2
-    text_offset = int(8 * text_scale)
+    text_scale = max(1.0, image.shape[1] / 3200.0)
+    text_thickness = max(1, int(round(text_scale * 0.6)))
+    text_offset = int(6 * text_scale)
 
     if show_frame_heading:
         im = my_put_text(

@@ -222,8 +222,17 @@ class TrackingDataFrame(HmDataFrameBase):
 
         all_track_jersey_info: List[Optional[TrackJerseyInfo]] = []
         for tid, jersey in zip(tracking_ids, jersey_info):
-            obj = json_to_dataclass(jersey, TrackJerseyInfo)
-            if obj.tracking_id < 0:
+            obj: Optional[TrackJerseyInfo] = None
+            if isinstance(jersey, TrackJerseyInfo):
+                obj = jersey
+            elif isinstance(jersey, str):
+                if jersey and jersey != "{}":
+                    try:
+                        obj = json_to_dataclass(jersey, TrackJerseyInfo)
+                    except Exception:
+                        obj = None
+            # Ignore invalid or placeholder entries.
+            if obj is not None and getattr(obj, "tracking_id", -1) < 0:
                 obj = None
             all_track_jersey_info.append(obj)
 

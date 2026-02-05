@@ -189,7 +189,7 @@ aspen:
 
     tracker:
       class: hmlib.aspen.plugins.tracker_plugin.TrackerPlugin
-      depends: [tracker_join]
+      depends: [ice_boundaries]
       params:
         # tracker_class: hockeymom.core.HmByteTrackerCuda  # Uncomment to enable static-shape CUDA tracker
         # tracker_class: hockeymom.core.HmByteTrackerCudaStatic  # Uncomment to enable static-shape CUDA tracker
@@ -202,16 +202,16 @@ aspen:
         #   reid_feature_dim: 256
         #   reid_weight: 0.5
 
-    tracker_join:
-      class: hmlib.aspen.plugins.join_plugin.JoinPlugin
-      depends: [detector, ice_boundaries]
-      params:
-        required_plugins: [detector, ice_boundaries]
-        output_key: tracker_joined
+    # tracker_join:
+    #   class: hmlib.aspen.plugins.join_plugin.JoinPlugin
+    #   depends: [ice_boundaries]
+    #   params:
+    #     required_plugins: [detector, ice_boundaries]
+    #     output_key: tracker_joined
 
     save_tracking:
       class: hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin
-      depends: [tracker]
+      depends: [jersey_numbers]
       enabled: true
       params: {}
 

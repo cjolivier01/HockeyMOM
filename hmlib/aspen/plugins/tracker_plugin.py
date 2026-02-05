@@ -323,7 +323,7 @@ class TrackerPlugin(Plugin):
                     max_tracking_id = torch.maximum(max_tracking_id, max_id_tensor.reshape(-1)[:1])
 
         result: Dict[str, Any] = {
-            "data": data,
+            # "data": data,
             "nr_tracks": active_track_count if active_track_count is not None else 0,
             "max_tracking_id": max_tracking_id if max_tracking_id is not None else 0,
         }
@@ -337,7 +337,11 @@ class TrackerPlugin(Plugin):
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {
+            # "data",
+            "nr_tracks",
+            "max_tracking_id",
+        }
 
     @staticmethod
     def _coerce_frame_id_tensor(

@@ -1,6 +1,6 @@
 HockeyMOM
 
-![Fast play tracking sample](docs/images/tv-12-1-r2_fast_play.gif)
+![Panoramic tracking with pose and jersey numbers](docs/images/tv-12-1-r2_fast_play.gif)
 
 ## Docs
 - Repository guidelines: see [AGENTS.md](AGENTS.md).

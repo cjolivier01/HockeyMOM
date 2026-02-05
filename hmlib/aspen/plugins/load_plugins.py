@@ -210,11 +210,27 @@ class LoadTrackingPlugin(Plugin):
         video_len = len(track_data_sample)
         max_tracking_id = 0
         active_track_count = 0
+        jersey_results_all = []
 
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
             ds = getattr(df, "get_sample_by_frame", None)
             fid: int = frame_id0 + i
+            rec = None
+            if df is not None:
+                try:
+                    rec = df.get_data_dict_by_frame(frame_id=fid)
+                except Exception:
+                    rec = None
+            jersey_results = []
+            if isinstance(rec, dict):
+                for info in rec.get("jersey_info") or []:
+                    if info is None:
+                        continue
+                    if getattr(info, "tracking_id", -1) < 0:
+                        continue
+                    jersey_results.append(info)
+            jersey_results_all.append(jersey_results)
             track_ds = ds(frame_id=fid) if callable(ds) else None
             if track_ds is None:
                 # attach empty tracks instance
@@ -237,7 +253,6 @@ class LoadTrackingPlugin(Plugin):
             )
             if inst is None:
                 # Fallback to dict-based reconstruction
-                rec = df.get_data_dict_by_frame(frame_id=fid)
                 if rec is None:
                     inst = InstanceData(
                         instances_id=torch.empty((0,), dtype=torch.long),
@@ -290,6 +305,9 @@ class LoadTrackingPlugin(Plugin):
                 if len(inst.instances_id):
                     max_id = int(torch.max(inst.instances_id))
                     max_tracking_id = max(max_tracking_id, max_id)
+
+        if jersey_results_all:
+            data["jersey_results"] = jersey_results_all
 
         return {
             "data": data,
