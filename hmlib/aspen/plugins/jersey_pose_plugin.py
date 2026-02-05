@@ -17,7 +17,7 @@ from hmlib.bbox.tiling import (
 from hmlib.jersey.number_classifier import TrackJerseyInfo
 from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.ui import show_image  # noqa: F401 (for debugging
-from hmlib.utils.gpu import StreamTensorBase
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 
 _PADDING = 5
@@ -462,10 +462,10 @@ class JerseyNumberFromPosePlugin(Plugin):
                 continue
 
             # Build ROIs from track boxes
-            bboxes_xyxy = pred_tracks.bboxes
+            bboxes_xyxy = unwrap_tensor(pred_tracks.bboxes)
             if not isinstance(bboxes_xyxy, torch.Tensor):
                 bboxes_xyxy = torch.as_tensor(bboxes_xyxy)
-            tracking_ids = pred_tracks.instances_id
+            tracking_ids = unwrap_tensor(pred_tracks.instances_id)
             if not isinstance(tracking_ids, torch.Tensor):
                 tracking_ids = torch.as_tensor(tracking_ids)
             track_mask = get_track_mask(pred_tracks)
