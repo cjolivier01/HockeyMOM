@@ -27,10 +27,11 @@ class CameraGPTConfig:
     feature_mode: str = "legacy_prev_slow"
     include_pose: bool = False
     include_rink: bool = False
-    # Defaults chosen to be ~25M params with typical camgpt training settings.
-    d_model: int = 512
+    # Defaults chosen to be ~10M params with typical camgpt training settings.
+    d_model: int = 448
     nhead: int = 8
-    nlayers: int = 8
+    nlayers: int = 4
+    dim_feedforward: int = 1792
     dropout: float = 0.1
 
 
@@ -45,6 +46,7 @@ class CameraPanZoomGPT(nn.Module):
         enc_layer = nn.TransformerEncoderLayer(
             d_model=int(cfg.d_model),
             nhead=int(cfg.nhead),
+            dim_feedforward=int(cfg.dim_feedforward),
             batch_first=True,
             dropout=float(cfg.dropout),
         )
@@ -90,6 +92,7 @@ def pack_gpt_checkpoint(
             "d_model": int(cfg.d_model),
             "nhead": int(cfg.nhead),
             "nlayers": int(cfg.nlayers),
+            "dim_feedforward": int(cfg.dim_feedforward),
             "dropout": float(cfg.dropout),
         },
     }
@@ -110,9 +113,10 @@ def unpack_gpt_checkpoint(
         feature_mode=str(model_cfg.get("feature_mode", "legacy_prev_slow")),
         include_pose=bool(include_pose),
         include_rink=bool(include_rink),
-        d_model=int(model_cfg.get("d_model", 128)),
-        nhead=int(model_cfg.get("nhead", 4)),
+        d_model=int(model_cfg.get("d_model", 448)),
+        nhead=int(model_cfg.get("nhead", 8)),
         nlayers=int(model_cfg.get("nlayers", 4)),
+        dim_feedforward=int(model_cfg.get("dim_feedforward", 1792)),
         dropout=float(model_cfg.get("dropout", 0.1)),
     )
     norm = CameraNorm(
