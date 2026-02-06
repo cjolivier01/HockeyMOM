@@ -379,7 +379,7 @@ def stitch_videos(
                         context = {
                             "stitch_inputs": stitch_inputs,
                             "stitch_fps": data_loader.fps,
-                            "data": {"fps": data_loader.fps},
+                            "fps": data_loader.fps,
                             "game_id": game_id,
                             "work_dir": work_dir,
                         }
@@ -413,7 +413,7 @@ def stitch_videos(
                         context = {
                             "img": wrap_tensor(stitched_image),
                             "frame_ids": torch.arange(i * batch_size, (i + 1) * batch_size),
-                            "data": {"fps": data_loader.fps},
+                            "fps": data_loader.fps,
                             "game_id": game_id,
                             "work_dir": work_dir,
                         }

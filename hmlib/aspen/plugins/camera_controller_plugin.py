@@ -38,12 +38,12 @@ class CameraControllerPlugin(Plugin):
       - controller="gpt": use trained causal transformer checkpoint.
 
     Expects in context:
-      - data: dict with 'data_samples' list[TrackDataSample]
+      - data_samples: TrackDataSample (or list)
       - frame_id: int for first frame in batch
 
     Produces in context:
       - camera_boxes: List[torch.Tensor] (TLBR per frame)
-      - data: updates each img_data_sample.pred_cam_box with TLBR tensor
+      - Side-effects: updates each img_data_sample.pred_cam_box with TLBR tensor
     """
 
     def __init__(
@@ -121,11 +121,14 @@ class CameraControllerPlugin(Plugin):
 
     @staticmethod
     def _resolve_device(context: Dict[str, Any], fallback: Optional[torch.device] = None):
-        data = context.get("data")
-        if isinstance(data, dict):
-            img = data.get("img")
-            if isinstance(img, torch.Tensor):
-                return img.device
+        # Prefer flattened Aspen context keys.
+        for key in ("inputs", "img", "original_images"):
+            t = context.get(key)
+            if isinstance(t, torch.Tensor):
+                return t.device
+            dev = getattr(t, "device", None)
+            if isinstance(dev, torch.device):
+                return dev
         shared = context.get("shared", {}) or {}
         device = shared.get("camera_device") or shared.get("device")
         if isinstance(device, torch.device):
@@ -145,14 +148,13 @@ class CameraControllerPlugin(Plugin):
         return torch.device("cpu")
 
     def _pose_features(
-        self, data: Dict[str, Any], frame_index: int, device: torch.device
+        self, pose_results: Optional[List[Any]], frame_index: int, device: torch.device
     ) -> torch.Tensor:
         """Extract a fixed-length (8) pose feature vector for the current frame."""
         feat = torch.zeros((8,), device=device, dtype=torch.float32)
         if self._norm is None:
             return feat
         try:
-            pose_results = data.get("pose_results")
             if not isinstance(pose_results, list) or frame_index >= len(pose_results):
                 return feat
             pr = pose_results[frame_index]
@@ -174,15 +176,9 @@ class CameraControllerPlugin(Plugin):
                     bxs_t = torch.as_tensor(bxs, device=device, dtype=torch.float32)
                 bxs_t = bxs_t.reshape(-1, 4)
                 if bxs_t.numel() > 0:
-                    cxn = (bxs_t[:, 0] + bxs_t[:, 2]) * 0.5 / max(
-                        1e-6, float(self._norm.scale_x)
-                    )
-                    cyn = (bxs_t[:, 1] + bxs_t[:, 3]) * 0.5 / max(
-                        1e-6, float(self._norm.scale_y)
-                    )
-                    hn = (bxs_t[:, 3] - bxs_t[:, 1]) / max(
-                        1e-6, float(self._norm.scale_y)
-                    )
+                    cxn = (bxs_t[:, 0] + bxs_t[:, 2]) * 0.5 / max(1e-6, float(self._norm.scale_x))
+                    cyn = (bxs_t[:, 1] + bxs_t[:, 3]) * 0.5 / max(1e-6, float(self._norm.scale_y))
+                    hn = (bxs_t[:, 3] - bxs_t[:, 1]) / max(1e-6, float(self._norm.scale_y))
                     feat[0] = min(float(bxs_t.shape[0]) / max(1, int(self._norm.max_players)), 1.0)
                     feat[1] = torch.clamp(torch.mean(cxn), 0.0, 1.0)
                     feat[2] = torch.clamp(torch.mean(cyn), 0.0, 1.0)
@@ -308,9 +304,7 @@ class CameraControllerPlugin(Plugin):
             feat[3] = torch.clamp(y2 / sy, 0.0, 1.0)
             feat[4] = torch.clamp(cx / sx, 0.0, 1.0)
             feat[5] = torch.clamp(cy / sy, 0.0, 1.0)
-            feat[6] = torch.clamp(
-                torch.tensor(area, device=device, dtype=feat.dtype), 0.0, 1.0
-            )
+            feat[6] = torch.clamp(torch.tensor(area, device=device, dtype=feat.dtype), 0.0, 1.0)
         except Exception:
             pass
         return feat
@@ -319,18 +313,21 @@ class CameraControllerPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context["data"]
         # In rule mode, defer entirely to PlayTracker's native camera controller.
         # This avoids accidentally overriding the default camera behavior on Python-only runs.
         if self._controller == "rule":
-            return {"data": data}
-        track_samples = data.get("data_samples")
+            return {}
+
+        track_samples = context.get("data_samples")
+        if track_samples is None:
+            return {}
         if isinstance(track_samples, list):
             assert len(track_samples) == 1
             track_data_sample = track_samples[0]
         else:
             track_data_sample = track_samples
         video_len = len(track_data_sample)
+        pose_results = context.get("pose_results")
 
         cam_boxes: List[torch.Tensor] = []
         cam_fast_boxes: List[torch.Tensor] = []
@@ -570,7 +567,7 @@ class CameraControllerPlugin(Plugin):
                 and self._gpt_cfg is not None
             ):
                 pose_feat = (
-                    self._pose_features(data, frame_index, device)
+                    self._pose_features(pose_results, frame_index, device)
                     if bool(getattr(self._gpt_cfg, "include_pose", False))
                     else None
                 )
@@ -817,14 +814,21 @@ class CameraControllerPlugin(Plugin):
             if box_fast_out is not None:
                 setattr(img_data_sample, "pred_cam_fast_box", wrap_tensor(box_fast_out))
 
-        # Attach into the shared data dict so downstream postprocess can access
-        data["camera_boxes"] = wrap_tensor(torch.stack(cam_boxes, dim=0))
+        out: Dict[str, Any] = {"camera_boxes": wrap_tensor(torch.stack(cam_boxes, dim=0))}
         if cam_fast_boxes and len(cam_fast_boxes) == len(cam_boxes):
-            data["camera_fast_boxes"] = wrap_tensor(torch.stack(cam_fast_boxes, dim=0))
-        return {"data": data}
+            out["camera_fast_boxes"] = wrap_tensor(torch.stack(cam_fast_boxes, dim=0))
+        return out
 
     def input_keys(self):
-        return {"data"}
+        return {
+            "data_samples",
+            "pose_results",
+            "inputs",
+            "img",
+            "original_images",
+            "shared",
+            "rink_profile",
+        }
 
     def output_keys(self):
-        return {"data"}
+        return {"camera_boxes", "camera_fast_boxes"}

@@ -36,7 +36,7 @@ class LoadDetectionsPlugin(Plugin):
     as `pred_instances`, emulating DetectorInferencePlugin.
 
     Expects in context:
-      - data: dict with 'data_samples'
+      - data_samples: TrackDataSample (or list)
       - frame_id: first frame id in batch
       - detection_dataframe: DetectionDataFrame (input_file provided)
     """
@@ -84,8 +84,7 @@ class LoadDetectionsPlugin(Plugin):
         if df is None or not df.has_input_data():
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -131,13 +130,13 @@ class LoadDetectionsPlugin(Plugin):
                         )
                 img_data_sample.pred_instances = inst
             img_data_sample.set_metainfo({"frame_id": int(fid)})
-        return {"data": data, "detection_dataframe": df}
+        return {"detection_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id"}
+        return {"data_samples", "frame_id"}
 
     def output_keys(self):
-        return {"data", "detection_dataframe"}
+        return {"detection_dataframe"}
 
 
 class LoadTrackingPlugin(Plugin):
@@ -147,7 +146,7 @@ class LoadTrackingPlugin(Plugin):
     Produces `data`, `nr_tracks`, and `max_tracking_id` analogous to TrackerPlugin.
 
     Expects in context:
-      - data: dict with 'data_samples'
+      - data_samples: TrackDataSample (or list)
       - frame_id: first frame in batch
       - tracking_dataframe: TrackingDataFrame (input_file provided)
     """
@@ -196,8 +195,7 @@ class LoadTrackingPlugin(Plugin):
         if df is None or not df.has_input_data():
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -210,11 +208,26 @@ class LoadTrackingPlugin(Plugin):
         video_len = len(track_data_sample)
         max_tracking_id = 0
         active_track_count = 0
+        jersey_results_all: List[List[Any]] = []
 
         for i in range(video_len):
             img_data_sample = track_data_sample[i]
             ds = getattr(df, "get_sample_by_frame", None)
             fid: int = frame_id0 + i
+            rec = None
+            try:
+                rec = df.get_data_dict_by_frame(frame_id=fid)
+            except Exception:
+                rec = None
+            jersey_results: List[Any] = []
+            if isinstance(rec, dict):
+                for info in rec.get("jersey_info") or []:
+                    if info is None:
+                        continue
+                    if getattr(info, "tracking_id", -1) < 0:
+                        continue
+                    jersey_results.append(info)
+            jersey_results_all.append(jersey_results)
             track_ds = ds(frame_id=fid) if callable(ds) else None
             if track_ds is None:
                 # attach empty tracks instance
@@ -291,30 +304,32 @@ class LoadTrackingPlugin(Plugin):
                     max_id = int(torch.max(inst.instances_id))
                     max_tracking_id = max(max_tracking_id, max_id)
 
-        return {
-            "data": data,
+        out: Dict[str, Any] = {
             "nr_tracks": active_track_count,
             "max_tracking_id": max_tracking_id,
             "tracking_dataframe": df,
         }
+        if jersey_results_all:
+            out["jersey_results"] = jersey_results_all
+        return out
 
     def input_keys(self):
-        return {"data", "frame_id"}
+        return {"data_samples", "frame_id"}
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id", "tracking_dataframe"}
+        return {"jersey_results", "nr_tracks", "max_tracking_id", "tracking_dataframe"}
 
 
 class LoadPosePlugin(Plugin):
     """
-    Loads per-frame pose JSON from `pose_dataframe` and sets data['pose_results'].
+    Loads per-frame pose JSON from `pose_dataframe` and exposes `pose_results`.
 
     The stored format is a simplified structure, but PoseToDetPlugin tolerates dict predictions
     if extended accordingly. Downstream postprocess uses pose results only if required.
 
     Expects in context:
       - pose_dataframe: PoseDataFrame (input_file provided)
-      - data: dict with 'data_samples' to infer video_len
+      - data_samples: TrackDataSample (or list) to infer video_len
       - frame_id: int first frame
     """
 
@@ -355,9 +370,8 @@ class LoadPosePlugin(Plugin):
         if df is None or not df.has_input_data():
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
         frame_id0: int = int(context.get("frame_id", -1))
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -383,14 +397,13 @@ class LoadPosePlugin(Plugin):
                 # Wrap PoseDataSample to match downstream expectations: {'predictions':[PoseDataSample]}
                 pose_results.append({"predictions": [pose_ds]})
 
-        data["pose_results"] = pose_results
-        return {"data": data, "pose_dataframe": df}
+        return {"pose_results": pose_results, "pose_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id"}
+        return {"data_samples", "frame_id"}
 
     def output_keys(self):
-        return {"data", "pose_dataframe"}
+        return {"pose_results", "pose_dataframe"}
 
 
 class LoadCameraPlugin(Plugin):

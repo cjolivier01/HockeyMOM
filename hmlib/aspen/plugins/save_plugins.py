@@ -124,8 +124,7 @@ class SaveDetectionsPlugin(SavePluginBase):
         if df is None:
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -174,7 +173,7 @@ class SaveDetectionsPlugin(SavePluginBase):
         return {"detection_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id"}
+        return {"data_samples", "frame_id"}
 
     def output_keys(self):
         return {"detection_dataframe"}
@@ -189,7 +188,7 @@ class SaveTrackingPlugin(SavePluginBase):
     Saves per-frame tracking results into `tracking_dataframe`.
 
     Expects in context:
-      - data: dict with 'data_samples'
+      - data_samples: TrackDataSample (or list)
       - frame_id: int for first frame in batch
       - tracking_dataframe: TrackingDataFrame
       - jersey_results: Optional per-frame jersey info list
@@ -232,12 +231,11 @@ class SaveTrackingPlugin(SavePluginBase):
         if df is None:
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        jersey_results_all = data.get("jersey_results") or context.get("jersey_results")
-        action_results_all = data.get("action_results") or context.get("action_results")
+        jersey_results_all = context.get("jersey_results")
+        action_results_all = context.get("action_results")
         frame_id0: int = int(context.get("frame_id", -1))
 
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -306,7 +304,7 @@ class SaveTrackingPlugin(SavePluginBase):
         return {"tracking_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id", "jersey_results", "action_results"}
+        return {"data_samples", "frame_id", "jersey_results", "action_results"}
 
     def output_keys(self):
         return {"tracking_dataframe"}
@@ -323,7 +321,8 @@ class SavePosePlugin(SavePluginBase):
     We serialize a simplified structure capturing keypoints/bboxes/scores to JSON.
 
     Expects in context:
-      - data: dict with 'pose_results' list
+      - pose_results: list of pose results
+      - data_samples: used only to determine clip length when pose_results missing
       - frame_id: int for first frame in batch
       - pose_dataframe: PoseDataFrame
     """
@@ -399,14 +398,12 @@ class SavePosePlugin(SavePluginBase):
         if df is None:
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        pose_results: Optional[List[Any]] = data.get("pose_results")
+        pose_results: Optional[List[Any]] = context.get("pose_results")
 
         frame_id0: int = int(context.get("frame_id", -1))
         # If pose_results is missing, write empty entries for each frame
         if not pose_results:
-            data: Dict[str, Any] = context.get("data", {})
-            track_samples = data.get("data_samples")
+            track_samples = context.get("data_samples")
             if isinstance(track_samples, list):
                 track_data_sample = track_samples[0]
             else:
@@ -427,7 +424,7 @@ class SavePosePlugin(SavePluginBase):
         return {"pose_dataframe": df}
 
     def input_keys(self):
-        return {"data", "frame_id"}
+        return {"pose_results", "data_samples", "frame_id"}
 
     def output_keys(self):
         return {"pose_dataframe"}
@@ -446,7 +443,8 @@ class SaveActionsPlugin(SavePluginBase):
     saving pass.
 
     Expects in context:
-      - data: dict with 'action_results' per frame
+      - action_results: per frame
+      - data_samples: TrackDataSample (or list)
       - frame_id: int for first frame in batch
       - tracking_dataframe: TrackingDataFrame (will update action columns)
     """
@@ -485,13 +483,12 @@ class SaveActionsPlugin(SavePluginBase):
         action_df = context.get("action_dataframe") or self._ensure_action_dataframe(context)
         if df is None and action_df is None:
             return {}
-        data: Dict[str, Any] = context.get("data", {})
-        action_results_all = data.get("action_results") or context.get("action_results")
+        action_results_all = context.get("action_results")
         if not action_results_all:
             return {}
         frame_id0: int = int(context.get("frame_id", -1))
 
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -535,7 +532,7 @@ class SaveActionsPlugin(SavePluginBase):
         return {"action_dataframe": action_df} if action_df is not None else {}
 
     def input_keys(self):
-        return {"data", "frame_id", "tracking_dataframe", "action_results"}
+        return {"data_samples", "frame_id", "tracking_dataframe", "action_results"}
 
     def output_keys(self):
         return {"action_dataframe"}

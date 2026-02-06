@@ -19,14 +19,13 @@ class RgbStatsCheckPlugin(Plugin):
     against reference stats captured earlier in the pipeline.
 
     Typical usage:
-      - StitchDataset computes 'left', 'right', 'stitched' stats and stores
-        them under data['debug_rgb_stats']['stitch'].
-      - MOTLoadVideoWithOrig propagates that dict into the 'data' context.
+      - StitchDataset/StitchingPlugin compute 'left', 'right', 'stitched' stats and store
+        them under context['debug_rgb_stats']['stitch'].
       - This plugin recomputes stats on a chosen image tensor (e.g.,
         'original_images') and logs a warning if they differ beyond a
         configurable tolerance.
 
-    Results are attached under data['debug_rgb_stats_checks'] so downstream
+    Results are attached under context['debug_rgb_stats_checks'] so downstream
     consumers can inspect them if needed.
     """
 
@@ -52,8 +51,7 @@ class RgbStatsCheckPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context.get("data", {}) or {}
-        debug_stats: Dict[str, Any] = data.get("debug_rgb_stats", {}) or {}
+        debug_stats: Dict[str, Any] = context.get("debug_rgb_stats", {}) or {}
         src_stats: Optional[Dict[str, Any]] = debug_stats.get(self._source)
         if not isinstance(src_stats, dict):
             return {}
@@ -88,19 +86,20 @@ class RgbStatsCheckPlugin(Plugin):
                 self._tensor_key,
             )
 
-        # Attach results back into data for downstream inspection
-        checks = data.setdefault("debug_rgb_stats_checks", {})
+        # Attach results for downstream inspection.
+        checks = context.get("debug_rgb_stats_checks")
+        if not isinstance(checks, dict):
+            checks = {}
         key = f"{self._source}.{self._stats_key}"
         checks[key] = {
             "tensor_key": self._tensor_key,
             "changed": bool(changed),
             "unchanged": bool(unchanged),
         }
-        data["debug_rgb_stats_checks"] = checks
-        return {"data": data}
+        return {"debug_rgb_stats_checks": checks}
 
     def input_keys(self) -> Set[str]:
-        return {"data", self._tensor_key}
+        return {"debug_rgb_stats", "debug_rgb_stats_checks", self._tensor_key}
 
     def output_keys(self) -> Set[str]:
-        return {"data"}
+        return {"debug_rgb_stats_checks"}

@@ -21,7 +21,8 @@ class PlayTrackerPlugin(Plugin):
     attach visualization images.
 
     Expects context keys (minimal_context ready):
-      - data: dict with 'data_samples' and 'original_images'
+      - data_samples: TrackDataSample (or list)
+      - original_images: stitched panorama frames
       - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
       - shared.device: torch.device
@@ -91,7 +92,10 @@ class PlayTrackerPlugin(Plugin):
         # Use rink_profile combined bbox if present; scale a bit and clamp
         track_container = results["data_samples"]
         vds = track_container.video_data_samples[0]
-        prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
+        prof = results.get("rink_profile")
+        if prof is None:
+            # Backwards-compat: older pipelines stored rink_profile on metainfo.
+            prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
         image = results["original_images"]
         if prof and "combined_bbox" in prof:
             play_box = torch.tensor(prof["combined_bbox"], dtype=torch.int64, device=image.device)
@@ -143,7 +147,10 @@ class PlayTrackerPlugin(Plugin):
         W = int(ori.shape[-1])
         fps = None
         try:
-            fps = float(context.get("data", {}).get("fps"))
+            fps_val = context.get("fps")
+            if fps_val is None and isinstance(shared, dict):
+                fps_val = shared.get("fps")
+            fps = float(fps_val) if fps_val is not None else None
         except Exception:
             fps = None
         if fps is None:
@@ -239,27 +246,35 @@ class PlayTrackerPlugin(Plugin):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        data: Dict[str, Any] = context.get("data", {})
-        # Prefer the per-frame original_images from `data` when available, since
-        # upstream trunks (e.g. IceRinkSegmBoundariesPlugin) may draw overlays
-        # such as the rink mask into `data["original_images"]`.
-        original_images = data.get("original_images")
+        track_samples = context.get("data_samples")
+        if track_samples is None:
+            return {}
+        track_data_sample = track_samples[0] if isinstance(track_samples, list) else track_samples
+
+        original_images = context.get("original_images")
         if original_images is None:
-            original_images = context.get("original_images")
+            return {}
         # Build results dictionary expected by PlayTracker
         results: Dict[str, Any] = {
-            "data_samples": data.get("data_samples"),
+            "data_samples": track_data_sample,
             "original_images": original_images,
         }
+        # Optional rink_profile for play-box seeding and boundary overlays
+        rp = context.get("rink_profile")
+        if rp is not None:
+            results["rink_profile"] = rp
         # Optional per-frame annotations propagated if present
         for k in ("jersey_results", "action_results"):
-            if k in data:
-                results[k] = data[k]
+            v = context.get(k)
+            if v is not None:
+                results[k] = v
         # Optional external camera controller output (e.g., GPT/transformer trunk).
-        if "camera_boxes" in data:
-            results["camera_boxes"] = data["camera_boxes"]
-        if "camera_fast_boxes" in data:
-            results["camera_fast_boxes"] = data["camera_fast_boxes"]
+        cam_boxes = context.get("camera_boxes")
+        if cam_boxes is not None:
+            results["camera_boxes"] = cam_boxes
+        cam_fast_boxes = context.get("camera_fast_boxes")
+        if cam_fast_boxes is not None:
+            results["camera_fast_boxes"] = cam_fast_boxes
 
         self._ensure_initialized(context, results)
         assert self._play_tracker is not None
@@ -275,11 +290,16 @@ class PlayTrackerPlugin(Plugin):
 
     def input_keys(self) -> set[str]:
         return {
-            "data",
+            "data_samples",
+            "original_images",
+            "jersey_results",
+            "action_results",
+            "camera_boxes",
+            "camera_fast_boxes",
+            "fps",
             "device",
             "shared",
             "arena",
-            "original_images",
             "tracker_stream_token",
         }
 

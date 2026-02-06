@@ -1478,11 +1478,24 @@ class AspenNet(torch.nn.Module):
                 return torch.device(cuda_stream.device)  # type: ignore[arg-type]
             except Exception:
                 pass
+        # Prefer flattened Aspen context keys.
+        for key in ("inputs", "img", "original_images"):
+            t = context.get(key)
+            if isinstance(t, torch.Tensor):
+                return t.device
+            dev = getattr(t, "device", None)
+            if isinstance(dev, torch.device):
+                return dev
+
+        # Backwards compatibility: older pipelines may still use a nested `data` dict.
         data = context.get("data")
         if isinstance(data, dict):
             img = data.get("img")
             if isinstance(img, torch.Tensor):
                 return img.device
+            dev = getattr(img, "device", None)
+            if isinstance(dev, torch.device):
+                return dev
         shared_device = self.shared.get("device")
         if isinstance(shared_device, torch.device):
             return shared_device

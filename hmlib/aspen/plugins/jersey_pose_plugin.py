@@ -423,8 +423,7 @@ class JerseyNumberFromPosePlugin(Plugin):
         # Allow injecting an inferencer for tests
         self._inferencer = context.get("mmocr_inferencer", self._inferencer)
         self._ensure_inferencer()
-        data: Dict[str, Any] = context.get("data", {})
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -433,15 +432,11 @@ class JerseyNumberFromPosePlugin(Plugin):
         else:
             track_data_sample = track_samples
 
-        original_images = data.get("original_images")
-        if original_images is None:
-            original_images = context.get("data", {}).get("original_images")
+        original_images = context.get("original_images")
         if original_images is None:
             return {}
         original_images = make_channels_first(original_images)
-        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data", {}).get(
-            "pose_results"
-        )
+        pose_results: Optional[List[Any]] = context.get("pose_results")
 
         all_jersey_results: List[List[TrackJerseyInfo]] = []
         W = int(image_width(original_images))
@@ -540,11 +535,10 @@ class JerseyNumberFromPosePlugin(Plugin):
 
             all_jersey_results.append(jersey_results)
 
-        data["jersey_results"] = all_jersey_results
-        return {"data": data}
+        return {"jersey_results": all_jersey_results}
 
     def input_keys(self):
-        return {"data"}
+        return {"data_samples", "original_images", "pose_results", "mmocr_inferencer"}
 
     def output_keys(self):
-        return {"data"}
+        return {"jersey_results"}
