@@ -264,11 +264,6 @@ class IceRinkSegmConfigPlugin(Plugin):
             )
         if self._rink_profile is None:
             return {}
-        # Lightweight metainfo hook: PlayTracker seeds the initial play box from the first frame.
-        try:
-            track_data_sample[0].set_metainfo({"rink_profile": self._rink_profile})
-        except Exception:
-            pass
         return {"rink_profile": self._rink_profile}
 
     def input_keys(self):

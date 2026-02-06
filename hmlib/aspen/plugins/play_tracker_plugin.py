@@ -92,7 +92,10 @@ class PlayTrackerPlugin(Plugin):
         # Use rink_profile combined bbox if present; scale a bit and clamp
         track_container = results["data_samples"]
         vds = track_container.video_data_samples[0]
-        prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
+        prof = results.get("rink_profile")
+        if prof is None:
+            # Backwards-compat: older pipelines stored rink_profile on metainfo.
+            prof = getattr(vds, "metainfo", {}).get("rink_profile", None)
         image = results["original_images"]
         if prof and "combined_bbox" in prof:
             play_box = torch.tensor(prof["combined_bbox"], dtype=torch.int64, device=image.device)
@@ -256,6 +259,10 @@ class PlayTrackerPlugin(Plugin):
             "data_samples": track_data_sample,
             "original_images": original_images,
         }
+        # Optional rink_profile for play-box seeding and boundary overlays
+        rp = context.get("rink_profile")
+        if rp is not None:
+            results["rink_profile"] = rp
         # Optional per-frame annotations propagated if present
         for k in ("jersey_results", "action_results"):
             v = context.get(k)
