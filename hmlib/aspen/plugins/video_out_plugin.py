@@ -24,7 +24,7 @@ class VideoOutPlugin(Plugin):
       - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
       - shared.device: preferred device
-      - data.fps: float
+      - fps: float (optional; defaults to 30.0)
 
     Params:
       - output_video_path: str or None (if None, creates under CWD; skip_final_save honored)
@@ -86,7 +86,7 @@ class VideoOutPlugin(Plugin):
         img = context.get("img")
         if img is None:
             # Try fallbacks
-            img = context.get("data", {}).get("original_images")
+            img = context.get("original_images")
         assert img is not None, "VideoOutPlugin requires 'img' in context"
 
         device = shared.get("device")
@@ -117,7 +117,10 @@ class VideoOutPlugin(Plugin):
 
         fps = None
         try:
-            fps = float(context.get("data", {}).get("fps"))
+            fps_val = context.get("fps")
+            if fps_val is None and isinstance(shared, dict):
+                fps_val = shared.get("fps")
+            fps = float(fps_val) if fps_val is not None else None
         except Exception:
             fps = None
         if fps is None:
@@ -177,13 +180,14 @@ class VideoOutPlugin(Plugin):
         if not hasattr(self, "_input_keys"):
             self._input_keys = {
                 "img",
+                "original_images",
                 "current_box",
                 "frame_ids",
                 "player_bottom_points",
                 "player_ids",
                 "rink_profile",
                 "shared",
-                "data",
+                "fps",
                 "game_id",
                 "work_dir",
                 "video_frame_cfg",

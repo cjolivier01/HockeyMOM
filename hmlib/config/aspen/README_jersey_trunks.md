@@ -62,7 +62,7 @@ Koshkina Plugin Parameters (jersey_numbers.params)
 
 Rendering
 - Add `--plot-jersey-numbers` to overlay jersey numbers on output video.
-- Results are written into `data['jersey_results']` and saved with `SaveTrackingPlugin`.
+- Results are written into `context['jersey_results']` and saved with `SaveTrackingPlugin`.
 
 Examples
 - Enable pose RoIs and legibility filter:

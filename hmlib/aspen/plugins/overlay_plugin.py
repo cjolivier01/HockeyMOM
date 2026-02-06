@@ -50,7 +50,9 @@ class OverlayPlugin(Plugin):
 
     Expects in context:
       - img: batched image tensor [T,H,W,C] or [T,C,H,W] (from PlayTrackerPlugin)
-      - data: dict that may contain pose/jersey results
+      - data_samples: TrackDataSample (or list) with tracking results
+      - pose_results: optional list of pose results
+      - jersey_results: optional list of jersey results
       - pose_inferencer: optional (used only for its visualizer)
 
     Produces in context:
@@ -98,14 +100,12 @@ class OverlayPlugin(Plugin):
                 return
 
         keys = sorted(context.keys())
-        data = context.get("data") or {}
-        data_keys = sorted(data.keys()) if isinstance(data, dict) else []
         msg = (
-            f"OverlayPlugin available keys: {keys} | data keys: {data_keys} | "
+            f"OverlayPlugin available keys: {keys} | "
             f"img={_summarize_value(context.get('img'))} | "
             f"frame_ids={_summarize_value(context.get('frame_ids'))} | "
-            f"pose_results={_summarize_value(data.get('pose_results')) if isinstance(data, dict) else 'n/a'} | "
-            f"jersey_results={_summarize_value(data.get('jersey_results')) if isinstance(data, dict) else 'n/a'}"
+            f"pose_results={_summarize_value(context.get('pose_results'))} | "
+            f"jersey_results={_summarize_value(context.get('jersey_results'))}"
         )
         logger.info(msg)
         self._printed_once = True
@@ -400,12 +400,7 @@ class OverlayPlugin(Plugin):
 
         self._maybe_print_available(context)
 
-        data: Dict[str, Any] = context.get("data", {}) or {}
         img_any = context.get("img")
-        if img_any is None:
-            img_any = data.get("img")
-        if img_any is None:
-            img_any = data.get("original_images")
         if img_any is None:
             img_any = context.get("original_images")
         img = self._to_batched_image(img_any)
@@ -429,21 +424,37 @@ class OverlayPlugin(Plugin):
         pose_inferencer = context.get("pose_inferencer") or context.get("shared", {}).get(
             "pose_inferencer"
         )
-        pose_results = data.get("pose_results")
+        pose_results = context.get("pose_results")
         if pose_results is not None:
             img = self._draw_pose(
                 img=img, pose_results=pose_results, pose_inferencer=pose_inferencer
             )
 
-        img = self._draw_tracking_and_dets(img=img, data=data)
-        img = self._draw_jerseys(img=img, data=data)
+        payload: Dict[str, Any] = {
+            "data_samples": context.get("data_samples"),
+            "jersey_results": context.get("jersey_results"),
+            "frame_ids": context.get("frame_ids"),
+            "frame_id": context.get("frame_id"),
+        }
+        img = self._draw_tracking_and_dets(img=img, data=payload)
+        img = self._draw_jerseys(img=img, data=payload)
 
         # Preserve channels-last tensor for downstream ApplyCamera/VideoOutput.
         img = make_channels_last(img)
         return {"img": wrap_tensor(img)}
 
     def input_keys(self):
-        return {"img", "data", "pose_inferencer", "shared"}
+        return {
+            "img",
+            "original_images",
+            "data_samples",
+            "pose_results",
+            "jersey_results",
+            "frame_ids",
+            "frame_id",
+            "pose_inferencer",
+            "shared",
+        }
 
     def output_keys(self):
         return {"img"}

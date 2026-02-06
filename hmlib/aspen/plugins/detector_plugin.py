@@ -16,13 +16,14 @@ class DetectorInferencePlugin(Plugin):
     Runs a pure detection model per-frame and attaches `pred_instances`.
 
     Expects in context:
-      - data: dict with keys 'img' (1, T, C, H, W) and 'data_samples' (list[TrackDataSample])
+      - inputs: model input tensor (T, C, H, W) or (T, H, W, C)
+      - data_samples: TrackDataSample or [TrackDataSample]
       - detector_model: mmdet detector with .predict
       - fp16: bool (optional)
       - detect_timer: optional timer with tic/toc
 
     Produces in context:
-      - data: updated with per-frame `pred_instances` set on each video_data_sample
+      - Side-effects: attaches per-frame `pred_instances` to each `img_data_sample` in data_samples
     """
 
     def __init__(self, enabled: bool = True):
@@ -48,7 +49,6 @@ class DetectorInferencePlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context["data"]
         if bool(context.get("using_precalculated_detection", False)):
             return {}
         detector = context.get("detector_model")
@@ -60,10 +60,12 @@ class DetectorInferencePlugin(Plugin):
         if detect_timer is not None:
             detect_timer.tic()
 
-        detection_image = unwrap_tensor(data["img"])
-        data["img"] = detection_image
+        inputs_any = context.get("inputs")
+        if inputs_any is None:
+            return {}
+        detection_image = unwrap_tensor(inputs_any)
 
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         # Accept either TrackDataSample or [TrackDataSample]
         if isinstance(track_samples, list):
             assert len(track_samples) == 1
@@ -133,10 +135,17 @@ class DetectorInferencePlugin(Plugin):
         if detect_timer is not None:
             detect_timer.toc()
 
-        return {"data": data}
+        return {}
 
     def input_keys(self):
-        return {"data", "detector_model", "fp16", "detect_timer", "using_precalculated_detection"}
+        return {
+            "inputs",
+            "data_samples",
+            "detector_model",
+            "fp16",
+            "detect_timer",
+            "using_precalculated_detection",
+        }
 
     def output_keys(self):
-        return {"data"}
+        return set()

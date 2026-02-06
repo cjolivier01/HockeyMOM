@@ -481,21 +481,39 @@ def run_mmtrack(
                                 stitch_fps=fps,
                             )
                             if fps:
-                                iter_context.setdefault("data", {})["fps"] = fps
+                                iter_context["fps"] = float(fps)
                         else:
+                            # In pano mode, upstream stitching is disabled and the dataloader
+                            # already provides model inputs + data_samples. Surface those as
+                            # first-class context keys rather than nesting under `data`.
+                            inputs = None if data_item is None else data_item.get("img")
+                            data_samples = (
+                                None if data_item is None else data_item.get("data_samples")
+                            )
+                            hm_real_time_fps = (
+                                None if data_item is None else data_item.get("hm_real_time_fps")
+                            )
+                            debug_rgb_stats = (
+                                None if data_item is None else data_item.get("debug_rgb_stats")
+                            )
                             iter_context.update(
                                 original_images=make_channels_first(original_images),
-                                data=data_item,
+                                inputs=inputs,
+                                data_samples=data_samples,
+                                hm_real_time_fps=hm_real_time_fps,
+                                debug_rgb_stats=debug_rgb_stats,
                                 ids=ids,
                                 info_imgs=info_imgs,
                                 frame_id=int(frame_id),
                             )
+                            if fps:
+                                iter_context["fps"] = float(fps)
                         if frame_id is not None and "frame_id" not in iter_context:
                             iter_context["frame_id"] = int(frame_id)
                         # Merge shared into context for plugins convenience
                         iter_context.update(aspen_net.shared)
                         if dataset_results:
-                            iter_context.setdefault("data", {})["dataset_results"] = dataset_results
+                            iter_context["dataset_results"] = dataset_results
 
                         if getattr(profiler, "enabled", False):
                             with profiler.rf("aspen.forward"):

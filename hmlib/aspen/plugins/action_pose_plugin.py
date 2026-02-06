@@ -18,15 +18,14 @@ class ActionFromPosePlugin(Plugin):
     Runs skeleton-based action recognition (MMAction2) per tracked player.
 
     Expects in context:
-      - data: dict with keys:
-          - data_samples: TrackDataSample or [TrackDataSample]
-          - original_images: Tensor [T, C, H, W] or [T, H, W, C]
-          - pose_results: List[dict] as produced by PosePlugin/PoseToDetPlugin
+      - data_samples: TrackDataSample or [TrackDataSample]
+      - original_images: Tensor [T, C, H, W] or [T, H, W, C]
+      - pose_results: List[dict] as produced by PosePlugin/PoseToDetPlugin
       - action_recognizer: mmaction model (from ActionRecognizerFactoryPlugin)
       - action_label_map: Optional[List[str]] label names
 
     Produces in context:
-      - data: with key 'action_results': List[List[Dict]] per frame
+      - action_results: List[List[Dict]] per frame
 
     Notes:
       - We map track IDs to pose indices per frame using an IoU-based assignment
@@ -171,12 +170,8 @@ class ActionFromPosePlugin(Plugin):
         self._ensure_mmaction_imported()
         from mmaction.apis import inference_skeleton
 
-        data: Dict[str, Any] = context.get("data", {})
-        if not data:
-            return {}
-
         # Access TrackDataSample list
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -186,10 +181,10 @@ class ActionFromPosePlugin(Plugin):
             track_data_sample = track_samples
 
         # Acquire frames and pose results
-        original_images = data.get("original_images")
+        original_images = context.get("original_images")
         if original_images is None:
             return {}
-        pose_results_all = data.get("pose_results") or context.get("data", {}).get("pose_results")
+        pose_results_all = context.get("pose_results")
         if not pose_results_all:
             return {}
 
@@ -232,8 +227,7 @@ class ActionFromPosePlugin(Plugin):
         # Prepare output container per frame
         all_action_results: List[List[Dict[str, Any]]] = [[] for _ in range(video_len)]
         if not all_track_ids:
-            data["action_results"] = all_action_results
-            return {"data": data}
+            return {"action_results": all_action_results}
 
         # For each track id, build a single-person pose sequence across frames
         for tid in all_track_ids:
@@ -340,11 +334,16 @@ class ActionFromPosePlugin(Plugin):
                         )
                     )
 
-        data["action_results"] = all_action_results
-        return {"data": data}
+        return {"action_results": all_action_results}
 
     def input_keys(self):
-        return {"data", "action_recognizer", "action_label_map"}
+        return {
+            "data_samples",
+            "original_images",
+            "pose_results",
+            "action_recognizer",
+            "action_label_map",
+        }
 
     def output_keys(self):
-        return {"data"}
+        return {"action_results"}

@@ -23,9 +23,10 @@ class CamPostProcessPlugin(Plugin):
       - shared.game_config: full game config dict
       - shared.work_dir: output/results directory
       - shared.original_clip_box: optional clip box
-      - data: dict from MMTracking/Pose plugins (must include 'fps' and 'data_samples')
+      - data_samples: TrackDataSample (or list)
+      - fps: float (optional)
       - rink_profile: rink profile with combined_bbox (for play box seeding)
-      - data.original_images: original input frames tensor
+      - original_images: original input frames tensor
 
     Produces in context:
       - arena: TLBR tensor describing the play/arena region.
@@ -110,7 +111,6 @@ class CamPostProcessPlugin(Plugin):
         if self._initialized:
             return
         shared = context.get("shared", {}) if isinstance(context, dict) else {}
-        data = context.get("data", {}) or {}
         game_cfg = shared.get("game_config") or {}
         init_args = shared.get("initial_args") or {}
         work_dir = shared.get("work_dir") or "."
@@ -150,7 +150,10 @@ class CamPostProcessPlugin(Plugin):
 
         fps = None
         try:
-            fps = float(data.get("fps"))
+            fps_val = context.get("fps")
+            if fps_val is None and isinstance(shared, dict):
+                fps_val = shared.get("fps")
+            fps = float(fps_val) if fps_val is not None else None
         except Exception:
             fps = None
         if fps is None:
@@ -168,9 +171,7 @@ class CamPostProcessPlugin(Plugin):
         if not output_video_path:
             output_video_path = os.path.join(work_dir, "tracking_output.mkv")
         output_label = (
-            shared.get("output_label")
-            or shared.get("label")
-            or getattr(args_ns, "label", None)
+            shared.get("output_label") or shared.get("label") or getattr(args_ns, "label", None)
         )
         if output_label:
             try:
@@ -380,11 +381,12 @@ class CamPostProcessPlugin(Plugin):
         if not self.enabled:
             return {}
         self._ensure_initialized(context)
-        data: Dict[str, Any] = context.get("data", {}) or {}
-        # Ensure original_images are available under results for play-box calc.
-        if "original_images" not in data and "original_images" in context:
-            data["original_images"] = context["original_images"]
-        results = self.process_tracking(results=data, context=context)
+        results: Dict[str, Any] = {
+            "data_samples": context.get("data_samples"),
+            "original_images": context.get("original_images"),
+            "fps": context.get("fps"),
+        }
+        results = self.process_tracking(results=results, context=context)
         arena = results.get("arena") if isinstance(results, dict) else None
         if arena is None:
             return {}
@@ -394,7 +396,7 @@ class CamPostProcessPlugin(Plugin):
         }
 
     def input_keys(self):
-        return {"data", "rink_profile", "shared", "original_images"}
+        return {"data_samples", "fps", "rink_profile", "shared", "original_images"}
 
     def output_keys(self):
         return {"arena", "final_frame_size"}

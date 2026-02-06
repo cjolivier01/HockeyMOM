@@ -141,11 +141,10 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     assert plugins.get("stitching", {}).get("enabled") is False
 
     # At least one frame should have been forwarded into AspenNet with
-    # img, frame_ids, data.fps and game_id populated.
+    # img, frame_ids, fps and game_id populated.
     assert net.calls, "Expected AspenNet.forward to be called at least once"
     ctx0 = net.calls[0]
     assert "img" in ctx0
     assert "frame_ids" in ctx0
     assert ctx0.get("game_id") == "test-game"
-    data = ctx0.get("data") or {}
-    assert data.get("fps") == 30.0
+    assert ctx0.get("fps") == 30.0

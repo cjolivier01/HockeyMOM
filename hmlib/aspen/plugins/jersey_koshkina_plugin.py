@@ -540,8 +540,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -550,9 +549,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         else:
             track_data_sample = track_samples
 
-        original_images = data.get("original_images")
-        if original_images is None:
-            original_images = context.get("data", {}).get("original_images")
+        original_images = context.get("original_images")
         if original_images is None:
             return {}
         original_images = make_channels_first(_to_tensor(original_images))
@@ -564,9 +561,7 @@ class KoshkinaJerseyNumberPlugin(Plugin):
         W = int(image_width(original_images))
         H = int(image_height(original_images))
 
-        pose_results: Optional[List[Any]] = data.get("pose_results") or context.get("data", {}).get(
-            "pose_results"
-        )
+        pose_results: Optional[List[Any]] = context.get("pose_results")
 
         all_jersey_results: List[List[TrackJerseyInfo]] = []
         for frame_index, img_data_sample in enumerate(track_data_sample.video_data_samples):
@@ -598,9 +593,9 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             frame_img = original_images[frame_index]  # (C,H,W)
 
             # Build ROIs per track
-            rois: List[
-                Tuple[int, Tuple[int, int, int, int], float]
-            ] = []  # (track index, (x1,y1,x2,y2), vote_scale)
+            rois: List[Tuple[int, Tuple[int, int, int, int], float]] = (
+                []
+            )  # (track index, (x1,y1,x2,y2), vote_scale)
             if pose_inst is not None and hasattr(pose_inst, "keypoints"):
                 kpts_all = pose_inst.keypoints  # (N,K,2)
                 kps_all = getattr(pose_inst, "keypoint_scores", None)
@@ -771,11 +766,10 @@ class KoshkinaJerseyNumberPlugin(Plugin):
                     self._last_seen_frame.pop(tid, None)
                     self._votes.pop(tid, None)
 
-        data["jersey_results"] = all_jersey_results
-        return {"data": data}
+        return {"jersey_results": all_jersey_results}
 
     def input_keys(self):
-        return {"data"}
+        return {"data_samples", "original_images", "pose_results"}
 
     def output_keys(self):
-        return {"data"}
+        return {"jersey_results"}

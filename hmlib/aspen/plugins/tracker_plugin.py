@@ -22,15 +22,13 @@ class TrackerPlugin(Plugin):
     It wraps the C++ `HmTracker` with configurable thresholds.
 
     Expects in context:
-      - data: dict with 'data_samples' list[TrackDataSample], possibly 'dataset_results'
+      - data_samples: TrackDataSample or [TrackDataSample]
       - frame_id: int for first frame in the current batch
       - tracking_dataframe, detection_dataframe: optional sinks
       - using_precalculated_tracking, using_precalculated_detection: bools
       - detect_timer: optional timer (already handled by detector trunk)
 
     Produces in context:
-      - data: unchanged reference (with `pred_track_instances` filled)
-      - data: pruned copy without heavy tensors
       - nr_tracks: int (active track count)
       - max_tracking_id: int
     """
@@ -135,7 +133,6 @@ class TrackerPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context["data"]
         frame_id0: int = int(context.get("frame_id", -1))
 
         # using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
@@ -144,7 +141,7 @@ class TrackerPlugin(Plugin):
         self._ensure_tracker(image_size=context["original_images"].shape)
 
         # Access TrackDataSample list
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if isinstance(track_samples, list):
             assert len(track_samples) == 1
             track_data_sample = track_samples[0]
@@ -322,22 +319,20 @@ class TrackerPlugin(Plugin):
                 else:
                     max_tracking_id = torch.maximum(max_tracking_id, max_id_tensor.reshape(-1)[:1])
 
-        result: Dict[str, Any] = {
-            "data": data,
+        return {
             "nr_tracks": active_track_count if active_track_count is not None else 0,
             "max_tracking_id": max_tracking_id if max_tracking_id is not None else 0,
         }
-        return result
 
     def input_keys(self):
         return {
-            "data",
+            "data_samples",
             "frame_id",
             "original_images",
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {"nr_tracks", "max_tracking_id"}
 
     @staticmethod
     def _coerce_frame_id_tensor(
