@@ -73,9 +73,9 @@ class StitchingPlugin(Plugin):
       - stitch_data_pipeline: optional mmcv.Compose pipeline to build detection inputs
 
     Produces in context:
-      - data: dict prepared for downstream detection/tracking
+      - inputs: model input tensor produced by stitch_data_pipeline (StreamTensorBase/torch.Tensor)
+      - data_samples: TrackDataSample (or list) produced by stitch_data_pipeline
       - original_images: stitched frame tensor (channels-first)
-      - ids, frame_ids, info_imgs, frame_id
       - img: stitched frame (channels-last) for video output plugins
     """
 
@@ -605,20 +605,22 @@ class StitchingPlugin(Plugin):
             self._width_t = torch.tensor([image_width(blended)], dtype=torch.int64)
             self._height_t = torch.tensor([image_height(blended)], dtype=torch.int64)
 
+        # Prepare a lightweight dict for the MMEngine pipeline. We keep this local
+        # and surface the pipeline outputs as top-level Aspen context keys rather
+        # than nesting under a shared `data` object.
         data_item: Dict[str, Any] = {}
-        existing_data = context.get("data")
-        if isinstance(existing_data, dict):
-            data_item.update(existing_data)
         fps_value = context.get("stitch_fps") or context.get("fps")
-        if fps_value is None and isinstance(existing_data, dict):
-            fps_value = existing_data.get("fps")
+        hm_real_time_fps = None
+        fps_scalar = None
         if fps_value:
             try:
                 fps_scalar = float(fps_value)
-                data_item["hm_real_time_fps"] = [fps_scalar for _ in range(len(ids))]
+                hm_real_time_fps = [fps_scalar for _ in range(len(ids))]
+                data_item["hm_real_time_fps"] = hm_real_time_fps
                 data_item["fps"] = fps_scalar
             except Exception:
-                pass
+                fps_scalar = None
+                hm_real_time_fps = None
 
         data_item.update(
             dict(
@@ -634,6 +636,8 @@ class StitchingPlugin(Plugin):
             data_item.setdefault("debug_rgb_stats", {})["stitch"] = rgb_stats
 
         pipeline = context.get("stitch_data_pipeline")
+        inputs = None
+        data_samples = None
         if pipeline is not None:
             data_item = data_item.copy()
             pipeline_input = data_item.copy()
@@ -641,26 +645,20 @@ class StitchingPlugin(Plugin):
             pipeline_result = pipeline(pipeline_input)
             if "img" in pipeline_result:
                 raise RuntimeError("StitchingPlugin pipeline returned unexpected 'img' key")
-            data_item["img"] = pipeline_result.pop("inputs")
-            data_item.update(pipeline_result)
-            data_item["img"] = wrap_tensor(tensor=data_item["img"])
+            inputs = pipeline_result.pop("inputs")
+            data_samples = pipeline_result.get("data_samples")
 
         original_images = make_channels_first(blended)
         original_images = wrap_tensor(original_images)
-        data_item.update(
-            dict(
-                original_images=original_images,
-                img=wrap_tensor(data_item["img"]),
-                imgs_info=[
-                    self._height_t.repeat(len(ids)),
-                    self._width_t.repeat(len(ids)),
-                    ids,
-                    torch.tensor([1], dtype=torch.int32).repeat(len(ids)),
-                    [str(self._resolve_dir_name(context))],
-                ],
-                ids=ids,
-            )
-        )
+        stitched_debug = data_item.get("debug_rgb_stats")
+        if not isinstance(stitched_debug, dict):
+            stitched_debug = {}
+        debug_rgb_stats = context.get("debug_rgb_stats")
+        if isinstance(debug_rgb_stats, dict):
+            # Merge any upstream stats into a copy to avoid mutating shared state.
+            merged_stats = dict(debug_rgb_stats)
+            merged_stats.update(stitched_debug)
+            stitched_debug = merged_stats
 
         if self._iter_num == 1 and self._dir_name is not None:
             frame_path = os.path.join(self._dir_name, "s.png")
@@ -671,27 +669,38 @@ class StitchingPlugin(Plugin):
             print(f"Saving first stitched frame to {frame_path}")
             cv2.imwrite(frame_path, make_visible_image(stitched_frame[0], force_numpy=True))
 
-        return {
-            "data": data_item,
+        out: Dict[str, Any] = {
             "original_images": original_images,
             "ids": ids,
             "frame_ids": ids,
-            "info_imgs": data_item["img_info"],
-            "frame_id": int(ids[0].item()) if isinstance(ids, torch.Tensor) else int(ids[0]),
+            "debug_rgb_stats": stitched_debug,
             "img": wrap_tensor(stitched_for_output),
         }
+        # Only surface model inputs when a stitch_data_pipeline is configured.
+        if inputs is not None:
+            out["inputs"] = wrap_tensor(tensor=inputs)
+        if data_samples is not None:
+            out["data_samples"] = data_samples
+        if hm_real_time_fps is not None:
+            out["hm_real_time_fps"] = hm_real_time_fps
+        if fps_scalar is not None:
+            out["fps"] = fps_scalar
+
+        return out
 
     def input_keys(self) -> set:
-        return {"stitch_inputs", "stitch_data_pipeline", "stitch_fps"}
+        return {"stitch_inputs", "stitch_data_pipeline", "stitch_fps", "fps", "debug_rgb_stats"}
 
     def output_keys(self) -> set:
         return {
-            "data",
+            "inputs",
+            "data_samples",
             "original_images",
+            "debug_rgb_stats",
+            "hm_real_time_fps",
+            "fps",
             "ids",
             "frame_ids",
-            "info_imgs",
-            "frame_id",
             "img",
         }
 

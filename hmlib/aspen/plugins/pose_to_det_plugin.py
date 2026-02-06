@@ -14,14 +14,13 @@ class PoseToDetPlugin(Plugin):
     frame, allowing the tracker trunk to run without a separate detector.
 
     Expects in context:
-      - data: dict with 'data_samples' (TrackDataSample or [TrackDataSample])
-      - data: dict with 'pose_results' produced by PosePlugin
+      - data_samples: TrackDataSample or [TrackDataSample]
+      - pose_results: produced by PosePlugin
       - using_precalculated_detection: bool (optional)
 
     Produces in context:
-      - data: updated so each frame's data_sample has `pred_instances` with
+      - Side-effects: each frame's data_sample gets `pred_instances` with
               fields: bboxes (Nx4), scores (N), labels (N)
-              Also mirrors pose_results into data for downstream preservation.
     """
 
     def __init__(
@@ -74,14 +73,13 @@ class PoseToDetPlugin(Plugin):
         if bool(context.get("using_precalculated_detection", False)):
             return {}
 
-        data: Dict[str, Any] = context.get("data", {})
-        pose_results: Optional[List[Any]] = data.get("pose_results")
+        pose_results: Optional[List[Any]] = context.get("pose_results")
         if not pose_results:
             # Nothing to convert
             return {}
 
         # Access TrackDataSample list
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if isinstance(track_samples, list):
             assert len(track_samples) == 1
             track_data_sample = track_samples[0]
@@ -201,14 +199,10 @@ class PoseToDetPlugin(Plugin):
 
             img_data_sample.pred_instances = new_inst
 
-        # Preserve pose_results for downstream consumers by mirroring into `data`.
-        # TrackerPlugin will copy `data` into `data`, so pose_results survive.
-        data["pose_results"] = pose_results
-
-        return {"data": data}
+        return {}
 
     def input_keys(self):
-        return {"data", "using_precalculated_detection"}
+        return {"data_samples", "pose_results", "using_precalculated_detection"}
 
     def output_keys(self):
-        return {"data"}
+        return set()

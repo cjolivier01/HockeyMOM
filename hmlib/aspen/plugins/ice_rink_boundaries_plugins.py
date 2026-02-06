@@ -18,12 +18,13 @@ class IceRinkSegmBoundariesPlugin(Plugin):
     via the TrackDataSample metainfo.
 
     Expects in context:
-      - data: dict with 'data_samples' (TrackDataSample) and optional 'original_images'
+      - data_samples: TrackDataSample (or list)
+      - original_images: optional image tensor for drawing
       - game_id, original_clip_box (optional)
       - plot_ice_mask: bool (optional)
 
     Produces in context:
-      - data: with per-frame pred_instances filtered by rink mask; optionally overlayed mask
+      - Side-effects: pred_instances filtered by rink mask; optionally updates original_images when drawing
     """
 
     def __init__(
@@ -74,12 +75,8 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context.get("data") or {}
-        if not data:
-            return {}
-
         # Access TrackDataSample list
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -96,7 +93,8 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         self._ensure_pipeline(context, draw_mask)
 
         # Optional original_images for overlay
-        original_images = data.get("original_images")
+        original_images = context.get("original_images")
+        updated_original_images = None
 
         # Iterate frames and prune detections using rink mask
         for frame_index in range(video_len):
@@ -151,7 +149,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                 "labels": det_labels,
                 "scores": det_scores,
                 "prune_list": ["det_bboxes", "labels", "scores"],
-                "data_samples": data.get("data_samples"),
+                "data_samples": track_samples,
                 "rink_profile": context.get("rink_profile"),
             }
             if original_images is not None:
@@ -176,15 +174,26 @@ class IceRinkSegmBoundariesPlugin(Plugin):
 
             # Update original_images if overlay updated
             if draw_mask:
-                data["original_images"] = wrap_tensor(out["original_images"])
+                updated_original_images = wrap_tensor(out["original_images"])
 
-        return {"data": data}
+        return (
+            {"original_images": updated_original_images}
+            if updated_original_images is not None
+            else {}
+        )
 
     def input_keys(self):
-        return {"data", "game_id", "original_clip_box", "plot_ice_mask", "rink_profile"}
+        return {
+            "data_samples",
+            "original_images",
+            "game_id",
+            "original_clip_box",
+            "plot_ice_mask",
+            "rink_profile",
+        }
 
     def output_keys(self):
-        return {"data"}
+        return {"original_images"}
 
 
 class IceRinkSegmConfigPlugin(Plugin):
@@ -194,12 +203,13 @@ class IceRinkSegmConfigPlugin(Plugin):
     Replaces the old pipeline transform `IceRinkSegmConfig`.
 
     Expects in context:
-      - data: dict with 'data_samples' (TrackDataSample) and optional 'original_images'
+      - data_samples: TrackDataSample (or list)
+      - original_images: optional image tensor
       - game_id: str (from shared or context)
       - device: torch.device
 
     Produces in context:
-      - data: unchanged reference (with 'data_samples' metainfo updated)
+      - rink_profile: dict with rink mask + metadata (for downstream pruning/camera seeding)
     """
 
     def __init__(self, enabled: bool = True):
@@ -210,8 +220,7 @@ class IceRinkSegmConfigPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context.get("data") or {}
-        track_samples = data.get("data_samples")
+        track_samples = context.get("data_samples")
         if track_samples is None:
             return {}
         if isinstance(track_samples, list):
@@ -228,9 +237,9 @@ class IceRinkSegmConfigPlugin(Plugin):
 
             game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
             # Prefer original_images if available (channels-last), fallback to detection image
-            img = data.get("original_images")
+            img = context.get("original_images")
             if img is None:
-                img = data.get("img")
+                img = context.get("img") or context.get("inputs")
             # Use first frame
             if isinstance(img, torch.Tensor) and img.ndim >= 3:
                 frame0 = img[0]
@@ -253,13 +262,17 @@ class IceRinkSegmConfigPlugin(Plugin):
                 expected_shape=exp_shape,
                 image=frame0,
             )
-        results = dict(data=data)
-        if self._rink_profile is not None:
-            results["rink_profile"] = self._rink_profile
-        return results
+        if self._rink_profile is None:
+            return {}
+        # Lightweight metainfo hook: PlayTracker seeds the initial play box from the first frame.
+        try:
+            track_data_sample[0].set_metainfo({"rink_profile": self._rink_profile})
+        except Exception:
+            pass
+        return {"rink_profile": self._rink_profile}
 
     def input_keys(self):
-        return {"data", "game_id"}
+        return {"data_samples", "original_images", "img", "inputs", "game_id"}
 
     def output_keys(self):
-        return {"data", "rink_profile"}
+        return {"rink_profile"}

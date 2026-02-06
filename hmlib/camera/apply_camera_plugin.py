@@ -30,7 +30,7 @@ class ApplyCameraPlugin(Plugin):
       - frame_ids: tensor[B]
       - play_box: TLBR arena/play box (for sizing when crop_play_box)
       - current_fast_box_list: optional fast camera boxes (for EndZones)
-      - data.dataset_results: optional far-end frames for EndZones
+      - dataset_results: optional far-end frames for EndZones
       - shared.game_config: full game config dict
       - shared.original_clip_box: optional clip box
       - shared.game_config: full game config dict
@@ -71,9 +71,9 @@ class ApplyCameraPlugin(Plugin):
 
         img = context.get("img")
         if img is None:
-            img = context.get("data", {}).get("original_images")
+            img = context.get("original_images")
         if img is None:
-            raise AssertionError("ApplyCameraPlugin requires 'img' or data['original_images']")
+            raise AssertionError("ApplyCameraPlugin requires 'img' or 'original_images'")
 
         # Decide final output size (mirrors VideoOutPlugin logic)
         H = int(image_height(img))
@@ -175,7 +175,7 @@ class ApplyCameraPlugin(Plugin):
 
         img = context.get("img")
         if img is None:
-            img = context.get("data", {}).get("original_images")
+            img = context.get("original_images")
         if img is None:
             return {}
 
@@ -217,11 +217,7 @@ class ApplyCameraPlugin(Plugin):
                 "img": img,
                 "pano_size_wh": pano_size_wh,
             }
-            dataset_results = (
-                context.get("data", {}).get("dataset_results")
-                if isinstance(context.get("data"), dict)
-                else None
-            )
+            dataset_results = context.get("dataset_results")
             if dataset_results is not None:
                 ez_data["dataset_results"] = dataset_results
             fast_boxes = context.get("current_fast_box_list")
@@ -321,12 +317,13 @@ class ApplyCameraPlugin(Plugin):
         if not hasattr(self, "_input_keys"):
             self._input_keys = {
                 "img",
+                "original_images",
                 "current_box",
                 "frame_ids",
                 "current_fast_box_list",
                 "play_box",
                 "shared",
-                "data",
+                "dataset_results",
                 "rink_profile",
                 "game_id",
             }

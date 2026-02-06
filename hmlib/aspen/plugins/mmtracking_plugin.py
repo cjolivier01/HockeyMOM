@@ -13,7 +13,8 @@ class MMTrackingPlugin(Plugin):
     Runs an MMTracking-style model that returns tracking results.
 
     Expects in context:
-      - data: dict prepared by ImagePrepPlugin (has 'img' and 'original_images')
+      - inputs: model input tensor
+      - data_samples: TrackDataSample (or list)
       - model: callable like mmdet model (already eval mode)
       - fp16: bool
       - tracking_dataframe, detection_dataframe: optional for logging
@@ -21,8 +22,7 @@ class MMTrackingPlugin(Plugin):
       - using_precalculated_tracking, using_precalculated_detection: bool
 
     Produces in context:
-      - data: model outputs merged
-      - data: pruned dict for downstream post-processing
+      - data_samples: updated tracking samples from the model
       - nr_tracks, max_tracking_id
     """
 
@@ -33,7 +33,6 @@ class MMTrackingPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context["data"]
         model = context["model"]
         fp16: bool = context.get("fp16", False)
 
@@ -51,6 +50,18 @@ class MMTrackingPlugin(Plugin):
         if isinstance(model, Plugin):
             # Let the model's trunk implementation handle timing and context updates
             return model(context)
+
+        inputs_any = context.get("inputs")
+        data_samples_any = context.get("data_samples")
+        if inputs_any is None or data_samples_any is None:
+            return {}
+        from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
+
+        inputs = (
+            unwrap_tensor(inputs_any) if isinstance(inputs_any, StreamTensorBase) else inputs_any
+        )
+
+        data: Dict[str, Any] = {"inputs": inputs, "data_samples": data_samples_any}
 
         with torch.no_grad():
             # Enable AMP only if requested and model runs on CUDA
@@ -82,7 +93,7 @@ class MMTrackingPlugin(Plugin):
         else:
             max_tracking_id = int(np.max(np.asarray(tracking_ids))) if len(tracking_ids) else 0
 
-        jersey_results = data.get("jersey_results")
+        jersey_results = context.get("jersey_results")
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             pred_track_instances = getattr(video_data_sample, "pred_track_instances", None)
             if pred_track_instances is None:
@@ -107,14 +118,15 @@ class MMTrackingPlugin(Plugin):
                 )
 
         return {
-            "data": data,
+            "data_samples": track_data_sample,
             "nr_tracks": nr_tracks,
             "max_tracking_id": max_tracking_id,
         }
 
     def input_keys(self):
         return {
-            "data",
+            "inputs",
+            "data_samples",
             "model",
             "fp16",
             "using_precalculated_tracking",
@@ -126,4 +138,4 @@ class MMTrackingPlugin(Plugin):
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {"data_samples", "nr_tracks", "max_tracking_id"}

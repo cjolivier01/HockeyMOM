@@ -113,8 +113,6 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         if self.post_tracking_pipeline and self.post_tracking_composed_pipeline is None:
             self.post_tracking_composed_pipeline = Compose(self.post_tracking_pipeline)
 
-        data: Dict[str, Any] = context["data"]
-
         using_precalculated_tracking: bool = bool(
             context.get("using_precalculated_tracking", False)
         )
@@ -124,7 +122,11 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         tracking_dataframe = context.get("tracking_dataframe")
         detection_dataframe = context.get("detection_dataframe")
         frame_id: int = int(context.get("frame_id", -1))
-        track_data_sample = data.get("data_samples")
+        track_samples = context.get("data_samples")
+        if isinstance(track_samples, list):
+            track_data_sample = track_samples[0] if track_samples else None
+        else:
+            track_data_sample = track_samples
         if track_data_sample is None:
             return {}
 
@@ -143,7 +145,7 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         nr_tracks = 0
         max_tracking_id = 0
 
-        jersey_results = data.get("jersey_results")
+        jersey_results = context.get("jersey_results")
         for frame_index, video_data_sample in enumerate(track_data_sample.video_data_samples):
             pred_track_instances = getattr(video_data_sample, "pred_track_instances", None)
             if pred_track_instances is None:
@@ -177,16 +179,13 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         # if "img" in data:
         #     del data["img"]
 
-        return {
-            "data": data,
-            "nr_tracks": nr_tracks,
-            "max_tracking_id": max_tracking_id,
-        }
+        return {"nr_tracks": nr_tracks, "max_tracking_id": max_tracking_id}
 
     # Plugin introspection for AspenNet minimal_context mode
     def input_keys(self):
         return {
-            "data",
+            "data_samples",
+            "jersey_results",
             "fp16",
             "using_precalculated_tracking",
             "using_precalculated_detection",
@@ -197,7 +196,7 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         }
 
     def output_keys(self):
-        return {"data", "nr_tracks", "max_tracking_id"}
+        return {"nr_tracks", "max_tracking_id"}
 
     def predict(
         self,

@@ -14,15 +14,15 @@ class ImagePrepPlugin(Plugin):
     Prepares detection input tensor for MMTracking-like models.
 
     Expects in context:
-      - data: dict with key 'img' (B, H, W, C or similar)
-      - original_images: original images tensor
+      - inputs: model input tensor (T, H, W, C) or (T, C, H, W)
+      - original_images: original images tensor (optional)
       - device: torch.device
       - cuda_stream: Optional[torch.cuda.Stream]
       - mean_tracker: Optional[MeanTracker]
 
     Produces in context:
-      - detection_image: Tensor of shape (1, T, C, H, W) on device
-      - data: updates 'img' to detection_image and sets 'original_images'
+      - inputs: Tensor of shape (T, C, H, W) on device
+      - detection_image: alias of `inputs` for backward compatibility/debug
     """
 
     def __init__(self, enabled: bool = True):
@@ -32,32 +32,36 @@ class ImagePrepPlugin(Plugin):
         if not self.enabled:
             return {}
 
-        data: Dict[str, Any] = context["data"]
-        # Ensure original_images are available in data for downstream trunks
-        original_images = context.get("original_images")
-        if original_images is not None and "original_images" not in data:
-            data["original_images"] = original_images
         device: torch.device = context["device"]
 
         mean_tracker: Optional[MeanTracker] = context.get("mean_tracker")
 
-        detection_image = data["img"]
+        inputs_any = context.get("inputs")
+        if inputs_any is None:
+            return {}
+        detection_image = inputs_any
 
-        if detection_image.device != device:
-            prev_stream = torch.cuda.current_stream(detection_image.device)
-            detection_image = unwrap_tensor(data["img"])
-            detection_image = make_channels_first(detection_image)
-            detection_image, _ = copy_gpu_to_gpu_async(tensor=detection_image, dest_device=device)
-            prev_stream.wait_stream(torch.cuda.current_stream(device))
-            data["img"] = wrap_tensor(detection_image)
+        detection_image = unwrap_tensor(detection_image)
+        detection_image = make_channels_first(detection_image)
+
+        if isinstance(detection_image, torch.Tensor) and detection_image.device != device:
+            if detection_image.is_cuda and device.type == "cuda":
+                prev_stream = torch.cuda.current_stream(detection_image.device)
+                detection_image, _ = copy_gpu_to_gpu_async(
+                    tensor=detection_image, dest_device=device
+                )
+                prev_stream.wait_stream(torch.cuda.current_stream(device))
+            else:
+                detection_image = detection_image.to(device=device, non_blocking=True)
 
         if mean_tracker is not None:
-            data["img"] = wrap_tensor(mean_tracker.forward(unwrap_tensor(data["img"])))
+            detection_image = mean_tracker.forward(detection_image)
 
-        return {"detection_image": data["img"], "data": data}
+        wrapped = wrap_tensor(detection_image)
+        return {"inputs": wrapped, "detection_image": wrapped}
 
     def input_keys(self):
-        return {"data", "device", "mean_tracker", "original_images"}
+        return {"inputs", "device", "mean_tracker"}
 
     def output_keys(self):
-        return {"data", "detection_image"}
+        return {"inputs", "detection_image"}

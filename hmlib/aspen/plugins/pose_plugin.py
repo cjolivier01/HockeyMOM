@@ -44,12 +44,15 @@ class PosePlugin(Plugin):
     Runs multi-pose inference using an MMPose inferencer.
 
     Expects in context:
-      - data: dict containing 'original_images'
+      - original_images: stitched panorama frames (Tensor or StreamTensorBase)
+      - data_samples: TrackDataSample (or list) with tracking results
+      - inputs: optional detection-model input tensor (used for scaling/visualization alignment)
       - pose_inferencer: initialized MMPoseInferencer
       - plot_pose: bool (optional)
 
     Produces in context:
-      - data: updated with 'pose_results'
+      - pose_results: list of per-frame pose inference outputs
+      - original_images: optionally updated when visualization is enabled
     """
 
     def __init__(
@@ -75,11 +78,13 @@ class PosePlugin(Plugin):
         if pose_inferencer is None:
             return {}
 
-        data: Dict[str, Any] = context["data"]
-        original_images = unwrap_tensor(data["original_images"])
+        original_images_any = context.get("original_images")
+        if original_images_any is None:
+            return {}
+        original_images = unwrap_tensor(original_images_any)
         drawn_original_images: list[torch.Tensor] = []
 
-        track_data_sample = self._get_track_data_sample(data.get("data_samples"))
+        track_data_sample = self._get_track_data_sample(context.get("data_samples"))
         frame_count = None
         if isinstance(original_images, torch.Tensor):
             frame_count = original_images.shape[0]
@@ -103,10 +108,9 @@ class PosePlugin(Plugin):
             except Exception:
                 pass
 
-        det_imgs_tensor = data.get("img")
+        det_imgs_tensor = context.get("inputs")
         if isinstance(det_imgs_tensor, StreamTensorBase):
             det_imgs_tensor = det_imgs_tensor.wait()
-            data["img"] = det_imgs_tensor
         det_inputs_tensor = self._normalize_det_images(det_imgs_tensor, frame_count)
 
         use_det_imgs = False
@@ -613,12 +617,11 @@ class PosePlugin(Plugin):
                         # show_image("pose", img, wait=False)
 
         pose_results = all_pose_results
-        data["pose_results"] = pose_results
-        if drawn_original_images:
-            original_images = torch.stack(drawn_original_images)
-            # show_image("original_images", original_images, wait=False)
-            data["original_images"] = wrap_tensor(original_images)
-        return {"data": data}
+        out: Dict[str, Any] = {"pose_results": pose_results}
+        if drawn_original_images and isinstance(original_images, torch.Tensor):
+            # `original_images` is mutated in-place (original_images[i] = img) above.
+            out["original_images"] = wrap_tensor(original_images)
+        return out
 
     @staticmethod
     def _get_track_data_sample(track_samples):
@@ -817,7 +820,13 @@ class PosePlugin(Plugin):
         return tensor
 
     def input_keys(self):
-        return {"data", "pose_inferencer", "plot_pose"}
+        return {
+            "inputs",
+            "data_samples",
+            "original_images",
+            "pose_inferencer",
+            "plot_pose",
+        }
 
     def output_keys(self):
-        return {"data"}
+        return {"pose_results", "original_images"}

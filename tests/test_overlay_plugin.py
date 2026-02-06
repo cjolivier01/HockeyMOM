@@ -14,5 +14,5 @@ def should_overlay_plugin_pass_through_image_when_no_aux_data():
         print_available=False,
     )
     img = torch.zeros((2, 16, 16, 3), dtype=torch.uint8)
-    out = plugin({"img": img, "data": {}})
+    out = plugin({"img": img})
     assert out == {}
