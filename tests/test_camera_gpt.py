@@ -68,17 +68,17 @@ def should_sample_gpt_dataset_and_run_model_forward():
         base = sample["base"]
         prev0 = sample["prev0"]
         y = sample["y"]
-        assert base.shape == (8, 16)
+        assert base.shape == (8, 18)
         assert prev0.shape == (8,)
         assert y.shape == (8, 8)
 
         # Teacher forcing: prev_y[t] = prev0 for t=0 else y[t-1]
         prev_y = torch.cat([prev0.unsqueeze(0), y[:-1]], dim=0)
         x = torch.cat([base, prev_y], dim=-1)
-        assert x.shape == (8, 24)
+        assert x.shape == (8, 26)
 
         cfg = CameraGPTConfig(
-            d_in=24,
+            d_in=26,
             d_out=8,
             feature_mode="base_prev_y",
             include_pose=True,

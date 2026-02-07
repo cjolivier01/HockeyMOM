@@ -32,7 +32,7 @@ def build_frame_features(
     """Build a simple aggregated feature vector for one frame.
 
     This is the legacy feature builder used by the original transformer camera model:
-    base player statistics (8 dims) + previous camera state (3 dims).
+    base player statistics (10 dims) + previous camera state (3 dims).
     """
     base = build_frame_base_features(tlwh=tlwh, norm=norm)
     prev_cx, prev_cy = (0.0, 0.0) if prev_cam_center is None else prev_cam_center
@@ -48,7 +48,7 @@ def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
       - num_players (0..1)
       - mean cx, mean cy
       - std cx, std cy
-      - min cx, max cx
+      - min cx, max cx, min cy, max cy
       - group width ratio (max x_right - min x_left) / scale_x
     """
     if tlwh is None or len(tlwh) == 0:
@@ -67,6 +67,8 @@ def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
     cyn = np.clip(cys / max(1e-6, norm.scale_y), 0.0, 1.0)
     min_cx = float(np.min(cxn))
     max_cx = float(np.max(cxn))
+    min_cy = float(np.min(cyn))
+    max_cy = float(np.max(cyn))
     mean_cx = float(np.mean(cxn))
     mean_cy = float(np.mean(cyn))
     std_cx = float(np.std(cxn))
@@ -87,6 +89,8 @@ def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
             std_cy,
             min_cx,
             max_cx,
+            min_cy,
+            max_cy,
             group_width_ratio,
         ],
         dtype=np.float32,
@@ -148,6 +152,8 @@ def build_frame_base_features_torch(tlwh: torch.Tensor, norm: CameraNorm) -> tor
     cyn = torch.clamp(cys / scale_y, 0.0, 1.0)
     min_cx = torch.min(cxn)
     max_cx = torch.max(cxn)
+    min_cy = torch.min(cyn)
+    max_cy = torch.max(cyn)
     mean_cx = torch.mean(cxn)
     mean_cy = torch.mean(cyn)
     std_cx = torch.std(cxn, unbiased=False)
@@ -166,6 +172,8 @@ def build_frame_base_features_torch(tlwh: torch.Tensor, norm: CameraNorm) -> tor
             std_cy,
             min_cx,
             max_cx,
+            min_cy,
+            max_cy,
             group_width_ratio,
         ],
         dim=0,

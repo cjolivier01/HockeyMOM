@@ -375,12 +375,12 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
     @property
     def base_dim(self) -> int:
         """Dimension of per-frame inputs excluding previous camera state."""
-        return 8 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
+        return 10 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
 
     @property
     def feature_dim(self) -> int:
         if self._feature_mode == "legacy_prev_slow":
-            return 11 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
+            return int(self.base_dim) + 3
         if self._feature_mode == "base_prev_y":
             return int(self.base_dim) + int(self.target_dim)
         raise ValueError(f"Unknown feature_mode: {self._feature_mode}")

@@ -27,7 +27,7 @@ def should_camera_controller_plugin_load_gpt_checkpoint_and_emit_boxes():
     torch.manual_seed(0)
 
     cfg = CameraGPTConfig(
-        d_in=11,
+        d_in=13,
         d_out=3,
         feature_mode="legacy_prev_slow",
         include_pose=False,

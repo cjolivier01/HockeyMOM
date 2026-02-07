@@ -26,7 +26,7 @@ class CameraGPTConfig:
     d_out: int = 3
     feature_mode: str = "legacy_prev_slow"
     include_pose: bool = False
-    include_rink: bool = False
+    include_rink: bool = True
     # Defaults chosen to be ~10M params with typical camgpt training settings.
     d_model: int = 448
     nhead: int = 8
