@@ -15,10 +15,8 @@ from hmlib.builder import HM
 from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT, unpack_gpt_checkpoint
 from hmlib.camera.camera_transformer import (
     CameraNorm,
-    CameraPanZoomTransformer,
     build_frame_base_features_torch,
     build_frame_features_torch,
-    unpack_checkpoint,
 )
 from hmlib.camera.clusters import ClusterMan
 from hmlib.tracking_utils.utils import get_track_mask
@@ -33,9 +31,8 @@ class CameraControllerPlugin(Plugin):
     Camera controller trunk that computes per-frame camera boxes (pan/zoom).
 
     Modes:
-      - controller="rule": cluster-based heuristic similar to PlayTracker.
-      - controller="transformer": use trained transformer checkpoint.
-      - controller="gpt": use trained causal transformer checkpoint.
+      - controller="rule": defer to PlayTracker (no override boxes are produced).
+      - controller="gpt": use trained GPT checkpoint.
 
     Expects in context:
       - data_samples: TrackDataSample (or list)
@@ -55,8 +52,11 @@ class CameraControllerPlugin(Plugin):
         aspect_ratio: float = 16.0 / 9.0,
     ) -> None:
         super().__init__(enabled=enabled)
-        self._controller = controller
-        self._model: Optional[CameraPanZoomTransformer] = None
+        self._controller = str(controller or "rule").lower()
+        if self._controller not in ("rule", "gpt"):
+            raise ValueError(
+                f"Unsupported camera controller={self._controller!r}; expected 'rule' or 'gpt'."
+            )
         self._gpt_model: Optional[CameraPanZoomGPT] = None
         self._gpt_cfg: Optional[CameraGPTConfig] = None
         self._norm: Optional[CameraNorm] = None
@@ -69,24 +69,7 @@ class CameraControllerPlugin(Plugin):
         self._ar = float(aspect_ratio)
         self._feat_device: Optional[torch.device] = None
 
-        if controller == "transformer":
-            if model_path:
-                try:
-                    ckpt = torch.load(model_path, map_location="cpu")
-                    sd, norm, w = unpack_checkpoint(ckpt)
-                    self._model = CameraPanZoomTransformer(d_in=11)
-                    self._model.load_state_dict(sd)
-                    self._model.eval()
-                    self._norm = norm
-                    self._window = int(w)
-                    self._feat_buf = deque(maxlen=self._window)
-                except Exception:
-                    # Fall back to rule-based
-                    self._controller = "rule"
-            else:
-                # No checkpoint -> do not override PlayTracker.
-                self._controller = "rule"
-        elif controller == "gpt":
+        if self._controller == "gpt":
             if model_path:
                 try:
                     ckpt = torch.load(model_path, map_location="cpu")
@@ -522,45 +505,6 @@ class CameraControllerPlugin(Plugin):
             box_out: Optional[torch.Tensor] = None
             box_fast_out: Optional[torch.Tensor] = None
             if (
-                self._controller == "transformer"
-                and self._model is not None
-                and self._norm is not None
-            ):
-                model_device = next(self._model.parameters()).device
-                if model_device != device:
-                    self._model.to(device)
-                feat = build_frame_features_torch(
-                    tlwh=tlwh,
-                    norm=self._norm,
-                    prev_cam_center=self._prev_center,
-                    prev_cam_h=self._prev_h,
-                ).to(device=device, dtype=torch.float32)
-                self._feat_buf.append(feat.unsqueeze(0))
-                if len(self._feat_buf) >= self._window:
-                    x = torch.cat(list(self._feat_buf), dim=0).unsqueeze(0)
-                    with torch.no_grad():
-                        pred = self._model(x).squeeze(0)
-                    cx, cy, hr = pred[0], pred[1], pred[2]
-                    self._prev_center = torch.stack([cx, cy], dim=0)
-                    self._prev_h = hr
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
-                    h_px = torch.clamp(hr * h_denom, min=1.0)
-                    w_px = h_px * self._ar
-                    cx_px = cx * w_denom
-                    cy_px = cy * h_denom
-                    left = cx_px - w_px / 2.0
-                    top = cy_px - h_px / 2.0
-                    right = left + w_px
-                    bottom = top + h_px
-                    box_out = torch.stack([left, top, right, bottom], dim=0).to(
-                        dtype=det_tlbr.dtype, device=device
-                    )
-                    box_out = clamp_box(
-                        box_out,
-                        torch.tensor([0, 0, W, H], dtype=box_out.dtype, device=device),
-                    )
-            elif (
                 self._controller == "gpt"
                 and self._gpt_model is not None
                 and self._norm is not None

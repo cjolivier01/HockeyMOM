@@ -6,7 +6,6 @@ import copy
 import csv
 import os
 import sys
-from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
@@ -38,16 +37,9 @@ from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last
 from hmlib.utils.progress_bar import ProgressBar
-from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel
+from hockeymom.core import AllLivingBoxConfig, BBox, HmLogLevel, PlayTrackerConfig
 from hockeymom.core import PlayTracker as CppPlayTracker
-from hockeymom.core import PlayTrackerConfig
 
-from .camera_transformer import (
-    CameraNorm,
-    CameraPanZoomTransformer,
-    build_frame_features,
-    unpack_checkpoint,
-)
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
 _CPP_BOXES: bool = True
@@ -229,9 +221,9 @@ class PlayTracker(torch.nn.Module):
         @param plot_jersey_numbers: Enable jersey number overlays.
         @param plot_actions: Enable action overlays.
         @param camera_ui: Enable camera UI windows (0/1).
-        @param camera_controller: Camera controller mode ('rule'/'transformer').
-        @param camera_model: Optional camera transformer checkpoint path.
-        @param camera_window: Transformer time window length.
+        @param camera_controller: Camera controller mode ('rule'/'gpt').
+        @param camera_model: Optional camera controller checkpoint path.
+        @param camera_window: Camera controller context window length.
         @param force_stitching: Enable stitching side color UI controls.
         @param stitch_rotation_controller: Optional stitching controller handle.
         @param cluster_centroids: Optional precomputed cluster centroids.
@@ -262,7 +254,7 @@ class PlayTracker(torch.nn.Module):
         self._plot_cluster_tracking = plot_cluster_tracking or debug_play_tracker
         self._plot_speed = bool(plot_speed)
         # Amount to scale speed-related calculations based upon non-standard fps
-        self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box())
+        self._play_box = clamp_box(play_box, hockey_mom._video_frame.bounding_box()).float()
         self._thread = None
         self._final_aspect_ratio = torch.tensor(16.0 / 9.0, dtype=torch.float)
         self._output_video = None
@@ -293,15 +285,11 @@ class PlayTracker(torch.nn.Module):
         self._force_stitching: bool = bool(force_stitching)
         self._stitch_slider_enabled = False
 
-        # Optional transformer-based camera controller
-        self._camera_controller = camera_controller or "rule"
-        self._camera_model: Optional[CameraPanZoomTransformer] = None
-        self._camera_norm: Optional[CameraNorm] = None
-        self._camera_window: int = int(camera_window)
-        self._camera_feat_buf: deque = deque(maxlen=self._camera_window)
-        self._camera_prev_center: Optional[Tuple[float, float]] = None
-        self._camera_prev_h: Optional[float] = None
-        self._camera_aspect = float(self._final_aspect_ratio)
+        self._camera_controller = str(camera_controller or "rule").lower()
+        if self._camera_controller not in ("rule", "gpt"):
+            raise ValueError(
+                f"Unsupported camera_controller={self._camera_controller!r}; expected 'rule' or 'gpt'."
+            )
 
         if cluster_centroids is None and self._cluster_centroids_path:
             loaded_centroids = _load_cluster_centroids_csv(self._cluster_centroids_path)
@@ -508,8 +496,8 @@ class PlayTracker(torch.nn.Module):
             current_roi_aspect_config.fixed_aspect_ratio = self._final_aspect_ratio
 
             # If we are not using the C++ PlayTracker, or if the camera controller is external
-            # (e.g. transformer/GPT trunks), initialize Python-side movers without creating the C++ PlayTracker.
-            if not self._cpp_playtracker or self._camera_controller in ("transformer", "gpt"):
+            # (e.g. GPT trunk), initialize Python-side movers without creating the C++ PlayTracker.
+            if not self._cpp_playtracker or self._camera_controller == "gpt":
                 self._breakaway_detection = BreakawayDetection(self._game_config)
                 #
                 # Initialize `_current_roi` MovingBox with `current_roi_config`
@@ -683,29 +671,6 @@ class PlayTracker(torch.nn.Module):
                 self._init_ui_controls()
             else:
                 self._camera_ui_enabled = False
-
-        cm_path = camera_model
-        if self._camera_controller == "transformer" and cm_path:
-            try:
-                ckpt = torch.load(cm_path, map_location="cpu")
-                sd, norm, window = unpack_checkpoint(ckpt)
-                d_in = 11  # must match build_frame_features
-                self._camera_model = CameraPanZoomTransformer(d_in=d_in)
-                self._camera_model.load_state_dict(sd)
-                self._camera_model.to(self._device)
-                self._camera_model.eval()
-                self._camera_norm = norm
-                # Override window if checkpoint carries its own
-                self._camera_window = int(window)
-                self._camera_feat_buf = deque(maxlen=self._camera_window)
-                logger.info(
-                    f"Loaded camera transformer from {cm_path} (window={self._camera_window})"
-                )
-            except Exception as ex:
-                logger.warning(
-                    f"Failed to load camera model at {cm_path}: {ex}. Falling back to rule controller."
-                )
-                self._camera_controller = "rule"
 
     _INFO_IMGS_FRAME_ID_INDEX = 2
 
@@ -919,16 +884,10 @@ class PlayTracker(torch.nn.Module):
             cluster_enclosing_box: Optional[torch.Tensor] = None
             removed_cluster_outlier_box: Dict[int, Union[BBox, torch.Tensor]] = {}
 
-            # Optionally use transformer-based controller
-            use_transformer = (
-                self._camera_controller == "transformer" and self._camera_model is not None
-            )
-
             # Always sync camera UI controls so sliders affect tracking even without plotting.
             self._apply_ui_controls()
 
             if self._playtracker is not None:
-                assert not use_transformer, "Cannot use transformer with C++ PlayTracker"
                 tracking_ids: List[int] = []
                 online_bboxes: List[BBox] = []
                 for tid, bbox in zip(
@@ -1077,48 +1036,6 @@ class PlayTracker(torch.nn.Module):
                     # Keep on same device as play_box to avoid clamp device mismatch
                     current_box = cb.to(device=self._play_box.device, dtype=torch.float32)
 
-                if current_box is None and use_transformer:
-                    tlwh_np = (
-                        online_tlwhs.numpy()
-                        if isinstance(online_tlwhs, torch.Tensor)
-                        else online_tlwhs
-                    )
-                    # Build and append features
-                    feat_np = (
-                        build_frame_features(
-                            tlwh=tlwh_np,
-                            norm=self._camera_norm,
-                            prev_cam_center=self._camera_prev_center,
-                            prev_cam_h=self._camera_prev_h,
-                        )
-                        if self._camera_norm is not None
-                        else None
-                    )
-                    if feat_np is not None:
-                        self._camera_feat_buf.append(torch.from_numpy(feat_np).to(self._device))
-                    if len(self._camera_feat_buf) >= self._camera_window:
-                        x = torch.stack(list(self._camera_feat_buf), dim=0).unsqueeze(0)
-                        with torch.no_grad():
-                            pred = self._camera_model(x).squeeze(0).detach().cpu().numpy()
-                        cx, cy, hr = float(pred[0]), float(pred[1]), float(pred[2])
-                        self._camera_prev_center = (cx, cy)
-                        self._camera_prev_h = hr
-                        # Map to current arena box
-                        arena_box = self.get_arena_box()
-                        W = float(width(arena_box))
-                        H = float(height(arena_box))
-                        w_px = max(1.0, hr * H * float(self._final_aspect_ratio))
-                        h_px = max(1.0, hr * H)
-                        cx_px = float(arena_box[0] + cx * W)
-                        cy_px = float(arena_box[1] + cy * H)
-                        left = cx_px - w_px / 2.0
-                        top = cy_px - h_px / 2.0
-                        right = left + w_px
-                        bottom = top + h_px
-                        current_box = torch.tensor(
-                            [left, top, right, bottom], dtype=torch.float, device=image_device
-                        )
-                        current_box = clamp_box(current_box, self._play_box)
                 if current_box is None:
                     # BEGIN Clusters and Cluster Boxes (rule-based default)
                     cluster_boxes_map, cluster_boxes = self.get_cluster_boxes(
@@ -1293,8 +1210,8 @@ class PlayTracker(torch.nn.Module):
             )
 
             # Run ROI mover when using the Python-only path. If an upstream trunk provides
-            # external camera boxes (e.g. GPT/transformer controller), treat them as final
-            # and skip the rule-based breakaway + ROI mover logic.
+            # external camera boxes (e.g. GPT controller), treat them as final and skip
+            # the rule-based breakaway + ROI mover logic.
             use_external_cam = results.get("camera_boxes") is not None
             if self._playtracker is None:
                 if use_external_cam and current_box is not None:
@@ -1344,8 +1261,8 @@ class PlayTracker(torch.nn.Module):
                             thickness=2,
                         )
                 else:
-                    # Only apply Python breakaway if no external controller and not transformer.
-                    if (not use_external_cam) and (self._camera_controller != "transformer"):
+                    # Only apply Python breakaway if no external controller.
+                    if not use_external_cam:
                         current_box, online_im = self.calculate_breakaway(
                             current_box=current_box,
                             online_im=online_im,

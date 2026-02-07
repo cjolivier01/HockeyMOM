@@ -268,7 +268,7 @@ class PlayTrackerPlugin(Plugin):
             v = context.get(k)
             if v is not None:
                 results[k] = v
-        # Optional external camera controller output (e.g., GPT/transformer trunk).
+        # Optional external camera controller output (e.g., GPT trunk).
         cam_boxes = context.get("camera_boxes")
         if cam_boxes is not None:
             results["camera_boxes"] = cam_boxes

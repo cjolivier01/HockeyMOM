@@ -455,24 +455,21 @@ class hm_opts(object):
         cam_ctrl.add_argument(
             "--camera-controller",
             type=str,
-            choices=["rule", "transformer", "gpt"],
+            choices=["rule", "gpt"],
             default="rule",
-            help="Select camera controller: rule-based PlayTracker, transformer, or GPT model",
+            help="Select camera controller: rule-based PlayTracker or GPT model",
         )
         cam_ctrl.add_argument(
             "--camera-model",
             type=str,
             default=None,
-            help=(
-                "Path to camera model checkpoint (.pt) produced by camtrain.py "
-                "(transformer) or camgpt_train.py (gpt)"
-            ),
+            help=("Path to camera GPT checkpoint (.pt) produced by camgpt_train.py"),
         )
         cam_ctrl.add_argument(
             "--camera-window",
             type=int,
             default=8,
-            help="Temporal window length to feed the transformer controller",
+            help="Temporal context window length for the GPT camera controller",
         )
         #
         # TensorRT options (Detector)
@@ -1567,6 +1564,8 @@ class hm_opts(object):
         if opt.serial:
             opt.cache_size = 0
             opt.no_async_dataset = True
+            opt.no_aspen_threaded = True
+            opt.no_aspen_thread_graph = True
 
         # `hmtrack` applies arg->config overrides before calling `hm_opts.init`,
         # so `--show-scaled` must imply both the CLI flag and the config value
