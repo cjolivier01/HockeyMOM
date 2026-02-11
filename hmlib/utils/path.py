@@ -26,9 +26,7 @@ def add_suffix_to_filename(path: Union[Path, str], suffix: str) -> Union[Path, s
     return new_path if not is_path else Path(new_path)
 
 
-def add_prefix_to_filename(
-    path: Union[Path, str], prefix: str, sep: str = "_"
-) -> Union[Path, str]:
+def add_prefix_to_filename(path: Union[Path, str], prefix: str, sep: str = "_") -> Union[Path, str]:
     """
     Adds a prefix to the filename in a given path using pathlib, keeping the directory intact.
 

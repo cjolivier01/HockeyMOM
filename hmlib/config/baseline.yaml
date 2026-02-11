@@ -170,6 +170,9 @@ rink:
     # Making this ratio larger makes the destination box larger, which makes the camera less zoomed in
     follower_box_scale_width: 1.45
     follower_box_scale_height: 1.45
+    # Minimum height for the aspect-ratio follower box, as a fraction of play height.
+    # Smaller values allow more zoom-in.
+    follower_box_min_height_ratio: 0.2
     crop_image: true
     pre_clip: true
     max_speed_ratio_x: 1.0

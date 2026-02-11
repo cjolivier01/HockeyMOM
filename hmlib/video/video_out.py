@@ -314,9 +314,7 @@ class VideoOutput(torch.nn.ModuleDict):
 
         self._mean_tracker: Optional[MeanTracker] = None
 
-    def _parse_output_dim(
-        self, value: Any, dim_label: str, natural: int
-    ) -> Optional[int]:
+    def _parse_output_dim(self, value: Any, dim_label: str, natural: int) -> Optional[int]:
         if value is None:
             return None
         if not is_number(value):
@@ -401,9 +399,7 @@ class VideoOutput(torch.nn.ModuleDict):
         return (resize_w, resize_h), (target_w, target_h)
 
     @staticmethod
-    def _letterbox_tensor(
-        img: torch.Tensor, target_w: int, target_h: int
-    ) -> torch.Tensor:
+    def _letterbox_tensor(img: torch.Tensor, target_w: int, target_h: int) -> torch.Tensor:
         """Pad a channels-last tensor to (target_w, target_h) with black bars."""
         w = image_width(img)
         h = image_height(img)

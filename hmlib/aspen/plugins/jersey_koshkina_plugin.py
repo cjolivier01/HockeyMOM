@@ -593,9 +593,9 @@ class KoshkinaJerseyNumberPlugin(Plugin):
             frame_img = original_images[frame_index]  # (C,H,W)
 
             # Build ROIs per track
-            rois: List[Tuple[int, Tuple[int, int, int, int], float]] = (
-                []
-            )  # (track index, (x1,y1,x2,y2), vote_scale)
+            rois: List[
+                Tuple[int, Tuple[int, int, int, int], float]
+            ] = []  # (track index, (x1,y1,x2,y2), vote_scale)
             if pose_inst is not None and hasattr(pose_inst, "keypoints"):
                 kpts_all = pose_inst.keypoints  # (N,K,2)
                 kps_all = getattr(pose_inst, "keypoint_scores", None)

@@ -490,7 +490,7 @@ def get_device_to_use_for_rink(
     return default_device
 
 
-def confgure_ice_rink_mask(
+def configure_ice_rink_mask(
     game_id: str,
     expected_shape: torch.Size,
     device: Optional[torch.device] = None,
@@ -700,7 +700,7 @@ def main(args: argparse.Namespace = None, device: torch.device = torch.device("c
     if mask_scale is not None:
         setattr(args, "ice_rink_inference_scale", mask_scale)
 
-    results = confgure_ice_rink_mask(
+    results = configure_ice_rink_mask(
         game_id=args.game_id,
         device=device,
         show=args.show_image,

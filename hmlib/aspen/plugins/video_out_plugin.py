@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 
 from hmlib.builder import HM
 from hmlib.config import get_nested_value
-from hmlib.video.video_out import VideoOutput
 from hmlib.utils.path import add_prefix_to_filename
+from hmlib.video.video_out import VideoOutput
 
 from .base import Plugin
 

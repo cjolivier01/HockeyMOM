@@ -4,7 +4,7 @@ import torch
 
 from hmlib.builder import PIPELINES
 from hmlib.config import get_nested_value
-from hmlib.segm.ice_rink import confgure_ice_rink_mask
+from hmlib.segm.ice_rink import configure_ice_rink_mask
 
 from .segm_boundaries import SegmBoundaries
 
@@ -40,7 +40,7 @@ class IceRinkSegmConfig(torch.nn.Module):
             image = data[self._image_label]
             assert isinstance(image, torch.Tensor)
             batch_size = len(image)
-            rink_profile = confgure_ice_rink_mask(
+            rink_profile = configure_ice_rink_mask(
                 game_id=self._game_id,
                 device=self._device,
                 expected_shape=image_shape,
