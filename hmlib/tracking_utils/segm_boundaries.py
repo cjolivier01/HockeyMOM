@@ -14,7 +14,6 @@ from hmlib.utils.image import image_height, image_width, make_channels_first
 
 @PIPELINES.register_module()
 class SegmBoundaries:
-
     def __init__(
         self,
         segment_mask: Optional[torch.Tensor] = None,

@@ -34,10 +34,11 @@ from hmlib.utils.video import load_first_video_frame
 # number
 GOPRO_FILE_PATTERN: str = r"^G[A-Z][0-9]{6}\.(MP4|mp4)$"
 INSTA360_FILE_PATTERN: str = r"^VID_[0-9]{8}_[0-9]{6}_[0-9]{3}\.(MP4|mp4)$"
-LEFT_PART_FILE_PATTERN: str = r"left-[0-9]\.mp4$"
-RIGHT_PART_FILE_PATTERN: str = r"right-[0-9]\.mp4$"
-LEFT_FILE_PATTERN: str = r"left.mp4"
-RIGHT_FILE_PATTERN: str = r"right.mp4"
+VIDEO_EXT_PRIORITY: Tuple[str, ...] = ("mp4", "mkv", "m4v")
+LEFT_PART_FILE_PATTERN: str = r"left-[0-9]\.{ext}$"
+RIGHT_PART_FILE_PATTERN: str = r"right-[0-9]\.{ext}$"
+LEFT_FILE_PATTERN: str = r"left\.{ext}$"
+RIGHT_FILE_PATTERN: str = r"right\.{ext}$"
 
 
 VideoChapter = Dict[Union[int, str], Any]
@@ -147,21 +148,25 @@ def _collect_lr_chapters(
     assert side in {"left", "right"}
 
     if side == "left":
-        single_pat, parts_pat = LEFT_FILE_PATTERN, LEFT_PART_FILE_PATTERN
+        single_pat_base, parts_pat_base = LEFT_FILE_PATTERN, LEFT_PART_FILE_PATTERN
     else:
-        single_pat, parts_pat = RIGHT_FILE_PATTERN, RIGHT_PART_FILE_PATTERN
+        single_pat_base, parts_pat_base = RIGHT_FILE_PATTERN, RIGHT_PART_FILE_PATTERN
 
-    files = find_matching_files(re_pattern=single_pat, directory=directory)
-    if files:
-        return {1: files[0]}
+    for ext in VIDEO_EXT_PRIORITY:
+        single_pat = single_pat_base.format(ext=ext)
+        files = find_matching_files(re_pattern=single_pat, directory=directory)
+        if files:
+            return {1: files[0]}
 
-    files = find_matching_files(re_pattern=parts_pat, directory=directory)
-    if files:
-        files = sorted(files, key=lambda f: get_lr_part_number(f))
-        if renumber:
-            return {i + 1: f for i, f in enumerate(files)}
-        else:
-            return {get_lr_part_number(f): f for f in files}
+    for ext in VIDEO_EXT_PRIORITY:
+        parts_pat = parts_pat_base.format(ext=ext)
+        files = find_matching_files(re_pattern=parts_pat, directory=directory)
+        if files:
+            files = sorted(files, key=lambda f: get_lr_part_number(f))
+            if renumber:
+                return {i + 1: f for i, f in enumerate(files)}
+            else:
+                return {get_lr_part_number(f): f for f in files}
 
     return None
 

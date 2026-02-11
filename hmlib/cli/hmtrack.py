@@ -16,8 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
-from mmcv.transforms import Compose
 import yaml
+from mmcv.transforms import Compose
 
 # from mmdet.apis import init_track_model
 # from mmengine.config import Config
@@ -49,9 +49,6 @@ from hmlib.tasks.tracking import run_mmtrack
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
 from hmlib.utils.gpu import select_gpus
-from hmlib.utils.path import add_prefix_to_filename, add_suffix_to_filename
-from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -59,12 +56,11 @@ from hmlib.utils.image import (
     make_channels_last,
     resize_image,
 )
+from hmlib.utils.path import add_prefix_to_filename, add_suffix_to_filename
+from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
+from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hmlib.video.video_stream import (
-    VideoStreamReader,
-    create_output_video_stream,
-    time_to_frame,
-)
+from hmlib.video.video_stream import VideoStreamReader, create_output_video_stream, time_to_frame
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -1342,9 +1338,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params["tracker_class"] = (
-                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
-                        )
+                        tracker_params[
+                            "tracker_class"
+                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)

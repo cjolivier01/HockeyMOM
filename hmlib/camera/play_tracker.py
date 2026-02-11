@@ -344,10 +344,12 @@ class PlayTracker(torch.nn.Module):
         camera_cfg.setdefault("max_speed_ratio_y", 1.0)
         camera_cfg.setdefault("max_accel_ratio_x", 1.0)
         camera_cfg.setdefault("max_accel_ratio_y", 1.0)
+        camera_cfg.setdefault("follower_box_min_height_ratio", 1.0 / 5.0)
         self._max_speed_ratio_x = float(camera_cfg["max_speed_ratio_x"])
         self._max_speed_ratio_y = float(camera_cfg["max_speed_ratio_y"])
         self._max_accel_ratio_x = float(camera_cfg["max_accel_ratio_x"])
         self._max_accel_ratio_y = float(camera_cfg["max_accel_ratio_y"])
+        follower_min_height_ratio = float(camera_cfg["follower_box_min_height_ratio"])
         self._camera_speed_x = self._hockey_mom._camera_box_max_speed_x * self._max_speed_ratio_x
         self._camera_speed_y = self._hockey_mom._camera_box_max_speed_y * self._max_speed_ratio_y
         self._camera_accel_x = self._hockey_mom._camera_box_max_accel_x * self._max_accel_ratio_x
@@ -440,7 +442,7 @@ class PlayTracker(torch.nn.Module):
 
             current_roi_aspect_config.max_width = play_width
             current_roi_aspect_config.max_height = play_height
-            current_roi_aspect_config.min_height = play_height / 5
+            current_roi_aspect_config.min_height = play_height * follower_min_height_ratio
 
             current_roi_aspect_config.stop_resizing_on_dir_change = True
             current_roi_aspect_config.stop_translation_on_dir_change = True
@@ -668,7 +670,7 @@ class PlayTracker(torch.nn.Module):
                 color=(255, 0, 255),
                 thickness=5,
                 device=self._device,
-                min_height=play_height / 5,
+                min_height=play_height * follower_min_height_ratio,
                 post_nonstop_stop_delay=post_nonstop,
                 cancel_hysteresis_frames=cancel_hyst,
                 stop_delay_cooldown_frames=cooldown_frames,

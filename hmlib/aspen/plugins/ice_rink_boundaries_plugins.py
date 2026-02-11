@@ -233,7 +233,7 @@ class IceRinkSegmConfigPlugin(Plugin):
 
         # Build rink profile once from the first frame
         if self._rink_profile is None:
-            from hmlib.segm.ice_rink import confgure_ice_rink_mask
+            from hmlib.segm.ice_rink import configure_ice_rink_mask
 
             game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
             # Prefer original_images if available (channels-last), fallback to detection image
@@ -249,13 +249,13 @@ class IceRinkSegmConfigPlugin(Plugin):
             meta0 = track_data_sample[0].metainfo
             exp_shape = meta0.get("ori_shape") if isinstance(meta0, dict) else None
             if exp_shape is None and isinstance(frame0, torch.Tensor):
-                # HxWxC or CxHxW both ok; confgure_ice_rink_mask uses expected_shape and image
+                # HxWxC or CxHxW both ok; configure_ice_rink_mask uses expected_shape and image
                 if frame0.ndim == 3:
                     if frame0.shape[-1] in (3, 4):
                         exp_shape = torch.Size(frame0.shape[:2])
                     else:
                         exp_shape = torch.Size(frame0.shape[-2:])
-            self._rink_profile = confgure_ice_rink_mask(
+            self._rink_profile = configure_ice_rink_mask(
                 game_id=game_id,
                 # device=device if isinstance(device, torch.device) else torch.device("cpu"),
                 device=torch.device("cpu"),
