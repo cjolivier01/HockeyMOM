@@ -1,6 +1,4 @@
 
-PRE_RUN="source .bazel_setup.sh"
-
 TOPDIR=$(shell pwd)
 
 all: print_targets
