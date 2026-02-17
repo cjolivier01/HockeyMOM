@@ -1322,14 +1322,17 @@ class hm_opts(object):
         # Generic YAML overrides: --config-override rink.camera.foo.bar=VALUE (repeatable)
         overrides = parser.add_argument_group(
             "config_overrides",
-            "Override any YAML config key with --config-override key=value",
+            "Override existing YAML config keys with --config-override key=value",
         )
         overrides.add_argument(
             "--config-override",
             dest="config_overrides",
             action="append",
             default=[],
-            help="Override a YAML key path (dot.notation) with a value (repeatable)",
+            help=(
+                "Override an existing YAML key path (dot.notation) with a value. "
+                "Unknown key paths raise an error. (repeatable)"
+            ),
         )
 
         #
@@ -1531,7 +1534,10 @@ class hm_opts(object):
 
     @staticmethod
     def apply_config_overrides(config: Dict[str, Any], overrides: Optional[Sequence[str]]) -> bool:
-        """Apply generic dot-path overrides (``key=value``) to a config dict."""
+        """Apply generic dot-path overrides (``key=value``) to a config dict.
+
+        Override keys must already exist in the config; unknown paths raise.
+        """
         if not isinstance(config, dict) or not overrides:
             return False
 
@@ -1540,6 +1546,7 @@ class hm_opts(object):
             if not isinstance(ov, str) or "=" not in ov:
                 continue
             key, val = ov.split("=", 1)
+            key_path = key.strip()
             sval = val.strip()
             lval = sval.lower()
             if lval in ("null", "none"):
@@ -1554,11 +1561,10 @@ class hm_opts(object):
                         pval = int(sval)
                 except Exception:
                     pval = sval
-            try:
-                set_nested_value(config, key.strip(), pval)
-                changed = True
-            except Exception:
-                pass
+            if not _has_nested_key(config, key_path):
+                raise KeyError(f"Unknown config override key: {key_path!r}")
+            set_nested_value(config, key_path, pval, create_missing=False)
+            changed = True
         return changed
 
     @staticmethod
@@ -1891,56 +1897,13 @@ class hm_opts(object):
             except Exception:
                 pass
 
-            # Apply generic overrides: key=value, with simple type inference
-            for ov in opt.config_overrides or []:
-                if not isinstance(ov, str) or "=" not in ov:
-                    continue
-                key, val = ov.split("=", 1)
-                sval = val.strip()
-                # Try to infer type: null/None, bool, int, float; else keep string
-                lval = sval.lower()
-                if lval in ("null", "none"):
-                    pval: Any = None
-                elif lval in ("true", "false"):
-                    pval = lval == "true"
-                else:
-                    try:
-                        if "." in sval:
-                            pval = float(sval)
-                        else:
-                            pval = int(sval)
-                    except Exception:
-                        pval = sval
-                try:
-                    set_nested_value(game_cfg, key.strip(), pval)
-                except Exception:
-                    pass
+            if opt.config_overrides:
+                hm_opts.apply_config_overrides(game_cfg, opt.config_overrides)
         else:
-            # If there's no game_config yet, create one to hold overrides
             if getattr(opt, "config_overrides", []):
-                opt.game_config = {}
-                for ov in opt.config_overrides or []:
-                    if not isinstance(ov, str) or "=" not in ov:
-                        continue
-                    key, val = ov.split("=", 1)
-                    sval = val.strip()
-                    lval = sval.lower()
-                    if lval in ("null", "none"):
-                        pval = None
-                    elif lval in ("true", "false"):
-                        pval = lval == "true"
-                    else:
-                        try:
-                            if "." in sval:
-                                pval = float(sval)
-                            else:
-                                pval = int(sval)
-                        except Exception:
-                            pval = sval
-                    try:
-                        set_nested_value(opt.game_config, key.strip(), pval)
-                    except Exception:
-                        pass
+                raise RuntimeError(
+                    "--config-override requires a loaded game_config; pass --game-id or set args.game_config."
+                )
 
         return opt
 

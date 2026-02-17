@@ -334,7 +334,7 @@ def get_nested_value(dct, key_str, default_value=None):
     return current
 
 
-def set_nested_value(dct, key_str, set_to, noset_value=None):
+def set_nested_value(dct, key_str, set_to, noset_value=None, *, create_missing: bool = True):
     if noset_value is None and set_to is None:
         return get_nested_value(dct, key_str, set_to)
     if set_to == noset_value:
@@ -344,17 +344,26 @@ def set_nested_value(dct, key_str, set_to, noset_value=None):
     current = dct
 
     for i, key in enumerate(keys):
-        if isinstance(current, dict) and key in current:
+        if not isinstance(current, dict):
+            raise TypeError(
+                f"Expected dict at {'.'.join(keys[:i]) or '<root>'}, got {type(current)}"
+            )
+        if key in current:
             if i == len(keys) - 1:
                 current[key] = set_to
             else:
                 current = current[key]
+            continue
+
+        if not create_missing:
+            prefix = ".".join(keys[: i + 1])
+            raise KeyError(f"Key path not found: {key_str!r} (missing {prefix!r})")
+
+        if i == len(keys) - 1:
+            current[key] = set_to
         else:
-            if i == len(keys) - 1:
-                current[key] = set_to
-            else:
-                current[key] = dict()
-                current = current[key]
+            current[key] = dict()
+            current = current[key]
     return get_nested_value(dct, key_str)
 
 
