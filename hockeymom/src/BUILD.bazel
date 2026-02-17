@@ -17,6 +17,7 @@ pybind_extension(
     "//hockeymom/csrc/ui:hm_render_set",
     "@libtorch//:libtorch_python",
     "@hm-cupano//src/pano:cuda_pano",
+    "@hm-cupano//src/pano:cuda_pano_n",
     "@jetson-utils//cuda:colorspace_cuda_lib",
   ],
   copts = [

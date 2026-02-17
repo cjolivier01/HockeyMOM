@@ -85,6 +85,19 @@ class CudaStitchPano3U8:
     def process(self, d_inputs: Sequence[int], d_canvas: int, stream: Optional[int]) -> None: ...
 
 class CudaStitchPano3F32(CudaStitchPano3U8): ...
+
+class CudaStitchPanoNU8:
+    def __init__(
+        self,
+        game_dir: str,
+        batch_size: int,
+        num_levels: int,
+        input_sizes: Sequence[WHDims],
+        match_exposure: bool = True,
+    ): ...
+    def process(self, d_inputs: Sequence[int], d_canvas: int, stream: Optional[int]) -> None: ...
+
+class CudaStitchPanoNF32(CudaStitchPanoNU8): ...
 class HmTrackerPredictionMode: ...  # enum-like
 
 class HmLogLevel(enum.Enum):

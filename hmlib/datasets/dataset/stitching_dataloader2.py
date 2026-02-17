@@ -151,6 +151,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
         python_blender: bool = True,
+        use_cuda_pano_n: bool = False,
         no_cuda_streams: bool = False,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
@@ -184,6 +185,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
         self._xy_pos_1, self._xy_pos_2 = None, None
         self._python_blender = python_blender
+        self._use_cuda_pano_n = bool(use_cuda_pano_n)
         self._minimize_blend = minimize_blend
         self._show_image_components = show_image_components
         self._remapping_stream = None
@@ -703,6 +705,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             dtype=self._dtype if self._python_blender else torch.uint8,
             python_blender=self._python_blender,
             use_cuda_pano=not self._python_blender,
+            use_cuda_pano_n=self._use_cuda_pano_n,
             minimize_blend=self._minimize_blend,
             blend_mode=self._blend_mode,
             add_alpha_channel=False,
