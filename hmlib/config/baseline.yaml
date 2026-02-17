@@ -12,6 +12,7 @@ camera:
       - 1.0
       - 1.0
     brightness: 1.0
+    exposure_ev: 0.0
     contrast: 1.0
     gamma: 1.0
   mount:
@@ -187,6 +188,7 @@ rink:
         - 1.0
         - 1.0
       brightness: 1.0
+      exposure_ev: 0.0
       contrast: 1.0
       gamma: 1.0
 

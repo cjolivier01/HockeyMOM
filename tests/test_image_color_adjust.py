@@ -56,6 +56,24 @@ def should_apply_brightness_multiplier():
     assert torch.allclose(out["img"], expected)
 
 
+def should_apply_exposure_ev_positive():
+    img = torch.ones(3, 3, 3, dtype=torch.float32) * 50.0
+    data = {"img": img.clone()}
+    pipeline = _compose_color_adjust(exposure_ev=1.0)
+    out = pipeline(data)
+    expected = torch.ones_like(img) * 100.0
+    assert torch.allclose(out["img"], expected)
+
+
+def should_apply_exposure_ev_negative():
+    img = torch.ones(3, 3, 3, dtype=torch.float32) * 50.0
+    data = {"img": img.clone()}
+    pipeline = _compose_color_adjust(exposure_ev=-1.0)
+    out = pipeline(data)
+    expected = torch.ones_like(img) * 25.0
+    assert torch.allclose(out["img"], expected)
+
+
 def should_kelvin_white_balance_behave_reasonably():
     # Warm temperature should reduce red relative to blue (higher blue gain)
     img = torch.ones(3, 2, 2, dtype=torch.float32) * 100.0

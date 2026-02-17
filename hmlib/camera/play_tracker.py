@@ -64,9 +64,16 @@ _COLOR_TRACKBARS = {
     "White_Balance_Green_Gain_x100",
     "White_Balance_Blue_Gain_x100",
     "Brightness_Multiplier_x100",
+    "Exposure_EV_x10",
     "Contrast_Multiplier_x100",
     "Gamma_Multiplier_x100",
 }
+
+# Exposure EV slider: map [-4.0, +4.0] stops in 0.1 increments to a non-negative slider.
+_EXPOSURE_EV_X10_MIN: int = -40
+_EXPOSURE_EV_X10_MAX: int = 40
+_EXPOSURE_EV_X10_SLIDER_MAX: int = _EXPOSURE_EV_X10_MAX - _EXPOSURE_EV_X10_MIN  # 80
+_EXPOSURE_EV_X10_SLIDER_ZERO: int = -_EXPOSURE_EV_X10_MIN  # 40 -> 0.0 EV
 
 
 def _opencv_highgui_available() -> bool:
@@ -1450,6 +1457,25 @@ class PlayTracker(torch.nn.Module):
         except Exception:
             return 6500
 
+    def _exposure_ev_to_slider(self, value: Any) -> int:
+        """Convert an exposure EV value (stops) to the 0..N slider position."""
+        try:
+            ev_x10 = int(round(float(value) * 10.0))
+        except Exception:
+            ev_x10 = 0
+        ev_x10 = max(_EXPOSURE_EV_X10_MIN, min(_EXPOSURE_EV_X10_MAX, ev_x10))
+        return int(ev_x10 - _EXPOSURE_EV_X10_MIN)
+
+    def _slider_to_exposure_ev(self, position: int) -> float:
+        """Convert 0..N slider position back to exposure EV (stops)."""
+        try:
+            pos = int(position)
+        except Exception:
+            pos = _EXPOSURE_EV_X10_SLIDER_ZERO
+        pos = max(0, min(_EXPOSURE_EV_X10_SLIDER_MAX, pos))
+        ev_x10 = pos + _EXPOSURE_EV_X10_MIN
+        return float(ev_x10) / 10.0
+
     def _on_trackbar(self, _value: Any):
         # Mark that UI controls changed so we can skip the heavy read when idle.
         self._ui_controls_dirty = True
@@ -1524,6 +1550,7 @@ class PlayTracker(torch.nn.Module):
             "White_Balance_Green_Gain_x100": 100,
             "White_Balance_Blue_Gain_x100": 100,
             "Brightness_Multiplier_x100": 100,
+            "Exposure_EV_x10": _EXPOSURE_EV_X10_SLIDER_ZERO,
             "Contrast_Multiplier_x100": 100,
             "Gamma_Multiplier_x100": 100,
         }
@@ -1546,6 +1573,8 @@ class PlayTracker(torch.nn.Module):
                 )
             except Exception:
                 pass
+        if "exposure_ev" in color_cfg:
+            defaults["Exposure_EV_x10"] = self._exposure_ev_to_slider(color_cfg.get("exposure_ev"))
         for cfg_key, slider_key in (
             ("brightness", "Brightness_Multiplier_x100"),
             ("contrast", "Contrast_Multiplier_x100"),
@@ -1617,6 +1646,7 @@ class PlayTracker(torch.nn.Module):
             g100 = cv2.getTrackbarPos("White_Balance_Green_Gain_x100", color_win)
             b100 = cv2.getTrackbarPos("White_Balance_Blue_Gain_x100", color_win)
             br100 = cv2.getTrackbarPos("Brightness_Multiplier_x100", color_win)
+            ev_x10 = cv2.getTrackbarPos("Exposure_EV_x10", color_win)
             ct100 = cv2.getTrackbarPos("Contrast_Multiplier_x100", color_win)
             gm100 = cv2.getTrackbarPos("Gamma_Multiplier_x100", color_win)
 
@@ -1633,6 +1663,9 @@ class PlayTracker(torch.nn.Module):
                 )
                 self._set_ui_color_value_at_prefixes(prefixes, "white_balance_temp", _MISSING)
             self._set_ui_color_value_at_prefixes(prefixes, "brightness", max(1, br100) / 100.0)
+            self._set_ui_color_value_at_prefixes(
+                prefixes, "exposure_ev", self._slider_to_exposure_ev(ev_x10)
+            )
             self._set_ui_color_value_at_prefixes(prefixes, "contrast", max(1, ct100) / 100.0)
             self._set_ui_color_value_at_prefixes(prefixes, "gamma", max(1, gm100) / 100.0)
         except Exception:
@@ -1745,6 +1778,7 @@ class PlayTracker(torch.nn.Module):
                 tb2("White_Balance_Green_Gain_x100", 300, 100)
                 tb2("White_Balance_Blue_Gain_x100", 300, 100)
                 tb2("Brightness_Multiplier_x100", 300, 100)
+                tb2("Exposure_EV_x10", _EXPOSURE_EV_X10_SLIDER_MAX, _EXPOSURE_EV_X10_SLIDER_ZERO)
                 tb2("Contrast_Multiplier_x100", 300, 100)
                 tb2("Gamma_Multiplier_x100", 300, 100)
                 # Apply defaults from current config so UI reflects runtime values
@@ -1789,13 +1823,18 @@ class PlayTracker(torch.nn.Module):
                         ("White_Balance_Green_Gain_x100", 300),
                         ("White_Balance_Blue_Gain_x100", 300),
                         ("Brightness_Multiplier_x100", 300),
+                        ("Exposure_EV_x10", _EXPOSURE_EV_X10_SLIDER_MAX),
                         ("Contrast_Multiplier_x100", 300),
                         ("Gamma_Multiplier_x100", 300),
                     ):
+                        if name == "Exposure_EV_x10":
+                            init = _EXPOSURE_EV_X10_SLIDER_ZERO
+                        else:
+                            init = 100 if "Enable" not in name and "Temperature" not in name else 0
                         tb_left(
                             name,
                             maxv,
-                            100 if "Enable" not in name and "Temperature" not in name else 0,
+                            init,
                         )
                     left_defaults = self._stitch_side_color_defaults("left")
                     for name, val in left_defaults.items():
@@ -1832,13 +1871,18 @@ class PlayTracker(torch.nn.Module):
                         ("White_Balance_Green_Gain_x100", 300),
                         ("White_Balance_Blue_Gain_x100", 300),
                         ("Brightness_Multiplier_x100", 300),
+                        ("Exposure_EV_x10", _EXPOSURE_EV_X10_SLIDER_MAX),
                         ("Contrast_Multiplier_x100", 300),
                         ("Gamma_Multiplier_x100", 300),
                     ):
+                        if name == "Exposure_EV_x10":
+                            init = _EXPOSURE_EV_X10_SLIDER_ZERO
+                        else:
+                            init = 100 if "Enable" not in name and "Temperature" not in name else 0
                         tb_right(
                             name,
                             maxv,
-                            100 if "Enable" not in name and "Temperature" not in name else 0,
+                            init,
                         )
                     right_defaults = self._stitch_side_color_defaults("right")
                     for name, val in right_defaults.items():
@@ -2161,6 +2205,7 @@ class PlayTracker(torch.nn.Module):
             self._require_breakaway_value(key)
         color_cfg = self._camera_cfg().setdefault("color", {})
         color_cfg.setdefault("brightness", 1.0)
+        color_cfg.setdefault("exposure_ev", 0.0)
         color_cfg.setdefault("contrast", 1.0)
         color_cfg.setdefault("gamma", 1.0)
         if ("white_balance" not in color_cfg) and ("white_balance_temp" not in color_cfg):
