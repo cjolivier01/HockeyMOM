@@ -12,6 +12,7 @@ aspen:
         max_blend_levels: GLOBAL.aspen.stitching.max_blend_levels
         auto_adjust_exposure: GLOBAL.aspen.stitching.auto_adjust_exposure
         python_blender: GLOBAL.aspen.stitching.python_blender
+        use_cuda_pano_n: GLOBAL.aspen.stitching.use_cuda_pano_n
         minimize_blend: GLOBAL.aspen.stitching.minimize_blend
         dtype: GLOBAL.aspen.stitching.dtype
         no_cuda_streams: GLOBAL.aspen.stitching.no_cuda_streams
