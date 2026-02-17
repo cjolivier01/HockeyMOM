@@ -18,6 +18,7 @@
 
 #include "cupano/pano/cudaPano.h"
 #include "cupano/pano/cudaPano3.h"
+#include "cupano/pano/cudaPanoN.h"
 #include "hockeymom/csrc/bytetrack/BYTETracker.h"
 #include "hockeymom/csrc/bytetrack/BYTETrackerCuda.h"
 #include "hockeymom/csrc/bytetrack/BYTETrackerCudaStatic.h"
@@ -324,6 +325,63 @@ class PyCudaStitchPano3 : public CudaStitchPano3<T, T_compute> {
         input_sizes_[2].width,
         input_sizes_[2].height);
     auto result = Super::process(i1, i2, i3, stream, std::move(canvas));
+    if (!result.ok()) {
+      throw std::runtime_error(result.status().message());
+    }
+  }
+
+ private:
+  const std::vector<WHDims> input_sizes_;
+};
+
+using hm::pano::cuda::CudaStitchPanoN;
+// TODO: make templated and name CudaStitchPanoNU8 and CudaStitchPanoNF32 python classes
+template <typename T, typename T_compute>
+class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
+  using Super = CudaStitchPanoN<T, T_compute>;
+
+ public:
+  PyCudaStitchPanoN(
+      std::string game_dir,
+      int batch_size,
+      int num_levels,
+      std::vector<WHDims> input_sizes,
+      bool match_exposure)
+      : CudaStitchPanoN<T, T_compute>(
+            batch_size,
+            num_levels,
+            hm::pano::ControlMasksN(std::move(game_dir), static_cast<int>(input_sizes.size())),
+            match_exposure,
+            /*quiet=*/false),
+        input_sizes_(std::move(input_sizes)) {
+    if (!Super::status().ok()) {
+      throw std::runtime_error(Super::status().message());
+    }
+  }
+
+  void process(const std::vector<void*>& d_inputs, void* d_canvas, cudaStream_t stream) {
+    const int bs = Super::batch_size();
+    if (d_inputs.size() != input_sizes_.size()) {
+      throw std::runtime_error("inputs.size() must match stitcher N");
+    }
+
+    auto canvas = std::make_unique<hm::CudaMat<T>>(
+        static_cast<T*>(d_canvas),
+        bs,
+        Super::canvas_width(),
+        Super::canvas_height());
+
+    std::vector<std::unique_ptr<hm::CudaMat<T>>> inputs;
+    inputs.reserve(d_inputs.size());
+    std::vector<const hm::CudaMat<T>*> input_ptrs;
+    input_ptrs.reserve(d_inputs.size());
+    for (size_t i = 0; i < d_inputs.size(); ++i) {
+      const WHDims& sz = input_sizes_[i];
+      inputs.emplace_back(std::make_unique<hm::CudaMat<T>>(static_cast<T*>(d_inputs[i]), bs, sz.width, sz.height));
+      input_ptrs.emplace_back(inputs.back().get());
+    }
+
+    auto result = Super::process(input_ptrs, stream, std::move(canvas));
     if (!result.ok()) {
       throw std::runtime_error(result.status().message());
     }
@@ -1777,11 +1835,69 @@ void init_cuda_pano(::pybind11::module_& m) {
              const std::vector<at::Tensor>& inputs,
              at::Tensor& canvas,
              ptrdiff_t stream) {
-            if (canvas.device().is_cuda()) {
+            if (!canvas.is_contiguous()) {
+              throw std::runtime_error("Output should be contiguous");
+            }
+            if (!canvas.device().is_cuda()) {
               throw std::runtime_error("All tensors must be Cuda tensors");
             }
             if (canvas.dim() != 4) {
               throw std::runtime_error("Canvas must have four dimensions");
+            }
+            if (canvas.size(3) != 4) {
+              throw std::runtime_error("Canvas must have four channels");
+            }
+            if (inputs.size() != 3) {
+              throw std::runtime_error("Expected 3 input tensors");
+            }
+            std::vector<void*> data_ptrs;
+            data_ptrs.reserve(inputs.size());
+            for (const auto& t : inputs) {
+              if (!t.is_contiguous()) {
+                throw std::runtime_error("Inputs should be contiguous");
+              }
+              if (!t.device().is_cuda()) {
+                throw std::runtime_error("All tensors must be Cuda tensors");
+              }
+              if (t.dim() != 4) {
+                throw std::runtime_error(
+                    "Input tensors must have four dimensions (B, H, W, C)");
+              }
+              if (t.size(3) != 4) {
+                throw std::runtime_error("Tensors must have four channels");
+              }
+              data_ptrs.emplace_back(t.data_ptr());
+            }
+            self->process(data_ptrs, canvas.data_ptr(), (cudaStream_t)stream);
+          });
+
+  py::class_<
+      PyCudaStitchPanoN<uchar4, T_compute>,
+      std::shared_ptr<PyCudaStitchPanoN<uchar4, T_compute>>>(
+      m, "CudaStitchPanoNU8")
+      .def(
+          py::init<std::string, int, int, std::vector<WHDims>, bool>(),
+          py::arg("game_dir"),
+          py::arg("batch_size"),
+          py::arg("num_levels"),
+          py::arg("input_sizes"),
+          py::arg("match_exposure") = true)
+      .def("canvas_width", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_width)
+      .def("canvas_height", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_height)
+      .def(
+          "process",
+          [](std::shared_ptr<PyCudaStitchPanoN<uchar4, T_compute>> self,
+             const std::vector<at::Tensor>& inputs,
+             at::Tensor& canvas,
+             ptrdiff_t stream) {
+            if (!canvas.is_contiguous()) {
+              throw std::runtime_error("Output should be contiguous");
+            }
+            if (!canvas.device().is_cuda()) {
+              throw std::runtime_error("All tensors must be Cuda tensors");
+            }
+            if (canvas.dim() != 4) {
+              throw std::runtime_error("Canvas must have four dimensions (B, H, W, C)");
             }
             if (canvas.size(3) != 4) {
               throw std::runtime_error("Canvas must have four channels");
@@ -1796,8 +1912,7 @@ void init_cuda_pano(::pybind11::module_& m) {
                 throw std::runtime_error("All tensors must be Cuda tensors");
               }
               if (t.dim() != 4) {
-                throw std::runtime_error(
-                    "Input tensors must have four dimensions (B, H, W, C)");
+                throw std::runtime_error("Input tensors must have four dimensions (B, H, W, C)");
               }
               if (t.size(3) != 4) {
                 throw std::runtime_error("Tensors must have four channels");
@@ -1865,15 +1980,73 @@ void init_cuda_pano(::pybind11::module_& m) {
           "canvas_height", &PyCudaStitchPano3<float4, T_compute>::canvas_height)
       .def(
           "process",
-          [](std::shared_ptr<PyCudaStitchPano3<uchar4, T_compute>> self,
+          [](std::shared_ptr<PyCudaStitchPano3<float4, T_compute>> self,
              const std::vector<at::Tensor>& inputs,
              at::Tensor& canvas,
              ptrdiff_t stream) {
-            if (canvas.device().is_cuda()) {
+            if (!canvas.is_contiguous()) {
+              throw std::runtime_error("Output should be contiguous");
+            }
+            if (!canvas.device().is_cuda()) {
               throw std::runtime_error("All tensors must be Cuda tensors");
             }
             if (canvas.dim() != 4) {
               throw std::runtime_error("Canvas must have four dimensions");
+            }
+            if (canvas.size(3) != 4) {
+              throw std::runtime_error("Canvas must have four channels");
+            }
+            if (inputs.size() != 3) {
+              throw std::runtime_error("Expected 3 input tensors");
+            }
+            std::vector<void*> data_ptrs;
+            data_ptrs.reserve(inputs.size());
+            for (const auto& t : inputs) {
+              if (!t.is_contiguous()) {
+                throw std::runtime_error("Inputs should be contiguous");
+              }
+              if (!t.device().is_cuda()) {
+                throw std::runtime_error("All tensors must be Cuda tensors");
+              }
+              if (t.dim() != 4) {
+                throw std::runtime_error(
+                    "Input tensors must have four dimensions (B, H, W, C)");
+              }
+              if (t.size(3) != 4) {
+                throw std::runtime_error("Tensors must have four channels");
+              }
+              data_ptrs.emplace_back(t.data_ptr());
+            }
+            self->process(data_ptrs, canvas.data_ptr(), (cudaStream_t)stream);
+          });
+
+  py::class_<
+      PyCudaStitchPanoN<float4, T_compute>,
+      std::shared_ptr<PyCudaStitchPanoN<float4, T_compute>>>(
+      m, "CudaStitchPanoNF32")
+      .def(
+          py::init<std::string, int, int, std::vector<WHDims>, bool>(),
+          py::arg("game_dir"),
+          py::arg("batch_size"),
+          py::arg("num_levels"),
+          py::arg("input_sizes"),
+          py::arg("match_exposure") = true)
+      .def("canvas_width", &PyCudaStitchPanoN<float4, T_compute>::canvas_width)
+      .def("canvas_height", &PyCudaStitchPanoN<float4, T_compute>::canvas_height)
+      .def(
+          "process",
+          [](std::shared_ptr<PyCudaStitchPanoN<float4, T_compute>> self,
+             const std::vector<at::Tensor>& inputs,
+             at::Tensor& canvas,
+             ptrdiff_t stream) {
+            if (!canvas.is_contiguous()) {
+              throw std::runtime_error("Output should be contiguous");
+            }
+            if (!canvas.device().is_cuda()) {
+              throw std::runtime_error("All tensors must be Cuda tensors");
+            }
+            if (canvas.dim() != 4) {
+              throw std::runtime_error("Canvas must have four dimensions (B, H, W, C)");
             }
             if (canvas.size(3) != 4) {
               throw std::runtime_error("Canvas must have four channels");
@@ -1888,8 +2061,7 @@ void init_cuda_pano(::pybind11::module_& m) {
                 throw std::runtime_error("All tensors must be Cuda tensors");
               }
               if (t.dim() != 4) {
-                throw std::runtime_error(
-                    "Input tensors must have four dimensions (B, H, W, C)");
+                throw std::runtime_error("Input tensors must have four dimensions (B, H, W, C)");
               }
               if (t.size(3) != 4) {
                 throw std::runtime_error("Tensors must have four channels");

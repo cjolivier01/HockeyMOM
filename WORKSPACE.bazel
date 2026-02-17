@@ -202,15 +202,15 @@ conda_repository(
 
 ################################ HockeyMOM Sub-Modules ################################
 git_repository(
-     name = "hm-cupano",
-     commit = "8ce840fbd5936a60b190c8ac43f11cab2e857f10",
-     remote = "https://github.com/cjolivier01/hm-cupano.git",
- )
+    name = "hm-cupano",
+    commit = "f8149cb94c136a433047cc33ad1f53f4e23ce792",
+    remote = "https://github.com/cjolivier01/hm-cupano.git",
+)
 
-#local_repository(
-#    name = "hm-cupano",
-#    path = "../hm-cupano",
-#)
+# local_repository(
+#     name = "hm-cupano",
+#     path = "../hm-cupano",
+# )
 
 git_repository(
      name = "jetson-utils",

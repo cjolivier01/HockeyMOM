@@ -83,6 +83,8 @@ aspen:
     max_blend_levels: null
     auto_adjust_exposure: true
     python_blender: false
+    # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
+    use_cuda_pano_n: false
     minimize_blend: true
     dtype: "float32"
     no_cuda_streams: false

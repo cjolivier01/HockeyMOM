@@ -32,7 +32,13 @@ from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
-from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8, WHDims
+from hockeymom.core import (
+    CudaStitchPanoF32,
+    CudaStitchPanoNF32,
+    CudaStitchPanoNU8,
+    CudaStitchPanoU8,
+    WHDims,
+)
 
 try:
     import torch2trt
@@ -209,7 +215,12 @@ class PtImageBlender(torch.nn.Module):
 
         # Build full-canvas versions of images/masks so we can prevent unmapped
         # pixels from participating in blending.
-        (full_left, alpha_mask_left_full, full_right, alpha_mask_right_full,) = simple_make_full(
+        (
+            full_left,
+            alpha_mask_left_full,
+            full_right,
+            alpha_mask_right_full,
+        ) = simple_make_full(
             img_1=image_1,
             mask_1=alpha_mask_1,
             x1=x1,
@@ -959,6 +970,7 @@ def create_stitcher(
     left_image_size_wh: Tuple[int, int],
     right_image_size_wh: Tuple[int, int],
     add_alpha_channel: bool,
+    input_image_sizes_wh: Optional[List[Tuple[int, int]]] = None,
     python_blender: bool = True,
     minimize_blend: bool = True,
     max_output_width: Optional[int] = None,
@@ -970,42 +982,70 @@ def create_stitcher(
     levels: int = 11,
     draw: bool = False,
     use_cuda_pano: bool = True,
+    use_cuda_pano_n: bool = False,
     auto_adjust_exposure: bool = True,
 ):
     """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
         assert dir_name
-        size1 = WHDims(left_image_size_wh[0], left_image_size_wh[1])
-        size2 = WHDims(right_image_size_wh[0], right_image_size_wh[1])
+        if input_image_sizes_wh is None:
+            input_image_sizes_wh = [left_image_size_wh, right_image_size_wh]
+        if len(input_image_sizes_wh) < 2:
+            raise ValueError("Expected at least 2 input views for stitching")
+        input_sizes = [WHDims(w, h) for (w, h) in input_image_sizes_wh]
+        size1 = input_sizes[0]
+        size2 = input_sizes[1]
         if blend_mode != "laplacian":
             # Hard seam
             levels = 0
         max_output_width_i = int(max_output_width) if max_output_width else 0
+        if len(input_sizes) == 2 and not use_cuda_pano_n:
+            if dtype == torch.float32:
+                stitcher = CudaStitchPanoF32(
+                    str(dir_name),
+                    batch_size,
+                    levels,
+                    size1,
+                    size2,
+                    auto_adjust_exposure,
+                    minimize_blend,
+                    max_output_width_i,
+                )
+            elif dtype == torch.uint8:
+                stitcher = CudaStitchPanoU8(
+                    str(dir_name),
+                    batch_size,
+                    levels,
+                    size1,
+                    size2,
+                    auto_adjust_exposure,
+                    minimize_blend,
+                    max_output_width_i,
+                )
+            else:
+                raise ValueError(f"Unsupported dtype for cuda pano: {dtype}")
+            return stitcher
+
+        if python_blender:
+            raise NotImplementedError("python_blender only supports 2 input views")
+
         if dtype == torch.float32:
-            stitcher = CudaStitchPanoF32(
+            return CudaStitchPanoNF32(
                 str(dir_name),
                 batch_size,
                 levels,
-                size1,
-                size2,
+                input_sizes,
                 auto_adjust_exposure,
-                minimize_blend,
-                max_output_width_i,
             )
-        elif dtype == torch.uint8:
-            stitcher = CudaStitchPanoU8(
+        if dtype == torch.uint8:
+            return CudaStitchPanoNU8(
                 str(dir_name),
                 batch_size,
                 levels,
-                size1,
-                size2,
+                input_sizes,
                 auto_adjust_exposure,
-                minimize_blend,
-                max_output_width_i,
             )
-        else:
-            assert False
-        return stitcher
+        raise ValueError(f"Unsupported dtype for cuda pano N: {dtype}")
 
     blender_config: core.BlenderConfig = create_blender_config(
         mode=blend_mode,

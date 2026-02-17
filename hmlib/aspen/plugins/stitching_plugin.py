@@ -28,7 +28,12 @@ from hmlib.utils.image import (
     make_visible_image,
     resize_image,
 )
-from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
+from hockeymom.core import (
+    CudaStitchPanoF32,
+    CudaStitchPanoNF32,
+    CudaStitchPanoNU8,
+    CudaStitchPanoU8,
+)
 
 from .base import Plugin
 
@@ -66,10 +71,11 @@ def _first_not_none(*values: Any) -> Any:
 
 
 class StitchingPlugin(Plugin):
-    """Aspen plugin that stitches left/right camera frames into a panorama.
+    """Aspen plugin that stitches multi-camera frames into a panorama.
 
     Expects in context:
-      - stitch_inputs: list/tuple of two dicts (left/right) from MultiDataLoaderWrapper
+      - stitch_inputs: list/tuple of >=2 dicts (views) from MultiDataLoaderWrapper, or a dict
+        with left/right (and optionally a list/tuple under `views`)
       - stitch_data_pipeline: optional mmcv.Compose pipeline to build detection inputs
 
     Produces in context:
@@ -87,6 +93,7 @@ class StitchingPlugin(Plugin):
         blend_mode: str = "laplacian",
         auto_adjust_exposure: bool = False,
         python_blender: bool = False,
+        use_cuda_pano_n: bool = False,
         minimize_blend: bool = True,
         dtype: Optional[Union[str, torch.dtype]] = None,
         max_blend_levels: Optional[int] = None,
@@ -108,6 +115,7 @@ class StitchingPlugin(Plugin):
         self._blend_mode = str(blend_mode)
         self._auto_adjust_exposure = bool(auto_adjust_exposure)
         self._python_blender = bool(python_blender)
+        self._use_cuda_pano_n = bool(use_cuda_pano_n)
         self._minimize_blend = bool(minimize_blend)
         self._dtype = _parse_dtype(dtype)
         self._max_blend_levels = max_blend_levels
@@ -330,14 +338,15 @@ class StitchingPlugin(Plugin):
     def _create_stitcher(
         self,
         context: Dict[str, Any],
-        imgs_1: torch.Tensor,
-        imgs_2: torch.Tensor,
+        imgs: List[torch.Tensor],
         device: torch.device,
     ) -> None:
         if self._stitcher is not None:
             return
         if device.type == "cpu":
             raise RuntimeError("StitchingPlugin requires a CUDA device")
+        if len(imgs) < 2:
+            raise RuntimeError("StitchingPlugin needs at least 2 input views")
         dir_name = self._resolve_dir_name(context)
         if self._blend_mode == "laplacian":
             levels_arg = (
@@ -347,18 +356,38 @@ class StitchingPlugin(Plugin):
             )
         else:
             levels_arg = 0
-        left_size_wh = (image_width(imgs_1), image_height(imgs_1))
-        right_size_wh = (image_width(imgs_2), image_height(imgs_2))
+
+        batch_size = int(imgs[0].shape[0])
+        for idx, img in enumerate(imgs):
+            if img.device != device:
+                raise RuntimeError("All stitch inputs must be on the same device")
+            if img.ndim != imgs[0].ndim:
+                raise RuntimeError("All stitch inputs must have the same tensor rank")
+            if img.ndim != 4:
+                raise RuntimeError(
+                    f"Expected stitch input tensors with 4 dimensions (B, C/H, H/W, W/C); got {img.shape}"
+                )
+            if int(img.shape[0]) != batch_size:
+                raise RuntimeError(
+                    "All stitch inputs must have the same batch size; "
+                    f"got input[0].shape[0]={batch_size} and input[{idx}].shape[0]={int(img.shape[0])}"
+                )
+
+        input_image_sizes_wh = [(image_width(img), image_height(img)) for img in imgs]
+        left_size_wh = input_image_sizes_wh[0]
+        right_size_wh = input_image_sizes_wh[1]
         dtype = self._dtype if self._python_blender else torch.uint8
         self._stitcher = create_stitcher(
             dir_name=str(dir_name),
-            batch_size=int(imgs_1.shape[0]),
+            batch_size=batch_size,
             left_image_size_wh=left_size_wh,
             right_image_size_wh=right_size_wh,
+            input_image_sizes_wh=input_image_sizes_wh,
             device=device,
             dtype=dtype,
             python_blender=self._python_blender,
             use_cuda_pano=not self._python_blender,
+            use_cuda_pano_n=self._use_cuda_pano_n,
             minimize_blend=self._minimize_blend,
             max_output_width=self._max_output_width,
             blend_mode=self._blend_mode,
@@ -506,22 +535,41 @@ class StitchingPlugin(Plugin):
         stitch_inputs = context.get("stitch_inputs")
         if stitch_inputs is None:
             raise RuntimeError("StitchingPlugin requires 'stitch_inputs' in context")
+        image_data_list: List[Dict[str, Any]]
         if isinstance(stitch_inputs, dict):
-            image_data_1 = stitch_inputs.get("left")
-            image_data_2 = stitch_inputs.get("right")
+            views = stitch_inputs.get("views")
+            if isinstance(views, (list, tuple)):
+                image_data_list = list(views)
+            else:
+                left = stitch_inputs.get("left")
+                right = stitch_inputs.get("right")
+                if left is None or right is None:
+                    raise RuntimeError(
+                        "StitchingPlugin needs at least 2 input views (left/right or a list under 'views')"
+                    )
+                image_data_list = [left, right]
+        elif isinstance(stitch_inputs, (list, tuple)):
+            image_data_list = list(stitch_inputs)
         else:
-            image_data_1, image_data_2 = stitch_inputs
-        if image_data_1 is None or image_data_2 is None:
-            raise RuntimeError("StitchingPlugin needs left/right input data")
+            raise TypeError(f"Unexpected stitch_inputs type: {type(stitch_inputs)}")
+
+        if len(image_data_list) < 2:
+            raise RuntimeError("StitchingPlugin needs at least 2 input views")
+        for idx, image_data in enumerate(image_data_list):
+            if not isinstance(image_data, dict):
+                raise TypeError(
+                    f"StitchingPlugin expected stitch_inputs[{idx}] to be a dict, got {type(image_data)}"
+                )
+            if "img" not in image_data:
+                raise RuntimeError(f"StitchingPlugin stitch_inputs[{idx}] missing 'img' key")
 
         self._ensure_initialized(context)
 
-        imgs_1 = _to_tensor(image_data_1["img"])
-        imgs_2 = _to_tensor(image_data_2["img"])
+        imgs = [_to_tensor(image_data["img"]) for image_data in image_data_list]
         ids = _first_not_none(
-            image_data_1.get("frame_ids"),
-            image_data_1.get("ids"),
-            image_data_1.get("img_id"),
+            image_data_list[0].get("frame_ids"),
+            image_data_list[0].get("ids"),
+            image_data_list[0].get("img_id"),
         )
         if isinstance(ids, (list, tuple)):
             ids = torch.tensor(ids, dtype=torch.int64)
@@ -530,60 +578,77 @@ class StitchingPlugin(Plugin):
         if ids is None:
             raise RuntimeError("StitchingPlugin could not resolve frame ids")
 
-        imgs_1 = self._apply_channel_adders(imgs_1, self._channel_add_left)
-        imgs_2 = self._apply_channel_adders(imgs_2, self._channel_add_right)
+        imgs[0] = self._apply_channel_adders(imgs[0], self._channel_add_left)
+        imgs[1] = self._apply_channel_adders(imgs[1], self._channel_add_right)
 
-        pre_stats_left: Optional[Dict[str, Tuple[float, float, float]]] = None
-        pre_stats_right: Optional[Dict[str, Tuple[float, float, float]]] = None
+        pre_stats_list: Optional[List[Optional[Dict[str, Tuple[float, float, float]]]]] = None
         if self._capture_rgb_stats:
-            try:
-                pre_stats_left = MOTLoadVideoWithOrig.compute_rgb_stats(imgs_1)
-                pre_stats_right = MOTLoadVideoWithOrig.compute_rgb_stats(imgs_2)
-            except Exception:
-                pre_stats_left = None
-                pre_stats_right = None
+            pre_stats_list = []
+            for img in imgs:
+                try:
+                    pre_stats_list.append(MOTLoadVideoWithOrig.compute_rgb_stats(img))
+                except Exception:
+                    pre_stats_list.append(None)
 
         if self._left_color_pipeline is not None:
             try:
-                data_1 = {"img": imgs_1}
-                data_1 = self._left_color_pipeline(data_1)
-                if "img" in data_1:
-                    imgs_1 = data_1["img"]
+                data_0 = {"img": imgs[0]}
+                data_0 = self._left_color_pipeline(data_0)
+                if "img" in data_0:
+                    imgs[0] = data_0["img"]
             except Exception:
                 logger.debug("Left stitch color pipeline failed", exc_info=True)
         if self._right_color_pipeline is not None:
             try:
-                data_2 = {"img": imgs_2}
-                data_2 = self._right_color_pipeline(data_2)
-                if "img" in data_2:
-                    imgs_2 = data_2["img"]
+                data_1 = {"img": imgs[1]}
+                data_1 = self._right_color_pipeline(data_1)
+                if "img" in data_1:
+                    imgs[1] = data_1["img"]
             except Exception:
                 logger.debug("Right stitch color pipeline failed", exc_info=True)
 
-        device = imgs_1.device
-        self._create_stitcher(context=context, imgs_1=imgs_1, imgs_2=imgs_2, device=device)
+        device = imgs[0].device
+        self._create_stitcher(context=context, imgs=imgs, device=device)
         if isinstance(self._stitcher, (CudaStitchPanoF32, CudaStitchPanoU8)):
-            imgs_1 = self._ensure_rgba_channels_last(imgs_1)
-            imgs_2 = self._ensure_rgba_channels_last(imgs_2)
+            if len(imgs) != 2:
+                raise RuntimeError(
+                    f"Expected 2 stitch inputs for {type(self._stitcher).__name__}; got {len(imgs)}"
+                )
+            imgs_0 = self._ensure_rgba_channels_last(imgs[0])
+            imgs_1 = self._ensure_rgba_channels_last(imgs[1])
             blended = torch.empty(
                 [
-                    imgs_1.shape[0],
+                    imgs_0.shape[0],
                     self._stitcher.canvas_height(),
                     self._stitcher.canvas_width(),
-                    imgs_1.shape[-1],
+                    imgs_0.shape[-1],
                 ],
-                dtype=imgs_1.dtype,
-                device=imgs_1.device,
+                dtype=imgs_0.dtype,
+                device=imgs_0.device,
             )
-            stream_handle = torch.cuda.current_stream(imgs_1.device).cuda_stream
+            stream_handle = torch.cuda.current_stream(imgs_0.device).cuda_stream
             self._stitcher.process(
+                imgs_0.contiguous(),
                 imgs_1.contiguous(),
-                imgs_2.contiguous(),
                 blended,
                 stream_handle,
             )
+        elif isinstance(self._stitcher, (CudaStitchPanoNF32, CudaStitchPanoNU8)):
+            imgs_rgba = [self._ensure_rgba_channels_last(img) for img in imgs]
+            blended = torch.empty(
+                [
+                    imgs_rgba[0].shape[0],
+                    self._stitcher.canvas_height(),
+                    self._stitcher.canvas_width(),
+                    imgs_rgba[0].shape[-1],
+                ],
+                dtype=imgs_rgba[0].dtype,
+                device=imgs_rgba[0].device,
+            )
+            stream_handle = torch.cuda.current_stream(imgs_rgba[0].device).cuda_stream
+            self._stitcher.process([img.contiguous() for img in imgs_rgba], blended, stream_handle)
         else:
-            blended = self._stitcher.forward(inputs=[imgs_1, imgs_2])
+            blended = self._stitcher.forward(inputs=imgs)
 
         rotate_degrees = self._resolve_rotation_degrees(context)
         if rotate_degrees is not None and abs(rotate_degrees) > 1e-6:
@@ -595,7 +660,11 @@ class StitchingPlugin(Plugin):
                 post_stats = MOTLoadVideoWithOrig.compute_rgb_stats(blended)
             except Exception:
                 post_stats = None
-            rgb_stats = {"left": pre_stats_left, "right": pre_stats_right, "stitched": post_stats}
+            rgb_stats = {"inputs": pre_stats_list, "stitched": post_stats}
+            if pre_stats_list is not None and len(pre_stats_list) >= 1:
+                rgb_stats["left"] = pre_stats_list[0]
+            if pre_stats_list is not None and len(pre_stats_list) >= 2:
+                rgb_stats["right"] = pre_stats_list[1]
 
         blended = self._prepare_frame_for_video(blended, image_roi=None)
 
