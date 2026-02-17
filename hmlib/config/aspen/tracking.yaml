@@ -112,6 +112,7 @@ aspen:
         right_color_pipeline: GLOBAL.aspen.right_stitch_pipeline
         capture_rgb_stats: GLOBAL.aspen.stitching.capture_rgb_stats
         max_output_width: GLOBAL.aspen.stitching.max_output_width
+        use_cuda_pano_n: GLOBAL.aspen.stitching.use_cuda_pano_n
 
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
