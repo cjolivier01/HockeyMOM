@@ -252,6 +252,7 @@ class ApplyCameraPlugin(Plugin):
                             cam.get("white_balance_k", cam.get("white_balance_temp")),
                         )
                         bright = color.get("brightness", cam.get("color_brightness"))
+                        exposure_ev = color.get("exposure_ev", cam.get("exposure_ev"))
                         contr = color.get("contrast", cam.get("color_contrast"))
                         gamma = color.get("gamma", cam.get("color_gamma"))
                         if wbk is not None and wb is None:
@@ -270,6 +271,11 @@ class ApplyCameraPlugin(Plugin):
                         if bright is not None:
                             try:
                                 self._color_adjust_tf.brightness = float(bright)
+                            except Exception:
+                                pass
+                        if exposure_ev is not None:
+                            try:
+                                self._color_adjust_tf.exposure_ev = float(exposure_ev)
                             except Exception:
                                 pass
                         if contr is not None:

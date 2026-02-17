@@ -1002,6 +1002,7 @@ class HmImageColorAdjust:
     Supported adjustments (all optional):
     - white_balance: list[float] of length 3, per-channel RGB gains
     - brightness: float, multiplicative gain (>1 brighter)
+    - exposure_ev: float, exposure compensation in stops (e.g., +1.0 doubles brightness)
     - contrast: float, contrast factor (>1 more contrast)
     - gamma: float, gamma exponent (>1 darker)
     - config_ref: optional dict-like object containing runtime values; if provided,
@@ -1011,6 +1012,7 @@ class HmImageColorAdjust:
         keys (list[str]): Result dict keys to process (default: ["img"]).
         white_balance (list[float] | None): Per-channel RGB gains.
         brightness (float | None): Multiplicative brightness.
+        exposure_ev (float | None): Exposure compensation in stops (EV).
         contrast (float | None): Contrast factor.
         gamma (float | None): Gamma exponent applied to normalized [0, 1].
         config_ref (dict | None): Live config dict to read overrides from.
@@ -1030,6 +1032,7 @@ class HmImageColorAdjust:
         white_balance: Optional[List[float]] = None,
         white_balance_temp: Optional[Union[float, str]] = None,
         brightness: Optional[float] = None,
+        exposure_ev: Optional[float] = None,
         contrast: Optional[float] = None,
         gamma: Optional[float] = None,
         config_ref: Optional[Dict[str, Any]] = None,
@@ -1043,6 +1046,7 @@ class HmImageColorAdjust:
         else:
             self.white_balance = white_balance
         self.brightness = brightness
+        self.exposure_ev = exposure_ev
         self.contrast = contrast
         self.gamma = gamma
         self._refresh_from_config_enabled = bool(refresh_from_config)
@@ -1119,6 +1123,7 @@ class HmImageColorAdjust:
         wb_temp = self._pick_first(sources, ("white_balance_temp", "white_balance_k"))
         wb = self._pick_first(sources, ("white_balance",))
         brightness = self._pick_first(sources, ("brightness", "color_brightness"))
+        exposure_ev = self._pick_first(sources, ("exposure_ev",))
         contrast = self._pick_first(sources, ("contrast", "color_contrast"))
         gamma = self._pick_first(sources, ("gamma", "color_gamma"))
 
@@ -1141,6 +1146,7 @@ class HmImageColorAdjust:
                     pass
 
         self._set_scalar_from_config("brightness", brightness)
+        self._set_scalar_from_config("exposure_ev", exposure_ev)
         self._set_scalar_from_config("contrast", contrast)
         self._set_scalar_from_config("gamma", gamma)
 
@@ -1162,11 +1168,23 @@ class HmImageColorAdjust:
             return True
         if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             return True
+        if self.exposure_ev is not None and not self._isclose(self.exposure_ev, 0.0):
+            return True
         if self.contrast is not None and not self._isclose(self.contrast, 1.0):
             return True
         if self.gamma is not None and not self._isclose(self.gamma, 1.0):
             return True
         return False
+
+    @staticmethod
+    def _apply_exposure_ev(img: torch.Tensor, ev: float) -> torch.Tensor:
+        if ev is None or ev == 0.0:
+            return img
+        try:
+            gain = float(2.0 ** float(ev))
+        except Exception:
+            return img
+        return HmImageColorAdjust._apply_brightness(img, gain)
 
     @staticmethod
     def _apply_white_balance(img: torch.Tensor, gains: List[float]) -> torch.Tensor:
@@ -1261,6 +1279,8 @@ class HmImageColorAdjust:
             self.white_balance, [1.0, 1.0, 1.0]
         ):
             t = HmImageColorAdjust._apply_white_balance(t, self.white_balance)
+        if self.exposure_ev is not None and not self._isclose(self.exposure_ev, 0.0):
+            t = HmImageColorAdjust._apply_exposure_ev(t, self.exposure_ev)
         if self.brightness is not None and not self._isclose(self.brightness, 1.0):
             t = HmImageColorAdjust._apply_brightness(t, self.brightness)
         if self.contrast is not None and not self._isclose(self.contrast, 1.0):
@@ -1287,6 +1307,11 @@ class HmImageColorAdjust:
             if a.ndim == 4:
                 gains = gains.reshape(1, 3, 1, 1)
             a = a * gains
+        if self.exposure_ev is not None and self.exposure_ev != 0.0:
+            try:
+                a = a * float(2.0 ** float(self.exposure_ev))
+            except Exception:
+                pass
         if self.brightness is not None and self.brightness != 1.0:
             a = a * float(self.brightness)
         if self.contrast is not None and self.contrast != 1.0:
