@@ -983,10 +983,12 @@ def create_stitcher(
     draw: bool = False,
     use_cuda_pano: bool = True,
     use_cuda_pano_n: bool = False,
-    auto_adjust_exposure: bool = True,
+    auto_adjust_exposure: bool = False,
 ):
     """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
+        assert not auto_adjust_exposure  # messes with minimize_blend results
+        auto_adjust_exposure = False
         assert dir_name
         if input_image_sizes_wh is None:
             input_image_sizes_wh = [left_image_size_wh, right_image_size_wh]
