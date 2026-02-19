@@ -81,7 +81,7 @@ aspen:
     pto_project_file: null
     dir_name: null
     blend_mode: "laplacian"
-    max_blend_levels: null
+    max_blend_levels: 11
     auto_adjust_exposure: true
     python_blender: false
     # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
