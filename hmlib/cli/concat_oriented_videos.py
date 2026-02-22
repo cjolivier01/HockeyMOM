@@ -4,13 +4,31 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+try:
+    from rich.console import Console
+    from rich.progress import BarColumn
+    from rich.progress import Progress as RichProgress
+    from rich.progress import SpinnerColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+except Exception:  # pragma: no cover - optional dependency during import
+    Console = None  # type: ignore[assignment]
+    BarColumn = None  # type: ignore[assignment]
+    RichProgress = None  # type: ignore[assignment]
+    SpinnerColumn = None  # type: ignore[assignment]
+    TextColumn = None  # type: ignore[assignment]
+    TimeElapsedColumn = None  # type: ignore[assignment]
+    TimeRemainingColumn = None  # type: ignore[assignment]
 
 from hmlib.config import get_game_config_private, get_game_dir, get_nested_value
+
+_RICH_CONSOLE = Console(stderr=True) if Console is not None else None
+_FFMPEG_TIME_RE = re.compile(r"^(?P<h>\d+):(?P<m>\d+):(?P<s>\d+(?:\.\d+)?)$")
 
 
 def _require_ffmpeg() -> None:
@@ -63,16 +81,210 @@ def _write_concat_file(paths: List[str]) -> str:
         tmp.close()
 
 
+def _parse_ffmpeg_time_to_seconds(value: str) -> Optional[float]:
+    match = _FFMPEG_TIME_RE.match(str(value).strip())
+    if not match:
+        return None
+    try:
+        hours = int(match.group("h"))
+        minutes = int(match.group("m"))
+        seconds = float(match.group("s"))
+    except Exception:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def _extract_progress_seconds(fields: Dict[str, str]) -> Optional[float]:
+    time_value = fields.get("out_time")
+    if time_value:
+        parsed = _parse_ffmpeg_time_to_seconds(time_value)
+        if parsed is not None:
+            return parsed
+
+    for key in ("out_time_us", "out_time_ms"):
+        raw_value = fields.get(key)
+        if raw_value is None:
+            continue
+        try:
+            return float(int(raw_value)) / 1e6
+        except Exception:
+            continue
+
+    return None
+
+
+def _probe_duration_seconds(path: str) -> Optional[float]:
+    ffprobe_path = shutil.which("ffprobe")
+    if ffprobe_path is None:
+        return None
+    cmd = [
+        ffprobe_path,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        details = result.stderr.strip() or result.stdout.strip() or "unknown ffprobe error"
+        raise RuntimeError(f"ffprobe failed for {path}: {details}")
+    text = result.stdout.strip()
+    if not text:
+        raise RuntimeError(f"ffprobe returned empty duration for {path}")
+    try:
+        duration = float(text)
+    except ValueError as exc:
+        raise RuntimeError(f"ffprobe returned invalid duration for {path}: {text!r}") from exc
+    if duration <= 0:
+        return None
+    return duration
+
+
+def _resolve_total_duration_seconds(inputs: List[str]) -> Optional[float]:
+    if shutil.which("ffprobe") is None:
+        return None
+    total = 0.0
+    for path in inputs:
+        try:
+            duration = _probe_duration_seconds(path)
+        except Exception as exc:
+            print(
+                f"Warning: unable to estimate total duration with ffprobe: {exc}",
+                file=sys.stderr,
+            )
+            return None
+        if duration is not None:
+            total += duration
+    return total if total > 0 else None
+
+
+def _format_seconds(seconds: float) -> str:
+    seconds = max(0.0, float(seconds))
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{secs:05.2f}"
+
+
+def _run_ffmpeg_concat_with_progress(
+    cmd: List[str],
+    output_path: str,
+    total_seconds: Optional[float],
+) -> None:
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    progress_fields: Dict[str, str] = {}
+    ffmpeg_output: List[str] = []
+
+    use_rich = (
+        RichProgress is not None
+        and TextColumn is not None
+        and TimeElapsedColumn is not None
+        and _RICH_CONSOLE is not None
+    )
+    if total_seconds and use_rich and BarColumn is not None and TimeRemainingColumn is not None:
+        progress = RichProgress(
+            TextColumn("{task.description}"),
+            BarColumn(),
+            TextColumn("{task.percentage:>3.0f}%"),
+            TextColumn("{task.fields[out_time]}"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=_RICH_CONSOLE,
+            transient=True,
+        )
+        task_id = progress.add_task(
+            f"Concatenating {os.path.basename(output_path)}",
+            total=total_seconds,
+            out_time="00:00:00.00",
+        )
+    elif use_rich and SpinnerColumn is not None:
+        progress = RichProgress(
+            SpinnerColumn(),
+            TextColumn("{task.description}"),
+            TextColumn("{task.fields[out_time]}"),
+            TimeElapsedColumn(),
+            console=_RICH_CONSOLE,
+            transient=True,
+        )
+        task_id = progress.add_task(
+            f"Concatenating {os.path.basename(output_path)}",
+            total=None,
+            out_time="00:00:00.00",
+        )
+    else:
+        progress = None
+        task_id = None
+
+    if progress is None:
+        print(f"Concatenating {os.path.basename(output_path)}...", file=sys.stderr)
+    else:
+        progress.start()
+
+    try:
+        stream = proc.stdout
+        if stream is not None:
+            for raw_line in stream:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if line.count("=") == 1 and " " not in line.split("=", 1)[0]:
+                    key, value = line.split("=", 1)
+                    progress_fields[key.strip()] = value.strip()
+                    if key.strip() == "progress":
+                        seconds = _extract_progress_seconds(progress_fields)
+                        if seconds is not None:
+                            out_time = _format_seconds(seconds)
+                            if progress is not None and task_id is not None:
+                                update_kwargs = {"out_time": out_time}
+                                if total_seconds:
+                                    update_kwargs["completed"] = min(seconds, total_seconds)
+                                progress.update(task_id, **update_kwargs)
+                            else:
+                                print(f"  progress {out_time}", file=sys.stderr)
+                        progress_fields = {}
+                    continue
+                ffmpeg_output.append(line)
+
+        return_code = proc.wait()
+        if return_code != 0:
+            details = "\n".join(ffmpeg_output[-20:])
+            raise subprocess.CalledProcessError(return_code, cmd, output=details)
+
+        if progress is not None and task_id is not None and total_seconds:
+            progress.update(
+                task_id, completed=total_seconds, out_time=_format_seconds(total_seconds)
+            )
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if progress is not None:
+            progress.stop()
+
+
 def _concat_copy(inputs: List[str], output_path: str) -> None:
     _require_ffmpeg()
     concat_list_path = _write_concat_file(inputs)
     try:
+        total_seconds = _resolve_total_duration_seconds(inputs)
         cmd = [
             "ffmpeg",
             "-hide_banner",
             "-nostdin",
             "-loglevel",
             "error",
+            "-nostats",
+            "-progress",
+            "pipe:1",
             "-f",
             "concat",
             "-safe",
@@ -83,7 +295,11 @@ def _concat_copy(inputs: List[str], output_path: str) -> None:
             "copy",
             output_path,
         ]
-        subprocess.run(cmd, check=True)
+        _run_ffmpeg_concat_with_progress(
+            cmd=cmd,
+            output_path=output_path,
+            total_seconds=total_seconds,
+        )
     except Exception:
         if os.path.exists(output_path):
             try:
