@@ -97,7 +97,7 @@ class ScoreboardSelector:
                 self.image = self.image.resize(new_size, Image.LANCZOS)
                 self._display_scale = scale
 
-        # Decide backend: try Tk first (if available), fallback to OpenCV if Tk fails or unavailable
+        # Decide backend: prefer OpenCV (supports zoom/pan), fallback to Tk.
         self._backend: str = "none"
         self._tk_state = {}
         self._cv2_state = {}
@@ -108,8 +108,28 @@ class ScoreboardSelector:
         if initial_points:
             initial_points = self._scale_points_for_display(initial_points)
 
-        # Try to initialize Tk backend
-        if _tk_available:
+        # Try to initialize OpenCV backend first.
+        if _cv2_available:
+            try:
+                # Prepare image for OpenCV (BGR)
+                img_np = np.array(self.image)
+                if img_np.ndim == 2:
+                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_GRAY2BGR)
+                else:
+                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                self._cv2_state = dict(
+                    img_bgr_orig=img_bgr,
+                    window_name="Select Scoreboard Corners",
+                )
+                self._backend = "cv2"
+                if initial_points and len(initial_points) == 4:
+                    self.points = initial_points
+            except Exception:
+                traceback.print_exc()
+                self._backend = "none"
+
+        # Fallback to Tk backend when OpenCV is unavailable/unusable.
+        if self._backend != "cv2" and _tk_available:
             root = None
             try:
                 root = tk.Tk()  # type: ignore
@@ -182,32 +202,11 @@ class ScoreboardSelector:
                     )
 
             except Exception:
-                # Tk failed (likely due to non-main thread). Fallback to OpenCV
                 try:
                     if root is not None:
                         root.destroy()  # type: ignore
                 except Exception:
                     pass
-                self._backend = "none"
-
-        # Initialize OpenCV backend if Tk not selected
-        if self._backend != "tk" and _cv2_available:
-            try:
-                # Prepare image for OpenCV (BGR)
-                img_np = np.array(self.image)
-                if img_np.ndim == 2:
-                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_GRAY2BGR)
-                else:
-                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                self._cv2_state = dict(
-                    img_bgr_orig=img_bgr,
-                    window_name="Select Scoreboard Corners",
-                )
-                self._backend = "cv2"
-                if initial_points and len(initial_points) == 4:
-                    self.points = initial_points
-            except Exception:
-                traceback.print_exc()
                 self._backend = "none"
 
         if self._backend == "none":
@@ -386,35 +385,152 @@ class ScoreboardSelector:
 
         win = self._cv2_state["window_name"]
         img_bgr_orig = self._cv2_state["img_bgr_orig"].copy()
+        img_h, img_w = img_bgr_orig.shape[:2]
+
+        zoom: float = 1.0
+        min_zoom: float = 1.0
+        max_zoom: float = 20.0
+        offset_x: float = 0.0
+        offset_y: float = 0.0
+        pan_active: bool = False
+        pan_start: Tuple[int, int] = (0, 0)
+        pan_origin: Tuple[float, float] = (0.0, 0.0)
+
+        view_w: int = img_w
+        view_h: int = img_h
+        crop_w: int = img_w
+        crop_h: int = img_h
+
+        def _safe_window_size() -> Tuple[int, int]:
+            try:
+                _, _, w, h = cv2.getWindowImageRect(win)
+                if w > 1 and h > 1:
+                    return int(w), int(h)
+            except Exception:
+                pass
+            return img_w, img_h
+
+        def _update_view_geometry() -> None:
+            nonlocal view_w, view_h, crop_w, crop_h
+            view_w, view_h = _safe_window_size()
+            crop_w = min(img_w, max(1, int(round(float(view_w) / max(zoom, 1e-6)))))
+            crop_h = min(img_h, max(1, int(round(float(view_h) / max(zoom, 1e-6)))))
+
+        def _clamp_offsets() -> None:
+            nonlocal offset_x, offset_y
+            max_x = max(0.0, float(img_w - crop_w))
+            max_y = max(0.0, float(img_h - crop_h))
+            offset_x = min(max(offset_x, 0.0), max_x)
+            offset_y = min(max(offset_y, 0.0), max_y)
+
+        def _screen_to_image(x: int, y: int) -> Tuple[float, float]:
+            sx = float(x)
+            sy = float(y)
+            ix = offset_x + sx * (float(crop_w) / max(float(view_w), 1.0))
+            iy = offset_y + sy * (float(crop_h) / max(float(view_h), 1.0))
+            ix = min(max(ix, 0.0), float(max(img_w - 1, 0)))
+            iy = min(max(iy, 0.0), float(max(img_h - 1, 0)))
+            return ix, iy
 
         # Mouse callback
         def on_mouse(event, x, y, flags, param):
+            nonlocal zoom, offset_x, offset_y, pan_active, pan_start, pan_origin
+            _update_view_geometry()
+            _clamp_offsets()
             if event == cv2.EVENT_LBUTTONDOWN:
                 if len(self.points) < 4:
-                    self.points.append((int(x), int(y)))
+                    px, py = _screen_to_image(x, y)
+                    self.points.append((int(round(px)), int(round(py))))
                 else:
                     print("Already selected 4 points. Press 'd' to reset.")
+            elif event == cv2.EVENT_MBUTTONDOWN:
+                pan_active = True
+                pan_start = (int(x), int(y))
+                pan_origin = (offset_x, offset_y)
+            elif event == cv2.EVENT_MBUTTONUP:
+                pan_active = False
+            elif event == cv2.EVENT_MOUSEMOVE and pan_active:
+                dx = float(x - pan_start[0]) * (float(crop_w) / max(float(view_w), 1.0))
+                dy = float(y - pan_start[1]) * (float(crop_h) / max(float(view_h), 1.0))
+                offset_x = pan_origin[0] - dx
+                offset_y = pan_origin[1] - dy
+                _clamp_offsets()
+            elif event == cv2.EVENT_MOUSEWHEEL:
+                wheel_delta = cv2.getMouseWheelDelta(flags)
+                if wheel_delta == 0:
+                    return
+                anchor_x, anchor_y = _screen_to_image(x, y)
+                zoom_step = 1.15
+                wheel_steps = float(wheel_delta) / 120.0
+                if wheel_steps > 0:
+                    zoom = min(max_zoom, zoom * (zoom_step**wheel_steps))
+                else:
+                    zoom = max(min_zoom, zoom / (zoom_step ** abs(wheel_steps)))
+                _update_view_geometry()
+                offset_x = anchor_x - float(x) * (float(crop_w) / max(float(view_w), 1.0))
+                offset_y = anchor_y - float(y) * (float(crop_h) / max(float(view_h), 1.0))
+                _clamp_offsets()
 
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(win, img_w, img_h)
         cv2.setMouseCallback(win, on_mouse)
 
         while True:
-            img = img_bgr_orig.copy()
+            _update_view_geometry()
+            _clamp_offsets()
 
-            # Draw points and lines
-            for i, (x, y) in enumerate(self.points):
-                cv2.circle(img, (int(x), int(y)), 5, (0, 0, 255), -1)
+            x0 = int(round(offset_x))
+            y0 = int(round(offset_y))
+            x0 = min(max(x0, 0), max(img_w - crop_w, 0))
+            y0 = min(max(y0, 0), max(img_h - crop_h, 0))
+            # Keep transform math consistent with the effective crop origin.
+            offset_x, offset_y = float(x0), float(y0)
+            crop = img_bgr_orig[y0 : y0 + crop_h, x0 : x0 + crop_w]
+            if crop.size == 0:
+                crop = img_bgr_orig
+                x0, y0, crop_h, crop_w = 0, 0, img_h, img_w
+                offset_x, offset_y = 0.0, 0.0
+            if crop.shape[1] != view_w or crop.shape[0] != view_h:
+                img = cv2.resize(crop, (view_w, view_h), interpolation=cv2.INTER_LINEAR)
+            else:
+                img = crop.copy()
+
+            def _image_to_screen(pt: Tuple[int, int]) -> Tuple[int, int]:
+                px, py = float(pt[0]), float(pt[1])
+                sx = int(round((px - offset_x) * (float(view_w) / max(float(crop_w), 1.0))))
+                sy = int(round((py - offset_y) * (float(view_h) / max(float(crop_h), 1.0))))
+                return sx, sy
+
+            # Draw points and lines in the current zoom/pan view.
+            for i, pt in enumerate(self.points):
+                sx, sy = _image_to_screen(pt)
+                cv2.circle(img, (sx, sy), 5, (0, 0, 255), -1)
                 if i > 0:
-                    x0, y0 = self.points[i - 1]
-                    cv2.line(img, (int(x0), int(y0)), (int(x), int(y)), (0, 0, 255), 2)
+                    sx0, sy0 = _image_to_screen(self.points[i - 1])
+                    cv2.line(img, (sx0, sy0), (sx, sy), (0, 0, 255), 2)
             if len(self.points) == 4:
-                x0, y0 = self.points[0]
-                x1, y1 = self.points[-1]
-                cv2.line(img, (int(x0), int(y0)), (int(x1), int(y1)), (0, 0, 255), 2)
+                sx0, sy0 = _image_to_screen(self.points[0])
+                sx1, sy1 = _image_to_screen(self.points[-1])
+                cv2.line(img, (sx0, sy0), (sx1, sy1), (0, 0, 255), 2)
 
             # Instructions overlay
-            instr = "Click 4 corners. ENTER=OK, d=Delete, ESC=None"
-            cv2.putText(img, instr, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            instr0 = "LClick: add corner  Wheel: zoom  MWheel+drag: pan"
+            instr1 = "ENTER: OK  d: reset points  r: reset view  ESC: None"
+            cv2.putText(img, instr0, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+            cv2.putText(img, instr1, (10, 58), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+            status = (
+                f"zoom={zoom:.2f}x offset=({int(round(offset_x))}, {int(round(offset_y))}) "
+                f"points={len(self.points)}/4"
+            )
+            cv2.putText(
+                img,
+                status,
+                (10, max(86, int(view_h - 14))),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                2,
+            )
 
             cv2.imshow(win, img)
             key = cv2.waitKey(20) & 0xFF
@@ -427,6 +543,10 @@ class ScoreboardSelector:
                     break
             if key in (ord("d"), ord("D")):
                 self.reset_selection()
+            if key in (ord("r"), ord("R")):
+                zoom = 1.0
+                offset_x = 0.0
+                offset_y = 0.0
 
         try:
             cv2.destroyWindow(win)

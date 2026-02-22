@@ -148,3 +148,53 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     assert "frame_ids" in ctx0
     assert ctx0.get("game_id") == "test-game"
     assert ctx0.get("fps") == 30.0
+
+
+def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_path):
+    captured: Dict[str, Any] = {}
+
+    monkeypatch.setattr(stitch_cli, "AspenNet", _DummyAspenNet)
+    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo)
+    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset)
+
+    def _fake_configure_video_stitching(
+        dir_name: str,
+        video_left: str,
+        video_right: str,
+        project_file_name: str,
+        left_frame_offset: int,
+        right_frame_offset: int,
+        base_frame_offset: int,
+        max_control_points: int,
+        force: bool,
+    ):
+        captured["base_frame_offset"] = base_frame_offset
+        pto_path = str(tmp_path / "dummy.pto")
+        Path(pto_path).touch()
+        return pto_path, 0, 0
+
+    monkeypatch.setattr(stitch_cli, "configure_video_stitching", _fake_configure_video_stitching)
+
+    args = types.SimpleNamespace(
+        profiler=None,
+        max_blend_levels=None,
+        skip_final_video_save=False,
+        save_frame_dir=None,
+        no_cuda_streams=True,
+        config_overrides=[
+            "aspen.stitching.enabled=false",
+            "aspen.stitching.stitch_frame_time=00:00:02",
+        ],
+    )
+
+    stitch_cli.stitch_videos(
+        dir_name=str(tmp_path),
+        videos={"left": ["left.mp4"], "right": ["right.mp4"]},
+        max_control_points=10,
+        game_id="test-game",
+        output_stitched_video_file=str(tmp_path / "stitched.mkv"),
+        args=args,
+    )
+
+    # 2 seconds at 30 FPS from _DummyVideoInfo.
+    assert captured.get("base_frame_offset") == 60
