@@ -483,6 +483,8 @@ class ScoreboardSelector:
             y0 = int(round(offset_y))
             x0 = min(max(x0, 0), max(img_w - crop_w, 0))
             y0 = min(max(y0, 0), max(img_h - crop_h, 0))
+            # Keep transform math consistent with the effective crop origin.
+            offset_x, offset_y = float(x0), float(y0)
             crop = img_bgr_orig[y0 : y0 + crop_h, x0 : x0 + crop_w]
             if crop.size == 0:
                 crop = img_bgr_orig
