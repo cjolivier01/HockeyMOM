@@ -214,12 +214,15 @@ def get_config(
     game_id: Optional[str] = None,
     rink: Optional[str] = None,
     camera: Optional[str] = None,
+    ignore_private_config: bool = False,
     resolve_globals: bool = True,
 ):
     """Return a consolidated configuration from baseline + rink + camera + game.
 
     Direct parameters override higher-level YAML (e.g. an explicit ``rink``
     argument overrides the rink specified in the game config).
+    When ``ignore_private_config`` is true, per-game private config
+    (``$HOME/Videos/<game_id>/config.yaml``) is not merged.
     """
     consolidated_config: Dict[str, Any] = baseline_config(root_dir=root_dir)
     game_config: Dict[str, Any] = dict()
@@ -231,8 +234,13 @@ def get_config(
     if rink is not None:
         rink_config = get_rink_config(rink=rink, root_dir=root_dir)
     if game_id is not None:
-        game_config = get_game_config(game_id=game_id, root_dir=root_dir)
-        private_config = get_game_config_private(game_id=game_id)
+        if ignore_private_config:
+            game_config = load_config_file(
+                root_dir=root_dir, config_type="games", config_name=game_id
+            )
+        else:
+            game_config = get_game_config(game_id=game_id, root_dir=root_dir)
+            private_config = get_game_config_private(game_id=game_id)
     if camera is None:
         camera = get_item("camera", [game_config, rink_config])
         if isinstance(camera, str):

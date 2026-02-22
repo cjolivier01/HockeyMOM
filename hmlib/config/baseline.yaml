@@ -79,6 +79,7 @@ aspen:
     # Controlled by --aspen-stitching / --no-aspen-stitching.
     enabled: true
     pto_project_file: null
+    stitch_frame_time: 00:00:00
     dir_name: null
     blend_mode: "laplacian"
     max_blend_levels: 11

@@ -758,6 +758,17 @@ class hm_opts(object):
             help="Game ID",
         )
         parser.add_argument(
+            "--ignore-private-config",
+            "--ignore_private_config",
+            dest="ignore_private_config",
+            default=0,
+            type=int,
+            help=(
+                "When non-zero, do not merge per-game private config "
+                "($HOME/Videos/<game-id>/config.yaml)."
+            ),
+        )
+        parser.add_argument(
             "--serial",
             default=0,
             type=int,
@@ -1381,6 +1392,7 @@ class hm_opts(object):
             ("minimize_blend", "aspen.stitching.minimize_blend"),
             ("no_cuda_streams", "aspen.stitching.no_cuda_streams"),
             ("stitch_rotate_degrees", "aspen.stitching.post_stitch_rotate_degrees"),
+            ("stitch_frame_time", "aspen.stitching.stitch_frame_time"),
             ("fp16_stitch", "aspen.stitching.dtype"),
             ("stitch_pto_project_file", "aspen.stitching.pto_project_file"),
             (
@@ -1625,6 +1637,32 @@ class hm_opts(object):
                             print(f"Setting attribute {k} to {v}")
                             setattr(opt, k, v)
 
+        # YAML-derived defaults for stitch_frame_time (CLI wins).
+        # Preferred source is consolidated game_config when available; otherwise
+        # fall back to the per-game private config under $HOME/Videos/<game-id>/config.yaml.
+        try:
+            if opt.stitch_frame_time is None:
+                val = None
+                game_cfg = getattr(opt, "game_config", None)
+                if isinstance(game_cfg, dict):
+                    val = get_nested_value(game_cfg, "aspen.stitching.stitch_frame_time", None)
+                    if val is None:
+                        val = get_nested_value(game_cfg, "game.stitching.stitch-frame-time", None)
+                    if val is None:
+                        val = get_nested_value(game_cfg, "game.stitching.stitch_frame_time", None)
+                if val is None and opt.game_id and not bool(opt.ignore_private_config):
+                    cfg_priv = get_game_config_private(game_id=opt.game_id)
+                    val = get_nested_value(cfg_priv, "aspen.stitching.stitch_frame_time", None)
+                    if val is None:
+                        val = get_nested_value(cfg_priv, "game.stitching.stitch-frame-time", None)
+                    if val is None:
+                        val = get_nested_value(cfg_priv, "game.stitching.stitch_frame_time", None)
+                if val is not None:
+                    opt.stitch_frame_time = str(val)
+        except Exception:
+            # Non-fatal if config missing or malformed
+            pass
+
         # YAML-derived defaults for stitch_rotate_degrees (CLI wins).
         # Preferred source is consolidated game_config when available; otherwise
         # fall back to the per-game private config under $HOME/Videos/<game-id>/config.yaml.
@@ -1638,7 +1676,7 @@ class hm_opts(object):
                         val = get_nested_value(
                             game_cfg, "game.stitching.stitch_rotate_degrees", None
                         )
-                if val is None and getattr(opt, "game_id", None):
+                if val is None and opt.game_id and not bool(opt.ignore_private_config):
                     cfg_priv = get_game_config_private(game_id=opt.game_id)
                     val = get_nested_value(cfg_priv, "game.stitching.stitch-rotate-degrees", None)
                     if val is None:

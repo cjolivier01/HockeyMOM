@@ -100,7 +100,12 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
-    from hmlib.config import get_config, load_yaml_files_ordered, resolve_global_refs
+    from hmlib.config import (
+        get_config,
+        get_nested_value,
+        load_yaml_files_ordered,
+        resolve_global_refs,
+    )
 
     cuda_stream = torch.cuda.Stream(remapping_device)
     torch.cuda.synchronize()
@@ -114,18 +119,44 @@ def stitch_videos(
         total_frames = min(left_vid.frame_count, right_vid.frame_count)
         print(f"Total possible stitched video frames: {total_frames}")
 
+        ignore_private_config = bool(getattr(args, "ignore_private_config", 0))
+        base_cfg = get_config(
+            game_id=game_id,
+            resolve_globals=False,
+            ignore_private_config=ignore_private_config,
+        )
+        aspen_cfg_all: Dict[str, Any] = load_yaml_files_ordered(
+            ["config/aspen/stitching.yaml"], base=base_cfg
+        )
+        if args is not None:
+            hm_opts.apply_arg_config_overrides(aspen_cfg_all, args)
+            hm_opts.apply_config_overrides(aspen_cfg_all, getattr(args, "config_overrides", None))
+            args.game_config = aspen_cfg_all
+        resolve_global_refs(aspen_cfg_all)
+
+        config_stitch_frame_time = get_nested_value(
+            aspen_cfg_all, "aspen.stitching.stitch_frame_time", None
+        )
+        stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
+        if start_frame_time:
+            stitch_time_is_zero = stitch_frame_time is None
+            if not stitch_time_is_zero and stitch_frame_time:
+                try:
+                    stitch_time_is_zero = convert_hms_to_seconds(str(stitch_frame_time)) <= 0
+                except Exception:
+                    stitch_time_is_zero = False
+            if stitch_time_is_zero:
+                stitch_frame_time = start_frame_time
         stitch_frame_number = 0
-        if start_frame_time and not stitch_frame_time:
-            stitch_frame_time = start_frame_time
-        if stitch_frame_time or start_frame_time:
-            seconds = convert_hms_to_seconds(stitch_frame_time)
+        if stitch_frame_time:
+            seconds = convert_hms_to_seconds(str(stitch_frame_time))
             if seconds > 0:
-                stitch_frame_number = seconds * left_vid.fps
+                stitch_frame_number = int(round(seconds * left_vid.fps))
         if start_frame_time:
             assert not start_frame_number
             seconds = convert_hms_to_seconds(start_frame_time)
             if seconds > 0:
-                start_frame_number = seconds * left_vid.fps
+                start_frame_number = int(round(seconds * left_vid.fps))
 
         pto_project_file, lfo, rfo = configure_video_stitching(
             dir_name,
@@ -154,15 +185,6 @@ def stitch_videos(
         if args is not None:
             setattr(args, "stitch_pto_project_file", str(pto_project_file))
 
-        base_cfg = get_config(game_id=game_id, resolve_globals=False)
-        aspen_cfg_all: Dict[str, Any] = load_yaml_files_ordered(
-            ["config/aspen/stitching.yaml"], base=base_cfg
-        )
-        if args is not None:
-            hm_opts.apply_arg_config_overrides(aspen_cfg_all, args)
-            hm_opts.apply_config_overrides(aspen_cfg_all, getattr(args, "config_overrides", None))
-            args.game_config = aspen_cfg_all
-        resolve_global_refs(aspen_cfg_all)
         use_aspen_stitching = bool(
             aspen_cfg_all.get("aspen", {}).get("stitching", {}).get("enabled", False)
         )

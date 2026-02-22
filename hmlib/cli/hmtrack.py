@@ -1338,9 +1338,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params[
-                            "tracker_class"
-                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        tracker_params["tracker_class"] = (
+                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        )
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
@@ -1486,6 +1486,24 @@ def _main(args, num_gpu):
                 total_frames = min(left_vid.frame_count, right_vid.frame_count)
                 print(f"Total possible stitched video frames: {total_frames}")
 
+                stitch_frame_time = args.stitch_frame_time
+                if args.start_frame_time:
+                    stitch_time_is_zero = stitch_frame_time is None
+                    if not stitch_time_is_zero and stitch_frame_time:
+                        try:
+                            stitch_time_is_zero = (
+                                time_to_frame(time_str=stitch_frame_time, fps=left_vid.fps) <= 0
+                            )
+                        except Exception:
+                            stitch_time_is_zero = False
+                    if stitch_time_is_zero:
+                        stitch_frame_time = args.start_frame_time
+                stitch_frame_number = 0
+                if stitch_frame_time:
+                    stitch_frame_number = time_to_frame(
+                        time_str=stitch_frame_time, fps=left_vid.fps
+                    )
+
                 assert not args.start_frame or not args.start_frame_time
                 if not args.start_frame and args.start_frame_time:
                     args.start_frame = time_to_frame(
@@ -1504,6 +1522,7 @@ def _main(args, num_gpu):
                     project_file_name=project_file_name,
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
+                    base_frame_offset=stitch_frame_number,
                 )
                 stitch_videos = {
                     "left": {
@@ -1963,7 +1982,11 @@ def main():
     args = parser.parse_args()
 
     game_config = get_config(
-        game_id=args.game_id, rink=args.rink, camera=args.camera_name, root_dir=args.root_dir
+        game_id=args.game_id,
+        rink=args.rink,
+        camera=args.camera_name,
+        root_dir=args.root_dir,
+        ignore_private_config=bool(args.ignore_private_config),
     )
 
     # Merge user-provided YAML configs in order (--config can be repeated).

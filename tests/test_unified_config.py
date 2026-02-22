@@ -109,3 +109,45 @@ def should_merge_aspen_namespace_mock():
     assert merged["game"]["name"] == "Base"
     assert isinstance(merged.get("aspen"), dict)
     assert "trunks" in merged["aspen"]
+
+
+def should_skip_private_game_config_when_requested():
+    cfg = _load_hmlib_config_light()
+
+    cfg.baseline_config = lambda root_dir=None: {}
+    cfg.get_camera_config = lambda camera=None, root_dir=None: {}
+    cfg.get_rink_config = lambda rink=None, root_dir=None: {}
+    cfg.resolve_global_refs = lambda d: d
+
+    private_calls = {"count": 0}
+
+    def _load_config_file(
+        root_dir=None, config_type=None, config_name=None, merge_into_config=None
+    ):
+        if config_type == "games":
+            return {"game": {"name": "public-game"}}
+        return {}
+
+    def _get_game_config(game_id=None, root_dir=None):
+        return {
+            "game": {"name": "public-game"},
+            "private_only": {"enabled": True},
+        }
+
+    def _get_game_config_private(game_id=None, merge_into_config=None):
+        private_calls["count"] += 1
+        return {"private_only": {"enabled": True}}
+
+    cfg.load_config_file = _load_config_file
+    cfg.get_game_config = _get_game_config
+    cfg.get_game_config_private = _get_game_config_private
+
+    merged = cfg.get_config(
+        game_id="example-game",
+        ignore_private_config=True,
+        resolve_globals=False,
+    )
+
+    assert private_calls["count"] == 0
+    assert merged.get("game", {}).get("name") == "public-game"
+    assert "private_only" not in merged
