@@ -200,7 +200,7 @@ def extract_frames(
 
     if force:
         if os.path.exists(left_output_image_file):
-            os.path.unlink(left_output_image_file)
+            os.unlink(left_output_image_file)
         if os.path.exists(right_output_image_file):
             os.unlink(right_output_image_file)
 
