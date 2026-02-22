@@ -181,6 +181,7 @@ def extract_frames(
     left_frame_number: int,
     video_right: str,
     right_frame_number: int,
+    force: Optional[bool] = False,
 ):
     """Extract one frame from each side video to PNGs on disk.
 
@@ -197,13 +198,19 @@ def extract_frames(
 
     right_output_image_file = get_extracted_frame_image_file(video_right)
 
-    if not os.path.exists(left_output_image_file):
+    if force:
+        if os.path.exists(left_output_image_file):
+            os.path.unlink(left_output_image_file)
+        if os.path.exists(right_output_image_file):
+            os.unlink(right_output_image_file)
+
+    if force or not os.path.exists(left_output_image_file):
         extract_frame_image(
             video_left,
             frame_number=left_frame_number,
             dest_image=left_output_image_file,
         )
-    if not os.path.exists(right_output_image_file):
+    if force or not os.path.exists(right_output_image_file):
         extract_frame_image(
             video_right,
             frame_number=right_frame_number,
@@ -478,6 +485,7 @@ def configure_video_stitching(
             base_frame_offset + left_frame_offset,
             video_right,
             base_frame_offset + right_frame_offset,
+            force=True,
         )
 
         # Apply optional per-side color adjustments to extracted PNGs
