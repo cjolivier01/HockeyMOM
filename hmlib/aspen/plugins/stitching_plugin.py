@@ -404,6 +404,9 @@ class StitchingPlugin(Plugin):
             if val is None:
                 val = get_nested_value(cfg, "game.stitching.stitch_rotate_degrees", None)
             if val is not None:
+                assert (
+                    not self._post_stitch_rotate_degrees
+                ), "Rotation degrees specified in both plugin config and game config; please consolidate to one location"
                 return float(val)
         except Exception:
             pass
