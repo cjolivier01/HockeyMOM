@@ -15,6 +15,7 @@ from hmlib.config import get_game_dir
 from hmlib.hm_opts import hm_opts
 from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
 from hmlib.utils.image import image_height, image_width
+from hmlib.utils.path import add_game_id_prefix_to_filename
 from hmlib.utils.time import format_duration_to_hhmmss
 
 
@@ -95,7 +96,9 @@ def main():
                 f"Interval starting at {start_time_hhmmss} finds {len(jersey_numbers)} jerseys: {jersey_numbers}"
             )
 
-        in_file_basename = "tracking_output-with-audio.mp4"
+        in_file_basename = str(
+            add_game_id_prefix_to_filename("tracking_output-with-audio.mp4", args.game_id, sep="-")
+        )
         game_dir = get_game_dir(args.game_id)
         input_file = os.path.join(game_dir, in_file_basename)
         shell_file = os.path.join(game_dir, "make_player_highlights.sh")

@@ -125,3 +125,11 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+py_test(
+    name = "test_video_output_naming",
+    srcs = ["test_video_output_naming.py"],
+    deps = [
+        "//hmlib:hmlib.lib",
+    ],
+)

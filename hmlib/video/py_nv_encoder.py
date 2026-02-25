@@ -12,6 +12,7 @@ from typing import IO, Any, List, Optional, Union
 import torch
 from typeguard import typechecked
 
+from hmlib.log import get_logger
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.video.ffmpeg import build_ffmpeg_output_handler, iter_ffmpeg_output_lines
 from hockeymom import bgr_to_i420_cuda
@@ -20,6 +21,96 @@ try:
     import PyNvVideoCodec as nvc  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - optional dependency
     nvc = None  # type: ignore[assignment]
+
+logger = get_logger(__name__)
+
+
+def build_ffmpeg_raw_bitstream_mux_cmd(
+    *,
+    ffmpeg: str,
+    bitstream_path: Path,
+    output_path: Path,
+    stream_format: str,
+    fps: float,
+    frames_in_bitstream: int,
+    muxer: Optional[str],
+    audio_file: Optional[str] = None,
+    audio_stream: int = 0,
+    audio_offset_seconds: float = 0.0,
+    audio_codec: Optional[str] = None,
+    aac_bitrate: str = "192k",
+) -> List[str]:
+    """Build an ffmpeg command to mux a raw elementary bitstream into a container.
+
+    This is intentionally a pure function so it can be unit-tested without
+    requiring PyNvVideoCodec to be installed.
+    """
+    fps_frac = Fraction(float(fps)).limit_denominator(1001)
+    fps_str = (
+        f"{fps_frac.numerator}/{fps_frac.denominator}"
+        if fps_frac.denominator != 1
+        else str(fps_frac.numerator)
+    )
+    time_base = Fraction(fps_frac.denominator, fps_frac.numerator)
+    time_base_str = f"{time_base.numerator}/{time_base.denominator}"
+    setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
+
+    cmd: List[str] = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-progress",
+        "pipe:2",
+        "-nostats",
+        "-f",
+        str(stream_format),
+        "-framerate",
+        fps_str,
+        "-i",
+        str(bitstream_path),
+    ]
+
+    if audio_file:
+        # Apply an optional offset to the audio timeline (relative to video).
+        if abs(float(audio_offset_seconds)) > 1e-9:
+            cmd += ["-itsoffset", str(float(audio_offset_seconds))]
+        cmd += ["-i", str(audio_file)]
+        cmd += ["-map", "0:v:0", "-map", f"1:a:{int(audio_stream)}"]
+
+    cmd += ["-c:v", "copy", "-bsf:v", setts_bsf]
+
+    if audio_file:
+        # If the audio codec is already AAC, stream copy; otherwise re-encode to AAC.
+        if (audio_codec or "").lower() == "aac":
+            cmd += ["-c:a", "copy"]
+        else:
+            cmd += [
+                "-c:a",
+                "aac",
+                "-b:a",
+                str(aac_bitrate),
+                "-ac",
+                "2",
+                "-ar",
+                "48000",
+            ]
+        cmd.append("-shortest")
+
+    if output_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+        # Make MP4/MOV outputs friendlier for Apple/iPhone playback and progressive download.
+        cmd += ["-movflags", "+faststart"]
+        if stream_format == "hevc":
+            cmd += ["-tag:v", "hvc1"]
+        elif stream_format == "av1":
+            cmd += ["-tag:v", "av01"]
+
+    if muxer:
+        cmd += ["-f", str(muxer)]
+
+    cmd.append(str(output_path))
+    return cmd
 
 
 class _DLPackFrame:
@@ -98,6 +189,10 @@ class PyNvVideoEncoder:
         cuda_context: Optional[int] = None,
         cuda_stream: Optional[int] = None,
         bitrate: Optional[int] = None,
+        mux_audio_file: Optional[str] = None,
+        mux_audio_stream: int = 0,
+        mux_audio_offset_seconds: float = 0.0,
+        mux_audio_aac_bitrate: str = "192k",
         use_pyav: Optional[bool] = None,
         profiler: Optional[Any] = None,
         ffmpeg_output_handler: Optional[Any] = None,
@@ -128,6 +223,10 @@ class PyNvVideoEncoder:
         self.cuda_context = cuda_context
         self.cuda_stream = cuda_stream
         self.bitrate = int(bitrate) if bitrate is not None else None
+        self._mux_audio_file = str(mux_audio_file) if mux_audio_file else None
+        self._mux_audio_stream = int(mux_audio_stream or 0)
+        self._mux_audio_offset_seconds = float(mux_audio_offset_seconds or 0.0)
+        self._mux_audio_aac_bitrate = str(mux_audio_aac_bitrate or "192k")
         # Optional HmProfiler instance injected by callers.
         self._profiler: Optional[Any] = profiler
         self._ffmpeg_output_handler = ffmpeg_output_handler
@@ -316,7 +415,12 @@ class PyNvVideoEncoder:
                     bitstream_file.close()
             if bitstream_path is not None:
                 if self._backend == "pyav":
-                    self._mux_bitstream_file_with_pyav(bitstream_path)
+                    if self._mux_audio_file:
+                        # PyAV remuxer currently does not support adding a second
+                        # audio input; fall back to the ffmpeg muxer when audio is requested.
+                        self._mux_bitstream_file_with_ffmpeg(bitstream_path)
+                    else:
+                        self._mux_bitstream_file_with_pyav(bitstream_path)
                 elif self._backend == "raw":
                     self._mux_bitstream_file_with_ffmpeg(bitstream_path)
                 else:
@@ -448,113 +552,140 @@ class PyNvVideoEncoder:
             expected_duration = None
         muxer = self._container_format()
 
-        fps = Fraction(self.fps).limit_denominator(1001)
-        fps_str = (
-            f"{fps.numerator}/{fps.denominator}" if fps.denominator != 1 else str(fps.numerator)
-        )
-        time_base = Fraction(fps.denominator, fps.numerator)
-        time_base_str = f"{time_base.numerator}/{time_base.denominator}"
-        setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
+        mux_audio_file = getattr(self, "_mux_audio_file", None)
+        mux_audio_stream = int(getattr(self, "_mux_audio_stream", 0) or 0)
+        mux_audio_offset_seconds = float(getattr(self, "_mux_audio_offset_seconds", 0.0) or 0.0)
+        mux_audio_aac_bitrate = str(getattr(self, "_mux_audio_aac_bitrate", "192k") or "192k")
 
-        cmd = [
-            ffmpeg,
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "warning",
-            "-progress",
-            "pipe:2",
-            "-nostats",
-            "-f",
-            stream_format,
-            "-framerate",
-            fps_str,
-            "-i",
-            str(bitstream_path),
-            "-c:v",
-            "copy",
-            "-bsf:v",
-            setts_bsf,
-        ]
-        if self.output_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
-            # Make MP4/MOV outputs friendlier for Apple/iPhone playback and progressive download.
-            cmd += ["-movflags", "+faststart"]
-            if stream_format == "hevc":
-                cmd += ["-tag:v", "hvc1"]
-            elif stream_format == "av1":
-                cmd += ["-tag:v", "av01"]
-        if muxer:
-            cmd += ["-f", muxer]
-        cmd.append(str(self.output_path))
-
-        output_handler = build_ffmpeg_output_handler(
-            self._ffmpeg_output_handler,
-            total_seconds=expected_duration,
-            label="ffmpeg mux",
-        )
-        stdout_lines = deque(maxlen=200)
-        stderr_lines = deque(maxlen=200)
-
-        def _reader(stream, stream_name: str, sink: deque) -> None:
+        def _probe_audio_codec(audio_file: str, stream_idx: int) -> Optional[str]:
             try:
-                for line in iter_ffmpeg_output_lines(stream):
-                    sink.append(line)
-                    output_handler.handle_line(line, stream_name)
+                out = subprocess.check_output(
+                    [
+                        "ffprobe",
+                        "-v",
+                        "error",
+                        "-select_streams",
+                        f"a:{int(stream_idx)}",
+                        "-show_entries",
+                        "stream=codec_name",
+                        "-of",
+                        "default=nk=1:nw=1",
+                        audio_file,
+                    ],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                codec = str(out).strip().lower()
+                return codec or None
             except Exception:
-                pass
-            finally:
-                try:
-                    stream.close()
-                except Exception:
-                    pass
+                return None
 
-        proc = None
-        returncode: Optional[int] = None
-        try:
-            print("Muxing the raw bitstream with ffmpeg, this may take a moment...")
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-            )
-            threads = []
-            if proc.stdout is not None:
-                t_out = threading.Thread(
-                    target=_reader,
-                    args=(proc.stdout, "stdout", stdout_lines),
-                    daemon=True,
-                )
-                t_out.start()
-                threads.append(t_out)
-            if proc.stderr is not None:
-                t_err = threading.Thread(
-                    target=_reader,
-                    args=(proc.stderr, "stderr", stderr_lines),
-                    daemon=True,
-                )
-                t_err.start()
-                threads.append(t_err)
-            returncode = proc.wait()
-            for thread in threads:
-                thread.join()
-            if returncode != 0:
-                stderr_output = "\n".join(stderr_lines)
-                stdout_output = "\n".join(stdout_lines)
+        mux_audio_codec: Optional[str] = None
+        if mux_audio_file:
+            mux_audio_codec = _probe_audio_codec(mux_audio_file, mux_audio_stream)
+            if not mux_audio_codec:
                 raise RuntimeError(
-                    "ffmpeg muxer failed while writing NVENC bitstream container. "
-                    "Check codec/format settings, input bitstream, and disk space. "
-                    f"(returncode={returncode}, stderr={stderr_output!r}, stdout={stdout_output!r})"
+                    f"Could not detect audio stream a:{mux_audio_stream} in {mux_audio_file!r}"
                 )
-        finally:
-            output_handler.close(returncode)
-            if proc is not None and proc.poll() is None:
+
+        def _build_cmd(with_audio: bool) -> List[str]:
+            return build_ffmpeg_raw_bitstream_mux_cmd(
+                ffmpeg=ffmpeg,
+                bitstream_path=bitstream_path,
+                output_path=self.output_path,
+                stream_format=stream_format,
+                fps=self.fps,
+                frames_in_bitstream=self._frames_in_current_bitstream,
+                muxer=muxer,
+                audio_file=mux_audio_file if with_audio else None,
+                audio_stream=mux_audio_stream,
+                audio_offset_seconds=mux_audio_offset_seconds,
+                audio_codec=mux_audio_codec if with_audio else None,
+                aac_bitrate=mux_audio_aac_bitrate,
+            )
+
+        def _run(cmd: List[str], label: str) -> None:
+            output_handler = build_ffmpeg_output_handler(
+                self._ffmpeg_output_handler,
+                total_seconds=expected_duration,
+                label=label,
+            )
+            stdout_lines = deque(maxlen=200)
+            stderr_lines = deque(maxlen=200)
+
+            def _reader(stream, stream_name: str, sink: deque) -> None:
                 try:
-                    proc.kill()
-                    proc.wait(timeout=1.0)
+                    for line in iter_ffmpeg_output_lines(stream):
+                        sink.append(line)
+                        output_handler.handle_line(line, stream_name)
                 except Exception:
                     pass
+                finally:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+
+            proc = None
+            returncode: Optional[int] = None
+            try:
+                print("Muxing the raw bitstream with ffmpeg, this may take a moment...")
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                )
+                threads = []
+                if proc.stdout is not None:
+                    t_out = threading.Thread(
+                        target=_reader,
+                        args=(proc.stdout, "stdout", stdout_lines),
+                        daemon=True,
+                    )
+                    t_out.start()
+                    threads.append(t_out)
+                if proc.stderr is not None:
+                    t_err = threading.Thread(
+                        target=_reader,
+                        args=(proc.stderr, "stderr", stderr_lines),
+                        daemon=True,
+                    )
+                    t_err.start()
+                    threads.append(t_err)
+                returncode = proc.wait()
+                for thread in threads:
+                    thread.join()
+                if returncode != 0:
+                    stderr_output = "\n".join(stderr_lines)
+                    stdout_output = "\n".join(stdout_lines)
+                    raise RuntimeError(
+                        "ffmpeg muxer failed while writing NVENC bitstream container. "
+                        "Check codec/format settings, input bitstream, and disk space. "
+                        f"(returncode={returncode}, stderr={stderr_output!r}, stdout={stdout_output!r})"
+                    )
+            finally:
+                output_handler.close(returncode)
+                if proc is not None and proc.poll() is None:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=1.0)
+                    except Exception:
+                        pass
+
+        if mux_audio_file:
+            try:
+                _run(_build_cmd(with_audio=True), label="ffmpeg mux (video+audio)")
+                return
+            except Exception:
+                logger.exception(
+                    "ffmpeg mux with audio failed; falling back to video-only mux. "
+                    "(audio_file=%s)",
+                    mux_audio_file,
+                )
+
+        _run(_build_cmd(with_audio=False), label="ffmpeg mux (video-only)")
 
     def _mux_bitstream_file_with_pyav(self, bitstream_path: Path) -> None:
         """

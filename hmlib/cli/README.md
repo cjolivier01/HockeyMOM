@@ -25,7 +25,8 @@ Run end-to-end tracking on a game: optional stitching, detections, tracking, jer
 ### Quick start
 ```bash
 # From a configured game directory
-hmtrack --game-id ev-stockton-1 --output tracking_output-with-audio.mp4
+hmtrack --game-id ev-stockton-1
+# -> $HOME/Videos/ev-stockton-1/ev-stockton-1-tracking_output-with-audio.mp4
 
 # From an explicit input file
 hmtrack --input-video path/to/stitched_output-with-audio.mp4 --output tracking.mp4
