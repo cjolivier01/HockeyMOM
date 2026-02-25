@@ -7,9 +7,10 @@ estimation and per-game synchronization into reusable functions.
 @see @ref hmlib.stitching.hugin.configure_control_points "configure_control_points"
 """
 
+import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -27,6 +28,8 @@ from hmlib.stitching.hugin import configure_control_points
 from hmlib.video.video_stream import extract_frame_image
 
 from .synchronize import configure_synchronization
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_local_binary(executable: str) -> Optional[str]:
@@ -220,6 +223,122 @@ def extract_frames(
     return left_output_image_file, right_output_image_file
 
 
+def _unlink_best_effort(path: Path) -> bool:
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+            return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+    return False
+
+
+def _delete_globs(game_dir: Path, patterns: Sequence[str]) -> int:
+    removed = 0
+    for pat in patterns:
+        for match in game_dir.glob(pat):
+            if _unlink_best_effort(match):
+                removed += 1
+    return removed
+
+
+def _delete_extracted_frames(game_dir: Path) -> int:
+    """Remove extracted frame PNGs that share a stem with a video file."""
+    removed = 0
+    video_exts = {".mp4", ".mkv", ".m4v", ".mov", ".avi"}
+    for vid in game_dir.rglob("*"):
+        if not vid.is_file():
+            continue
+        if vid.suffix.lower() not in video_exts:
+            continue
+        png = vid.with_suffix(".png")
+        if _unlink_best_effort(png):
+            removed += 1
+    return removed
+
+
+def _delete_nested_key(cfg: Dict[str, Any], path: Sequence[str]) -> bool:
+    """Delete a dotted path from a nested dict. Returns True if deleted."""
+    if not path:
+        return False
+    cur: Any = cfg
+    parents: List[Tuple[Dict[str, Any], str]] = []
+    for key in path[:-1]:
+        if not isinstance(cur, dict) or key not in cur:
+            return False
+        parents.append((cur, key))
+        cur = cur[key]
+    leaf = path[-1]
+    if not isinstance(cur, dict) or leaf not in cur:
+        return False
+    try:
+        del cur[leaf]
+    except Exception:
+        return False
+    # Prune empty dicts up the chain
+    for parent, key in reversed(parents):
+        try:
+            node = parent.get(key)
+            if isinstance(node, dict) and not node:
+                del parent[key]
+        except Exception:
+            pass
+    return True
+
+
+def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int:
+    """Delete rebuildable stitching / seam / mask outputs for a game.
+
+    Does not delete config.yaml, but removes scoreboard and rink-mask entries
+    from the private config so they will be recomputed.
+    """
+    game_dir = Path(game_dir)
+
+    removed_files = 0
+    removed_files += _delete_globs(
+        game_dir,
+        patterns=[
+            "hm_project.pto",
+            "autooptimiser_out.pto",
+            "*.pto",
+            "mapping_*.tif",
+            "mapping_*.tiff",
+            "panorama.tif",
+            "seam_file.png",
+            "matches.png",
+            "keypoints.png",
+            "s.png",
+        ],
+    )
+    removed_files += _delete_globs(game_dir, patterns=["rink_mask_*.png"])
+    removed_files += _delete_extracted_frames(game_dir)
+
+    try:
+        cfg = get_game_config_private(game_id=game_id)
+    except Exception as ex:
+        logger.warning("Failed to load private config while cleaning %s: %s", game_id, ex)
+        cfg = None
+
+    if isinstance(cfg, dict) and cfg:
+        changed = False
+        changed |= _delete_nested_key(cfg, ["rink", "scoreboard"])
+        changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_count"])
+        changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_centroid"])
+        changed |= _delete_nested_key(cfg, ["rink", "ice_contours_combined_bbox"])
+        if changed:
+            try:
+                save_private_config(game_id=game_id, data=cfg, verbose=True)
+            except Exception as ex:
+                logger.warning("Failed to save private config while cleaning %s: %s", game_id, ex)
+
+    if removed_files:
+        logger.info("Cleaned %d rebuildable files under %s", removed_files, str(game_dir))
+
+    return removed_files
+
+
 def build_stitching_project(
     project_file_path: str,
     image_files: List[str],
@@ -275,7 +394,7 @@ def build_stitching_project(
                 right_image_file,
             ]
             cmd_str = " ".join(cmd)
-            run_result = os.system(cmd_str)
+            os.system(cmd_str)
         else:
             use_hugin = True
         if True:

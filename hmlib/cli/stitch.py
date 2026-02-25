@@ -22,7 +22,10 @@ from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.orientation import configure_game_videos
 from hmlib.segm.ice_rink import main as ice_rink_main
-from hmlib.stitching.configure_stitching import configure_video_stitching
+from hmlib.stitching.configure_stitching import (
+    clean_stitch_game_artifacts,
+    configure_video_stitching,
+)
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import Shower
 from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
@@ -42,6 +45,11 @@ def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs")
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete rebuildable stitching/rink-mask artifacts (mapping/seams/masks/extracted frames)",
+    )
     parser.add_argument(
         "--configure-only", action="store_true", help="Run stitching configuration only"
     )
@@ -284,12 +292,17 @@ def stitch_videos(
             )
 
         if use_progress_bar and not configure_only:
-            total_frame_count = len(data_loader)
+            total_batches = len(data_loader)
+            batch_size_hint = max(1, int(getattr(data_loader, "batch_size", batch_size) or 1))
+            total_frames = int(total_batches) * int(batch_size_hint) if total_batches else 0
 
             def _table_callback(table_map: OrderedDict):
                 processed = frame_count
-                remaining = max(0, total_frame_count - processed)
-                table_map["Frames"] = f"{processed}/{total_frame_count}"
+                remaining = max(0, total_frames - processed)
+                if total_frames:
+                    table_map["Frames"] = f"{processed}/{total_frames}"
+                else:
+                    table_map["Frames"] = str(processed)
                 if dataset_delivery_fps > 0:
                     remaining_secs = remaining / dataset_delivery_fps
                     eta = convert_seconds_to_hms(remaining_secs)
@@ -304,13 +317,14 @@ def stitch_videos(
             scroll_output.register_logger(logger)
 
             progress_bar = ProgressBar(
-                total=total_frame_count,
+                total=total_batches,
                 iterator=data_loader_iter,
                 scroll_output=scroll_output,
                 update_rate=getattr(args, "print_interval", 20),
                 table_callback=_table_callback,
                 title=game_id,
                 use_curses=getattr(args, "curses_progress", False),
+                units_per_iter=batch_size_hint,
             )
             data_loader_iter = progress_bar
 
@@ -488,6 +502,19 @@ def stitch_videos(
 
 
 def _main(args) -> None:
+    # `--force` implies starting from a clean stitch state.
+    if args.force or args.clean:
+        try:
+            game_dir = (
+                Path(args.video_dir)
+                if args.video_dir
+                else Path(os.environ["HOME"]) / "Videos" / str(args.game_id)
+            )
+            if args.game_id and game_dir.exists():
+                clean_stitch_game_artifacts(game_id=args.game_id, game_dir=game_dir)
+        except Exception as ex:
+            logger.warning("Failed to clean stitch artifacts: %s", ex)
+
     game_videos = configure_game_videos(
         game_id=args.game_id,
         write_results=not args.single_file,
