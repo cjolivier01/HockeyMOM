@@ -107,6 +107,7 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         skip_final_video_save=False,
         save_frame_dir=None,
         no_cuda_streams=True,
+        no_progress_bar=True,
         config_overrides=["aspen.stitching.enabled=false"],
     )
 
@@ -181,6 +182,7 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         skip_final_video_save=False,
         save_frame_dir=None,
         no_cuda_streams=True,
+        no_progress_bar=True,
         config_overrides=[
             "aspen.stitching.enabled=false",
             "aspen.stitching.stitch_frame_time=00:00:02",

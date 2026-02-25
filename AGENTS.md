@@ -32,7 +32,7 @@
 
 ## Error Handling & CLI Args
 - Do not silently ignore failures by default: avoid `except Exception: pass` / bare `except:` / catching-and-returning-success unless there is a clear, documented best-effort reason and the failure is surfaced (log/error return) with context.
-- For CLI argument access, do not use `getattr(args, "flag", ...)` to tolerate missing attributes; define all expected args in the parser (with defaults) and access via `args.flag` (use subparsers or separate namespaces if modes differ).
+- For CLI argument access: never use `getattr(args, "flag", default)` (or `hasattr(args, ...)`) to paper over missing argparse attributes. Define all expected args in the parser (with defaults) and access via `args.flag`; if an attribute is missing, that's a bug (use subparsers or separate namespaces if modes differ).
 
 ## Testing Guidelines
 - Framework: pytest conventions are supported; prefer test functions named `should_*` (see `pyproject.toml`).

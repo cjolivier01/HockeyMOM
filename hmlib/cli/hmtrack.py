@@ -1754,13 +1754,15 @@ def _main(args, num_gpu):
             if is_stitching(args.input_video):
                 table_map["Stitching"] = "ENABLED"
 
+            batch_size_hint = max(1, int(getattr(dataloader, "batch_size", args.batch_size) or 1))
             progress_bar = ProgressBar(
                 total=len(dataloader),
                 scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
                 title=args.game_id,
-                use_curses=getattr(args, "curses_progress", False),
+                use_curses=args.curses_progress,
+                units_per_iter=batch_size_hint,
             )
         else:
             progress_bar = None
