@@ -1761,7 +1761,7 @@ def _main(args, num_gpu):
                 update_rate=args.print_interval,
                 table_map=table_map,
                 title=args.game_id,
-                use_curses=getattr(args, "curses_progress", False),
+                use_curses=args.curses_progress,
                 units_per_iter=batch_size_hint,
             )
         else:

@@ -186,7 +186,7 @@ class ProgressBar:
     progress UI using :mod:`rich`. The UI contains:
 
       - A two-column status table built from ``table_map``.
-      - A progress bar with percentage and `completed/total` frames.
+      - A progress bar with percentage and `completed/total` units.
       - A scrolling log area fed by :class:`ScrollOutput`.
 
     @param table_map Initial key-value mapping displayed in the status table.
@@ -197,6 +197,10 @@ class ProgressBar:
     @param update_rate Refresh interval in iterations.
     @param table_callback Optional callback to mutate ``table_map`` on refresh.
     @param use_curses Deprecated flag; kept for API compatibility only.
+    @param units_per_iter Scale factor for the UI display. ``total`` and the
+        internal counter track iterations; the rendered `completed/total` values
+        are multiplied by ``units_per_iter`` so the bar can display frames when
+        iterating over batches.
     """
 
     def __init__(

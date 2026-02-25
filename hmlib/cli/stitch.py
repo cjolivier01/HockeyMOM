@@ -279,7 +279,7 @@ def stitch_videos(
         frame_count = 0
         dataset_delivery_fps = 0.0
 
-        use_progress_bar: bool = not bool(getattr(args, "no_progress_bar", False))
+        use_progress_bar: bool = not args.no_progress_bar
         scroll_output: Optional[ScrollOutput] = None
 
         shower = None
@@ -294,7 +294,17 @@ def stitch_videos(
         if use_progress_bar and not configure_only:
             total_batches = len(data_loader)
             batch_size_hint = max(1, int(getattr(data_loader, "batch_size", batch_size) or 1))
-            total_frames = int(total_batches) * int(batch_size_hint) if total_batches else 0
+            # Prefer the underlying dataset length (if available) for an accurate
+            # frame count; fall back to estimating from batches.
+            total_frames = 0
+            dataset = getattr(data_loader, "dataset", None)
+            if dataset is not None:
+                try:
+                    total_frames = int(len(dataset))
+                except TypeError:
+                    total_frames = int(total_batches) * int(batch_size_hint) if total_batches else 0
+            else:
+                total_frames = int(total_batches) * int(batch_size_hint) if total_batches else 0
 
             def _table_callback(table_map: OrderedDict):
                 processed = frame_count
@@ -312,7 +322,7 @@ def stitch_videos(
                     table_map["Stitch FPS"] = "warming up"
                     table_map["ETA"] = "--:--:--"
 
-            scroll_output = ScrollOutput(lines=getattr(args, "progress_bar_lines", 11))
+            scroll_output = ScrollOutput(lines=args.progress_bar_lines)
 
             scroll_output.register_logger(logger)
 
@@ -320,10 +330,10 @@ def stitch_videos(
                 total=total_batches,
                 iterator=data_loader_iter,
                 scroll_output=scroll_output,
-                update_rate=getattr(args, "print_interval", 20),
+                update_rate=args.print_interval,
                 table_callback=_table_callback,
                 title=game_id,
-                use_curses=getattr(args, "curses_progress", False),
+                use_curses=args.curses_progress,
                 units_per_iter=batch_size_hint,
             )
             data_loader_iter = progress_bar

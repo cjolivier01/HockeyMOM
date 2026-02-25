@@ -230,7 +230,8 @@ def _unlink_best_effort(path: Path) -> bool:
             return True
     except FileNotFoundError:
         return False
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to unlink path %s: %s", path, exc, exc_info=True)
         return False
     return False
 
