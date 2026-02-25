@@ -48,7 +48,12 @@ def make_parser():
     parser.add_argument(
         "--clean",
         action="store_true",
-        help="Delete rebuildable stitching/rink-mask artifacts (mapping/seams/masks/extracted frames)",
+        help="Delete rebuildable stitching artifacts before running (mapping/seams/masks/extracted frames)",
+    )
+    parser.add_argument(
+        "--clean-only",
+        action="store_true",
+        help="Delete rebuildable stitching artifacts and cached stitch config, then exit",
     )
     parser.add_argument(
         "--configure-only", action="store_true", help="Run stitching configuration only"
@@ -513,6 +518,8 @@ def stitch_videos(
 
 def _main(args) -> None:
     # `--force` implies starting from a clean stitch state.
+    if args.clean_only:
+        args.clean = True
     if args.force or args.clean:
         try:
             game_dir = (
@@ -524,6 +531,8 @@ def _main(args) -> None:
                 clean_stitch_game_artifacts(game_id=args.game_id, game_dir=game_dir)
         except Exception as ex:
             logger.warning("Failed to clean stitch artifacts: %s", ex)
+    if args.clean_only:
+        return
 
     game_videos = configure_game_videos(
         game_id=args.game_id,
