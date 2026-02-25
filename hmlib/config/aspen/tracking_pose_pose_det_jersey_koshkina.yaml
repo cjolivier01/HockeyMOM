@@ -77,8 +77,8 @@ aspen:
       class: hmlib.aspen.plugins.pose_factory_plugin.PoseInferencerFactoryPlugin
       depends: []
       params:
-        pose_config: hmlib/config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
-        pose_checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
+        pose_config: GLOBAL.model.pose_coco.config
+        pose_checkpoint: GLOBAL.model.pose_coco.checkpoint
         show_progress: false
 
     pose_join:
