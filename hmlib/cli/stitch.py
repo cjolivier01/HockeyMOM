@@ -44,11 +44,13 @@ logger = get_root_logger()
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
-    parser.add_argument("--force", action="store_true", help="Force all recalcs")
+    parser.add_argument("--force", action="store_true", help="Force all recalcs (clean then run)")
     parser.add_argument(
         "--clean",
+        "--clean-only",
+        dest="clean",
         action="store_true",
-        help="Delete rebuildable stitching/rink-mask artifacts (mapping/seams/masks/extracted frames)",
+        help="Delete rebuildable stitching artifacts and cached stitch config, then exit",
     )
     parser.add_argument(
         "--configure-only", action="store_true", help="Run stitching configuration only"
@@ -524,6 +526,8 @@ def _main(args) -> None:
                 clean_stitch_game_artifacts(game_id=args.game_id, game_dir=game_dir)
         except Exception as ex:
             logger.warning("Failed to clean stitch artifacts: %s", ex)
+    if args.clean:
+        return
 
     game_videos = configure_game_videos(
         game_id=args.game_id,

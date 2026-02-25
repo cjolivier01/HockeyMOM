@@ -292,8 +292,9 @@ def _delete_nested_key(cfg: Dict[str, Any], path: Sequence[str]) -> bool:
 def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int:
     """Delete rebuildable stitching / seam / mask outputs for a game.
 
-    Does not delete config.yaml, but removes scoreboard and rink-mask entries
-    from the private config so they will be recomputed.
+    Does not delete config.yaml, but removes cached stitching/rink entries
+    from the private config so they will be recomputed (e.g. audio sync
+    offsets, scoreboard selection, rink-mask metadata).
     """
     game_dir = Path(game_dir)
 
@@ -324,6 +325,8 @@ def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int
 
     if isinstance(cfg, dict) and cfg:
         changed = False
+        changed |= _delete_nested_key(cfg, ["game", "stitching", "frame_offsets"])
+        changed |= _delete_nested_key(cfg, ["game", "stitching", "control_points"])
         changed |= _delete_nested_key(cfg, ["rink", "scoreboard"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_count"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_centroid"])

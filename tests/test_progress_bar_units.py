@@ -77,3 +77,106 @@ def should_resolve_global_model_refs_in_aspen_configs():
     assert get_nested_value(
         merged, "aspen.plugins.action_factory.params.action_checkpoint"
     ) == get_nested_value(merged, "model.action_posec3d.checkpoint")
+
+
+def should_clean_stitch_game_artifacts_delete_files_and_cached_config(monkeypatch, tmp_path):
+    from hmlib.stitching import configure_stitching
+
+    # Create a few representative artifacts.
+    (tmp_path / "hm_project.pto").touch()
+    (tmp_path / "mapping_0000.tif").touch()
+    cam_dir = tmp_path / "cam1"
+    cam_dir.mkdir()
+    (cam_dir / "left.mp4").touch()
+    (cam_dir / "left.png").touch()
+
+    saved = {}
+
+    def _fake_get_game_config_private(game_id: str):
+        return {
+            "game": {"stitching": {"frame_offsets": {"left": 1.0, "right": 2.0}}},
+            "rink": {"scoreboard": {"foo": 1}},
+        }
+
+    def _fake_save_private_config(game_id: str, data, verbose: bool = True):
+        saved["game_id"] = game_id
+        saved["data"] = data
+
+    monkeypatch.setattr(
+        configure_stitching, "get_game_config_private", _fake_get_game_config_private
+    )
+    monkeypatch.setattr(configure_stitching, "save_private_config", _fake_save_private_config)
+
+    removed = configure_stitching.clean_stitch_game_artifacts(
+        game_id="test-game", game_dir=tmp_path
+    )
+
+    assert removed == 3
+    assert not (tmp_path / "hm_project.pto").exists()
+    assert not (tmp_path / "mapping_0000.tif").exists()
+    assert not (cam_dir / "left.png").exists()
+    assert saved.get("game_id") == "test-game"
+    assert saved.get("data") == {}
+
+
+def should_clean_exit_before_configuring(monkeypatch, tmp_path):
+    import types
+
+    import hmlib.cli.stitch as stitch_cli
+
+    called = {}
+
+    def _fake_clean(game_id: str, game_dir):
+        called["game_id"] = game_id
+        called["game_dir"] = str(game_dir)
+        return 0
+
+    def _fail_configure_game_videos(*args, **kwargs):
+        raise AssertionError("Expected --clean-only to exit before configuring")
+
+    monkeypatch.setattr(stitch_cli, "clean_stitch_game_artifacts", _fake_clean)
+    monkeypatch.setattr(stitch_cli, "configure_game_videos", _fail_configure_game_videos)
+
+    args = types.SimpleNamespace(
+        force=False,
+        clean=True,
+        game_id="test-game",
+        video_dir=str(tmp_path),
+    )
+    stitch_cli._main(args)
+
+    assert called.get("game_id") == "test-game"
+
+
+def should_force_clean_before_configuring(monkeypatch, tmp_path):
+    import types
+
+    import hmlib.cli.stitch as stitch_cli
+
+    order: list[str] = []
+
+    def _fake_clean(game_id: str, game_dir):
+        order.append("clean")
+        return 0
+
+    def _fake_configure_game_videos(*args, **kwargs):
+        order.append("configure_game_videos")
+        raise SystemExit(0)
+
+    monkeypatch.setattr(stitch_cli, "clean_stitch_game_artifacts", _fake_clean)
+    monkeypatch.setattr(stitch_cli, "configure_game_videos", _fake_configure_game_videos)
+
+    args = types.SimpleNamespace(
+        force=True,
+        clean=False,
+        game_id="test-game",
+        video_dir=str(tmp_path),
+        single_file=0,
+        ice_rink_inference_scale=None,
+    )
+    try:
+        stitch_cli._main(args)
+    except SystemExit:
+        pass
+
+    assert order == ["clean", "configure_game_videos"]
