@@ -119,7 +119,7 @@ def should_clean_stitch_game_artifacts_delete_files_and_cached_config(monkeypatc
     assert saved.get("data") == {}
 
 
-def should_clean_only_exit_before_configuring(monkeypatch, tmp_path):
+def should_clean_exit_before_configuring(monkeypatch, tmp_path):
     import types
 
     import hmlib.cli.stitch as stitch_cli
@@ -139,8 +139,7 @@ def should_clean_only_exit_before_configuring(monkeypatch, tmp_path):
 
     args = types.SimpleNamespace(
         force=False,
-        clean=False,
-        clean_only=True,
+        clean=True,
         game_id="test-game",
         video_dir=str(tmp_path),
     )
@@ -170,7 +169,6 @@ def should_force_clean_before_configuring(monkeypatch, tmp_path):
     args = types.SimpleNamespace(
         force=True,
         clean=False,
-        clean_only=False,
         game_id="test-game",
         video_dir=str(tmp_path),
         single_file=0,
