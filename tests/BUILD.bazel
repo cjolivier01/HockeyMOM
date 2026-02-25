@@ -44,6 +44,18 @@ py_test(
 )
 
 py_test(
+    name = "test_progress_bar_units",
+    srcs = ["test_progress_bar_units.py"],
+    data = [
+        "//hmlib:wheel_data_files",
+    ],
+    deps = [
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
     name = "test_box_equivalence",
     srcs = ["test_box_equivalence.py"],
     data = [

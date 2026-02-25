@@ -337,6 +337,19 @@ model:
     # checkpoint_remote: https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
     # checkpoint_local: pretrained/mmpose/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/hrnet_w48_coco_wholebody_384x288_dark_plus/hrnet_w48_coco_wholebody_384x288_dark-f5726563_20200918.pth
 
+  # Pose models used by Aspen pose/action pipelines
+  pose_harpet:
+    config: config/models/body_2d_keypoint/rtmpose/harpet/rtmpose-m_8xb64-crowdpose_harpe-256x192.py
+    checkpoint: https://github.com/cjolivier01/HockeyMOM/releases/download/v0.0.1/rtmpose-m_8xb64-crowdpose_harpe-256x192_best_PCK_epoch_1178.pth
+
+  pose_coco:
+    config: config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
+    checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
+
+  action_posec3d:
+    config: openmm/mmaction2/configs/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint.py
+    checkpoint: https://download.openmmlab.com/mmaction/v1.0/skeleton/posec3d/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint/slowonly_r50_8xb16-u48-240e_ntu60-xsub-keypoint_20220815-38db104b.pth
+
   ice_rink_segm:
     config: config/models/ice_rink/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco.py
     # checkpoint: pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth

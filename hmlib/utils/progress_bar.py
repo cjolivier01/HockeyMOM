@@ -186,7 +186,7 @@ class ProgressBar:
     progress UI using :mod:`rich`. The UI contains:
 
       - A two-column status table built from ``table_map``.
-      - A progress bar with percentage and `completed/total` frames.
+      - A progress bar with percentage and `completed/total` units.
       - A scrolling log area fed by :class:`ScrollOutput`.
 
     @param table_map Initial key-value mapping displayed in the status table.
@@ -197,6 +197,10 @@ class ProgressBar:
     @param update_rate Refresh interval in iterations.
     @param table_callback Optional callback to mutate ``table_map`` on refresh.
     @param use_curses Deprecated flag; kept for API compatibility only.
+    @param units_per_iter Scale factor for the UI display. ``total`` and the
+        internal counter track iterations; the rendered `completed/total` values
+        are multiplied by ``units_per_iter`` so the bar can display frames when
+        iterating over batches.
     """
 
     def __init__(
@@ -210,9 +214,17 @@ class ProgressBar:
         title: Optional[str] = None,
         table_callback: Optional[Callable] = None,
         use_curses: bool = True,
+        units_per_iter: int = 1,
     ):
         self._total = total
         self._counter: int = 0
+        # Many datasets yield batches (e.g., B frames at once). We keep the
+        # progress iteration counter in "iters" but scale what the UI displays
+        # so completed/total reflect frames when desired.
+        try:
+            self._units_per_iter = max(1, int(units_per_iter))
+        except Exception:
+            self._units_per_iter = 1
         self.table_map = table_map
         self.original_stdout = logging_out
         self.scroll_output = scroll_output
@@ -427,11 +439,18 @@ class ProgressBar:
         # in the status table above, not in the bar description.
         description = ""
         if self._total > 0:
-            completed = min(self._counter, self._total)
-            total_val = self._total
+            completed_iters = min(self._counter, self._total)
+            total_iters = self._total
         else:
-            completed = self._counter
-            total_val = None
+            completed_iters = self._counter
+            total_iters = None
+
+        completed = (
+            int(completed_iters) * self._units_per_iter
+            if completed_iters is not None
+            else int(self._counter) * self._units_per_iter
+        )
+        total_val = int(total_iters) * self._units_per_iter if total_iters is not None else None
         self._progress.update(
             self._rich_task, completed=completed, total=total_val, description=description
         )

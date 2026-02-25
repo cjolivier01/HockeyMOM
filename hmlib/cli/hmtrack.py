@@ -1338,9 +1338,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params["tracker_class"] = (
-                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
-                        )
+                        tracker_params[
+                            "tracker_class"
+                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
@@ -1754,13 +1754,15 @@ def _main(args, num_gpu):
             if is_stitching(args.input_video):
                 table_map["Stitching"] = "ENABLED"
 
+            batch_size_hint = max(1, int(getattr(dataloader, "batch_size", args.batch_size) or 1))
             progress_bar = ProgressBar(
                 total=len(dataloader),
                 scroll_output=ScrollOutput(lines=args.progress_bar_lines).register_logger(logger),
                 update_rate=args.print_interval,
                 table_map=table_map,
                 title=args.game_id,
-                use_curses=getattr(args, "curses_progress", False),
+                use_curses=args.curses_progress,
+                units_per_iter=batch_size_hint,
             )
         else:
             progress_bar = None
