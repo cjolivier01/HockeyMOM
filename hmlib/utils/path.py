@@ -1,20 +1,22 @@
 import os
+import re
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 
-def sanitize_game_id_for_filename(game_id: str) -> str:
+def sanitize_game_id_for_filename(game_id: Optional[str]) -> str:
     """Sanitize a game_id so it is safe to embed in a single filename."""
     if game_id is None:
         return ""
     value = str(game_id).strip()
     if not value:
         return ""
-    return value.replace("/", "_").replace("\\", "_")
+    # Replace any run of path separators with a single underscore.
+    return re.sub(r"[\\/]+", "_", value)
 
 
 def add_game_id_prefix_to_filename(
-    path: Union[Path, str], game_id: str, sep: str = "-"
+    path: Union[Path, str], game_id: Optional[str], sep: str = "-"
 ) -> Union[Path, str]:
     """Prefix a filename with a sanitized game_id (useful for deploy dirs)."""
     return add_prefix_to_filename(path, sanitize_game_id_for_filename(game_id), sep=sep)
@@ -43,7 +45,9 @@ def add_suffix_to_filename(path: Union[Path, str], suffix: str) -> Union[Path, s
     return new_path if not is_path else Path(new_path)
 
 
-def add_prefix_to_filename(path: Union[Path, str], prefix: str, sep: str = "_") -> Union[Path, str]:
+def add_prefix_to_filename(
+    path: Union[Path, str], prefix: Optional[str], sep: str = "_"
+) -> Union[Path, str]:
     """
     Adds a prefix to the filename in a given path using pathlib, keeping the directory intact.
 

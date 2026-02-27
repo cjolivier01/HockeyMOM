@@ -15,6 +15,7 @@ from typeguard import typechecked
 from hmlib.log import get_logger
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.video.ffmpeg import build_ffmpeg_output_handler, iter_ffmpeg_output_lines
+from hmlib.video.ffmpeg_mux_cmd import build_ffmpeg_raw_bitstream_mux_cmd
 from hockeymom import bgr_to_i420_cuda
 
 try:
@@ -23,94 +24,6 @@ except Exception:  # pragma: no cover - optional dependency
     nvc = None  # type: ignore[assignment]
 
 logger = get_logger(__name__)
-
-
-def build_ffmpeg_raw_bitstream_mux_cmd(
-    *,
-    ffmpeg: str,
-    bitstream_path: Path,
-    output_path: Path,
-    stream_format: str,
-    fps: float,
-    frames_in_bitstream: int,
-    muxer: Optional[str],
-    audio_file: Optional[str] = None,
-    audio_stream: int = 0,
-    audio_offset_seconds: float = 0.0,
-    audio_codec: Optional[str] = None,
-    aac_bitrate: str = "192k",
-) -> List[str]:
-    """Build an ffmpeg command to mux a raw elementary bitstream into a container.
-
-    This is intentionally a pure function so it can be unit-tested without
-    requiring PyNvVideoCodec to be installed.
-    """
-    fps_frac = Fraction(float(fps)).limit_denominator(1001)
-    fps_str = (
-        f"{fps_frac.numerator}/{fps_frac.denominator}"
-        if fps_frac.denominator != 1
-        else str(fps_frac.numerator)
-    )
-    time_base = Fraction(fps_frac.denominator, fps_frac.numerator)
-    time_base_str = f"{time_base.numerator}/{time_base.denominator}"
-    setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
-
-    cmd: List[str] = [
-        ffmpeg,
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "warning",
-        "-progress",
-        "pipe:2",
-        "-nostats",
-        "-f",
-        str(stream_format),
-        "-framerate",
-        fps_str,
-        "-i",
-        str(bitstream_path),
-    ]
-
-    if audio_file:
-        # Apply an optional offset to the audio timeline (relative to video).
-        if abs(float(audio_offset_seconds)) > 1e-9:
-            cmd += ["-itsoffset", str(float(audio_offset_seconds))]
-        cmd += ["-i", str(audio_file)]
-        cmd += ["-map", "0:v:0", "-map", f"1:a:{int(audio_stream)}"]
-
-    cmd += ["-c:v", "copy", "-bsf:v", setts_bsf]
-
-    if audio_file:
-        # If the audio codec is already AAC, stream copy; otherwise re-encode to AAC.
-        if (audio_codec or "").lower() == "aac":
-            cmd += ["-c:a", "copy"]
-        else:
-            cmd += [
-                "-c:a",
-                "aac",
-                "-b:a",
-                str(aac_bitrate),
-                "-ac",
-                "2",
-                "-ar",
-                "48000",
-            ]
-        cmd.append("-shortest")
-
-    if output_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
-        # Make MP4/MOV outputs friendlier for Apple/iPhone playback and progressive download.
-        cmd += ["-movflags", "+faststart"]
-        if stream_format == "hevc":
-            cmd += ["-tag:v", "hvc1"]
-        elif stream_format == "av1":
-            cmd += ["-tag:v", "av01"]
-
-    if muxer:
-        cmd += ["-f", str(muxer)]
-
-    cmd.append(str(output_path))
-    return cmd
 
 
 class _DLPackFrame:
@@ -543,6 +456,15 @@ class PyNvVideoEncoder:
         if ffmpeg is None:
             raise RuntimeError("ffmpeg is required for container muxing but was not found in PATH.")
 
+        mux_audio_file = self._mux_audio_file
+        mux_audio_stream = int(self._mux_audio_stream or 0)
+        mux_audio_offset_seconds = float(self._mux_audio_offset_seconds or 0.0)
+        mux_audio_aac_bitrate = str(self._mux_audio_aac_bitrate or "192k")
+
+        ffprobe = which("ffprobe") if mux_audio_file else None
+        if mux_audio_file and ffprobe is None:
+            raise RuntimeError("ffprobe is required for audio muxing but was not found in PATH.")
+
         stream_format = self._bitstream_format()
         expected_duration = None
         try:
@@ -552,16 +474,11 @@ class PyNvVideoEncoder:
             expected_duration = None
         muxer = self._container_format()
 
-        mux_audio_file = getattr(self, "_mux_audio_file", None)
-        mux_audio_stream = int(getattr(self, "_mux_audio_stream", 0) or 0)
-        mux_audio_offset_seconds = float(getattr(self, "_mux_audio_offset_seconds", 0.0) or 0.0)
-        mux_audio_aac_bitrate = str(getattr(self, "_mux_audio_aac_bitrate", "192k") or "192k")
-
         def _probe_audio_codec(audio_file: str, stream_idx: int) -> Optional[str]:
             try:
                 out = subprocess.check_output(
                     [
-                        "ffprobe",
+                        ffprobe,
                         "-v",
                         "error",
                         "-select_streams",
@@ -582,6 +499,11 @@ class PyNvVideoEncoder:
 
         mux_audio_codec: Optional[str] = None
         if mux_audio_file:
+            audio_path = Path(mux_audio_file)
+            if not audio_path.exists():
+                raise FileNotFoundError(f"Audio mux source file not found: {audio_path}")
+            if not audio_path.is_file():
+                raise RuntimeError(f"Audio mux source is not a file: {audio_path}")
             mux_audio_codec = _probe_audio_codec(mux_audio_file, mux_audio_stream)
             if not mux_audio_codec:
                 raise RuntimeError(
@@ -595,7 +517,6 @@ class PyNvVideoEncoder:
                 output_path=self.output_path,
                 stream_format=stream_format,
                 fps=self.fps,
-                frames_in_bitstream=self._frames_in_current_bitstream,
                 muxer=muxer,
                 audio_file=mux_audio_file if with_audio else None,
                 audio_stream=mux_audio_stream,
@@ -679,9 +600,15 @@ class PyNvVideoEncoder:
                 _run(_build_cmd(with_audio=True), label="ffmpeg mux (video+audio)")
                 return
             except Exception:
+                if self.output_path.stem.endswith("-with-audio"):
+                    logger.exception(
+                        "ffmpeg mux with audio failed; refusing to fall back to video-only mux "
+                        "because output_path implies audio. (audio_file=%s)",
+                        mux_audio_file,
+                    )
+                    raise
                 logger.exception(
-                    "ffmpeg mux with audio failed; falling back to video-only mux. "
-                    "(audio_file=%s)",
+                    "ffmpeg mux with audio failed; falling back to video-only mux. (audio_file=%s)",
                     mux_audio_file,
                 )
 

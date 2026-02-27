@@ -17,10 +17,10 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import yaml
 
 import hmlib
-from hmlib.bbox.box_functions import scale_bbox_with_constraints
 from hmlib.log import get_logger
 
-GAME_DIR_BASE: str = os.path.join(os.environ["HOME"], "Videos")
+_HOME_DIR: str = os.environ.get("HOME") or str(Path.home())
+GAME_DIR_BASE: str = os.path.join(_HOME_DIR, "Videos")
 ROOT_DIR: str = os.path.dirname(os.path.abspath(hmlib.__file__))
 
 
@@ -288,6 +288,10 @@ def get_clip_box(game_id: str, root_dir: Optional[str] = None, use_rink_boundary
             # Alternatively, use the rink boundary box
             rink_combined_bbox = get_nested_value(game_config, "rink.ice_contours_combined_bbox")
             if rink_combined_bbox:
+                # Import lazily to avoid importing torch/numpy-heavy dependencies
+                # during lightweight config/CLI usage.
+                from hmlib.bbox.box_functions import scale_bbox_with_constraints
+
                 rink_scaled_bbox = scale_bbox_with_constraints(
                     bbox=rink_combined_bbox,
                     ratio_x=1.1,

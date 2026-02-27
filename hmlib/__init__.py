@@ -11,11 +11,17 @@ the core :mod:`hockeymom` native extension.
 import importlib
 import os
 import sys
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - optional dependency for lightweight imports
+    np = None  # type: ignore[assignment]
 
 from .constants import WIDTH_NORMALIZATION_SIZE
-from .hm_transforms import HmLoadImageFromWebcam
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .hm_transforms import HmLoadImageFromWebcam
 
 # Get the absolute path of this file's parent directory
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -25,19 +31,19 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 
-# Define a dictionary that mimics the structure of np.sctypes
-# You'll need to populate this with the specific dtypes your code expects
-# This is a simplified example; a full implementation would be more extensive
-_sctypes_mock = {
-    "int": [np.int8, np.int16, np.int32, np.int64],
-    "uint": [np.uint8, np.uint16, np.uint32, np.uint64],
-    "float": [np.float16, np.float32, np.float64],
-    "complex": [np.complex64, np.complex128],
-    "others": [np.bool_, np.object_, np.str_, np.bytes_],
-}
+if np is not None:
+    # Define a dictionary that mimics the structure of np.sctypes.
+    # This is a simplified example; a full implementation would be more extensive.
+    _sctypes_mock = {
+        "int": [np.int8, np.int16, np.int32, np.int64],
+        "uint": [np.uint8, np.uint16, np.uint32, np.uint64],
+        "float": [np.float16, np.float32, np.float64],
+        "complex": [np.complex64, np.complex128],
+        "others": [np.bool_, np.object_, np.str_, np.bytes_],
+    }
 
-# Monkey-patch np.sctypes
-np.sctypes = _sctypes_mock
+    # Monkey-patch np.sctypes
+    np.sctypes = _sctypes_mock
 
 
 __all__ = [
@@ -65,3 +71,11 @@ class LazyImport:
         if self.module is None:
             self.module = importlib.import_module(self.module_name)
         return getattr(self.module, name)
+
+
+def __getattr__(name: str) -> Any:
+    if name == "HmLoadImageFromWebcam":
+        from .hm_transforms import HmLoadImageFromWebcam
+
+        return HmLoadImageFromWebcam
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

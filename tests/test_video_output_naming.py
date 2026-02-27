@@ -10,6 +10,9 @@ def should_sanitize_game_id_for_filename():
     assert sanitize_game_id_for_filename("tv-12-1-r3") == "tv-12-1-r3"
     assert sanitize_game_id_for_filename("tv/12/1") == "tv_12_1"
     assert sanitize_game_id_for_filename(r"tv\\12\\1") == "tv_12_1"
+    assert sanitize_game_id_for_filename(None) == ""
+    assert sanitize_game_id_for_filename("") == ""
+    assert sanitize_game_id_for_filename("  ") == ""
 
 
 def should_prefix_game_id_for_deployed_videos():
@@ -32,7 +35,7 @@ def should_prefix_game_id_for_deployed_videos():
 
 
 def should_build_ffmpeg_mux_command_with_audio():
-    from hmlib.video.py_nv_encoder import build_ffmpeg_raw_bitstream_mux_cmd
+    from hmlib.video.ffmpeg_mux_cmd import build_ffmpeg_raw_bitstream_mux_cmd
 
     cmd = build_ffmpeg_raw_bitstream_mux_cmd(
         ffmpeg="ffmpeg",
@@ -40,7 +43,6 @@ def should_build_ffmpeg_mux_command_with_audio():
         output_path=Path("out.mp4"),
         stream_format="hevc",
         fps=30.0,
-        frames_in_bitstream=300,
         muxer="mp4",
         audio_file="audio.mp4",
         audio_stream=0,
@@ -74,7 +76,6 @@ def should_build_ffmpeg_mux_command_with_audio():
         output_path=Path("out.mp4"),
         stream_format="hevc",
         fps=30.0,
-        frames_in_bitstream=300,
         muxer="mp4",
         audio_file="audio.mkv",
         audio_stream=1,
