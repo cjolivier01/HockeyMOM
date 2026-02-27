@@ -1014,6 +1014,10 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         bit_rate: int = int(55e6),
         batch_size: Optional[int] = 1,
         profiler: Any = None,
+        mux_audio_file: Optional[str] = None,
+        mux_audio_stream: int = 0,
+        mux_audio_offset_seconds: float = 0.0,
+        mux_audio_aac_bitrate: str = "192k",
     ):
         if device is None or device.type != "cuda":
             raise AssertionError("PyNvVideoEncoderWriter requires a CUDA device.")
@@ -1049,6 +1053,10 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
                 else None
             ),
             bitrate=self._bit_rate,
+            mux_audio_file=mux_audio_file,
+            mux_audio_stream=mux_audio_stream,
+            mux_audio_offset_seconds=mux_audio_offset_seconds,
+            mux_audio_aac_bitrate=mux_audio_aac_bitrate,
             profiler=self._profiler,
         )
         self._frame_counter = 0
@@ -1176,6 +1184,10 @@ def create_output_video_stream(
     bit_rate: int = int(55e6),
     batch_size: Optional[int] = 1,
     profiler: Any = None,
+    mux_audio_file: Optional[str] = None,
+    mux_audio_stream: int = 0,
+    mux_audio_offset_seconds: float = 0.0,
+    mux_audio_aac_bitrate: str = "192k",
 ) -> VideoStreamWriterInterface:
     # Normalize fps to a plain float so downstream writers and backends
     # never see Fraction instances.
@@ -1193,6 +1205,10 @@ def create_output_video_stream(
             device=device,
             batch_size=batch_size,
             profiler=profiler,
+            mux_audio_file=mux_audio_file,
+            mux_audio_stream=mux_audio_stream,
+            mux_audio_offset_seconds=mux_audio_offset_seconds,
+            mux_audio_aac_bitrate=mux_audio_aac_bitrate,
         )
         output_video.open()
     elif "_nvenc" in (codec or "") or filename.startswith("rtmp://"):

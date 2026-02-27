@@ -180,6 +180,10 @@ class VideoOutput(torch.nn.ModuleDict):
         fps: float,
         fourcc: str = "auto",
         bit_rate: int = int(55e6),
+        mux_audio_file: Optional[str] = None,
+        mux_audio_stream: int = 0,
+        mux_audio_offset_seconds: float = 0.0,
+        mux_audio_aac_bitrate: str = "192k",
         save_frame_dir: str | None = None,
         name: str = "",
         simple_save: bool = False,
@@ -255,6 +259,10 @@ class VideoOutput(torch.nn.ModuleDict):
         self._visualization_config = visualization_config
         self._dtype = dtype if dtype is not None else torch.get_default_dtype()
         assert self._dtype in _FP_TYPES
+        self._mux_audio_file = str(mux_audio_file) if mux_audio_file else None
+        self._mux_audio_stream = int(mux_audio_stream or 0)
+        self._mux_audio_offset_seconds = float(mux_audio_offset_seconds or 0.0)
+        self._mux_audio_aac_bitrate = str(mux_audio_aac_bitrate or "192k")
         # TODO(colivier) not yet implemented (is it worth it?)
         self._encoder_backend = (
             None if (not encoder_backend or encoder_backend == "auto") else encoder_backend
@@ -481,6 +489,10 @@ class VideoOutput(torch.nn.ModuleDict):
                     device=self._device,
                     batch_size=1,
                     profiler=self._prof,
+                    mux_audio_file=self._mux_audio_file,
+                    mux_audio_stream=self._mux_audio_stream,
+                    mux_audio_offset_seconds=self._mux_audio_offset_seconds,
+                    mux_audio_aac_bitrate=self._mux_audio_aac_bitrate,
                 )
                 assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
 

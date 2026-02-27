@@ -320,6 +320,10 @@ def run_mmtrack(
                     # Optional stitching rotation controller (e.g., StitchDataset instance)
                     stitch_rotation_controller=config.get("stitch_rotation_controller"),
                     output_label=output_label,
+                    mux_audio_file=config.get("mux_audio_file"),
+                    mux_audio_stream=config.get("mux_audio_stream"),
+                    mux_audio_offset_seconds=config.get("mux_audio_offset_seconds"),
+                    mux_audio_aac_bitrate=config.get("mux_audio_aac_bitrate"),
                 )
                 # Optional per-plugin audit hook for debugging CUDA stream correctness.
                 audit_dir = initial_args.get("audit_dir")

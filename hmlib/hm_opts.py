@@ -256,6 +256,16 @@ class hm_opts(object):
             ),
         )
         io.add_argument(
+            "--output-label",
+            dest="output_label",
+            type=str,
+            default=None,
+            help=(
+                "Optional label used for output filenames (primarily for experiment/variant runs). "
+                "Most users should prefer --label."
+            ),
+        )
+        io.add_argument(
             "--no-save-video",
             "--no_save_video",
             dest="no_save_video",
@@ -277,6 +287,37 @@ class hm_opts(object):
             "--no-audio",
             action="store_true",
             help="Skip copying audio to the rendered video",
+        )
+        io.add_argument(
+            "--mux-audio-file",
+            dest="mux_audio_file",
+            type=str,
+            default=None,
+            help=(
+                "Optional explicit audio source file to mux into the output video. "
+                "When omitted, hmtrack will select audio from the input videos for full runs."
+            ),
+        )
+        io.add_argument(
+            "--mux-audio-stream",
+            dest="mux_audio_stream",
+            type=int,
+            default=0,
+            help="Audio stream index in --mux-audio-file (default: 0).",
+        )
+        io.add_argument(
+            "--mux-audio-offset-seconds",
+            dest="mux_audio_offset_seconds",
+            type=float,
+            default=0.0,
+            help="Optional audio offset relative to video in seconds (passed to ffmpeg -itsoffset).",
+        )
+        io.add_argument(
+            "--mux-audio-aac-bitrate",
+            dest="mux_audio_aac_bitrate",
+            type=str,
+            default="192k",
+            help="AAC bitrate to use when re-encoding non-AAC audio during mux (default: 192k).",
         )
         io.add_argument(
             "--deploy-dir",

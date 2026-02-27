@@ -38,16 +38,17 @@ from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
-from hmlib.game_audio import transfer_audio
 from hmlib.hm_opts import copy_opts, hm_opts, preferred_arg
 
 # from hmlib.hm_transforms import update_data_pipeline
 from hmlib.log import get_root_logger, logger
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
+from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tasks.tracking import run_mmtrack
 
 # from hmlib.utils.checkpoint import load_checkpoint_to_model
+from hmlib.audio import concatenate_audio
 from hmlib.utils.gpu import select_gpus
 from hmlib.utils.image import (
     image_height,
@@ -56,7 +57,11 @@ from hmlib.utils.image import (
     make_channels_last,
     resize_image,
 )
-from hmlib.utils.path import add_prefix_to_filename, add_suffix_to_filename
+from hmlib.utils.path import (
+    add_game_id_prefix_to_filename,
+    add_prefix_to_filename,
+    add_suffix_to_filename,
+)
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
 from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
 from hmlib.video.ffmpeg import BasicVideoInfo
@@ -549,6 +554,79 @@ def _resolve_base_output_path(game_config: Dict[str, Any], work_dir: str) -> str
     return str(out_path)
 
 
+def _with_audio_output_path(path: str) -> str:
+    """Return a sibling output path that makes it obvious audio is present.
+
+    Historically hmtrack produced a video-only MKV under output_workdirs and then
+    wrote an MP4-with-audio artifact. When muxing audio directly, prefer an MP4
+    output for compatibility and faststart behavior.
+    """
+    if not path:
+        return path
+    p = Path(str(path))
+    if not p.stem.endswith("-with-audio"):
+        p = Path(add_suffix_to_filename(p, "-with-audio"))
+    if p.suffix.lower() == ".mkv":
+        p = p.with_suffix(".mp4")
+    return str(p)
+
+
+def _resolve_mux_audio_source(
+    input_av_files: Any,
+) -> Tuple[str, Optional[Any]]:
+    """Select an audio source file suitable for ffmpeg muxing.
+
+    Returns (audio_source_path, temp_audio_file_handle). The temp handle must
+    be kept alive until muxing completes if present.
+    """
+    temp_audio_file = None
+    audio_source = None
+    if isinstance(input_av_files, dict) or (
+        isinstance(input_av_files, list) and len(input_av_files) == 2
+    ):
+        if isinstance(input_av_files, dict):
+            left_files = list(input_av_files.get("left") or [])
+            right_files = list(input_av_files.get("right") or [])
+            if not left_files or not right_files:
+                raise ValueError("Expected input_av_files dict with non-empty 'left' and 'right'.")
+            left_sync = left_files[0]
+            right_sync = right_files[0]
+        else:
+            left_files = [str(input_av_files[0])]
+            right_files = [str(input_av_files[1])]
+            left_sync = left_files[0]
+            right_sync = right_files[0]
+
+        lfo, rfo = synchronize_by_audio(left_sync, right_sync)
+        if lfo == 0:
+            chosen = left_files
+        elif rfo == 0:
+            chosen = right_files
+        else:
+            raise RuntimeError(f"Expected one frame offset to be zero; got {lfo=} {rfo=}.")
+
+        if len(chosen) > 1:
+            temp_audio_file = concatenate_audio(chosen)
+            if temp_audio_file is None:
+                raise RuntimeError("Failed to concatenate audio for muxing.")
+            audio_source = temp_audio_file.name
+        else:
+            audio_source = chosen[0]
+    else:
+        if isinstance(input_av_files, list):
+            if len(input_av_files) != 1:
+                raise ValueError(
+                    f"Expected a single input AV file when not stitching; got {len(input_av_files)}."
+                )
+            audio_source = str(input_av_files[0])
+        else:
+            audio_source = str(input_av_files)
+
+    if not audio_source:
+        raise RuntimeError("Could not resolve an audio source for muxing.")
+    return str(audio_source), temp_audio_file
+
+
 def _ensure_three_channel(frame: torch.Tensor) -> torch.Tensor:
     if frame.ndim != 3:
         raise AssertionError(f"Expected frame tensor HxWxC, got shape {frame.shape}")
@@ -1026,6 +1104,7 @@ class _StitchRotationController:
 def _main(args, num_gpu):
     dataloader = None
     postprocessor = None
+    mux_audio_temp_file = None
     opts = copy_opts(src=args, dest=argparse.Namespace(), parser=hm_opts.parser())
     try:
 
@@ -1447,7 +1526,7 @@ def _main(args, num_gpu):
                 args.game_config["initial_args"] = args.initial_args
 
         if args.max_frames or args.max_time:
-            if args.no_audio:
+            if not args.no_audio:
                 print("Disabling audio extraction due to max-frames/max-time limit")
                 args.no_audio = True
 
@@ -1767,21 +1846,57 @@ def _main(args, num_gpu):
         else:
             progress_bar = None
 
+        is_truncated_run = bool(args.max_time or args.max_frames)
+
         output_video_path = None
         if not args.no_save_video:
-            output_video_path = os.path.join(results_folder, "tracking_output.mkv")
-        label = getattr(args, "label", None) or getattr(args, "output_label", None)
-        if label and output_video_path:
+            output_video_path = _resolve_base_output_path(game_config, results_folder)
+
+        output_label = args.output_label or args.label
+        if output_label and output_video_path:
             try:
-                output_video_path = str(add_prefix_to_filename(output_video_path, str(label)))
+                output_video_path = str(
+                    add_prefix_to_filename(output_video_path, str(output_label))
+                )
             except Exception:
                 pass
-        if label and getattr(args, "output_video", None):
+        if output_label and args.output_video:
             try:
-                args.output_video = str(add_prefix_to_filename(args.output_video, str(label)))
+                args.output_video = str(
+                    add_prefix_to_filename(args.output_video, str(output_label))
+                )
             except Exception:
                 pass
+
+        mux_audio_file = args.mux_audio_file
+        if (
+            (not args.audio_only)
+            and (not is_truncated_run)
+            and (not args.no_audio)
+            and output_video_path
+        ):
+            if not mux_audio_file:
+                try:
+                    mux_audio_file, mux_audio_temp_file = _resolve_mux_audio_source(
+                        input_video_files
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to resolve mux audio source; continuing without audio."
+                    )
+                    mux_audio_file = None
+            if mux_audio_file:
+                output_video_path = _with_audio_output_path(output_video_path)
+
+        args.mux_audio_file = mux_audio_file
         args.output_video_path = output_video_path
+        if output_video_path:
+            try:
+                set_nested_value(
+                    game_config, "aspen.video_out.output_video_path", output_video_path
+                )
+            except Exception:
+                pass
 
         if not args.audio_only:
 
@@ -1827,54 +1942,11 @@ def _main(args, num_gpu):
             )
 
         #
-        # Optional: add audio for full runs
+        # Deploy output video and CSV artifacts to --deploy-dir (explicit) or the
+        # game directory (full run).
         #
         dest_path = None
-        is_truncated_run = bool(args.max_time or args.max_frames)
-
-        if (
-            (not is_truncated_run)
-            and (not args.no_audio)
-            and output_video_path
-            and os.path.exists(output_video_path)
-        ):
-            try:
-                output_av_path = args.output_video
-                deploy_dir = getattr(args, "deploy_dir", None)
-                if output_av_path is None and deploy_dir:
-                    os.makedirs(deploy_dir, exist_ok=True)
-                    file_name = os.path.basename(output_video_path)
-                    file_name = str(add_suffix_to_filename(file_name, "-with-audio"))
-                    base_name, extension = os.path.splitext(file_name)
-                    if extension == ".mkv":
-                        extension = ".mp4"
-                    output_av_path = None
-                    for i in range(1000):
-                        if i:
-                            fname = f"{base_name}-{i}{extension}"
-                        else:
-                            fname = f"{base_name}{extension}"
-                        candidate = os.path.join(deploy_dir, fname)
-                        if not os.path.exists(candidate):
-                            output_av_path = candidate
-                            break
-                    if output_av_path is None:
-                        raise RuntimeError("Could not find a free deploy filename for output video")
-
-                dest_path = transfer_audio(
-                    game_id=args.game_id,
-                    input_av_files=input_video_files,
-                    video_source_file=output_video_path,
-                    output_av_path=output_av_path,
-                )
-            except Exception:
-                logger.exception("Failed to transfer audio; continuing without audio.")
-                dest_path = None
-
-        #
-        # Deploy CSV artifacts to the game directory (full run) or --deploy-dir (explicit).
-        #
-        deploy_dir = getattr(args, "deploy_dir", None)
+        deploy_dir = args.deploy_dir
         target_deploy_dir = None
         if deploy_dir:
             target_deploy_dir = deploy_dir
@@ -1882,6 +1954,42 @@ def _main(args, num_gpu):
             target_deploy_dir = (
                 args.game_dir if args.game_dir and os.path.isdir(args.game_dir) else None
             )
+
+        if output_video_path and os.path.exists(output_video_path):
+            try:
+                if args.output_video:
+                    output_av_path = str(args.output_video)
+                    parent = os.path.dirname(output_av_path)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+                    if os.path.abspath(output_video_path) != os.path.abspath(output_av_path):
+                        shutil.copy2(output_video_path, output_av_path)
+                    dest_path = Path(output_av_path)
+                elif target_deploy_dir:
+                    os.makedirs(target_deploy_dir, exist_ok=True)
+                    file_name = os.path.basename(output_video_path)
+                    file_name = str(
+                        add_game_id_prefix_to_filename(file_name, args.game_id, sep="-")
+                    )
+                    base_name, extension = os.path.splitext(file_name)
+                    output_av_path = None
+                    for i in range(1000):
+                        if i:
+                            fname = f"{base_name}-{i}{extension}"
+                        else:
+                            fname = f"{base_name}{extension}"
+                        candidate = os.path.join(target_deploy_dir, fname)
+                        if not os.path.exists(candidate):
+                            output_av_path = candidate
+                            break
+                    if output_av_path is None:
+                        raise RuntimeError("Could not find a free deploy filename for output video")
+                    if os.path.abspath(output_video_path) != os.path.abspath(output_av_path):
+                        shutil.copy2(output_video_path, output_av_path)
+                    dest_path = Path(output_av_path)
+            except Exception:
+                logger.exception("Failed to deploy output video; continuing.")
+                dest_path = None
 
         if target_deploy_dir:
             os.makedirs(target_deploy_dir, exist_ok=True)
@@ -1959,6 +2067,11 @@ def _main(args, num_gpu):
             if dataloader is not None and hasattr(dataloader, "close"):
                 try:
                     dataloader.close()
+                except Exception:
+                    traceback.print_exc()
+            if mux_audio_temp_file is not None:
+                try:
+                    mux_audio_temp_file.close()
                 except Exception:
                     traceback.print_exc()
         except Exception as ex:

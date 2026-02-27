@@ -38,7 +38,8 @@ After building wheels with `./bdist_wheel` and installing them into your environ
 
 ```bash
 # Full pipeline from a configured game directory (stitch + track)
-hmtrack --game-id ev-stockton-1 --output tracking_output-with-audio.mp4
+hmtrack --game-id ev-stockton-1
+# -> $HOME/Videos/ev-stockton-1/ev-stockton-1-tracking_output-with-audio.mp4
 
 # Explicit stitching step
 hmstitch --game-id ev-stockton-1 -o stitched_output-with-audio.mp4
@@ -50,7 +51,8 @@ From the repo root you can invoke the same commands via Python modules:
 
 ```bash
 # Tracking (equivalent to hmtrack)
-python -m hmlib.cli.hmtrack --game-id ev-stockton-1 --output tracking_output-with-audio.mp4
+python -m hmlib.cli.hmtrack --game-id ev-stockton-1
+# -> $HOME/Videos/ev-stockton-1/ev-stockton-1-tracking_output-with-audio.mp4
 
 # Stitching (equivalent to hmstitch)
 python -m hmlib.cli.stitch --game-id ev-stockton-1 -o stitched_output-with-audio.mp4

@@ -53,6 +53,10 @@ class VideoOutPlugin(Plugin):
         skip_final_save: bool = False,
         save_frame_dir: Optional[str] = None,
         encoder_backend: Optional[str] = None,
+        mux_audio_file: Optional[str] = None,
+        mux_audio_stream: int = 0,
+        mux_audio_offset_seconds: float = 0.0,
+        mux_audio_aac_bitrate: str = "192k",
         output_width: Optional[str | int] = None,
         output_height: Optional[str | int] = None,
         show_image: Optional[bool] = None,
@@ -69,6 +73,10 @@ class VideoOutPlugin(Plugin):
         self._skip_final_save = bool(skip_final_save)
         self._save_dir = save_frame_dir
         self._encoder_backend = encoder_backend
+        self._mux_audio_file = mux_audio_file
+        self._mux_audio_stream = int(mux_audio_stream or 0)
+        self._mux_audio_offset_seconds = float(mux_audio_offset_seconds or 0.0)
+        self._mux_audio_aac_bitrate = str(mux_audio_aac_bitrate or "192k")
         self._output_width = output_width
         self._output_height = output_height
         self._show_image = bool(show_image) if show_image is not None else None
@@ -131,10 +139,27 @@ class VideoOutPlugin(Plugin):
             bit_rate = get_nested_value(cfg, "aspen.video_out.bit_rate", default_value=None)
         if bit_rate is None:
             bit_rate = int(55e6)
+        mux_audio_file = self._mux_audio_file
+        mux_audio_stream = self._mux_audio_stream
+        mux_audio_offset_seconds = self._mux_audio_offset_seconds
+        mux_audio_aac_bitrate = self._mux_audio_aac_bitrate
+        if isinstance(shared, dict):
+            if not mux_audio_file:
+                mux_audio_file = shared.get("mux_audio_file")
+            if shared.get("mux_audio_stream") is not None:
+                mux_audio_stream = int(shared.get("mux_audio_stream") or 0)
+            if shared.get("mux_audio_offset_seconds") is not None:
+                mux_audio_offset_seconds = float(shared.get("mux_audio_offset_seconds") or 0.0)
+            if shared.get("mux_audio_aac_bitrate") is not None:
+                mux_audio_aac_bitrate = str(shared.get("mux_audio_aac_bitrate") or "192k")
         self._vo = VideoOutput(
             output_video_path=out_path,
             fps=fps,
             bit_rate=bit_rate,
+            mux_audio_file=mux_audio_file,
+            mux_audio_stream=mux_audio_stream,
+            mux_audio_offset_seconds=mux_audio_offset_seconds,
+            mux_audio_aac_bitrate=mux_audio_aac_bitrate,
             save_frame_dir=self._save_dir,
             name="TRACKING",
             skip_final_save=self._skip_final_save,
