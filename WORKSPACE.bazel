@@ -203,7 +203,7 @@ conda_repository(
 ################################ HockeyMOM Sub-Modules ################################
 git_repository(
     name = "hm-cupano",
-    commit = "77179ee5665c25678aaf5913c78b3345bacb003a",
+    commit = "a3cfd93aa77b33c777df745b80ba33d69fc1c758",
     remote = "https://github.com/cjolivier01/hm-cupano.git",
 )
 

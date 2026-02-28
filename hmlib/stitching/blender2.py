@@ -1004,9 +1004,9 @@ def create_stitcher(
                     levels,
                     size1,
                     size2,
-                    auto_adjust_exposure,
-                    minimize_blend,
-                    max_output_width_i,
+                    match_exposure=auto_adjust_exposure,
+                    minimize_blend=minimize_blend,
+                    max_output_width=max_output_width_i,
                 )
             elif dtype == torch.uint8:
                 stitcher = CudaStitchPanoU8(
@@ -1015,9 +1015,9 @@ def create_stitcher(
                     levels,
                     size1,
                     size2,
-                    auto_adjust_exposure,
-                    minimize_blend,
-                    max_output_width_i,
+                    match_exposure=auto_adjust_exposure,
+                    minimize_blend=minimize_blend,
+                    max_output_width=max_output_width_i,
                 )
             else:
                 raise ValueError(f"Unsupported dtype for cuda pano: {dtype}")
@@ -1032,7 +1032,9 @@ def create_stitcher(
                 batch_size,
                 levels,
                 input_sizes,
-                auto_adjust_exposure,
+                match_exposure=auto_adjust_exposure,
+                minimize_blend=minimize_blend,
+                quiet=False,
             )
         if dtype == torch.uint8:
             return CudaStitchPanoNU8(
@@ -1040,7 +1042,9 @@ def create_stitcher(
                 batch_size,
                 levels,
                 input_sizes,
-                auto_adjust_exposure,
+                match_exposure=auto_adjust_exposure,
+                minimize_blend=minimize_blend,
+                quiet=False,
             )
         raise ValueError(f"Unsupported dtype for cuda pano N: {dtype}")
 
