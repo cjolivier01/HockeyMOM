@@ -23,6 +23,7 @@ from mmcv.transforms import Compose
 # from mmengine.config import Config
 # from torch.nn.parallel import DistributedDataParallel as DDP
 import hmlib
+import hmlib.hm_transforms  # noqa: F401 (register custom MMEngine transforms)
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
 from hmlib.camera.camera import should_unsharp_mask_camera
@@ -1417,9 +1418,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params[
-                            "tracker_class"
-                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        tracker_params["tracker_class"] = (
+                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        )
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
