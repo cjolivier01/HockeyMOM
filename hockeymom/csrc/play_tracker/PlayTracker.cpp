@@ -289,7 +289,7 @@ int find_outlier_index(const std::vector<BBox>& boxes, float r = 1.0) {
 PlayTracker::PlayTracker(
     const BBox& initial_box,
     const PlayTrackerConfig& config)
-    : config_(config), play_detector_(PlayDetectorConfig(), this) {
+    : config_(config), play_detector_(config.play_detector, this) {
   create_boxes(initial_box);
 }
 
