@@ -196,9 +196,26 @@ def cmd_run(args: argparse.Namespace) -> None:
         if image_user and image_user != args.username and ":" not in image_user:
             docker_cmd += ["-v", f"{host_videos}:/home/{args.username}/Videos:rw"]
 
+    container_workdir: str | None = None
+
     if args.dev_mount:
-        docker_cmd += ["-v", f"{repo_root}:/workspace/hm:rw", "-w", "/workspace/hm"]
+        docker_cmd += ["-v", f"{repo_root}:/workspace/hm:rw"]
         docker_cmd += ["-e", "PYTHONPATH=/workspace/hm:/workspace/hm/src"]
+        container_workdir = "/workspace/hm"
+
+    if args.workdir:
+        host_workdir = Path(args.workdir).expanduser().resolve()
+        host_workdir.mkdir(parents=True, exist_ok=True)
+        container_workdir = "/workspace/workdir"
+        print(
+            f"NOTE: Mounting workdir: {host_workdir} -> {container_workdir} "
+            "(relative outputs like ./output_workdirs are written here)",
+            file=sys.stderr,
+        )
+        docker_cmd += ["-v", f"{host_workdir}:{container_workdir}:rw"]
+
+    if container_workdir:
+        docker_cmd += ["-w", container_workdir]
 
     cmd = args.command if args.command else ["bash"]
     if cmd and cmd[0] == "--":
@@ -289,6 +306,14 @@ def main(argv: list[str]) -> int:
         "--dev-mount",
         action="store_true",
         help="Bind-mount this repo into /workspace/hm for development (overrides PYTHONPATH)",
+    )
+    run.add_argument(
+        "--workdir",
+        default=None,
+        help=(
+            "Host directory to mount as /workspace/workdir and use as container cwd. "
+            "Relative output paths (for example ./output_workdirs) are created there."
+        ),
     )
     run.add_argument("--shm-size", default="2g", help="Shared memory size (default: 2g)")
     run.add_argument(

@@ -29,6 +29,7 @@ Global options (passed to scripts/hm_cuda_container.py run):
   --no-gpus              Run without GPU flags
   --videos-mount DIR     Host videos dir (default: ~/Videos)
   --no-videos-mount      Disable videos mount
+  --workdir DIR          Host work dir mounted as container cwd
   --dev-mount            Bind-mount this repo into /workspace/hm
   --name NAME            Container name
   --network NET          Container network (default: bridge)
@@ -45,6 +46,7 @@ Examples:
   ./DockerRun.sh hmtrack --game-id stockton-r3 -t=60
   ./DockerRun.sh hmstitch --game-id stockton-r3 -o stitched.mp4
   ./DockerRun.sh hmstitch --no-hwenc-clamp --game-id stockton-r3 -o stitched.mp4
+  ./DockerRun.sh --workdir /tmp/hm-work hmtrack --game-id stockton-r3
   ./DockerRun.sh list-cli
   ./DockerRun.sh docs --open
   ./DockerRun.sh docs --serve
@@ -69,7 +71,7 @@ while [[ $# -gt 0 ]]; do
       hwenc_clamp=0
       shift
       ;;
-    --tag|--gpus|--videos-mount|--name|--network|--shm-size)
+    --tag|--gpus|--videos-mount|--workdir|--name|--network|--shm-size)
       if [[ $# -lt 2 ]]; then
         echo "ERROR: $1 requires a value" >&2
         exit 2

@@ -36,6 +36,14 @@ Run tracking (example):
 ./DockerRun.sh hmtrack --game-id stockton-r3 -t=60
 ```
 
+Run tracking with a host working directory mounted as the container cwd:
+
+```bash
+./DockerRun.sh --workdir /path/to/hm-work hmtrack --game-id stockton-r3
+```
+
+With `--workdir`, relative outputs (such as `./output_workdirs/...`) are written under the mounted host directory.
+
 Run stitching (example):
 
 ```bash
@@ -56,6 +64,16 @@ Disable mounting:
 
 ```bash
 ./DockerRun.sh --no-videos-mount bash
+```
+
+## Workdir mount
+
+Use `--workdir <dir>` to mount a host directory at `/workspace/workdir` and make it the container working directory. This is useful when you want `output_workdirs` on a host path you choose.
+
+Example:
+
+```bash
+./DockerRun.sh --workdir /mnt/data/hm-runs hmtrack --game-id stockton-r3
 ```
 
 ## Stitching + NVENC width limit (8192)
