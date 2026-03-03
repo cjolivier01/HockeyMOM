@@ -32,4 +32,7 @@ if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-PYTHONPATH="$(pwd)" exec python scripts/hm_cuda_container.py build "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${SCRIPT_DIR}"
+
+PYTHONPATH="${REPO_ROOT}" exec python "${REPO_ROOT}/scripts/hm_cuda_container.py" build "$@"

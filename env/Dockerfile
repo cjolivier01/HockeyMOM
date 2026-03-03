@@ -367,7 +367,9 @@ RUN set -eux; \
   build_install /opt/hm/src/hm/openmm/mmpretrain "mmpretrain-*.whl"; \
   build_install /opt/hm/src/hm/openmm/mmyolo "mmyolo-*.whl"; \
   build_install /opt/hm/src/hm/openmm/mmaction2 "mmaction2-*.whl"; \
-  build_install /opt/hm/src/hm/openmm/mmrotate/src/e2cnn "e2cnn-*.whl"; \
+  if [ -d /opt/hm/src/hm/openmm/mmrotate/src/e2cnn ]; then \
+    build_install /opt/hm/src/hm/openmm/mmrotate/src/e2cnn "e2cnn-*.whl"; \
+  fi; \
   build_install /opt/hm/src/hm/openmm/mmrotate "mmrotate-*.whl"; \
   build_install /opt/hm/src/hm/openmm/mmocr "mmocr-*.whl"; \
   build_install /opt/hm/src/hm/openmm/mmpose "mmpose-*.whl"; \
