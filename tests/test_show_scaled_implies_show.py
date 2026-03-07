@@ -8,13 +8,13 @@ def should_show_scaled_imply_show_image_and_config() -> None:
     args = parser.parse_args(["--show-scaled", "0.5"])
 
     # Mimic hmtrack ordering: apply arg->config overrides before hm_opts.init.
-    game_config = {"aspen": {"video_out": {"show_image": False, "show_scaled": None}}}
-    hm_opts.apply_arg_config_overrides(game_config, args)
+    game_config = {"video_out": {"show_image": False, "show_scaled": None}}
+    hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
     args.game_config = game_config
     args = hm_opts.init(args, parser)
 
     assert args.show_image is True
-    assert args.game_config["aspen"]["video_out"]["show_image"] is True
+    assert args.game_config["video_out"]["show_image"] is True
 
 
 def should_map_stitch_frame_time_arg_into_config() -> None:
@@ -23,10 +23,10 @@ def should_map_stitch_frame_time_arg_into_config() -> None:
     parser = hm_opts.parser(argparse.ArgumentParser())
     args = parser.parse_args(["--stitch-frame-time", "00:00:07"])
 
-    game_config = {"aspen": {"stitching": {"stitch_frame_time": "00:00:00"}}}
-    hm_opts.apply_arg_config_overrides(game_config, args)
+    game_config = {"stitching": {"stitch_frame_time": "00:00:00"}}
+    hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
 
-    assert game_config["aspen"]["stitching"]["stitch_frame_time"] == "00:00:07"
+    assert game_config["stitching"]["stitch_frame_time"] == "00:00:07"
 
 
 def should_read_stitch_frame_time_from_loaded_config_when_cli_missing() -> None:
@@ -34,7 +34,7 @@ def should_read_stitch_frame_time_from_loaded_config_when_cli_missing() -> None:
 
     parser = hm_opts.parser(argparse.ArgumentParser())
     args = parser.parse_args([])
-    args.game_config = {"aspen": {"stitching": {"stitch_frame_time": "00:00:42"}}}
+    args.game_config = {"stitching": {"stitch_frame_time": "00:00:42"}}
 
     args = hm_opts.init(args, parser)
 
@@ -52,9 +52,48 @@ def should_not_read_private_stitch_frame_time_when_ignore_private_config(monkeyp
     monkeypatch.setattr(
         hm_opts_module,
         "get_game_config_private",
-        lambda game_id: {"aspen": {"stitching": {"stitch_frame_time": "00:00:33"}}},
+        lambda game_id: {"stitching": {"stitch_frame_time": "00:00:33"}},
     )
 
     args = hm_opts.init(args, parser)
 
     assert args.stitch_frame_time is None
+
+
+def should_map_minimize_blend_zero_into_config_and_resolved_plugin_param() -> None:
+    from hmlib.config import resolve_global_refs
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(["--minimize-blend", "0"])
+
+    game_config = {
+        "stitching": {"minimize_blend": True},
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "class": "x.y.Z",
+                    "depends": [],
+                    "params": {"minimize_blend": "GLOBAL.stitching.minimize_blend"},
+                }
+            }
+        },
+    }
+    hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
+    resolve_global_refs(game_config)
+
+    assert game_config["stitching"]["minimize_blend"] is False
+    assert game_config["aspen"]["plugins"]["stitching"]["params"]["minimize_blend"] is False
+
+
+def should_not_apply_parser_defaults_as_config_overrides() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args([])
+
+    game_config = {"stitching": {"auto_adjust_exposure": True, "blend_mode": "multiblend"}}
+    hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
+
+    assert game_config["stitching"]["auto_adjust_exposure"] is True
+    assert game_config["stitching"]["blend_mode"] == "multiblend"

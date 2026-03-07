@@ -9,7 +9,12 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
 
 import yaml
 
-from hmlib.config import get_game_config_private, get_nested_value, set_nested_value
+from hmlib.config import (
+    get_game_config_private,
+    get_nested_value,
+    normalize_runtime_config,
+    set_nested_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +65,25 @@ def _get_disable_progress_bar() -> bool:
     import os
 
     return bool(os.environ.get("SLURM_JOBID", ""))
+
+
+def _rewrite_legacy_runtime_override_key(key_path: str) -> str:
+    rewrites = (
+        ("aspen.stitching.", "stitching."),
+        ("aspen.video_out.", "video_out."),
+        ("aspen.apply_camera.", "apply_camera."),
+        ("aspen.play_tracker.", "play_tracker."),
+        ("aspen.ice_boundaries.", "ice_boundaries."),
+        ("aspen.left_stitch_pipeline", "stitching.left_stitch_pipeline"),
+        ("aspen.right_stitch_pipeline", "stitching.right_stitch_pipeline"),
+        ("aspen.video_out_pipeline", "video_out_pipeline"),
+    )
+    for legacy, current in rewrites:
+        if key_path == legacy:
+            return current
+        if legacy.endswith(".") and key_path.startswith(legacy):
+            return current + key_path[len(legacy) :]
+    return key_path
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -1010,7 +1034,7 @@ class hm_opts(object):
             help=(
                 "Backend for PyNvVideoEncoder when using NVENC writers. "
                 "Values: auto (use baseline.yaml / auto-detect), pyav, ffmpeg, raw. "
-                "When provided, this overrides aspen.video_out.encoder_backend from baseline.yaml."
+                "When provided, this overrides video_out.encoder_backend from baseline.yaml."
             ),
         )
         # parser.add_argument(
@@ -1409,6 +1433,30 @@ class hm_opts(object):
             opt = self._parser.parse_args(args)
         return self.init(opt)
 
+    @staticmethod
+    def collect_explicit_arg_names(
+        parser: argparse.ArgumentParser, argv: Optional[Sequence[str]] = None
+    ) -> set[str]:
+        """Return argparse dest names explicitly present in ``argv``."""
+        if argv is None:
+            import sys
+
+            argv = sys.argv[1:]
+        explicit: set[str] = set()
+        option_actions = getattr(parser, "_option_string_actions", {})
+        for token in argv:
+            if not isinstance(token, str):
+                continue
+            if token == "--":
+                break
+            opt = token.split("=", 1)[0] if token.startswith("-") else None
+            if not opt:
+                continue
+            action = option_actions.get(opt)
+            if action is not None and getattr(action, "dest", None):
+                explicit.add(action.dest)
+        return explicit
+
     # TODO: How can this be generalized with the nesting in the yaml?
     CONFIG_TO_ARGS = [
         # "model.tracker.pre_hm": "pre_hm",
@@ -1424,52 +1472,34 @@ class hm_opts(object):
             ("aspen_thread_graph", "aspen.pipeline.graph"),
             ("display_plugin_profile", "aspen.pipeline.display_plugin_profile"),
             ("display_aspen_graph", "aspen.pipeline.display_graph"),
-            ("aspen_stitching", "aspen.stitching.enabled"),
-            ("blend_mode", "aspen.stitching.blend_mode"),
-            ("max_blend_levels", "aspen.stitching.max_blend_levels"),
-            ("stitch_auto_adjust_exposure", "aspen.stitching.auto_adjust_exposure"),
-            ("python_blender", "aspen.stitching.python_blender"),
-            ("no_minimize_blend", "aspen.stitching.minimize_blend"),
-            ("minimize_blend", "aspen.stitching.minimize_blend"),
-            ("no_cuda_streams", "aspen.stitching.no_cuda_streams"),
-            ("stitch_rotate_degrees", "aspen.stitching.post_stitch_rotate_degrees"),
-            ("stitch_frame_time", "aspen.stitching.stitch_frame_time"),
-            ("fp16_stitch", "aspen.stitching.dtype"),
-            ("stitch_pto_project_file", "aspen.stitching.pto_project_file"),
-            (
-                "skip_final_video_save",
-                [
-                    "aspen.video_out.skip_final_save",
-                    "aspen.plugins.video_out.params.skip_final_save",
-                ],
-            ),
-            ("video_encoder_backend", "aspen.video_out.encoder_backend"),
-            ("output_file", "aspen.plugins.video_out.params.output_video_path"),
-            ("save_frame_dir", "aspen.plugins.video_out.params.save_frame_dir"),
-            ("crop_play_box", "aspen.apply_camera.crop_play_box"),
-            ("no_crop", "aspen.apply_camera.crop_output_image"),
-            ("end_zones", "aspen.apply_camera.end_zones"),
-            ("show_image", "aspen.video_out.show_image"),
-            ("show_scaled", "aspen.video_out.show_scaled"),
-            (
-                "output_width",
-                [
-                    "aspen.video_out.output_width",
-                    "aspen.plugins.video_out.params.output_width",
-                ],
-            ),
-            (
-                "output_height",
-                [
-                    "aspen.video_out.output_height",
-                    "aspen.plugins.video_out.params.output_height",
-                ],
-            ),
+            ("aspen_stitching", "stitching.enabled"),
+            ("blend_mode", "stitching.blend_mode"),
+            ("max_blend_levels", "stitching.max_blend_levels"),
+            ("stitch_auto_adjust_exposure", "stitching.auto_adjust_exposure"),
+            ("python_blender", "stitching.python_blender"),
+            ("no_minimize_blend", "stitching.minimize_blend"),
+            ("minimize_blend", "stitching.minimize_blend"),
+            ("no_cuda_streams", "stitching.no_cuda_streams"),
+            ("stitch_rotate_degrees", "stitching.post_stitch_rotate_degrees"),
+            ("stitch_frame_time", "stitching.stitch_frame_time"),
+            ("fp16_stitch", "stitching.dtype"),
+            ("stitch_pto_project_file", "stitching.pto_project_file"),
+            ("skip_final_video_save", "video_out.skip_final_save"),
+            ("video_encoder_backend", "video_out.encoder_backend"),
+            ("output_file", "video_out.output_video_path"),
+            ("save_frame_dir", "video_out.save_frame_dir"),
+            ("crop_play_box", "apply_camera.crop_play_box"),
+            ("no_crop", "apply_camera.crop_output_image"),
+            ("end_zones", "apply_camera.end_zones"),
+            ("show_image", "video_out.show_image"),
+            ("show_scaled", "video_out.show_scaled"),
+            ("output_width", "video_out.output_width"),
+            ("output_height", "video_out.output_height"),
             ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
-            ("output_video_bit_rate", "aspen.video_out.bit_rate"),
+            ("output_video_bit_rate", "video_out.bit_rate"),
             (
                 "checkerboard_input",
-                ["debug.rgb_stats_check.enable", "aspen.stitching.capture_rgb_stats"],
+                ["debug.rgb_stats_check.enable", "stitching.capture_rgb_stats"],
             ),
             ("debug_play_tracker", "plot.debug_play_tracker"),
             ("plot_moving_boxes", "plot.plot_moving_boxes"),
@@ -1529,18 +1559,30 @@ class hm_opts(object):
         arg_to_config: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
         value_map: Optional[Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]]] = None,
         setdefault_args: Optional[Sequence[str]] = None,
+        parser: Optional[argparse.ArgumentParser] = None,
+        explicit_arg_names: Optional[Sequence[str]] = None,
     ) -> bool:
         """Apply CLI-ish overrides to a config dict using dot-path mappings."""
         if not isinstance(config, dict) or args is None:
             return False
+        normalize_runtime_config(config)
         arg_to_config = arg_to_config or hm_opts.ARG_TO_CONFIG_MAP
         value_map = value_map or hm_opts.ARG_VALUE_MAP
         setdefault_set = set(setdefault_args or hm_opts.ARG_SETDEFAULT)
+        explicit_set = set(explicit_arg_names) if explicit_arg_names is not None else None
         changed = False
         for arg_name, cfg_paths in arg_to_config.items():
             raw_value = _get_arg_value(args, arg_name)
             if raw_value is _MISSING_ARG or raw_value is None:
                 continue
+            if explicit_set is not None and arg_name not in explicit_set:
+                continue
+            if explicit_set is None and parser is not None:
+                try:
+                    if raw_value == parser.get_default(arg_name):
+                        continue
+                except Exception:
+                    pass
             mapper = value_map.get(arg_name)
             mapped_value = raw_value
             if mapper is not None:
@@ -1593,13 +1635,14 @@ class hm_opts(object):
         """
         if not isinstance(config, dict) or not overrides:
             return False
+        normalize_runtime_config(config)
 
         changed = False
         for ov in overrides:
             if not isinstance(ov, str) or "=" not in ov:
                 continue
             key, val = ov.split("=", 1)
-            key_path = key.strip()
+            key_path = _rewrite_legacy_runtime_override_key(key.strip())
             sval = val.strip()
             lval = sval.lower()
             if lval in ("null", "none"):
@@ -1634,7 +1677,8 @@ class hm_opts(object):
             opt.show_image = True
             try:
                 if isinstance(getattr(opt, "game_config", None), dict):
-                    set_nested_value(opt.game_config, "aspen.video_out.show_image", True)
+                    normalize_runtime_config(opt.game_config)
+                    set_nested_value(opt.game_config, "video_out.show_image", True)
             except Exception:
                 pass
 
@@ -1686,14 +1730,16 @@ class hm_opts(object):
                 val = None
                 game_cfg = getattr(opt, "game_config", None)
                 if isinstance(game_cfg, dict):
-                    val = get_nested_value(game_cfg, "aspen.stitching.stitch_frame_time", None)
+                    normalize_runtime_config(game_cfg)
+                    val = get_nested_value(game_cfg, "stitching.stitch_frame_time", None)
                     if val is None:
                         val = get_nested_value(game_cfg, "game.stitching.stitch-frame-time", None)
                     if val is None:
                         val = get_nested_value(game_cfg, "game.stitching.stitch_frame_time", None)
                 if val is None and opt.game_id and not bool(opt.ignore_private_config):
                     cfg_priv = get_game_config_private(game_id=opt.game_id)
-                    val = get_nested_value(cfg_priv, "aspen.stitching.stitch_frame_time", None)
+                    normalize_runtime_config(cfg_priv)
+                    val = get_nested_value(cfg_priv, "stitching.stitch_frame_time", None)
                     if val is None:
                         val = get_nested_value(cfg_priv, "game.stitching.stitch-frame-time", None)
                     if val is None:
@@ -1712,14 +1758,24 @@ class hm_opts(object):
                 val = None
                 game_cfg = getattr(opt, "game_config", None)
                 if isinstance(game_cfg, dict):
-                    val = get_nested_value(game_cfg, "game.stitching.stitch-rotate-degrees", None)
+                    normalize_runtime_config(game_cfg)
+                    val = get_nested_value(game_cfg, "stitching.post_stitch_rotate_degrees", None)
+                    if val is None:
+                        val = get_nested_value(
+                            game_cfg, "game.stitching.stitch-rotate-degrees", None
+                        )
                     if val is None:
                         val = get_nested_value(
                             game_cfg, "game.stitching.stitch_rotate_degrees", None
                         )
                 if val is None and opt.game_id and not bool(opt.ignore_private_config):
                     cfg_priv = get_game_config_private(game_id=opt.game_id)
-                    val = get_nested_value(cfg_priv, "game.stitching.stitch-rotate-degrees", None)
+                    normalize_runtime_config(cfg_priv)
+                    val = get_nested_value(cfg_priv, "stitching.post_stitch_rotate_degrees", None)
+                    if val is None:
+                        val = get_nested_value(
+                            cfg_priv, "game.stitching.stitch-rotate-degrees", None
+                        )
                     if val is None:
                         val = get_nested_value(
                             cfg_priv, "game.stitching.stitch_rotate_degrees", None
@@ -1738,7 +1794,11 @@ class hm_opts(object):
         game_cfg = getattr(opt, "game_config", None)
         if isinstance(game_cfg, dict):
             # Helper to know if a CLI option was explicitly provided (not just default)
+            explicit_arg_names = set(getattr(opt, "explicit_arg_names", []) or [])
+
             def _cli_spec(name: str) -> bool:
+                if name in explicit_arg_names:
+                    return True
                 try:
                     return parser is not None and getattr(opt, name) != parser.get_default(name)
                 except Exception:

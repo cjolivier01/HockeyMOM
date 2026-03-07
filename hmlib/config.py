@@ -8,6 +8,7 @@ HockeyMOM pipelines (games, rinks, cameras and private overrides).
 """
 
 import argparse
+import copy
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -66,7 +67,7 @@ def get_game_dir(game_id: str, assert_exists: bool = True) -> Optional[str]:
     if os.path.isdir(game_video_dir):
         return game_video_dir
     if assert_exists:
-        raise AssertionError(f"No game direectory found for game id: {game_id}")
+        raise AssertionError(f"No game directory found for game id: {game_id}")
     return None
 
 
@@ -255,6 +256,7 @@ def get_config(
     consolidated_config = recursive_update(consolidated_config, rink_config)
     consolidated_config = recursive_update(consolidated_config, game_config)
     consolidated_config = recursive_update(consolidated_config, private_config)
+    consolidated_config = normalize_runtime_config(consolidated_config)
     if resolve_globals:
         consolidated_config = resolve_global_refs(consolidated_config)
     return consolidated_config
@@ -321,6 +323,68 @@ def recursive_update(original, update):
         else:
             original[key] = value
     return original
+
+
+def _delete_nested_key(dct: Dict[str, Any], key_str: str) -> bool:
+    keys = [k for k in str(key_str).split(".") if k]
+    if not keys or not isinstance(dct, dict):
+        return False
+    cur: Any = dct
+    parents: List[Tuple[Dict[str, Any], str]] = []
+    for key in keys[:-1]:
+        if not isinstance(cur, dict) or key not in cur:
+            return False
+        parents.append((cur, key))
+        cur = cur[key]
+    if not isinstance(cur, dict) or keys[-1] not in cur:
+        return False
+    del cur[keys[-1]]
+    while parents:
+        parent, key = parents.pop()
+        child = parent.get(key)
+        if isinstance(child, dict) and not child:
+            del parent[key]
+        else:
+            break
+    return True
+
+
+_LEGACY_RUNTIME_KEY_MAP: Tuple[Tuple[str, str], ...] = (
+    ("aspen.stitching", "stitching"),
+    ("aspen.video_out", "video_out"),
+    ("aspen.apply_camera", "apply_camera"),
+    ("aspen.play_tracker", "play_tracker"),
+    ("aspen.ice_boundaries", "ice_boundaries"),
+    ("aspen.left_stitch_pipeline", "stitching.left_stitch_pipeline"),
+    ("aspen.right_stitch_pipeline", "stitching.right_stitch_pipeline"),
+    ("aspen.video_out_pipeline", "video_out_pipeline"),
+)
+
+
+def normalize_runtime_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Migrate legacy runtime config keys out of ``aspen.*``.
+
+    The Aspen namespace now owns graph structure (`plugins`, `pipeline`,
+    `inference_pipeline`, etc.). Runtime values consumed by plugins live at
+    top-level keys such as ``stitching`` and ``video_out``.
+
+    Legacy configs are still accepted by moving known ``aspen.*`` runtime keys
+    into their new locations before CLI overrides and GLOBAL substitution.
+    """
+    if not isinstance(config, dict):
+        return config
+
+    for legacy_path, new_path in _LEGACY_RUNTIME_KEY_MAP:
+        legacy_value = get_nested_value(config, legacy_path, default_value=None)
+        if legacy_value is None:
+            continue
+        current_value = get_nested_value(config, new_path, default_value=None)
+        if isinstance(current_value, dict) and isinstance(legacy_value, dict):
+            recursive_update(current_value, copy.deepcopy(legacy_value))
+        elif current_value is None:
+            set_nested_value(config, new_path, copy.deepcopy(legacy_value))
+        _delete_nested_key(config, legacy_path)
+    return config
 
 
 def get_nested_value(dct, key_str, default_value=None):
@@ -420,6 +484,8 @@ def resolve_global_refs(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         The same dict with references resolved in-place.
     """
+
+    normalize_runtime_config(config)
 
     def _walk(node: Any, root: Dict[str, Any]) -> Any:
         if isinstance(node, dict):

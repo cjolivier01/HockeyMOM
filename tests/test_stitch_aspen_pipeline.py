@@ -108,7 +108,7 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         save_frame_dir=None,
         no_cuda_streams=True,
         no_progress_bar=True,
-        config_overrides=["aspen.stitching.enabled=false"],
+        config_overrides=["stitching.enabled=false"],
     )
 
     out_path = tmp_path / "stitched.mkv"
@@ -137,8 +137,8 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     params = vo_spec.get("params", {})
     assert params.get("output_video_path") == str(out_path)
 
-    # --config-override should have been applied to the loaded Aspen config.
-    # Disabling aspen.stitching.enabled should disable the StitchingPlugin trunk.
+    # --config-override should have been applied to the loaded config.
+    # Disabling stitching.enabled should disable the StitchingPlugin trunk.
     assert plugins.get("stitching", {}).get("enabled") is False
 
     # At least one frame should have been forwarded into AspenNet with
@@ -184,8 +184,8 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         no_cuda_streams=True,
         no_progress_bar=True,
         config_overrides=[
-            "aspen.stitching.enabled=false",
-            "aspen.stitching.stitch_frame_time=00:00:02",
+            "stitching.enabled=false",
+            "stitching.stitch_frame_time=00:00:02",
         ],
     )
 
