@@ -114,6 +114,7 @@ def stitch_videos(
         get_config,
         get_nested_value,
         load_yaml_files_ordered,
+        normalize_runtime_config,
         resolve_global_refs,
     )
 
@@ -138,16 +139,28 @@ def stitch_videos(
         aspen_cfg_all: Dict[str, Any] = load_yaml_files_ordered(
             ["config/aspen/stitching.yaml"], base=base_cfg
         )
+        normalize_runtime_config(aspen_cfg_all)
         if args is not None:
-            hm_opts.apply_arg_config_overrides(aspen_cfg_all, args)
+            hm_opts.apply_arg_config_overrides(
+                aspen_cfg_all,
+                args,
+                parser=hm_opts.parser(parser=make_parser()),
+                explicit_arg_names=getattr(args, "explicit_arg_names", None),
+            )
             hm_opts.apply_config_overrides(aspen_cfg_all, getattr(args, "config_overrides", None))
             args.game_config = aspen_cfg_all
         resolve_global_refs(aspen_cfg_all)
 
-        config_stitch_frame_time = get_nested_value(
-            aspen_cfg_all, "aspen.stitching.stitch_frame_time", None
-        )
+        stitch_cfg = get_nested_value(aspen_cfg_all, "stitching", {}) or {}
+        config_stitch_frame_time = stitch_cfg.get("stitch_frame_time")
         stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
+        blend_mode = str(stitch_cfg.get("blend_mode") or blend_mode)
+        auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
+        minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
+        python_blender = bool(stitch_cfg.get("python_blender", python_blender))
+        post_stitch_rotate_degrees = stitch_cfg.get(
+            "post_stitch_rotate_degrees", post_stitch_rotate_degrees
+        )
         if start_frame_time:
             stitch_time_is_zero = stitch_frame_time is None
             if not stitch_time_is_zero and stitch_frame_time:
@@ -639,6 +652,7 @@ def _main(args) -> None:
 def main() -> None:
     parser = hm_opts.parser(parser=make_parser())
     args = parser.parse_args()
+    args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser)
     args = hm_opts.init(args, parser=parser)
     _main(args)
 

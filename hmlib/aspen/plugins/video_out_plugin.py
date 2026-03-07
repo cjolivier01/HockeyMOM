@@ -4,7 +4,7 @@ import os
 from typing import Any, Dict, Optional
 
 from hmlib.builder import HM
-from hmlib.config import get_nested_value
+from hmlib.config import get_nested_value, normalize_runtime_config
 from hmlib.utils.path import add_prefix_to_filename
 from hmlib.video.video_out import VideoOutput
 
@@ -99,16 +99,19 @@ class VideoOutPlugin(Plugin):
 
         device = shared.get("device")
         cfg = shared.get("game_config") or {}
+        normalize_runtime_config(cfg)
         vo_dev = self._vo_dev if self._vo_dev is not None else device
         # Resolve the output video path:
         #   1. Explicit path passed via plugin params (_out_path)
-        #   2. CLI/config-derived path in game_config.aspen.video_out.output_video_path
+        #   2. CLI/config-derived path in game_config.video_out.output_video_path
         #   3. Fallback to <work_dir>/tracking_output.mkv
         out_path = self._out_path
         if not out_path or "/" not in out_path:
-            candidate = get_nested_value(
-                cfg, "aspen.video_out.output_video_path", default_value=None
-            )
+            candidate = get_nested_value(cfg, "video_out.output_video_path", default_value=None)
+            if not candidate:
+                candidate = get_nested_value(
+                    cfg, "aspen.video_out.output_video_path", default_value=None
+                )
             if not candidate:
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
                 candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
@@ -135,6 +138,8 @@ class VideoOutPlugin(Plugin):
             fps = 30.0
 
         bit_rate = self._bit_rate
+        if bit_rate is None:
+            bit_rate = get_nested_value(cfg, "video_out.bit_rate", default_value=None)
         if bit_rate is None:
             bit_rate = get_nested_value(cfg, "aspen.video_out.bit_rate", default_value=None)
         if bit_rate is None:
@@ -170,12 +175,24 @@ class VideoOutPlugin(Plugin):
             show_image=bool(
                 self._show_image
                 if self._show_image is not None
-                else get_nested_value(cfg, "aspen.video_out.show_image", default_value=False)
+                else get_nested_value(
+                    cfg,
+                    "video_out.show_image",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.show_image", default_value=False
+                    ),
+                )
             ),
             show_scaled=(
                 self._show_scaled
                 if self._show_scaled is not None
-                else get_nested_value(cfg, "aspen.video_out.show_scaled", default_value=None)
+                else get_nested_value(
+                    cfg,
+                    "video_out.show_scaled",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.show_scaled", default_value=None
+                    ),
+                )
             ),
             profiler=shared.get("profiler", None),
             enable_end_zones=False,

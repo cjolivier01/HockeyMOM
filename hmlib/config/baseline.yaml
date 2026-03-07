@@ -39,7 +39,7 @@ plot:
   plot_ice_mask: false
 
 #
-# Aspen / video output defaults
+# Aspen engine defaults
 #
 aspen:
   # AspenNet execution settings (serial vs threaded).
@@ -52,47 +52,54 @@ aspen:
     graph: true
     queue_size: 2
     cuda_streams: true
-  apply_camera:
-    crop_play_box: false
-    crop_output_image: true
-    end_zones: false
-  video_out:
-    # Whether to skip final container flush/save in VideoOutput.
-    # CLI flag --skip-final-video-save overrides this when provided.
-    skip_final_save: false
-    # Default NVENC video encoder backend used by VideoOutput / PyNvVideoEncoder.
-    # Valid values:
-    #   - auto   : let the runtime decide / use library defaults
-    #   - pyav   : use the PyAV container muxer
-    #   - ffmpeg : use the streaming ffmpeg CLI muxer
-    #   - raw    : write a raw elementary bitstream sidecar (.h264/.h265/.ivf)
-    #              and invoke ffmpeg once at close() to mux into the container
-    # The CLI flag --video-encoder-backend overrides this when provided.
-    encoder_backend: "auto"
-    output_width: "auto"
-    output_height: null
-    bit_rate: 55000000
-    show_image: false
-    show_scaled: null
-    output_video_path: null
-  stitching:
-    # Controlled by --aspen-stitching / --no-aspen-stitching.
-    enabled: true
-    pto_project_file: null
-    stitch_frame_time: "00:00:00"
-    dir_name: null
-    blend_mode: "laplacian"
-    max_blend_levels: 11
-    auto_adjust_exposure: true
-    python_blender: false
-    # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
-    use_cuda_pano_n: false
-    minimize_blend: true
-    dtype: "float32"
-    no_cuda_streams: false
-    post_stitch_rotate_degrees: null
-    capture_rgb_stats: false
-    max_output_width: null
+
+#
+# Runtime defaults consumed by Aspen plugins
+#
+apply_camera:
+  crop_play_box: false
+  crop_output_image: true
+  end_zones: false
+
+video_out:
+  # Whether to skip final container flush/save in VideoOutput.
+  # CLI flag --skip-final-video-save overrides this when provided.
+  skip_final_save: false
+  # Default NVENC video encoder backend used by VideoOutput / PyNvVideoEncoder.
+  # Valid values:
+  #   - auto   : let the runtime decide / use library defaults
+  #   - pyav   : use the PyAV container muxer
+  #   - ffmpeg : use the streaming ffmpeg CLI muxer
+  #   - raw    : write a raw elementary bitstream sidecar (.h264/.h265/.ivf)
+  #              and invoke ffmpeg once at close() to mux into the container
+  # The CLI flag --video-encoder-backend overrides this when provided.
+  encoder_backend: "auto"
+  output_width: "auto"
+  output_height: null
+  bit_rate: 55000000
+  show_image: false
+  show_scaled: null
+  output_video_path: null
+  save_frame_dir: null
+
+stitching:
+  # Controlled by --aspen-stitching / --no-aspen-stitching.
+  enabled: true
+  pto_project_file: null
+  stitch_frame_time: "00:00:00"
+  dir_name: null
+  blend_mode: "laplacian"
+  max_blend_levels: 11
+  auto_adjust_exposure: true
+  python_blender: false
+  # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
+  use_cuda_pano_n: false
+  minimize_blend: true
+  dtype: "float32"
+  no_cuda_streams: false
+  post_stitch_rotate_degrees: null
+  capture_rgb_stats: false
+  max_output_width: null
   left_stitch_pipeline:
     - type: HmImageColorAdjust
       keys: [img]
@@ -107,11 +114,13 @@ aspen:
         - [game, stitching, right, color]
         - [game, stitching, right]
       refresh_from_config: true
-  play_tracker:
-    no_wide_start: true
-  ice_boundaries:
-    raise_bbox_center_by_height_ratio: -0.1
-    lower_bbox_bottom_by_height_ratio: 0.1
+
+play_tracker:
+  no_wide_start: true
+
+ice_boundaries:
+  raise_bbox_center_by_height_ratio: -0.1
+  lower_bbox_bottom_by_height_ratio: 0.1
 
 #
 # Rink config

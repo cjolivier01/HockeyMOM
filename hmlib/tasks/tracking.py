@@ -11,7 +11,6 @@ import torch
 from hmlib.aspen import AspenNet
 from hmlib.config import get_game_dir, get_nested_value
 from hmlib.datasets.dataframe import find_latest_dataframe_file
-from hmlib.hm_opts import hm_opts
 from hmlib.log import logger
 from hmlib.tracking_utils.timer import Timer
 from hmlib.utils import MeanTracker
@@ -191,8 +190,6 @@ def run_mmtrack(
             initial_args = config.get("initial_args", {}) or {}
             cfg_aspen = config.get("aspen")
             if isinstance(cfg_aspen, dict):
-                if initial_args:
-                    hm_opts.apply_arg_config_overrides(config, initial_args)
                 aspen_cfg = dict(config.get("aspen") or {})
             if aspen_cfg:
                 trunks_cfg = aspen_cfg.get("plugins", {}) or {}

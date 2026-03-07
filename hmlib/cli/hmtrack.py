@@ -32,6 +32,7 @@ from hmlib.config import (
     get_config,
     get_game_dir,
     get_nested_value,
+    normalize_runtime_config,
     resolve_global_refs,
     set_nested_value,
 )
@@ -39,7 +40,7 @@ from hmlib.datasets.dataframe import find_latest_dataframe_file
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
 from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
-from hmlib.hm_opts import copy_opts, hm_opts, preferred_arg
+from hmlib.hm_opts import copy_opts, hm_opts
 
 # from hmlib.hm_transforms import update_data_pipeline
 from hmlib.log import get_root_logger, logger
@@ -549,6 +550,8 @@ def _resolve_base_output_path(game_config: Dict[str, Any], work_dir: str) -> str
         game_config, "aspen.plugins.video_out.params.output_video_path", default_value=None
     )
     if not out_path:
+        out_path = get_nested_value(game_config, "video_out.output_video_path", None)
+    if not out_path:
         out_path = get_nested_value(game_config, "aspen.video_out.output_video_path", None)
     if not out_path or "/" not in str(out_path):
         out_path = os.path.join(work_dir, out_path or "tracking_output.mkv")
@@ -876,6 +879,7 @@ def _run_experiment(
         safe_label = _slugify_label(name)
 
         variant_args = copy_opts(src=args, dest=argparse.Namespace(), parser=parser)
+        variant_explicit_arg_names = set(getattr(args, "explicit_arg_names", []) or [])
         variant_args.experiment_config = None
         variant_args.experiment_output = None
         variant_args.experiment_mode = None
@@ -890,6 +894,7 @@ def _run_experiment(
             for key, value in arg_overrides.items():
                 if hasattr(variant_args, key):
                     setattr(variant_args, key, value)
+                    variant_explicit_arg_names.add(str(key))
                 else:
                     logger.warning("Unknown hmtrack arg in experiment: %s", key)
 
@@ -937,6 +942,14 @@ def _run_experiment(
                     disable_detector=skip_detector,
                 )
 
+        normalize_runtime_config(variant_config)
+        variant_args.explicit_arg_names = variant_explicit_arg_names
+        hm_opts.apply_arg_config_overrides(
+            variant_config,
+            variant_args,
+            parser=parser,
+            explicit_arg_names=variant_explicit_arg_names,
+        )
         variant_config = resolve_global_refs(variant_config)
 
         variant_args.output_label = safe_label
@@ -1684,16 +1697,11 @@ def _main(args, num_gpu):
                     )
                     dataloader.append_dataset("stitch_inputs", stitch_inputs)
                 else:
-                    # Optional per-camera stitching color pipelines from Aspen config
-                    left_stitch_pipeline_cfg = None
-                    right_stitch_pipeline_cfg = None
-                    if aspen_cfg_for_pipeline and isinstance(aspen_cfg_for_pipeline, dict):
-                        left_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get(
-                            "left_stitch_pipeline"
-                        )
-                        right_stitch_pipeline_cfg = aspen_cfg_for_pipeline.get(
-                            "right_stitch_pipeline"
-                        )
+                    stitch_cfg = get_nested_value(args.game_config, "stitching", {}) or {}
+                    left_stitch_pipeline_cfg = stitch_cfg.get("left_stitch_pipeline")
+                    right_stitch_pipeline_cfg = stitch_cfg.get("right_stitch_pipeline")
+                    stitch_dtype_cfg = str(stitch_cfg.get("dtype") or "float32").lower()
+                    stitch_dtype = torch.half if "16" in stitch_dtype_cfg else torch.float
                     stitched_dataset = StitchDataset(
                         videos=stitch_videos,
                         pto_project_file=pto_project_file,
@@ -1705,20 +1713,29 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
-                        blend_mode=opts.blend_mode,
-                        dtype=torch.float if not args.fp16_stitch else torch.half,
-                        auto_adjust_exposure=args.stitch_auto_adjust_exposure,
-                        python_blender=args.python_blender,
-                        minimize_blend=preferred_arg(
-                            getattr(args, "minimize_blend", None), not args.no_minimize_blend
+                        blend_mode=str(stitch_cfg.get("blend_mode") or opts.blend_mode),
+                        dtype=stitch_dtype,
+                        auto_adjust_exposure=bool(
+                            stitch_cfg.get("auto_adjust_exposure", args.stitch_auto_adjust_exposure)
                         ),
-                        no_cuda_streams=args.no_cuda_streams,
-                        post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+                        python_blender=bool(stitch_cfg.get("python_blender", args.python_blender)),
+                        minimize_blend=bool(stitch_cfg.get("minimize_blend", True)),
+                        no_cuda_streams=bool(
+                            stitch_cfg.get("no_cuda_streams", args.no_cuda_streams)
+                        ),
+                        post_stitch_rotate_degrees=stitch_cfg.get(
+                            "post_stitch_rotate_degrees",
+                            getattr(args, "stitch_rotate_degrees", None),
+                        ),
                         profiler=getattr(args, "profiler", None),
                         config_ref=args.game_config,
                         left_color_pipeline=left_stitch_pipeline_cfg,
                         right_color_pipeline=right_stitch_pipeline_cfg,
-                        capture_rgb_stats=bool(getattr(args, "checkerboard_input", False)),
+                        capture_rgb_stats=bool(
+                            stitch_cfg.get(
+                                "capture_rgb_stats", getattr(args, "checkerboard_input", False)
+                            )
+                        ),
                         checkerboard_input=args.checkerboard_input,
                     )
                     # Expose the StitchDataset instance so PlayTracker can control
@@ -1893,9 +1910,7 @@ def _main(args, num_gpu):
         args.output_video_path = output_video_path
         if output_video_path:
             try:
-                set_nested_value(
-                    game_config, "aspen.video_out.output_video_path", output_video_path
-                )
+                set_nested_value(game_config, "video_out.output_video_path", output_video_path)
             except Exception:
                 pass
 
@@ -1913,8 +1928,8 @@ def _main(args, num_gpu):
                 if model is not None and hasattr(model, "cfg"):
                     video_out_pipeline = getattr(model.cfg, "video_out_pipeline")
                 else:
-                    # Pull from unified Aspen config if available
-                    if aspen_cfg_for_pipeline:
+                    video_out_pipeline = game_config.get("video_out_pipeline")
+                    if video_out_pipeline is None and aspen_cfg_for_pipeline:
                         video_out_pipeline = aspen_cfg_for_pipeline.get("video_out_pipeline")
                 if video_out_pipeline:
                     video_out_pipeline = copy.deepcopy(video_out_pipeline)
@@ -2096,6 +2111,7 @@ def main():
 
     parser = make_parser()
     args = parser.parse_args()
+    args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser)
 
     game_config = get_config(
         game_id=args.game_id,
@@ -2129,11 +2145,17 @@ def main():
         merged_extra = load_yaml_files_ordered(additional_cfg_paths)
         if merged_extra:
             game_config = recursive_update(game_config, merged_extra)
+    normalize_runtime_config(game_config)
 
     # Apply CLI-driven config overrides before resolving GLOBAL.* references so
     # Aspen plugins see the updated values via GLOBAL.*.
     try:
-        hm_opts.apply_arg_config_overrides(game_config, args)
+        hm_opts.apply_arg_config_overrides(
+            game_config,
+            args,
+            parser=parser,
+            explicit_arg_names=getattr(args, "explicit_arg_names", None),
+        )
     except Exception:
         # Config overrides are non-fatal; fall back to config defaults on error.
         pass
