@@ -90,7 +90,7 @@ stitching:
   dir_name: null
   blend_mode: "laplacian"
   max_blend_levels: 11
-  auto_adjust_exposure: true
+  auto_adjust_exposure: false
   python_blender: false
   # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
   use_cuda_pano_n: false

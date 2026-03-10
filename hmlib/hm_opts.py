@@ -1198,8 +1198,8 @@ class hm_opts(object):
         )
         parser.add_argument(
             "--stitch-auto-adjust-exposure",
-            type=int,
-            default=0,
+            type=Optional[int],
+            default=None,
             help="Auto-adjust exposure when stitching",
         )
         parser.add_argument(

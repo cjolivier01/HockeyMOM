@@ -1697,6 +1697,15 @@ def _main(args, num_gpu):
                     )
                     dataloader.append_dataset("stitch_inputs", stitch_inputs)
                 else:
+                    if isinstance(aspen_cfg_for_pipeline, dict):
+                        stitching_cfg = aspen_cfg_for_pipeline.get("stitching")
+                        if isinstance(stitching_cfg, dict):
+                            stitching_cfg["enabled"] = False
+                        plugins_cfg = aspen_cfg_for_pipeline.get("plugins")
+                        if isinstance(plugins_cfg, dict):
+                            stitching_plugin = plugins_cfg.get("stitching")
+                            if isinstance(stitching_plugin, dict):
+                                stitching_plugin["enabled"] = False
                     stitch_cfg = get_nested_value(args.game_config, "stitching", {}) or {}
                     left_stitch_pipeline_cfg = stitch_cfg.get("left_stitch_pipeline")
                     right_stitch_pipeline_cfg = stitch_cfg.get("right_stitch_pipeline")

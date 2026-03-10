@@ -1386,7 +1386,7 @@ def gpu_index(want: int = 1):
 
 
 #
-# Combined FPS= XY/(X+Y)
+# Combined FPS=XY/(X+Y)
 #
 
 
