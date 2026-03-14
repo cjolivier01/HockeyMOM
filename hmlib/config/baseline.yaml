@@ -93,8 +93,8 @@ stitching:
   auto_adjust_exposure: false
   python_blender: false
   # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
-  use_cuda_pano_n: false
-  minimize_blend: true
+  use_cuda_pano_n: true
+  minimize_blend: false
   dtype: "float32"
   no_cuda_streams: false
   post_stitch_rotate_degrees: null

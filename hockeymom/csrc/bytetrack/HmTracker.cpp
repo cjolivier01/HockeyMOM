@@ -75,9 +75,7 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
   }
   std::unordered_map<std::string, at::Tensor> results =
       Super::track(std::move(data));
-  bool did_ages = false;
   if (hm_config_.remove_tentative || hm_config_.return_user_ids) {
-    std::size_t inactive_count = 0;
     const at::Tensor& ids = results.at(kIds);
 
     std::vector<int64_t> all_active_ids;
