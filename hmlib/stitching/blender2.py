@@ -964,7 +964,6 @@ def create_stitcher(
     dtype: torch.dtype,
     left_image_size_wh: Tuple[int, int],
     right_image_size_wh: Tuple[int, int],
-    add_alpha_channel: bool,
     input_image_sizes_wh: Optional[List[Tuple[int, int]]] = None,
     python_blender: bool = True,
     minimize_blend: bool = True,
@@ -983,7 +982,6 @@ def create_stitcher(
     """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
         assert not auto_adjust_exposure  # messes with minimize_blend results
-        auto_adjust_exposure = False
         assert dir_name
         if input_image_sizes_wh is None:
             input_image_sizes_wh = [left_image_size_wh, right_image_size_wh]

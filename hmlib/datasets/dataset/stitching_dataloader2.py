@@ -708,7 +708,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             use_cuda_pano_n=self._use_cuda_pano_n,
             minimize_blend=self._minimize_blend,
             blend_mode=self._blend_mode,
-            add_alpha_channel=False,
             levels=levels_arg,
             auto_adjust_exposure=self._auto_adjust_exposure,
         )
