@@ -243,6 +243,7 @@ class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
             /*max_output_width=*/max_output_width),
         input1_size_(input1_size),
         input2_size_(input2_size) {
+    assert(!match_exposure);  // Let's not do this anymore
     if (!Super::status().ok()) {
       std::string ss;
       throw std::runtime_error(Super::status().message());

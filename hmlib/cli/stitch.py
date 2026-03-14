@@ -208,8 +208,11 @@ def stitch_videos(
         if args is not None:
             setattr(args, "stitch_pto_project_file", str(pto_project_file))
 
+        # Keep the dataloader path aligned with the actual Aspen plugin enablement.
+        # The stitching graph stores this under `aspen.plugins.stitching.enabled`,
+        # not `aspen.stitching.enabled`.
         use_aspen_stitching = bool(
-            aspen_cfg_all.get("aspen", {}).get("stitching", {}).get("enabled", False)
+            get_nested_value(aspen_cfg_all, "aspen.plugins.stitching.enabled", False)
         )
         if args is not None and getattr(args, "aspen_stitching", None) is not None:
             use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
