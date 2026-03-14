@@ -917,8 +917,8 @@ class hm_opts(object):
         aspen_stitch_group = parser.add_mutually_exclusive_group()
         aspen_stitch_group.add_argument(
             "--aspen-stitching",
-            type=bool,
-            default=True,
+            default=None,
+            action="store_true",
             help="Enable Aspen stitching plugin for multi-camera inputs",
         )
         aspen_stitch_group.add_argument(

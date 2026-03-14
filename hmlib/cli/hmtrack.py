@@ -26,6 +26,9 @@ import hmlib
 import hmlib.hm_transforms  # noqa: F401 (register custom MMEngine transforms)
 import hmlib.tracking_utils.segm_boundaries
 import hmlib.transforms
+
+# from hmlib.utils.checkpoint import load_checkpoint_to_model
+from hmlib.audio import concatenate_audio
 from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.config import (
     get_clip_box,
@@ -48,9 +51,6 @@ from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tasks.tracking import run_mmtrack
-
-# from hmlib.utils.checkpoint import load_checkpoint_to_model
-from hmlib.audio import concatenate_audio
 from hmlib.utils.gpu import select_gpus
 from hmlib.utils.image import (
     image_height,
@@ -1548,9 +1548,9 @@ def _main(args, num_gpu):
         if args.input_video:
             input_video_files = args.input_video.split(",")
             aspen_stitching_cli = getattr(args, "aspen_stitching", None)
-            if aspen_stitching_cli is None and isinstance(aspen_cfg_for_pipeline, dict):
+            if aspen_stitching_cli is None:
                 use_aspen_stitching = bool(
-                    get_nested_value(aspen_cfg_for_pipeline, "stitching.enabled", False)
+                    get_nested_value(game_config, "stitching.aspen-stitching", False)
                 )
             else:
                 use_aspen_stitching = bool(aspen_stitching_cli)
@@ -2200,14 +2200,13 @@ def main():
                 game_dir = None
 
         # Validate imports for the pieces hmtrack expects to have available.
+        import hockeymom._hockeymom  # noqa: F401
         import lightglue  # noqa: F401
         import mmcv  # noqa: F401
         import mmdet  # noqa: F401
         import mmengine  # noqa: F401
         import mmpose  # noqa: F401
         import mmyolo  # noqa: F401
-
-        import hockeymom._hockeymom  # noqa: F401
 
         print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
         return 0

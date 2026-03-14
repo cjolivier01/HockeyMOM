@@ -84,6 +84,7 @@ video_out:
 
 stitching:
   # Controlled by --aspen-stitching / --no-aspen-stitching.
+  aspen-stitching: true
   enabled: true
   pto_project_file: null
   stitch_frame_time: "00:00:00"

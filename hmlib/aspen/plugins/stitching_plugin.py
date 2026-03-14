@@ -391,7 +391,6 @@ class StitchingPlugin(Plugin):
             minimize_blend=self._minimize_blend,
             max_output_width=self._max_output_width,
             blend_mode=self._blend_mode,
-            add_alpha_channel=False,
             levels=levels_arg,
             auto_adjust_exposure=self._auto_adjust_exposure,
         )
