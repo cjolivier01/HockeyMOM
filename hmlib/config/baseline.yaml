@@ -94,7 +94,7 @@ stitching:
   auto_adjust_exposure: false
   python_blender: false
   # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
-  use_cuda_pano_n: true
+  use_cuda_pano_n: false
   minimize_blend: false
   dtype: "float32"
   no_cuda_streams: false
@@ -292,6 +292,7 @@ game:
 
   stitching:
     stitch-rotate-degrees: null
+    stitch-frame-time: null
     frame_offsets:
       left: null
       right: null

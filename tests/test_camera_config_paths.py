@@ -127,7 +127,10 @@ def should_clear_rink_geometry_when_stitch_rotation_changes(monkeypatch):
             "ice_contours_mask_count": 1,
             "ice_contours_mask_centroid": [100.0, 200.0],
             "ice_contours_combined_bbox": [0.0, 0.0, 10.0, 10.0],
-            "scoreboard": {"perspective_polygon": [[0, 0], [1, 1]]},
+            "scoreboard": {
+                "perspective_polygon": [[0, 0], [1, 1]],
+                "scoreboard_scale": 1.25,
+            },
         },
     }
 
@@ -202,4 +205,4 @@ def should_clear_rink_geometry_when_stitch_rotation_changes(monkeypatch):
     assert "ice_contours_mask_count" not in rink_saved
     assert "ice_contours_mask_centroid" not in rink_saved
     assert "ice_contours_combined_bbox" not in rink_saved
-    assert "scoreboard" not in rink_saved
+    assert rink_saved.get("scoreboard") == {"scoreboard_scale": 1.25}
