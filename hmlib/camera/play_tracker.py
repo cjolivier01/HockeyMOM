@@ -2414,7 +2414,7 @@ class PlayTracker(torch.nn.Module):
                         ("rink", "ice_contours_mask_count"),
                         ("rink", "ice_contours_mask_centroid"),
                         ("rink", "ice_contours_combined_bbox"),
-                        ("rink", "scoreboard"),
+                        ("rink", "scoreboard", "perspective_polygon"),
                     ):
                         try:
                             self._delete_priv_path(priv, path)

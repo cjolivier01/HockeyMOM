@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 import tifffile
 import torch
+from PIL import Image
 
 from hmlib.config import (
     get_game_config_private,
@@ -30,6 +31,9 @@ from hmlib.video.video_stream import extract_frame_image
 from .synchronize import configure_synchronization
 
 logger = logging.getLogger(__name__)
+
+_STITCH_FRAME_TIME_PATH = ("game", "stitching", "stitch-frame-time")
+_STITCH_FRAME_TIME_ALT_PATH = ("game", "stitching", "stitch_frame_time")
 
 
 def _resolve_local_binary(executable: str) -> Optional[str]:
@@ -119,6 +123,30 @@ def _apply_color_adders_to_image_file(image_path: str, adders: Optional[List[flo
     except Exception:
         # Do not fail stitching configuration if adjustment fails
         pass
+
+
+def _save_stitched_reference_frame(dir_name: Union[str, Path]) -> None:
+    """Refresh ``s.png`` from the stitched reference panorama, when available."""
+    panorama_file = Path(dir_name) / "panorama.tif"
+    if not panorama_file.exists():
+        return
+    frame_file = panorama_file.with_name("s.png")
+    try:
+        panorama = np.asarray(tifffile.imread(str(panorama_file)))
+        if panorama.ndim == 4:
+            panorama = panorama[0]
+        if panorama.ndim == 3 and panorama.shape[0] in (3, 4) and panorama.shape[-1] not in (3, 4):
+            panorama = np.moveaxis(panorama, 0, -1)
+        if panorama.ndim == 3 and panorama.shape[-1] > 3:
+            panorama = panorama[:, :, :3]
+        if panorama.dtype != np.uint8:
+            panorama = np.clip(panorama, 0, 255).astype(np.uint8)
+        image = Image.fromarray(panorama)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.save(frame_file)
+    except Exception:
+        logger.debug("Failed to refresh stitched reference frame under %s", dir_name, exc_info=True)
 
 
 def get_multiblend_bin() -> str:
@@ -289,12 +317,153 @@ def _delete_nested_key(cfg: Dict[str, Any], path: Sequence[str]) -> bool:
     return True
 
 
+def _parse_stitch_frame_time_seconds(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    time_str = str(value).strip()
+    if not time_str:
+        return None
+    tokens = time_str.split(":")
+    if not 1 <= len(tokens) <= 3:
+        return None
+    try:
+        seconds = float(tokens[-1])
+        minutes = int(tokens[-2]) if len(tokens) >= 2 else 0
+        hours = int(tokens[-3]) if len(tokens) == 3 else 0
+    except Exception:
+        return None
+    return hours * 3600.0 + minutes * 60.0 + seconds
+
+
+def _normalize_stitch_frame_time_value(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    time_str = str(value).strip()
+    if not time_str:
+        return None
+    seconds = _parse_stitch_frame_time_seconds(time_str)
+    if seconds is not None and seconds <= 0:
+        return None
+    return time_str
+
+
+def _stitch_frame_time_values_equal(lhs: Any, rhs: Any) -> bool:
+    lhs_norm = _normalize_stitch_frame_time_value(lhs)
+    rhs_norm = _normalize_stitch_frame_time_value(rhs)
+    if lhs_norm is None or rhs_norm is None:
+        return lhs_norm is None and rhs_norm is None
+    lhs_seconds = _parse_stitch_frame_time_seconds(lhs_norm)
+    rhs_seconds = _parse_stitch_frame_time_seconds(rhs_norm)
+    if lhs_seconds is not None and rhs_seconds is not None:
+        return abs(lhs_seconds - rhs_seconds) < 1e-6
+    return lhs_norm == rhs_norm
+
+
+def _get_stitch_frame_time_stamp(cfg: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(cfg, dict):
+        return None
+    value = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_PATH), None)
+    if value is None:
+        value = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_ALT_PATH), None)
+    return _normalize_stitch_frame_time_value(value)
+
+
+def _set_stitch_frame_time_stamp(cfg: Dict[str, Any], stitch_frame_time: Optional[str]) -> bool:
+    if not isinstance(cfg, dict):
+        return False
+
+    normalized = _normalize_stitch_frame_time_value(stitch_frame_time)
+    current_primary = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_PATH), None)
+    current_alt = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_ALT_PATH), None)
+    dirty = False
+
+    if normalized is None:
+        dirty |= _delete_nested_key(cfg, _STITCH_FRAME_TIME_PATH)
+        dirty |= _delete_nested_key(cfg, _STITCH_FRAME_TIME_ALT_PATH)
+        return dirty
+
+    if not _stitch_frame_time_values_equal(current_primary, normalized):
+        dirty = True
+    if current_alt is not None:
+        dirty = True
+
+    set_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_PATH), normalized)
+    _delete_nested_key(cfg, _STITCH_FRAME_TIME_ALT_PATH)
+    return dirty
+
+
+def sync_stitch_frame_time_state(
+    game_id: Optional[str],
+    game_dir: Union[str, Path],
+    stitch_frame_time: Optional[str],
+    *,
+    force: bool = False,
+    ignore_private_config: bool = False,
+    game_config: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Persist stitch-frame-time and clean cached stitch artifacts when it changes.
+
+    The persisted value lives under ``game.stitching.stitch-frame-time`` in the
+    private game config. We keep it separate from rebuildable stitch artifacts
+    so `stitch --clean` can remove caches without dropping the manually entered
+    stitch timestamp.
+
+    Returns ``True`` when the effective stitch-frame-time changed for this run.
+    """
+    normalized = _normalize_stitch_frame_time_value(stitch_frame_time)
+    runtime_previous = _get_stitch_frame_time_stamp(game_config)
+    runtime_changed = not _stitch_frame_time_values_equal(runtime_previous, normalized)
+
+    if isinstance(game_config, dict):
+        _set_stitch_frame_time_stamp(game_config, normalized)
+
+    if not game_id or ignore_private_config:
+        return runtime_changed
+
+    try:
+        private_cfg = get_game_config_private(game_id=game_id) or {}
+    except Exception as ex:
+        logger.warning(
+            "Failed to load private config for stitch-frame-time sync on %s: %s", game_id, ex
+        )
+        private_cfg = {}
+
+    previous = _get_stitch_frame_time_stamp(private_cfg)
+    changed = not _stitch_frame_time_values_equal(previous, normalized)
+
+    if changed and not force:
+        logger.info(
+            "stitch_frame_time changed for %s (%r -> %r); cleaning cached stitch artifacts",
+            game_id,
+            previous,
+            normalized,
+        )
+        try:
+            clean_stitch_game_artifacts(game_id=game_id, game_dir=game_dir)
+        except Exception as ex:
+            logger.warning("Failed to clean stitch artifacts for %s: %s", game_id, ex)
+        try:
+            private_cfg = get_game_config_private(game_id=game_id) or {}
+        except Exception:
+            private_cfg = {}
+
+    dirty = _set_stitch_frame_time_stamp(private_cfg, normalized)
+    if dirty:
+        try:
+            save_private_config(game_id=game_id, data=private_cfg, verbose=True)
+        except Exception as ex:
+            logger.warning("Failed to save stitch-frame-time stamp for %s: %s", game_id, ex)
+
+    return changed or runtime_changed
+
+
 def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int:
     """Delete rebuildable stitching / seam / mask outputs for a game.
 
     Does not delete config.yaml, but removes cached stitching/rink entries
     from the private config so they will be recomputed (e.g. audio sync
-    offsets, scoreboard selection, rink-mask metadata).
+    offsets, scoreboard selection, rink-mask metadata). Manual stitch inputs
+    such as ``game.stitching.stitch-frame-time`` are preserved.
     """
     game_dir = Path(game_dir)
 
@@ -327,7 +496,7 @@ def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int
         changed = False
         changed |= _delete_nested_key(cfg, ["game", "stitching", "frame_offsets"])
         changed |= _delete_nested_key(cfg, ["game", "stitching", "control_points"])
-        changed |= _delete_nested_key(cfg, ["rink", "scoreboard"])
+        changed |= _delete_nested_key(cfg, ["rink", "scoreboard", "perspective_polygon"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_count"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_centroid"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_combined_bbox"])
@@ -565,6 +734,10 @@ def configure_video_stitching(
     base_frame_offset: int = 0,
     audio_sync_seconds: int = 15,
     force: bool = False,
+    game_id: Optional[str] = None,
+    stitch_frame_time: Optional[str] = None,
+    ignore_private_config: bool = False,
+    game_config: Optional[Dict[str, Any]] = None,
 ):
     """Configure a two-camera stitching project from game videos.
 
@@ -581,8 +754,22 @@ def configure_video_stitching(
     @param base_frame_offset: Global offset added to both sides.
     @param audio_sync_seconds: Seconds of audio used for synchronization.
     @param force: If True, recompute PTO and seam even if up-to-date.
+    @param game_id: Optional game identifier used to persist stitch state.
+    @param stitch_frame_time: Effective stitch-frame-time used to build the PTO.
+    @param ignore_private_config: If True, do not read/write the private config stamp.
+    @param game_config: Optional in-memory game config to update with the effective stamp.
     @return: Tuple ``(pto_project_file, left_frame_offset, right_frame_offset)``.
     """
+    stitch_frame_time_changed = sync_stitch_frame_time_state(
+        game_id=game_id,
+        game_dir=dir_name,
+        stitch_frame_time=stitch_frame_time,
+        force=force,
+        ignore_private_config=ignore_private_config,
+        game_config=game_config,
+    )
+    force = bool(force or stitch_frame_time_changed)
+
     if left_frame_offset is None or right_frame_offset is None:
         frame_offsets = configure_synchronization(
             game_id=dir_name.split("/")[-1],
@@ -625,5 +812,7 @@ def configure_video_stitching(
             force=force,
             skip_if_exists=not force,
         )
+
+    _save_stitched_reference_frame(dir_name)
 
     return pto_project_file, left_frame_offset, right_frame_offset

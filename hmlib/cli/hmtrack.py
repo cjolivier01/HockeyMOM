@@ -1616,6 +1616,10 @@ def _main(args, num_gpu):
                     left_frame_offset=args.lfo,
                     right_frame_offset=args.rfo,
                     base_frame_offset=stitch_frame_number,
+                    game_id=args.game_id,
+                    stitch_frame_time=stitch_frame_time,
+                    ignore_private_config=bool(args.ignore_private_config),
+                    game_config=args.game_config,
                 )
                 stitch_videos = {
                     "left": {

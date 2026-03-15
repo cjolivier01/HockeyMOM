@@ -191,6 +191,10 @@ def stitch_videos(
             base_frame_offset=stitch_frame_number,
             max_control_points=max_control_points,
             force=force,
+            game_id=game_id,
+            stitch_frame_time=stitch_frame_time,
+            ignore_private_config=ignore_private_config,
+            game_config=aspen_cfg_all,
         )
 
         stitch_videos = {

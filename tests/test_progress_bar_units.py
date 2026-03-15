@@ -94,8 +94,18 @@ def should_clean_stitch_game_artifacts_delete_files_and_cached_config(monkeypatc
 
     def _fake_get_game_config_private(game_id: str):
         return {
-            "game": {"stitching": {"frame_offsets": {"left": 1.0, "right": 2.0}}},
-            "rink": {"scoreboard": {"foo": 1}},
+            "game": {
+                "stitching": {
+                    "stitch-frame-time": "00:00:07",
+                    "frame_offsets": {"left": 1.0, "right": 2.0},
+                }
+            },
+            "rink": {
+                "scoreboard": {
+                    "perspective_polygon": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                    "scoreboard_scale": 1.25,
+                }
+            },
         }
 
     def _fake_save_private_config(game_id: str, data, verbose: bool = True):
@@ -116,7 +126,59 @@ def should_clean_stitch_game_artifacts_delete_files_and_cached_config(monkeypatc
     assert not (tmp_path / "mapping_0000.tif").exists()
     assert not (cam_dir / "left.png").exists()
     assert saved.get("game_id") == "test-game"
-    assert saved.get("data") == {}
+    assert saved.get("data") == {
+        "game": {"stitching": {"stitch-frame-time": "00:00:07"}},
+        "rink": {"scoreboard": {"scoreboard_scale": 1.25}},
+    }
+
+
+def should_sync_stitch_frame_time_state_clean_and_persist_when_it_changes(monkeypatch, tmp_path):
+    import copy
+
+    from hmlib.stitching import configure_stitching
+
+    saved = {}
+    cleaned = {}
+    private_cfg = {
+        "game": {
+            "stitching": {
+                "stitch-frame-time": "00:00:03",
+                "frame_offsets": {"left": 1.0, "right": 2.0},
+            }
+        }
+    }
+
+    monkeypatch.setattr(
+        configure_stitching,
+        "get_game_config_private",
+        lambda game_id: copy.deepcopy(private_cfg),
+    )
+
+    def _fake_clean(game_id: str, game_dir):
+        cleaned["game_id"] = game_id
+        cleaned["game_dir"] = str(game_dir)
+        return 0
+
+    def _fake_save_private_config(game_id: str, data, verbose: bool = True):
+        saved["game_id"] = game_id
+        saved["data"] = data
+
+    monkeypatch.setattr(configure_stitching, "clean_stitch_game_artifacts", _fake_clean)
+    monkeypatch.setattr(configure_stitching, "save_private_config", _fake_save_private_config)
+
+    runtime_cfg = {}
+    changed = configure_stitching.sync_stitch_frame_time_state(
+        game_id="test-game",
+        game_dir=tmp_path,
+        stitch_frame_time="00:00:07",
+        game_config=runtime_cfg,
+    )
+
+    assert changed is True
+    assert cleaned == {"game_id": "test-game", "game_dir": str(tmp_path)}
+    assert runtime_cfg == {"game": {"stitching": {"stitch-frame-time": "00:00:07"}}}
+    assert saved["game_id"] == "test-game"
+    assert saved["data"]["game"]["stitching"]["stitch-frame-time"] == "00:00:07"
 
 
 def should_clean_exit_before_configuring(monkeypatch, tmp_path):

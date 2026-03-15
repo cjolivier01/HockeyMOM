@@ -93,8 +93,16 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         base_frame_offset: int,
         max_control_points: int,
         force: bool,
+        game_id: str,
+        stitch_frame_time: str | None,
+        ignore_private_config: bool,
+        game_config: Dict[str, Any] | None,
     ):
         # Return a dummy project path and zero offsets.
+        captured_net["configure_game_id"] = game_id
+        captured_net["configure_stitch_frame_time"] = stitch_frame_time
+        captured_net["configure_ignore_private_config"] = ignore_private_config
+        captured_net["configure_game_config"] = game_config
         pto_path = str(tmp_path / "dummy.pto")
         Path(pto_path).touch()
         return pto_path, 0, 0
@@ -108,6 +116,7 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         save_frame_dir=None,
         no_cuda_streams=True,
         no_progress_bar=True,
+        ignore_private_config=False,
         config_overrides=["stitching.enabled=false"],
     )
 
@@ -149,6 +158,9 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     assert "frame_ids" in ctx0
     assert ctx0.get("game_id") == "test-game"
     assert ctx0.get("fps") == 30.0
+    assert captured_net.get("configure_game_id") == "test-game"
+    assert captured_net.get("configure_ignore_private_config") is False
+    assert isinstance(captured_net.get("configure_game_config"), dict)
 
 
 def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_path):
@@ -168,8 +180,16 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         base_frame_offset: int,
         max_control_points: int,
         force: bool,
+        game_id: str,
+        stitch_frame_time: str | None,
+        ignore_private_config: bool,
+        game_config: Dict[str, Any] | None,
     ):
         captured["base_frame_offset"] = base_frame_offset
+        captured["game_id"] = game_id
+        captured["stitch_frame_time"] = stitch_frame_time
+        captured["ignore_private_config"] = ignore_private_config
+        captured["game_config"] = game_config
         pto_path = str(tmp_path / "dummy.pto")
         Path(pto_path).touch()
         return pto_path, 0, 0
@@ -183,6 +203,7 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         save_frame_dir=None,
         no_cuda_streams=True,
         no_progress_bar=True,
+        ignore_private_config=False,
         config_overrides=[
             "stitching.enabled=false",
             "stitching.stitch_frame_time=00:00:02",
@@ -200,3 +221,7 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
 
     # 2 seconds at 30 FPS from _DummyVideoInfo.
     assert captured.get("base_frame_offset") == 60
+    assert captured.get("game_id") == "test-game"
+    assert captured.get("stitch_frame_time") == "00:00:02"
+    assert captured.get("ignore_private_config") is False
+    assert isinstance(captured.get("game_config"), dict)
