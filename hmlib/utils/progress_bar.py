@@ -194,13 +194,16 @@ class ProgressBar:
     @param iterator Optional iterator to wrap; if provided, the bar is iterable.
     @param scroll_output Optional :class:`ScrollOutput` used for log lines.
     @param bar_length Explicit bar width (currently unused; reserved for future).
-    @param update_rate Refresh interval in iterations.
+    @param update_rate Minimum refresh interval in iterations.
     @param table_callback Optional callback to mutate ``table_map`` on refresh.
     @param use_curses Deprecated flag; kept for API compatibility only.
     @param units_per_iter Scale factor for the UI display. ``total`` and the
         internal counter track iterations; the rendered `completed/total` values
         are multiplied by ``units_per_iter`` so the bar can display frames when
         iterating over batches.
+    @param min_refresh_interval_seconds Minimum wall-clock interval between
+        rendered refreshes. Fast iterators are throttled so the progress UI
+        updates at most once per this interval.
     """
 
     def __init__(
@@ -215,6 +218,7 @@ class ProgressBar:
         table_callback: Optional[Callable] = None,
         use_curses: bool = True,
         units_per_iter: int = 1,
+        min_refresh_interval_seconds: float = 1.0,
     ):
         self._total = total
         self._counter: int = 0
@@ -234,6 +238,11 @@ class ProgressBar:
         self.bar_length = bar_length
         self._use_curses_requested = use_curses  # Deprecated, no effect
         self._title = title
+        try:
+            self._min_refresh_interval_seconds = max(0.0, float(min_refresh_interval_seconds))
+        except Exception:
+            self._min_refresh_interval_seconds = 1.0
+        self._last_render_time: Optional[float] = None
         if not self.bar_length:
             self.terminal_width = _get_terminal_width()
             # Re-evaluate the terminal width periodically to handle resizes.
@@ -517,6 +526,15 @@ class ProgressBar:
             # Still allow table callbacks to keep table_map up to date.
             self._run_callbacks(self.table_map)
             return
+        if not final and self._min_refresh_interval_seconds > 0:
+            now = time.monotonic()
+            if self._last_render_time is not None:
+                elapsed = now - self._last_render_time
+                if elapsed < self._min_refresh_interval_seconds:
+                    return
+            self._last_render_time = now
+        elif final:
+            self._last_render_time = time.monotonic()
         # Single rich-backed rendering path once started
         self._render_rich(final=final)
 

@@ -33,6 +33,52 @@ def should_progress_bar_scale_completed_and_total_by_units_per_iter():
     assert called.get("total") == 20
 
 
+def should_throttle_progress_bar_refreshes_to_once_per_second_when_fast(monkeypatch):
+    from hmlib.utils import progress_bar as progress_bar_module
+    from hmlib.utils.progress_bar import ProgressBar
+
+    pb = ProgressBar(
+        total=121,
+        iterator=iter(range(121)),
+        update_rate=20,
+        min_refresh_interval_seconds=1.0,
+    )
+    pb._start_threshold = 0  # type: ignore[attr-defined]
+
+    rendered: list[tuple[int, bool]] = []
+
+    monkeypatch.setattr(progress_bar_module.time, "monotonic", lambda: pb._counter / 100.0)
+    pb._render_rich = lambda final=False: rendered.append((pb._counter, final))  # type: ignore[assignment]
+
+    for _ in pb:
+        pass
+
+    assert rendered == [(0, False), (100, False), (121, True)]
+
+
+def should_keep_frame_based_refresh_interval_when_processing_is_slow(monkeypatch):
+    from hmlib.utils import progress_bar as progress_bar_module
+    from hmlib.utils.progress_bar import ProgressBar
+
+    pb = ProgressBar(
+        total=41,
+        iterator=iter(range(41)),
+        update_rate=20,
+        min_refresh_interval_seconds=1.0,
+    )
+    pb._start_threshold = 0  # type: ignore[attr-defined]
+
+    rendered: list[tuple[int, bool]] = []
+
+    monkeypatch.setattr(progress_bar_module.time, "monotonic", lambda: float(pb._counter))
+    pb._render_rich = lambda final=False: rendered.append((pb._counter, final))  # type: ignore[assignment]
+
+    for _ in pb:
+        pass
+
+    assert rendered == [(0, False), (20, False), (40, False), (41, True)]
+
+
 def should_delete_nested_key_and_prune_empty_dicts():
     from hmlib.stitching import configure_stitching
 
