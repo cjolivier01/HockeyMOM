@@ -588,8 +588,8 @@ def build_stitching_project(
         cmd = [
             "autooptimiser",
             "-a",
-            "-m",
             "-l",
+            "-m",
             "-s",
             "-o",
             autooptimiser_out,
@@ -630,12 +630,13 @@ def build_stitching_project(
         # Really, it should be way above this number for a good seam, but so far
         # the "broken case" is much below this number (like 0.5%).
         kMinAllowableSeamPercent: float = 10.0
-        if any(pct < kMinAllowableSeamPercent for pct in distribution.values()):
+        if not distribution or any(pct < kMinAllowableSeamPercent for pct in distribution.values()):
             print(f"Warning: seam file {seam_file} has low seam values, indicating a bad seam.")
             for val, pct in sorted(distribution.items()):
                 print(f"Seam value {val:3d}: {pct:5.2f}%")
             # Delete the seam file so that it doesn't get used accidentally
-            os.remove(seam_file)
+            if os.path.exists(seam_file):
+                os.remove(seam_file)
             # If the seam is bad, try using multiblend instead
             cmd = [
                 get_multiblend_bin(),
@@ -666,7 +667,7 @@ def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
         image_path (str): Path to the input PNG.
 
     Returns:
-        Dict[int, float]: Mapping from pixel value (0–255) to percentage of image,
+        Dict[int, float]: Mapping from pixel value (0–+5) to percentage of image,
                           as a float in [0.0, 100.0].
     """
     # Open image and ensure it's in 8-bit grayscale mode
