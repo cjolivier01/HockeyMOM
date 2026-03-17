@@ -99,6 +99,57 @@ def should_not_apply_parser_defaults_as_config_overrides() -> None:
     assert game_config["stitching"]["blend_mode"] == "multiblend"
 
 
+def should_default_yaml_backed_args_to_none_and_show_baseline_help() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    help_text = parser.format_help()
+
+    assert parser.get_default("blend_mode") is None
+    assert parser.get_default("camera_window") is None
+    assert parser.get_default("show_image") is None
+    assert "stitching.blend_mode=laplacian" in help_text
+    assert "rink.camera.camera_window=8" in help_text
+    assert "video_out.show_image=false" in help_text
+
+
+def should_backfill_yaml_backed_args_from_effective_config() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args([])
+
+    args = hm_opts.init(args, parser)
+
+    assert args.blend_mode == "laplacian"
+    assert args.camera_window == 8
+    assert args.show_image is False
+    assert args.python_blender is False
+
+
+def should_apply_map_driven_camera_arg_overrides_in_init() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    argv = ["--camera-window", "12", "--cancel-stop-on-opposite-dir", "0"]
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(argv)
+    args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser, argv)
+    args.game_config = {
+        "rink": {
+            "camera": {
+                "camera_window": 8,
+                "cancel_stop_on_opposite_dir": True,
+            }
+        }
+    }
+
+    args = hm_opts.init(args, parser)
+
+    assert args.camera_window == 12
+    assert args.game_config["rink"]["camera"]["camera_window"] == 12
+    assert args.game_config["rink"]["camera"]["cancel_stop_on_opposite_dir"] is False
+
+
 def should_persist_explicit_yaml_backed_cli_args_to_private_config(monkeypatch) -> None:
     import hmlib.hm_opts as hm_opts_module
     from hmlib.hm_opts import hm_opts

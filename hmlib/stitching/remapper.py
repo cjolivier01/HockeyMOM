@@ -156,7 +156,9 @@ def main(args) -> None:
 if __name__ == "__main__":
     from hmlib.hm_opts import hm_opts
 
-    args = hm_opts.parser(make_parser()).parse_args()
+    parser = hm_opts.parser(make_parser())
+    args = parser.parse_args()
+    args = hm_opts.init(args, parser)
 
     if not args.video_dir:
         args.video_dir = "/mnt/ripper-data/Videos/ev-stockton-ss"
