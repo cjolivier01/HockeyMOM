@@ -2176,6 +2176,12 @@ def main():
     # Let hm_opts apply --config-override before resolving GLOBAL.* refs.
     args.game_config = game_config
     args = hm_opts.init(args, parser)
+    hm_opts.persist_private_config_overrides(
+        args,
+        parser=parser,
+        config=args.game_config,
+        explicit_arg_names=getattr(args, "explicit_arg_names", None),
+    )
     game_config = resolve_global_refs(args.game_config)
     args.game_config = game_config
 
