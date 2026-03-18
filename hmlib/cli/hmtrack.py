@@ -311,7 +311,7 @@ def make_parser(parser: argparse.ArgumentParser = None):
         help="Apply a temporal filter to smooth the pose estimation results. "
         "See also --smooth-filter-cfg.",
     )
-    return parser
+    return hm_opts.finalize_parser(parser)
 
 
 def _slugify_label(value: str) -> str:
@@ -2162,20 +2162,22 @@ def main():
 
     # Apply CLI-driven config overrides before resolving GLOBAL.* references so
     # Aspen plugins see the updated values via GLOBAL.*.
-    try:
-        hm_opts.apply_arg_config_overrides(
-            game_config,
-            args,
-            parser=parser,
-            explicit_arg_names=getattr(args, "explicit_arg_names", None),
-        )
-    except Exception:
-        # Config overrides are non-fatal; fall back to config defaults on error.
-        pass
+    hm_opts.apply_arg_config_overrides(
+        game_config,
+        args,
+        parser=parser,
+        explicit_arg_names=getattr(args, "explicit_arg_names", None),
+    )
 
     # Let hm_opts apply --config-override before resolving GLOBAL.* refs.
     args.game_config = game_config
     args = hm_opts.init(args, parser)
+    hm_opts.persist_private_config_overrides(
+        args,
+        parser=parser,
+        config=args.game_config,
+        explicit_arg_names=getattr(args, "explicit_arg_names", None),
+    )
     game_config = resolve_global_refs(args.game_config)
     args.game_config = game_config
 

@@ -140,15 +140,22 @@ def stitch_videos(
             ["config/aspen/stitching.yaml"], base=base_cfg
         )
         normalize_runtime_config(aspen_cfg_all)
+        override_parser = hm_opts.parser(parser=make_parser())
         if args is not None:
             hm_opts.apply_arg_config_overrides(
                 aspen_cfg_all,
                 args,
-                parser=hm_opts.parser(parser=make_parser()),
+                parser=override_parser,
                 explicit_arg_names=getattr(args, "explicit_arg_names", None),
             )
             hm_opts.apply_config_overrides(aspen_cfg_all, getattr(args, "config_overrides", None))
             args.game_config = aspen_cfg_all
+            hm_opts.persist_private_config_overrides(
+                args,
+                parser=override_parser,
+                config=aspen_cfg_all,
+                explicit_arg_names=getattr(args, "explicit_arg_names", None),
+            )
         resolve_global_refs(aspen_cfg_all)
 
         stitch_cfg = get_nested_value(aspen_cfg_all, "stitching", {}) or {}

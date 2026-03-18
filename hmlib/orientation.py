@@ -478,6 +478,7 @@ def main():
     parser = make_parser()
     parser = hm_opts.parser(parser=parser)
     args = parser.parse_args()
+    args = hm_opts.init(args, parser)
 
     _main(args)
 

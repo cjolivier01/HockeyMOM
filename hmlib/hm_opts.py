@@ -1,18 +1,22 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import copy
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping as MappingABC
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
 
 import yaml
 
 from hmlib.config import (
+    get_config,
     get_game_config_private,
     get_nested_value,
     normalize_runtime_config,
+    save_private_config,
     set_nested_value,
 )
 
@@ -27,6 +31,67 @@ def _get_arg_value(args: Any, name: str) -> Any:
     if isinstance(args, dict):
         return args.get(name, _MISSING_ARG)
     return getattr(args, name, _MISSING_ARG)
+
+
+def _first_non_none(values: Sequence[Any]) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def _read_config_value(config: Dict[str, Any], cfg_paths: Union[str, Sequence[str]]) -> Any:
+    if isinstance(cfg_paths, str):
+        return get_nested_value(config, cfg_paths, None)
+    return [get_nested_value(config, path, None) for path in cfg_paths]
+
+
+@lru_cache(maxsize=1)
+def _load_baseline_runtime_config() -> Dict[str, Any]:
+    cfg = get_config(resolve_globals=False)
+    normalize_runtime_config(cfg)
+    return cfg
+
+
+def _get_baseline_runtime_config() -> Dict[str, Any]:
+    return copy.deepcopy(_load_baseline_runtime_config())
+
+
+def _format_baseline_value(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    try:
+        dumped = yaml.safe_dump(value, default_flow_style=True, sort_keys=False).strip()
+        return dumped if dumped else repr(value)
+    except Exception:
+        return repr(value)
+
+
+def _is_cli_arg_selected(
+    args: Any,
+    name: str,
+    *,
+    parser: Optional[argparse.ArgumentParser] = None,
+    explicit_arg_names: Optional[Sequence[str]] = None,
+) -> bool:
+    raw_value = _get_arg_value(args, name)
+    if raw_value is _MISSING_ARG or raw_value is None:
+        return False
+    explicit_set = set(explicit_arg_names) if explicit_arg_names is not None else None
+    if explicit_set is not None:
+        return name in explicit_set
+    if parser is not None:
+        try:
+            return raw_value != parser.get_default(name)
+        except Exception:
+            return True
+    return True
 
 
 def _has_nested_key(dct: Dict[str, Any], key_str: str) -> bool:
@@ -84,6 +149,100 @@ def _rewrite_legacy_runtime_override_key(key_path: str) -> str:
         if legacy.endswith(".") and key_path.startswith(legacy):
             return current + key_path[len(legacy) :]
     return key_path
+
+
+def _iter_arg_config_updates(
+    config: Optional[Dict[str, Any]],
+    args: Any,
+    *,
+    arg_to_config: Mapping[str, Union[str, Sequence[str]]],
+    value_map: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]],
+    setdefault_args: Sequence[str] = (),
+    parser: Optional[argparse.ArgumentParser] = None,
+    explicit_arg_names: Optional[Sequence[str]] = None,
+):
+    if isinstance(config, dict):
+        normalize_runtime_config(config)
+    setdefault_set = set(setdefault_args or ())
+    for arg_name, cfg_paths in arg_to_config.items():
+        raw_value = _get_arg_value(args, arg_name)
+        if raw_value is _MISSING_ARG or raw_value is None:
+            continue
+        if not _is_cli_arg_selected(
+            args,
+            arg_name,
+            parser=parser,
+            explicit_arg_names=explicit_arg_names,
+        ):
+            continue
+        mapper = value_map.get(arg_name)
+        mapped_value = raw_value
+        if mapper is not None:
+            try:
+                if isinstance(mapper, MappingABC):
+                    if raw_value not in mapper:
+                        continue
+                    mapped_value = mapper[raw_value]
+                else:
+                    mapped_value = mapper(raw_value)
+                if mapped_value is _SKIP_CONFIG_VALUE:
+                    continue
+            except Exception:
+                logger.warning("Invalid config override for %s: %r", arg_name, raw_value)
+                continue
+        if isinstance(cfg_paths, str):
+            paths = [cfg_paths]
+        else:
+            paths = list(cfg_paths)
+        for path in paths:
+            if isinstance(config, dict) and path.startswith("aspen.plugins."):
+                # Avoid implicitly creating incomplete Aspen plugin stubs via CLI overrides.
+                # If the selected Aspen config doesn't declare a plugin, setting
+                # aspen.plugins.<name>.* here would create a dict without a `class`,
+                # which later fails AspenNet graph construction.
+                parts = path.split(".")
+                if len(parts) >= 3:
+                    plugin_name = parts[2]
+                    aspen_cfg = config.get("aspen")
+                    plugins_cfg = aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
+                    if not isinstance(plugins_cfg, dict) or plugin_name not in plugins_cfg:
+                        continue
+            if (
+                isinstance(config, dict)
+                and arg_name in setdefault_set
+                and _has_nested_key(config, path)
+            ):
+                continue
+            yield arg_name, path, mapped_value
+
+
+def _iter_config_override_updates(
+    config: Optional[Dict[str, Any]], overrides: Optional[Sequence[str]]
+):
+    if isinstance(config, dict):
+        normalize_runtime_config(config)
+    for ov in overrides or ():
+        if not isinstance(ov, str) or "=" not in ov:
+            continue
+        key, val = ov.split("=", 1)
+        key_path = _rewrite_legacy_runtime_override_key(key.strip())
+        sval = val.strip()
+        lval = sval.lower()
+        if lval in ("null", "none"):
+            pval: Any = None
+        elif lval in ("true", "false"):
+            pval = lval == "true"
+        else:
+            try:
+                if "." in sval:
+                    pval = float(sval)
+                else:
+                    pval = int(sval)
+            except Exception:
+                pval = sval
+        if isinstance(config, dict) and not _has_nested_key(config, key_path):
+            raise KeyError(f"Unknown config override key: {key_path!r}")
+        yield key_path, pval
 
 
 def copy_opts(src: object, dest: object, parser: argparse.ArgumentParser):
@@ -1424,7 +1583,7 @@ class hm_opts(object):
             type=int,
             help="Enable runtime camera braking UI (OpenCV trackbars)",
         )
-        return parser
+        return hm_opts.finalize_parser(parser)
 
     def parse(self, args=""):
         if args == "":
@@ -1456,6 +1615,24 @@ class hm_opts(object):
             if action is not None and getattr(action, "dest", None):
                 explicit.add(action.dest)
         return explicit
+
+    @staticmethod
+    def _resolve_explicit_arg_names(
+        parser: Optional[argparse.ArgumentParser],
+        explicit_arg_names: Optional[Sequence[str]],
+        *,
+        require_parser: bool = False,
+    ) -> Optional[set[str]]:
+        if explicit_arg_names is not None:
+            return set(explicit_arg_names)
+        if parser is None:
+            if require_parser:
+                raise RuntimeError(
+                    "explicit_arg_names are required; pass them explicitly or provide a parser "
+                    "built from the current CLI invocation."
+                )
+            return None
+        return hm_opts.collect_explicit_arg_names(parser)
 
     # TODO: How can this be generalized with the nesting in the yaml?
     CONFIG_TO_ARGS = [
@@ -1551,6 +1728,242 @@ class hm_opts(object):
         "debug": _debug_to_play_tracker,
     }
     ARG_SETDEFAULT = {"output_file", "save_frame_dir"}
+    INIT_ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = OrderedDict(
+        [
+            ("camera_controller", "rink.camera.controller"),
+            ("camera_model", "rink.camera.camera_model"),
+            ("camera_window", "rink.camera.camera_window"),
+            ("cam_ignore_largest", "rink.tracking.cam_ignore_largest"),
+            ("stop_on_dir_change_delay", "rink.camera.stop_on_dir_change_delay"),
+            ("cancel_stop_on_opposite_dir", "rink.camera.cancel_stop_on_opposite_dir"),
+            ("stop_cancel_hysteresis_frames", "rink.camera.stop_cancel_hysteresis_frames"),
+            ("stop_delay_cooldown_frames", "rink.camera.stop_delay_cooldown_frames"),
+            ("time_to_dest_speed_limit_frames", "rink.camera.time_to_dest_speed_limit_frames"),
+            ("resizing_stop_on_dir_change_delay", "rink.camera.resizing_stop_on_dir_change_delay"),
+            (
+                "resizing_cancel_stop_on_opposite_dir",
+                "rink.camera.resizing_cancel_stop_on_opposite_dir",
+            ),
+            (
+                "resizing_stop_cancel_hysteresis_frames",
+                "rink.camera.resizing_stop_cancel_hysteresis_frames",
+            ),
+            (
+                "resizing_stop_delay_cooldown_frames",
+                "rink.camera.resizing_stop_delay_cooldown_frames",
+            ),
+            (
+                "resizing_time_to_dest_speed_limit_frames",
+                "rink.camera.resizing_time_to_dest_speed_limit_frames",
+            ),
+            (
+                "overshoot_stop_delay_count",
+                "rink.camera.breakaway_detection.overshoot_stop_delay_count",
+            ),
+            (
+                "post_nonstop_stop_delay_count",
+                "rink.camera.breakaway_detection.post_nonstop_stop_delay_count",
+            ),
+        ]
+    )
+    INIT_ARG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
+        "cam_ignore_largest": bool,
+        "camera_window": int,
+        "stop_on_dir_change_delay": int,
+        "cancel_stop_on_opposite_dir": lambda value: bool(int(value)),
+        "stop_cancel_hysteresis_frames": int,
+        "stop_delay_cooldown_frames": int,
+        "time_to_dest_speed_limit_frames": int,
+        "resizing_stop_on_dir_change_delay": int,
+        "resizing_cancel_stop_on_opposite_dir": lambda value: bool(int(value)),
+        "resizing_stop_cancel_hysteresis_frames": int,
+        "resizing_stop_delay_cooldown_frames": int,
+        "resizing_time_to_dest_speed_limit_frames": int,
+        "overshoot_stop_delay_count": int,
+        "post_nonstop_stop_delay_count": int,
+    }
+    ALL_YAML_ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = OrderedDict(
+        list(ARG_TO_CONFIG_MAP.items()) + list(INIT_ARG_TO_CONFIG_MAP.items())
+    )
+    CONFIG_TO_ARG_VALUE_MAP: Mapping[str, Callable[[Any], Any]] = {
+        "checkerboard_input": lambda values: any(bool(v) for v in values or []),
+        "debug": lambda value: 1 if bool(value) else None,
+        "fp16_stitch": lambda value: None if value is None else str(value).lower() == "float16",
+        "no_crop": lambda value: None if value is None else not bool(value),
+        "no_minimize_blend": lambda value: None if value is None else not bool(value),
+        "no_plot_tracking_circles": lambda value: None if value is None else not bool(value),
+        "plot_tracking": lambda values: any(bool(v) for v in values or []),
+    }
+    IMPLIED_ARG_TO_ARG_MAP: Mapping[str, Sequence[tuple[str, Callable[[Any], Any]]]] = {
+        "show_scaled": [("show_image", lambda _: True)],
+    }
+    IMPLIED_ARG_TO_CONFIG_MAP: Mapping[str, Sequence[tuple[str, Callable[[Any], Any]]]] = {
+        "show_scaled": [("video_out.show_image", lambda _: True)],
+    }
+    PRIVATE_CONFIG_ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = (
+        ALL_YAML_ARG_TO_CONFIG_MAP
+    )
+    PRIVATE_CONFIG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
+        **ARG_VALUE_MAP,
+        **INIT_ARG_VALUE_MAP,
+    }
+
+    @staticmethod
+    def finalize_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        return hm_opts._finalize_yaml_backed_actions(parser)
+
+    @staticmethod
+    def _finalize_yaml_backed_actions(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        yaml_arg_names = {
+            action.dest
+            for action in getattr(parser, "_actions", [])
+            if getattr(action, "dest", None) in hm_opts.ALL_YAML_ARG_TO_CONFIG_MAP
+        }
+        if not yaml_arg_names:
+            return parser
+        for action in getattr(parser, "_actions", []):
+            dest = getattr(action, "dest", None)
+            if dest not in yaml_arg_names:
+                continue
+            if not hasattr(action, "_yaml_config_original_default"):
+                action._yaml_config_original_default = getattr(action, "default", None)
+        parser.set_defaults(**{name: None for name in yaml_arg_names})
+        baseline_cfg = _get_baseline_runtime_config()
+        for action in getattr(parser, "_actions", []):
+            dest = getattr(action, "dest", None)
+            if dest not in yaml_arg_names:
+                continue
+            action.default = None
+            help_text = getattr(action, "help", None)
+            if not help_text or help_text is argparse.SUPPRESS or "[baseline:" in help_text:
+                continue
+            cfg_paths = hm_opts.ALL_YAML_ARG_TO_CONFIG_MAP[dest]
+            raw_value = _read_config_value(baseline_cfg, cfg_paths)
+            if isinstance(cfg_paths, str):
+                parts = [f"{cfg_paths}={_format_baseline_value(raw_value)}"]
+            else:
+                raw_values = (
+                    raw_value if isinstance(raw_value, list) else [raw_value] * len(cfg_paths)
+                )
+                parts = [
+                    f"{path}={_format_baseline_value(value)}"
+                    for path, value in zip(cfg_paths, raw_values)
+                ]
+            action.help = f"{help_text} [baseline: {', '.join(parts)}]"
+        return parser
+
+    @staticmethod
+    def _effective_runtime_config(opt: Any) -> Optional[Dict[str, Any]]:
+        game_cfg = getattr(opt, "game_config", None)
+        if isinstance(game_cfg, dict):
+            normalize_runtime_config(game_cfg)
+            return game_cfg
+        game_id = getattr(opt, "game_id", None)
+        ignore_private_config = bool(getattr(opt, "ignore_private_config", 0))
+        cfg = get_config(
+            game_id=game_id if game_id else None,
+            ignore_private_config=ignore_private_config,
+            resolve_globals=False,
+        )
+        normalize_runtime_config(cfg)
+        return cfg
+
+    @staticmethod
+    def _config_value_for_arg(config: Dict[str, Any], arg_name: str) -> Any:
+        cfg_paths = hm_opts.ALL_YAML_ARG_TO_CONFIG_MAP[arg_name]
+        raw_value = _read_config_value(config, cfg_paths)
+        if isinstance(raw_value, list):
+            if all(value is None for value in raw_value):
+                return None
+        elif raw_value is None:
+            return None
+        mapper = hm_opts.CONFIG_TO_ARG_VALUE_MAP.get(arg_name)
+        if mapper is not None:
+            return mapper(raw_value)
+        if isinstance(raw_value, list):
+            return _first_non_none(raw_value)
+        return raw_value
+
+    @staticmethod
+    def _normalize_yaml_backed_namespace_defaults(
+        opt: Any,
+        parser: Optional[argparse.ArgumentParser],
+        explicit_arg_names: Optional[Sequence[str]] = None,
+    ) -> Any:
+        if opt is None or parser is None:
+            return opt
+        explicit_set = set(explicit_arg_names) if explicit_arg_names is not None else None
+        for action in getattr(parser, "_actions", []):
+            dest = getattr(action, "dest", None)
+            if dest not in hm_opts.ALL_YAML_ARG_TO_CONFIG_MAP or not hasattr(opt, dest):
+                continue
+            if explicit_set is not None and dest in explicit_set:
+                continue
+            original_default = getattr(action, "_yaml_config_original_default", _MISSING_ARG)
+            if original_default is _MISSING_ARG:
+                continue
+            if getattr(opt, dest) == original_default:
+                setattr(opt, dest, None)
+        return opt
+
+    @staticmethod
+    def apply_implied_arg_mappings(opt: Any) -> Any:
+        game_cfg = getattr(opt, "game_config", None)
+        for source_name, dest_items in hm_opts.IMPLIED_ARG_TO_ARG_MAP.items():
+            raw_value = _get_arg_value(opt, source_name)
+            if raw_value is _MISSING_ARG or raw_value is None:
+                continue
+            for dest_name, mapper in dest_items:
+                setattr(opt, dest_name, mapper(raw_value))
+        if isinstance(game_cfg, dict):
+            normalize_runtime_config(game_cfg)
+            for source_name, dest_items in hm_opts.IMPLIED_ARG_TO_CONFIG_MAP.items():
+                raw_value = _get_arg_value(opt, source_name)
+                if raw_value is _MISSING_ARG or raw_value is None:
+                    continue
+                for cfg_path, mapper in dest_items:
+                    set_nested_value(game_cfg, cfg_path, mapper(raw_value))
+        return opt
+
+    @staticmethod
+    def sync_args_from_config(
+        opt: Any,
+        parser: Optional[argparse.ArgumentParser] = None,
+        config: Optional[Dict[str, Any]] = None,
+        explicit_arg_names: Optional[Sequence[str]] = None,
+        arg_to_config: Optional[Mapping[str, Union[str, Sequence[str]]]] = None,
+    ) -> Any:
+        if opt is None:
+            return opt
+        config = config if isinstance(config, dict) else hm_opts._effective_runtime_config(opt)
+        if not isinstance(config, dict):
+            return opt
+        normalize_runtime_config(config)
+        if not isinstance(getattr(opt, "game_config", None), dict):
+            opt.game_config = config
+        explicit_arg_names = (
+            explicit_arg_names
+            if explicit_arg_names is not None
+            else getattr(opt, "explicit_arg_names", None)
+        )
+        arg_to_config = arg_to_config or hm_opts.ALL_YAML_ARG_TO_CONFIG_MAP
+        for arg_name in arg_to_config:
+            if not hasattr(opt, arg_name):
+                continue
+            if _is_cli_arg_selected(
+                opt,
+                arg_name,
+                parser=parser,
+                explicit_arg_names=explicit_arg_names,
+            ):
+                continue
+            if getattr(opt, arg_name) is not None:
+                continue
+            mapped_value = hm_opts._config_value_for_arg(config, arg_name)
+            if mapped_value is None:
+                continue
+            setattr(opt, arg_name, mapped_value)
+        return opt
 
     @staticmethod
     def apply_arg_config_overrides(
@@ -1565,66 +1978,24 @@ class hm_opts(object):
         """Apply CLI-ish overrides to a config dict using dot-path mappings."""
         if not isinstance(config, dict) or args is None:
             return False
-        normalize_runtime_config(config)
         arg_to_config = arg_to_config or hm_opts.ARG_TO_CONFIG_MAP
         value_map = value_map or hm_opts.ARG_VALUE_MAP
-        setdefault_set = set(setdefault_args or hm_opts.ARG_SETDEFAULT)
-        explicit_set = set(explicit_arg_names) if explicit_arg_names is not None else None
         changed = False
-        for arg_name, cfg_paths in arg_to_config.items():
-            raw_value = _get_arg_value(args, arg_name)
-            if raw_value is _MISSING_ARG or raw_value is None:
-                continue
-            if explicit_set is not None and arg_name not in explicit_set:
-                continue
-            if explicit_set is None and parser is not None:
-                try:
-                    if raw_value == parser.get_default(arg_name):
-                        continue
-                except Exception:
-                    pass
-            mapper = value_map.get(arg_name)
-            mapped_value = raw_value
-            if mapper is not None:
-                try:
-                    if isinstance(mapper, MappingABC):
-                        if raw_value not in mapper:
-                            continue
-                        mapped_value = mapper[raw_value]
-                    else:
-                        mapped_value = mapper(raw_value)
-                    if mapped_value is _SKIP_CONFIG_VALUE:
-                        continue
-                except Exception:
-                    logger.warning("Invalid config override for %s: %r", arg_name, raw_value)
-                    continue
-            if isinstance(cfg_paths, str):
-                paths = [cfg_paths]
-            else:
-                paths = list(cfg_paths)
-            for path in paths:
-                if path.startswith("aspen.plugins."):
-                    # Avoid implicitly creating incomplete Aspen plugin stubs via CLI overrides.
-                    # If the selected Aspen config doesn't declare a plugin, setting
-                    # aspen.plugins.<name>.* here would create a dict without a `class`,
-                    # which later fails AspenNet graph construction.
-                    parts = path.split(".")
-                    if len(parts) >= 3:
-                        plugin_name = parts[2]
-                        aspen_cfg = config.get("aspen")
-                        plugins_cfg = (
-                            aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
-                        )
-                        if not isinstance(plugins_cfg, dict) or plugin_name not in plugins_cfg:
-                            continue
-                if arg_name in setdefault_set and _has_nested_key(config, path):
-                    continue
-                try:
-                    set_nested_value(config, path, mapped_value)
-                except Exception as ex:
-                    logger.error("Failed to set config value for %s: %s", path, ex)
-                    raise ex
-                changed = True
+        for _, path, mapped_value in _iter_arg_config_updates(
+            config,
+            args,
+            arg_to_config=arg_to_config,
+            value_map=value_map,
+            setdefault_args=setdefault_args or hm_opts.ARG_SETDEFAULT,
+            parser=parser,
+            explicit_arg_names=explicit_arg_names,
+        ):
+            try:
+                set_nested_value(config, path, mapped_value)
+            except Exception as ex:
+                logger.error("Failed to set config value for %s: %s", path, ex)
+                raise ex
+            changed = True
         return changed
 
     @staticmethod
@@ -1635,32 +2006,88 @@ class hm_opts(object):
         """
         if not isinstance(config, dict) or not overrides:
             return False
-        normalize_runtime_config(config)
 
         changed = False
-        for ov in overrides:
-            if not isinstance(ov, str) or "=" not in ov:
-                continue
-            key, val = ov.split("=", 1)
-            key_path = _rewrite_legacy_runtime_override_key(key.strip())
-            sval = val.strip()
-            lval = sval.lower()
-            if lval in ("null", "none"):
-                pval: Any = None
-            elif lval in ("true", "false"):
-                pval = lval == "true"
-            else:
-                try:
-                    if "." in sval:
-                        pval = float(sval)
-                    else:
-                        pval = int(sval)
-                except Exception:
-                    pval = sval
-            if not _has_nested_key(config, key_path):
-                raise KeyError(f"Unknown config override key: {key_path!r}")
+        for key_path, pval in _iter_config_override_updates(config, overrides):
             set_nested_value(config, key_path, pval, create_missing=False)
             changed = True
+        return changed
+
+    @staticmethod
+    def persist_private_config_overrides(
+        args: Any,
+        *,
+        parser: Optional[argparse.ArgumentParser] = None,
+        config: Optional[Dict[str, Any]] = None,
+        explicit_arg_names: Optional[Sequence[str]] = None,
+        verbose: bool = True,
+    ) -> bool:
+        """Write explicit YAML-backed CLI overrides into the per-game private config."""
+        if args is None:
+            return False
+        game_id = _get_arg_value(args, "game_id")
+        if game_id is _MISSING_ARG or not game_id:
+            return False
+        ignore_private_config = _get_arg_value(args, "ignore_private_config")
+        if ignore_private_config is not _MISSING_ARG and bool(ignore_private_config):
+            return False
+        config = config if isinstance(config, dict) else getattr(args, "game_config", None)
+        if not isinstance(config, dict):
+            return False
+        normalize_runtime_config(config)
+        explicit_arg_names = hm_opts._resolve_explicit_arg_names(
+            parser,
+            (
+                explicit_arg_names
+                if explicit_arg_names is not None
+                else getattr(args, "explicit_arg_names", None)
+            ),
+            require_parser=True,
+        )
+        private_cfg = get_game_config_private(game_id=game_id)
+        if not isinstance(private_cfg, dict):
+            private_cfg = {}
+        normalize_runtime_config(private_cfg)
+
+        changed = False
+        for _, path, mapped_value in _iter_arg_config_updates(
+            config,
+            args,
+            arg_to_config=hm_opts.PRIVATE_CONFIG_ARG_TO_CONFIG_MAP,
+            value_map=hm_opts.PRIVATE_CONFIG_VALUE_MAP,
+            setdefault_args=(),
+            parser=parser,
+            explicit_arg_names=explicit_arg_names,
+        ):
+            current_value = get_nested_value(private_cfg, path, _MISSING_ARG)
+            if current_value is not _MISSING_ARG and current_value == mapped_value:
+                continue
+            set_nested_value(private_cfg, path, copy.deepcopy(mapped_value))
+            changed = True
+
+        if _is_cli_arg_selected(
+            args,
+            "show_scaled",
+            parser=parser,
+            explicit_arg_names=explicit_arg_names,
+        ):
+            show_image_path = "video_out.show_image"
+            if get_nested_value(private_cfg, show_image_path, _MISSING_ARG) is not True:
+                set_nested_value(private_cfg, show_image_path, True)
+                changed = True
+
+        for key_path, pval in _iter_config_override_updates(
+            config,
+            getattr(args, "config_overrides", None),
+        ):
+            current_value = get_nested_value(private_cfg, key_path, _MISSING_ARG)
+            if current_value is not _MISSING_ARG and current_value == pval:
+                continue
+            set_nested_value(private_cfg, key_path, copy.deepcopy(pval))
+            changed = True
+
+        if changed:
+            save_private_config(game_id=game_id, data=private_cfg, verbose=verbose)
         return changed
 
     @staticmethod
@@ -1669,18 +2096,42 @@ class hm_opts(object):
         if opt.serial:
             opt.cache_size = 0
             opt.no_async_dataset = True
-
-        # `hmtrack` applies arg->config overrides before calling `hm_opts.init`,
-        # so `--show-scaled` must imply both the CLI flag and the config value
-        # that VideoOutPlugin reads.
-        if getattr(opt, "show_scaled", None) is not None:
-            opt.show_image = True
-            try:
-                if isinstance(getattr(opt, "game_config", None), dict):
-                    normalize_runtime_config(opt.game_config)
-                    set_nested_value(opt.game_config, "video_out.show_image", True)
-            except Exception:
-                pass
+        if parser is not None:
+            hm_opts.finalize_parser(parser)
+        explicit_arg_names = hm_opts._resolve_explicit_arg_names(
+            parser,
+            getattr(opt, "explicit_arg_names", None),
+        )
+        if explicit_arg_names is not None:
+            opt.explicit_arg_names = explicit_arg_names
+        hm_opts._normalize_yaml_backed_namespace_defaults(
+            opt,
+            parser,
+            explicit_arg_names=explicit_arg_names,
+        )
+        game_cfg = hm_opts._effective_runtime_config(opt)
+        if isinstance(game_cfg, dict):
+            opt.game_config = game_cfg
+            hm_opts.apply_arg_config_overrides(
+                game_cfg,
+                opt,
+                parser=parser,
+                explicit_arg_names=explicit_arg_names,
+            )
+            hm_opts.apply_arg_config_overrides(
+                game_cfg,
+                opt,
+                arg_to_config=hm_opts.INIT_ARG_TO_CONFIG_MAP,
+                value_map=hm_opts.INIT_ARG_VALUE_MAP,
+                parser=parser,
+                explicit_arg_names=explicit_arg_names,
+            )
+            if opt.config_overrides:
+                hm_opts.apply_config_overrides(game_cfg, opt.config_overrides)
+        elif getattr(opt, "config_overrides", []):
+            raise RuntimeError(
+                "--config-override requires a loaded game_config; pass --game-id or set args.game_config."
+            )
 
         # Resolve "auto" decoder selection to a concrete backend.
         # Prefer GPU decode (pynvcodec) when CUDA + PyNvVideoCodec are available.
@@ -1721,328 +2172,13 @@ class hm_opts(object):
                         ):
                             print(f"Setting attribute {k} to {v}")
                             setattr(opt, k, v)
-
-        # YAML-derived defaults for stitch_frame_time (CLI wins).
-        # Preferred source is consolidated game_config when available; otherwise
-        # fall back to the per-game private config under $HOME/Videos/<game-id>/config.yaml.
-        try:
-            if opt.stitch_frame_time is None:
-                val = None
-                game_cfg = getattr(opt, "game_config", None)
-                if isinstance(game_cfg, dict):
-                    normalize_runtime_config(game_cfg)
-                    val = get_nested_value(game_cfg, "stitching.stitch_frame_time", None)
-                    if val is None:
-                        val = get_nested_value(game_cfg, "game.stitching.stitch-frame-time", None)
-                    if val is None:
-                        val = get_nested_value(game_cfg, "game.stitching.stitch_frame_time", None)
-                if val is None and opt.game_id and not bool(opt.ignore_private_config):
-                    cfg_priv = get_game_config_private(game_id=opt.game_id)
-                    normalize_runtime_config(cfg_priv)
-                    val = get_nested_value(cfg_priv, "stitching.stitch_frame_time", None)
-                    if val is None:
-                        val = get_nested_value(cfg_priv, "game.stitching.stitch-frame-time", None)
-                    if val is None:
-                        val = get_nested_value(cfg_priv, "game.stitching.stitch_frame_time", None)
-                if val is not None:
-                    opt.stitch_frame_time = str(val)
-        except Exception:
-            # Non-fatal if config missing or malformed
-            pass
-
-        # YAML-derived defaults for stitch_rotate_degrees (CLI wins).
-        # Preferred source is consolidated game_config when available; otherwise
-        # fall back to the per-game private config under $HOME/Videos/<game-id>/config.yaml.
-        try:
-            if getattr(opt, "stitch_rotate_degrees", None) is None:
-                val = None
-                game_cfg = getattr(opt, "game_config", None)
-                if isinstance(game_cfg, dict):
-                    normalize_runtime_config(game_cfg)
-                    val = get_nested_value(game_cfg, "stitching.post_stitch_rotate_degrees", None)
-                    if val is None:
-                        val = get_nested_value(
-                            game_cfg, "game.stitching.stitch-rotate-degrees", None
-                        )
-                    if val is None:
-                        val = get_nested_value(
-                            game_cfg, "game.stitching.stitch_rotate_degrees", None
-                        )
-                if val is None and opt.game_id and not bool(opt.ignore_private_config):
-                    cfg_priv = get_game_config_private(game_id=opt.game_id)
-                    normalize_runtime_config(cfg_priv)
-                    val = get_nested_value(cfg_priv, "stitching.post_stitch_rotate_degrees", None)
-                    if val is None:
-                        val = get_nested_value(
-                            cfg_priv, "game.stitching.stitch-rotate-degrees", None
-                        )
-                    if val is None:
-                        val = get_nested_value(
-                            cfg_priv, "game.stitching.stitch_rotate_degrees", None
-                        )
-                if val is not None:
-                    try:
-                        opt.stitch_rotate_degrees = float(val)
-                    except Exception:
-                        pass
-        except Exception:
-            # Non-fatal if config missing or malformed
-            pass
-
-        # Map select CLI camera options into YAML-style config (if not already present)
-        # This lets downstream code read from args.game_config['rink']['camera']
-        game_cfg = getattr(opt, "game_config", None)
-        if isinstance(game_cfg, dict):
-            # Helper to know if a CLI option was explicitly provided (not just default)
-            explicit_arg_names = set(getattr(opt, "explicit_arg_names", []) or [])
-
-            def _cli_spec(name: str) -> bool:
-                if name in explicit_arg_names:
-                    return True
-                try:
-                    return parser is not None and getattr(opt, name) != parser.get_default(name)
-                except Exception:
-                    return False
-
-            # cam_ignore_largest: prefer explicit CLI flag, otherwise YAML rink.tracking setting.
-            try:
-                cfg_val = get_nested_value(game_cfg, "rink.tracking.cam_ignore_largest", None)
-                if cfg_val is not None and not _cli_spec("cam_ignore_largest"):
-                    opt.cam_ignore_largest = bool(cfg_val)
-            except Exception:
-                pass
-
-            # Camera controller/model/window: only override YAML when explicitly specified on CLI.
-            try:
-                if hasattr(opt, "camera_controller") and (
-                    _cli_spec("camera_controller")
-                    or get_nested_value(game_cfg, "rink.camera.controller", None) is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.controller",
-                        str(getattr(opt, "camera_controller")),
-                    )
-            except Exception:
-                pass
-            try:
-                if hasattr(opt, "camera_model") and (
-                    _cli_spec("camera_model")
-                    or get_nested_value(game_cfg, "rink.camera.camera_model", None) is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.camera_model",
-                        getattr(opt, "camera_model"),
-                    )
-            except Exception:
-                pass
-            try:
-                if hasattr(opt, "camera_window") and (
-                    _cli_spec("camera_window")
-                    or get_nested_value(game_cfg, "rink.camera.camera_window", None) is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.camera_window",
-                        int(getattr(opt, "camera_window")),
-                    )
-            except Exception:
-                pass
-
-            # stop_on_dir_change_delay
-            try:
-                if (
-                    _cli_spec("stop_on_dir_change_delay")
-                    or get_nested_value(game_cfg, "rink.camera.stop_on_dir_change_delay", None)
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.stop_on_dir_change_delay",
-                        int(opt.stop_on_dir_change_delay),
-                    )
-            except Exception:
-                pass
-            # cancel_stop_on_opposite_dir (store as bool in YAML)
-            try:
-                if (
-                    _cli_spec("cancel_stop_on_opposite_dir")
-                    or get_nested_value(game_cfg, "rink.camera.cancel_stop_on_opposite_dir", None)
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.cancel_stop_on_opposite_dir",
-                        bool(int(opt.cancel_stop_on_opposite_dir)),
-                    )
-            except Exception:
-                pass
-            # cancel hysteresis frames
-            try:
-                if (
-                    _cli_spec("stop_cancel_hysteresis_frames")
-                    or get_nested_value(game_cfg, "rink.camera.stop_cancel_hysteresis_frames", None)
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.stop_cancel_hysteresis_frames",
-                        int(opt.stop_cancel_hysteresis_frames),
-                    )
-            except Exception:
-                pass
-            # stop delay cooldown frames
-            try:
-                if (
-                    _cli_spec("stop_delay_cooldown_frames")
-                    or get_nested_value(game_cfg, "rink.camera.stop_delay_cooldown_frames", None)
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.stop_delay_cooldown_frames",
-                        int(opt.stop_delay_cooldown_frames),
-                    )
-            except Exception:
-                pass
-            # time to dest speed limit frames
-            try:
-                if (
-                    _cli_spec("time_to_dest_speed_limit_frames")
-                    or get_nested_value(
-                        game_cfg, "rink.camera.time_to_dest_speed_limit_frames", None
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.time_to_dest_speed_limit_frames",
-                        int(opt.time_to_dest_speed_limit_frames),
-                    )
-            except Exception:
-                pass
-            # resizing stop_on_dir_change_delay
-            try:
-                if (
-                    _cli_spec("resizing_stop_on_dir_change_delay")
-                    or get_nested_value(
-                        game_cfg, "rink.camera.resizing_stop_on_dir_change_delay", None
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.resizing_stop_on_dir_change_delay",
-                        int(opt.resizing_stop_on_dir_change_delay),
-                    )
-            except Exception:
-                pass
-            # resizing cancel_stop_on_opposite_dir (store as bool in YAML)
-            try:
-                if (
-                    _cli_spec("resizing_cancel_stop_on_opposite_dir")
-                    or get_nested_value(
-                        game_cfg, "rink.camera.resizing_cancel_stop_on_opposite_dir", None
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.resizing_cancel_stop_on_opposite_dir",
-                        bool(int(opt.resizing_cancel_stop_on_opposite_dir)),
-                    )
-            except Exception:
-                pass
-            # resizing cancel hysteresis frames
-            try:
-                if (
-                    _cli_spec("resizing_stop_cancel_hysteresis_frames")
-                    or get_nested_value(
-                        game_cfg, "rink.camera.resizing_stop_cancel_hysteresis_frames", None
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.resizing_stop_cancel_hysteresis_frames",
-                        int(opt.resizing_stop_cancel_hysteresis_frames),
-                    )
-            except Exception:
-                pass
-            # resizing stop delay cooldown frames
-            try:
-                if (
-                    _cli_spec("resizing_stop_delay_cooldown_frames")
-                    or get_nested_value(
-                        game_cfg, "rink.camera.resizing_stop_delay_cooldown_frames", None
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.resizing_stop_delay_cooldown_frames",
-                        int(opt.resizing_stop_delay_cooldown_frames),
-                    )
-            except Exception:
-                pass
-            # resizing time to dest speed limit frames
-            try:
-                if (
-                    _cli_spec("resizing_time_to_dest_speed_limit_frames")
-                    or get_nested_value(
-                        game_cfg,
-                        "rink.camera.resizing_time_to_dest_speed_limit_frames",
-                        None,
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.resizing_time_to_dest_speed_limit_frames",
-                        int(opt.resizing_time_to_dest_speed_limit_frames),
-                    )
-            except Exception:
-                pass
-            # Breakaway: overshoot/post-nonstop delays
-            try:
-                if _cli_spec("overshoot_stop_delay_count") or (
-                    get_nested_value(
-                        game_cfg, "rink.camera.breakaway_detection.overshoot_stop_delay_count", None
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.breakaway_detection.overshoot_stop_delay_count",
-                        int(opt.overshoot_stop_delay_count),
-                    )
-            except Exception:
-                pass
-            try:
-                if _cli_spec("post_nonstop_stop_delay_count") or (
-                    get_nested_value(
-                        game_cfg,
-                        "rink.camera.breakaway_detection.post_nonstop_stop_delay_count",
-                        None,
-                    )
-                    is None
-                ):
-                    set_nested_value(
-                        game_cfg,
-                        "rink.camera.breakaway_detection.post_nonstop_stop_delay_count",
-                        int(opt.post_nonstop_stop_delay_count),
-                    )
-            except Exception:
-                pass
-
-            if opt.config_overrides:
-                hm_opts.apply_config_overrides(game_cfg, opt.config_overrides)
-        else:
-            if getattr(opt, "config_overrides", []):
-                raise RuntimeError(
-                    "--config-override requires a loaded game_config; pass --game-id or set args.game_config."
-                )
+        hm_opts.sync_args_from_config(
+            opt,
+            parser=parser,
+            config=getattr(opt, "game_config", None),
+            explicit_arg_names=explicit_arg_names,
+        )
+        hm_opts.apply_implied_arg_mappings(opt)
 
         return opt
 

@@ -215,7 +215,12 @@ class PtImageBlender(torch.nn.Module):
 
         # Build full-canvas versions of images/masks so we can prevent unmapped
         # pixels from participating in blending.
-        (full_left, alpha_mask_left_full, full_right, alpha_mask_right_full,) = simple_make_full(
+        (
+            full_left,
+            alpha_mask_left_full,
+            full_right,
+            alpha_mask_right_full,
+        ) = simple_make_full(
             img_1=image_1,
             mask_1=alpha_mask_1,
             x1=x1,
@@ -1445,7 +1450,9 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = make_parser().parse_args()
+    parser = make_parser()
+    args = parser.parse_args()
+    args = hm_opts.init(args, parser)
     try:
         main(args)
         print("Done.")

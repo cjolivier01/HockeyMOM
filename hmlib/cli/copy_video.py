@@ -411,7 +411,9 @@ def copy_video(
 
 
 def main():
-    args = make_parser().parse_args()
+    parser = make_parser()
+    args = parser.parse_args()
+    args = hm_opts.init(args, parser)
 
     gpu_allocator = GpuAllocator(gpus=args.gpus)
     if not args.video_dir and args.game_id:
