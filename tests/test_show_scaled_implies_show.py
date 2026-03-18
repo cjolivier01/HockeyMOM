@@ -1,5 +1,7 @@
 import argparse
 
+import pytest
+
 
 def should_show_scaled_imply_show_image_and_config() -> None:
     from hmlib.hm_opts import hm_opts
@@ -150,6 +152,27 @@ def should_apply_map_driven_camera_arg_overrides_in_init() -> None:
     assert args.game_config["rink"]["camera"]["cancel_stop_on_opposite_dir"] is False
 
 
+def should_backfill_late_added_yaml_backed_args_in_init() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    parser.add_argument(
+        "--cam-ignore-largest",
+        dest="cam_ignore_largest",
+        default=False,
+        action="store_true",
+        help="late-added yaml-backed flag",
+    )
+    args = parser.parse_args([])
+    args.explicit_arg_names = set()
+    args.game_config = {"rink": {"tracking": {"cam_ignore_largest": True}}}
+
+    args = hm_opts.init(args, parser)
+
+    assert parser.get_default("cam_ignore_largest") is None
+    assert args.cam_ignore_largest is True
+
+
 def should_persist_explicit_yaml_backed_cli_args_to_private_config(monkeypatch) -> None:
     import hmlib.hm_opts as hm_opts_module
     from hmlib.hm_opts import hm_opts
@@ -206,6 +229,39 @@ def should_persist_explicit_yaml_backed_cli_args_to_private_config(monkeypatch) 
     assert saved["video_out"]["show_scaled"] == 0.5
     assert saved["video_out"]["show_image"] is True
     assert saved["rink"]["camera"]["camera_window"] == 12
+
+
+def should_not_persist_backfilled_yaml_values_when_explicit_args_are_derived(monkeypatch) -> None:
+    import sys
+
+    import hmlib.hm_opts as hm_opts_module
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    monkeypatch.setattr(sys, "argv", ["hmtrack.py", "--game-id", "test-game"])
+    args = parser.parse_args(["--game-id", "test-game"])
+    args.game_config = {"video_out": {"show_image": False}}
+
+    args = hm_opts.init(args, parser)
+
+    saved = {}
+    monkeypatch.setattr(hm_opts_module, "get_game_config_private", lambda game_id: {})
+    monkeypatch.setattr(
+        hm_opts_module,
+        "save_private_config",
+        lambda game_id, data, verbose=True: saved.update(data),
+    )
+
+    changed = hm_opts.persist_private_config_overrides(
+        args,
+        parser=parser,
+        config=args.game_config,
+        verbose=False,
+    )
+
+    assert args.show_image is False
+    assert changed is False
+    assert saved == {}
 
 
 def should_persist_config_override_to_private_config(monkeypatch) -> None:
@@ -282,3 +338,19 @@ def should_not_write_private_config_when_ignored(monkeypatch) -> None:
 
     assert changed is False
     assert calls["count"] == 0
+
+
+def should_raise_when_effective_config_load_fails(monkeypatch) -> None:
+    import hmlib.hm_opts as hm_opts_module
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args([])
+
+    def _raise_get_config(**kwargs):
+        raise RuntimeError("bad config")
+
+    monkeypatch.setattr(hm_opts_module, "get_config", _raise_get_config)
+
+    with pytest.raises(RuntimeError, match="bad config"):
+        hm_opts.init(args, parser)

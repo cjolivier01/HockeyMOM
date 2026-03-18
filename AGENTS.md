@@ -31,7 +31,7 @@
 - Indentation: use spaces (not tabs) in all source files (Python/C/C++/JS/HTML/CSS/etc). Tabs are only allowed where they have special meaning (e.g., Makefiles).
 
 ## Error Handling & CLI Args
-- Do not silently ignore failures by default: avoid `except Exception: pass` / bare `except:` / catching-and-returning-success unless there is a clear, documented best-effort reason and the failure is surfaced (log/error return) with context.
+- Never silently fail. Avoid `except Exception: pass`, bare `except:`, silent fallback-to-default behavior, or catching-and-returning-success. If a best-effort path is genuinely required, surface it explicitly with context so the caller/user can tell the degraded path was taken.
 - For CLI argument access: never use `getattr(args, "flag", default)` (or `hasattr(args, ...)`) to paper over missing argparse attributes. Define all expected args in the parser (with defaults) and access via `args.flag`; if an attribute is missing, that's a bug (use subparsers or separate namespaces if modes differ).
 
 ## Testing Guidelines

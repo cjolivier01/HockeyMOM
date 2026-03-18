@@ -1583,7 +1583,7 @@ class hm_opts(object):
             type=int,
             help="Enable runtime camera braking UI (OpenCV trackbars)",
         )
-        return hm_opts._finalize_yaml_backed_actions(parser)
+        return hm_opts.finalize_parser(parser)
 
     def parse(self, args=""):
         if args == "":
@@ -1615,6 +1615,24 @@ class hm_opts(object):
             if action is not None and getattr(action, "dest", None):
                 explicit.add(action.dest)
         return explicit
+
+    @staticmethod
+    def _resolve_explicit_arg_names(
+        parser: Optional[argparse.ArgumentParser],
+        explicit_arg_names: Optional[Sequence[str]],
+        *,
+        require_parser: bool = False,
+    ) -> Optional[set[str]]:
+        if explicit_arg_names is not None:
+            return set(explicit_arg_names)
+        if parser is None:
+            if require_parser:
+                raise RuntimeError(
+                    "explicit_arg_names are required; pass them explicitly or provide a parser "
+                    "built from the current CLI invocation."
+                )
+            return None
+        return hm_opts.collect_explicit_arg_names(parser)
 
     # TODO: How can this be generalized with the nesting in the yaml?
     CONFIG_TO_ARGS = [
@@ -1791,6 +1809,10 @@ class hm_opts(object):
     }
 
     @staticmethod
+    def finalize_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        return hm_opts._finalize_yaml_backed_actions(parser)
+
+    @staticmethod
     def _finalize_yaml_backed_actions(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         yaml_arg_names = {
             action.dest
@@ -1799,6 +1821,12 @@ class hm_opts(object):
         }
         if not yaml_arg_names:
             return parser
+        for action in getattr(parser, "_actions", []):
+            dest = getattr(action, "dest", None)
+            if dest not in yaml_arg_names:
+                continue
+            if not hasattr(action, "_yaml_config_original_default"):
+                action._yaml_config_original_default = getattr(action, "default", None)
         parser.set_defaults(**{name: None for name in yaml_arg_names})
         baseline_cfg = _get_baseline_runtime_config()
         for action in getattr(parser, "_actions", []):
@@ -1832,14 +1860,11 @@ class hm_opts(object):
             return game_cfg
         game_id = getattr(opt, "game_id", None)
         ignore_private_config = bool(getattr(opt, "ignore_private_config", 0))
-        try:
-            cfg = get_config(
-                game_id=game_id if game_id else None,
-                ignore_private_config=ignore_private_config,
-                resolve_globals=False,
-            )
-        except Exception:
-            cfg = _get_baseline_runtime_config()
+        cfg = get_config(
+            game_id=game_id if game_id else None,
+            ignore_private_config=ignore_private_config,
+            resolve_globals=False,
+        )
         normalize_runtime_config(cfg)
         return cfg
 
@@ -1858,6 +1883,28 @@ class hm_opts(object):
         if isinstance(raw_value, list):
             return _first_non_none(raw_value)
         return raw_value
+
+    @staticmethod
+    def _normalize_yaml_backed_namespace_defaults(
+        opt: Any,
+        parser: Optional[argparse.ArgumentParser],
+        explicit_arg_names: Optional[Sequence[str]] = None,
+    ) -> Any:
+        if opt is None or parser is None:
+            return opt
+        explicit_set = set(explicit_arg_names) if explicit_arg_names is not None else None
+        for action in getattr(parser, "_actions", []):
+            dest = getattr(action, "dest", None)
+            if dest not in hm_opts.ALL_YAML_ARG_TO_CONFIG_MAP or not hasattr(opt, dest):
+                continue
+            if explicit_set is not None and dest in explicit_set:
+                continue
+            original_default = getattr(action, "_yaml_config_original_default", _MISSING_ARG)
+            if original_default is _MISSING_ARG:
+                continue
+            if getattr(opt, dest) == original_default:
+                setattr(opt, dest, None)
+        return opt
 
     @staticmethod
     def apply_implied_arg_mappings(opt: Any) -> Any:
@@ -1988,10 +2035,14 @@ class hm_opts(object):
         if not isinstance(config, dict):
             return False
         normalize_runtime_config(config)
-        explicit_arg_names = (
-            explicit_arg_names
-            if explicit_arg_names is not None
-            else getattr(args, "explicit_arg_names", None)
+        explicit_arg_names = hm_opts._resolve_explicit_arg_names(
+            parser,
+            (
+                explicit_arg_names
+                if explicit_arg_names is not None
+                else getattr(args, "explicit_arg_names", None)
+            ),
+            require_parser=True,
         )
         private_cfg = get_game_config_private(game_id=game_id)
         if not isinstance(private_cfg, dict):
@@ -2045,7 +2096,19 @@ class hm_opts(object):
         if opt.serial:
             opt.cache_size = 0
             opt.no_async_dataset = True
-        explicit_arg_names = getattr(opt, "explicit_arg_names", None)
+        if parser is not None:
+            hm_opts.finalize_parser(parser)
+        explicit_arg_names = hm_opts._resolve_explicit_arg_names(
+            parser,
+            getattr(opt, "explicit_arg_names", None),
+        )
+        if explicit_arg_names is not None:
+            opt.explicit_arg_names = explicit_arg_names
+        hm_opts._normalize_yaml_backed_namespace_defaults(
+            opt,
+            parser,
+            explicit_arg_names=explicit_arg_names,
+        )
         game_cfg = hm_opts._effective_runtime_config(opt)
         if isinstance(game_cfg, dict):
             opt.game_config = game_cfg
