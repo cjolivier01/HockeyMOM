@@ -4,9 +4,9 @@ load("//tools/python/pytest:defs.bzl", "pytest_test")
 
 
 py_test(
-    name = "simple_run",
-    srcs = ["simple_run.py"],
-    deps = [
+    name="simple_run",
+    srcs=["simple_run.py"],
+    deps=[
         # Add any dependencies your test requires, e.g.,
         # "//my_project/my_module:my_library",
         # "@my_python_deps//:pytest", # if using pytest
@@ -15,127 +15,154 @@ py_test(
 )
 
 py_test(
-    name = "test_unified_config",
-    srcs = ["test_unified_config.py"],
-    data = [
+    name="test_unified_config",
+    srcs=["test_unified_config.py"],
+    data=[
         "//hmlib:wheel_data_files",  # include YAMLs under hmlib/**
     ],
 )
 
 py_test(
-    name = "test_dataframe_samples",
-    srcs = ["test_dataframe_samples.py"],
-    data = [
+    name="test_dataframe_samples",
+    srcs=["test_dataframe_samples.py"],
+    data=[
         "//hmlib:wheel_data_files",
     ],
-    deps = [
+    deps=[
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_tracking_pose_load_tracking",
-    srcs = ["test_tracking_pose_load_tracking.py"],
-    data = [
+    name="test_tracking_pose_load_tracking",
+    srcs=["test_tracking_pose_load_tracking.py"],
+    data=[
         "//hmlib:wheel_data_files",
     ],
-    deps = [
+    deps=[
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_progress_bar_units",
-    srcs = ["test_progress_bar_units.py"],
-    data = [
+    name="test_progress_bar_units",
+    srcs=["test_progress_bar_units.py"],
+    data=[
         "//hmlib:wheel_data_files",
     ],
-    deps = [
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_box_equivalence",
-    srcs = ["test_box_equivalence.py"],
-    data = [
+    name="test_box_equivalence",
+    srcs=["test_box_equivalence.py"],
+    data=[
         "//hmlib:wheel_data_files",
     ],
 )
 
 py_test(
-    name = "test_bytetrack_cuda",
-    srcs = ["test_bytetrack_cuda.py"],
-    deps = [
+    name="test_bytetrack_cuda",
+    srcs=["test_bytetrack_cuda.py"],
+    deps=[
         "//hockeymom:hockeymom",
     ],
 )
 
 py_test(
-    name = "test_stream_tensorx",
-    srcs = ["test_stream_tensorx.py"],
+    name="test_stream_tensorx",
+    srcs=["test_stream_tensorx.py"],
 )
 
 py_test(
-    name = "test_sideband_queue",
-    srcs = ["test_sideband_queue.py"],
+    name="test_sideband_queue",
+    srcs=["test_sideband_queue.py"],
 )
 
 py_test(
-    name = "test_pynvcodec_writer",
-    srcs = ["test_pynvcodec_writer.py"],
-    deps = [
+    name="test_pynvcodec_writer",
+    srcs=["test_pynvcodec_writer.py"],
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_jersey_tracker",
-    srcs = ["test_jersey_tracker.py"],
-    deps = [
+    name="test_jersey_tracker",
+    srcs=["test_jersey_tracker.py"],
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_jersey_koshkina_side_view",
-    srcs = ["test_jersey_koshkina_side_view.py"],
-    deps = [
+    name="test_jersey_koshkina_side_view",
+    srcs=["test_jersey_koshkina_side_view.py"],
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_jersey_pose_plugin_rois",
-    srcs = ["test_jersey_pose_plugin_rois.py"],
-    deps = [
+    name="test_jersey_pose_plugin_rois",
+    srcs=["test_jersey_pose_plugin_rois.py"],
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )
 
 py_test(
-    name = "test_show_scaled_implies_show",
-    srcs = ["test_show_scaled_implies_show.py"],
-    deps = [
+    name="test_show_scaled_implies_show",
+    srcs=["test_show_scaled_implies_show.py"],
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
     ],
 )
 
 pytest_test(
-    name = "test_video_output_naming",
-    srcs = ["test_video_output_naming.py"],
-    args = [
+    name="test_video_output_naming",
+    srcs=["test_video_output_naming.py"],
+    args=[
         "-c",
         "$(location //:pyproject.toml)",
     ],
-    deps = [
+    deps=[
         "//hmlib:hmlib.lib",
         requirement("pyyaml"),
+    ],
+)
+
+pytest_test(
+    name="test_aspen_plugins_isolation",
+    srcs=["test_aspen_plugins_isolation.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    data=["aspen_plugin_harness.py"],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+pytest_test(
+    name="test_aspen_cuda_graph_pipeline",
+    srcs=["test_aspen_cuda_graph_pipeline.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
     ],
 )

@@ -386,7 +386,6 @@ class LoadPosePlugin(Plugin):
             get_s = getattr(df, "get_sample_by_frame", None)
             fid: int = frame_id0 + i
             pose_ds = get_s(frame_id=fid) if callable(get_s) else None
-            pose_ds.set_metainfo({"frame_id": int(fid)})
             if pose_ds is None:
                 rec = df.get_data_dict_by_frame(frame_id=fid)
                 if rec is None:
@@ -394,6 +393,7 @@ class LoadPosePlugin(Plugin):
                 else:
                     pose_results.append(rec.get("pose", {"predictions": []}))
             else:
+                pose_ds.set_metainfo({"frame_id": int(fid)})
                 # Wrap PoseDataSample to match downstream expectations: {'predictions':[PoseDataSample]}
                 pose_results.append({"predictions": [pose_ds]})
 

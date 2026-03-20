@@ -1073,6 +1073,20 @@ class hm_opts(object):
             help="Disable per-trunk CUDA streams in threaded Aspen mode",
         )
         parser.set_defaults(aspen_thread_cuda_streams=None)
+        aspen_cuda_graph_group = parser.add_mutually_exclusive_group()
+        aspen_cuda_graph_group.add_argument(
+            "--aspen-cuda-graph",
+            dest="aspen_cuda_graph",
+            action="store_true",
+            help="Enable Aspen plugin CUDA graph fast paths when supported",
+        )
+        aspen_cuda_graph_group.add_argument(
+            "--no-aspen-cuda-graph",
+            dest="aspen_cuda_graph",
+            action="store_false",
+            help="Disable Aspen plugin CUDA graph fast paths",
+        )
+        parser.set_defaults(aspen_cuda_graph=None)
         aspen_stitch_group = parser.add_mutually_exclusive_group()
         aspen_stitch_group.add_argument(
             "--aspen-stitching",
@@ -1652,6 +1666,7 @@ class hm_opts(object):
             ("aspen_thread_queue_size", "aspen.pipeline.queue_size"),
             ("aspen_max_concurrent", "aspen.pipeline.max_concurrent"),
             ("aspen_thread_cuda_streams", "aspen.pipeline.cuda_streams"),
+            ("aspen_cuda_graph", "aspen.pipeline.cuda_graph"),
             ("aspen_thread_graph", "aspen.pipeline.graph"),
             ("display_plugin_profile", "aspen.pipeline.display_plugin_profile"),
             ("display_aspen_graph", "aspen.pipeline.display_graph"),
@@ -1705,6 +1720,7 @@ class hm_opts(object):
         "aspen_thread_queue_size": _coerce_aspen_queue_size,
         "aspen_max_concurrent": _coerce_aspen_max_concurrent,
         "aspen_thread_cuda_streams": bool,
+        "aspen_cuda_graph": bool,
         "aspen_thread_graph": bool,
         "display_plugin_profile": bool,
         "display_aspen_graph": bool,
