@@ -88,6 +88,13 @@ stitching:
   enabled: true
   pto_project_file: null
   stitch_frame_time: "00:00:00"
+  frame_offsets:
+    left: null
+    right: null
+  control_points:
+    m_kpts0: null
+    m_kpts1: null
+  offsets: null
   dir_name: null
   blend_mode: "laplacian"
   max_blend_levels: 11
@@ -105,15 +112,15 @@ stitching:
     - type: HmImageColorAdjust
       keys: [img]
       config_paths:
-        - [game, stitching, left, color]
-        - [game, stitching, left]
+        - [stitching, left, color]
+        - [stitching, left]
       refresh_from_config: true
   right_stitch_pipeline:
     - type: HmImageColorAdjust
       keys: [img]
       config_paths:
-        - [game, stitching, right, color]
-        - [game, stitching, right]
+        - [stitching, right, color]
+        - [stitching, right]
       refresh_from_config: true
 
 play_tracker:
@@ -289,18 +296,6 @@ game:
   videos:
     left: null
     right: null
-
-  stitching:
-    stitch-rotate-degrees: null
-    stitch-frame-time: null
-    frame_offsets:
-      left: null
-      right: null
-    control_points:
-      m_kpts0: null
-      m_kpts1: null
-
-    offsets: null
 
   clip_box: null
   boundaries:

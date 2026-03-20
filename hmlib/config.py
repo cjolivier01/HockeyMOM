@@ -97,6 +97,8 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
                 if yaml_content is None:
                     # Empty file
                     return {}
+                if isinstance(yaml_content, dict):
+                    yaml_content = normalize_runtime_config(yaml_content)
                 if merge_into_config:
                     yaml_content = recursive_update(merge_into_config, yaml_content)
                 return yaml_content
@@ -185,8 +187,11 @@ def get_game_config(game_id: str, root_dir: Optional[str] = None) -> Dict[str, A
 
 def save_private_config(game_id: str, data: Dict[str, Any], verbose: bool = True):
     yaml_file_path = os.path.join(GAME_DIR_BASE, game_id, "config.yaml")
+    data_to_save = copy.deepcopy(data) if isinstance(data, dict) else data
+    if isinstance(data_to_save, dict):
+        normalize_runtime_config(data_to_save)
     with open(yaml_file_path, "w") as file:
-        yaml.dump(data, stream=file, sort_keys=False)
+        yaml.dump(data_to_save, stream=file, sort_keys=False)
     if verbose:
         get_logger(__name__).info("Saved private config to %s", yaml_file_path)
 
@@ -360,13 +365,90 @@ _LEGACY_RUNTIME_KEY_MAP: Tuple[Tuple[str, str], ...] = (
     ("aspen.video_out_pipeline", "video_out_pipeline"),
 )
 
+_LEGACY_STITCHING_KEY_MAP: Tuple[Tuple[str, str], ...] = (
+    ("stitch-frame-time", "stitch_frame_time"),
+    ("stitch_rotate_degrees", "post_stitch_rotate_degrees"),
+    ("stitch-rotate-degrees", "post_stitch_rotate_degrees"),
+)
+
+_LEGACY_GAME_STITCHING_KEY_MAP: Tuple[Tuple[str, str], ...] = (
+    ("rgb_add", "rgb_add"),
+    ("color_add", "color_add"),
+)
+
+
+def _merge_missing_nested_values(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in src.items():
+        if key not in dst or dst[key] is None:
+            dst[key] = copy.deepcopy(value)
+            continue
+        if isinstance(dst[key], dict) and isinstance(value, dict):
+            _merge_missing_nested_values(dst[key], value)
+    return dst
+
+
+def _canonicalize_stitching_config(stitching_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(stitching_cfg, dict):
+        return stitching_cfg
+
+    for legacy_key, canonical_key in _LEGACY_STITCHING_KEY_MAP:
+        if legacy_key not in stitching_cfg:
+            continue
+        legacy_value = stitching_cfg.pop(legacy_key)
+        if canonical_key not in stitching_cfg or stitching_cfg[canonical_key] is None:
+            stitching_cfg[canonical_key] = legacy_value
+    return stitching_cfg
+
+
+def _migrate_game_stitching_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(config, dict):
+        return config
+
+    stitching_cfg = config.get("stitching")
+    game_cfg = config.get("game")
+    legacy_stitching_cfg = game_cfg.get("stitching") if isinstance(game_cfg, dict) else None
+    has_legacy_game_stitching = isinstance(legacy_stitching_cfg, dict) or any(
+        isinstance(game_cfg, dict) and key in game_cfg for key, _ in _LEGACY_GAME_STITCHING_KEY_MAP
+    )
+
+    if not isinstance(stitching_cfg, dict):
+        if not has_legacy_game_stitching:
+            return config
+        stitching_cfg = {}
+        config["stitching"] = stitching_cfg
+    _canonicalize_stitching_config(stitching_cfg)
+
+    if not isinstance(game_cfg, dict):
+        return config
+
+    if isinstance(legacy_stitching_cfg, dict):
+        legacy_copy = copy.deepcopy(legacy_stitching_cfg)
+        _canonicalize_stitching_config(legacy_copy)
+        _merge_missing_nested_values(stitching_cfg, legacy_copy)
+        del game_cfg["stitching"]
+
+    for legacy_key, canonical_key in _LEGACY_GAME_STITCHING_KEY_MAP:
+        if legacy_key not in game_cfg:
+            continue
+        legacy_value = game_cfg.pop(legacy_key)
+        current_value = stitching_cfg.get(canonical_key)
+        if isinstance(current_value, dict) and isinstance(legacy_value, dict):
+            _merge_missing_nested_values(current_value, legacy_value)
+        elif canonical_key not in stitching_cfg or stitching_cfg[canonical_key] is None:
+            stitching_cfg[canonical_key] = copy.deepcopy(legacy_value)
+
+    if not game_cfg:
+        del config["game"]
+    return config
+
 
 def normalize_runtime_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Migrate legacy runtime config keys out of ``aspen.*``.
+    """Canonicalize legacy runtime config keys.
 
     The Aspen namespace now owns graph structure (`plugins`, `pipeline`,
     `inference_pipeline`, etc.). Runtime values consumed by plugins live at
-    top-level keys such as ``stitching`` and ``video_out``.
+    top-level keys such as ``stitching`` and ``video_out``. Legacy nested
+    stitching layouts are also migrated into the root-level ``stitching`` block.
 
     Legacy configs are still accepted by moving known ``aspen.*`` runtime keys
     into their new locations before CLI overrides and GLOBAL substitution.
@@ -384,6 +466,7 @@ def normalize_runtime_config(config: Dict[str, Any]) -> Dict[str, Any]:
         elif current_value is None:
             set_nested_value(config, new_path, copy.deepcopy(legacy_value))
         _delete_nested_key(config, legacy_path)
+    _migrate_game_stitching_config(config)
     return config
 
 

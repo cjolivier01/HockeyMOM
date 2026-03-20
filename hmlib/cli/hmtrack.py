@@ -1092,11 +1092,7 @@ class _StitchRotationController:
     def get_post_stitch_rotate_degrees(self) -> Optional[float]:
         if isinstance(self._config, dict):
             try:
-                val = get_nested_value(self._config, "game.stitching.stitch-rotate-degrees", None)
-                if val is None:
-                    val = get_nested_value(
-                        self._config, "game.stitching.stitch_rotate_degrees", None
-                    )
+                val = get_nested_value(self._config, "stitching.post_stitch_rotate_degrees", None)
                 if val is not None:
                     return float(val)
             except Exception:
@@ -1107,12 +1103,9 @@ class _StitchRotationController:
         self._value = degrees
         if isinstance(self._config, dict):
             try:
-                set_nested_value(self._config, "game.stitching.stitch-rotate-degrees", degrees)
+                set_nested_value(self._config, "stitching.post_stitch_rotate_degrees", degrees)
             except Exception:
-                try:
-                    set_nested_value(self._config, "game.stitching.stitch_rotate_degrees", degrees)
-                except Exception:
-                    pass
+                pass
 
 
 def _main(args, num_gpu):
@@ -1136,19 +1129,18 @@ def _main(args, num_gpu):
             args.output_fps = get_nested_value(game_config, "camera.output-fps")
 
         if args.lfo is None and args.rfo is None:
-            if "stitching" in game_config["game"] and "offsets" in game_config["game"]["stitching"]:
-                offsets = game_config["game"]["stitching"]["offsets"]
-                if offsets:
-                    args.lfo = offsets[0]
-                    if len(offsets) == 1:
-                        args.rfo = 0.0
-                    else:
-                        assert len(offsets) == 2
-                        args.rfo = offsets[1]
-                    if args.lfo < 0:
-                        args.rfo += -args.lfo
-                        args.lfo = 0.0
-                    assert args.lfo >= 0 and args.rfo >= 0
+            offsets = get_nested_value(game_config, "stitching.offsets")
+            if offsets:
+                args.lfo = offsets[0]
+                if len(offsets) == 1:
+                    args.rfo = 0.0
+                else:
+                    assert len(offsets) == 2
+                    args.rfo = offsets[1]
+                if args.lfo < 0:
+                    args.rfo += -args.lfo
+                    args.lfo = 0.0
+                assert args.lfo >= 0 and args.rfo >= 0
 
         model = None
 

@@ -21,6 +21,7 @@ from PIL import Image
 from hmlib.config import (
     get_game_config_private,
     get_nested_value,
+    normalize_runtime_config,
     save_private_config,
     set_nested_value,
 )
@@ -32,8 +33,8 @@ from .synchronize import configure_synchronization
 
 logger = logging.getLogger(__name__)
 
-_STITCH_FRAME_TIME_PATH = ("game", "stitching", "stitch-frame-time")
-_STITCH_FRAME_TIME_ALT_PATH = ("game", "stitching", "stitch_frame_time")
+_STITCH_FRAME_TIME_PATH = ("stitching", "stitch_frame_time")
+_STITCH_FRAME_TIME_ALT_PATH = ("stitching", "stitch-frame-time")
 
 
 def _resolve_local_binary(executable: str) -> Optional[str]:
@@ -56,20 +57,20 @@ def _get_color_adjustment_adders(
 
     Expected config structure in private game config (e.g. $HOME/Videos/<game_id>/config.yaml):
 
-    game:
-      stitching:
-        color_adjustment:
-          left:
-            r: 45
-            g: 35
-            b: 56
-          right:
-            r: 48
-            g: 35
-            b: 49
+    stitching:
+      color_adjustment:
+        left:
+          r: 45
+          g: 35
+          b: 56
+        right:
+          r: 48
+          g: 35
+          b: 49
     """
-    cfg = get_game_config_private(game_id=game_id)
-    node = get_nested_value(cfg, "game.stitching.color_adjustment")
+    cfg = get_game_config_private(game_id=game_id) or {}
+    normalize_runtime_config(cfg)
+    node = get_nested_value(cfg, "stitching.color_adjustment")
     if not isinstance(node, dict):
         return None, None
 
@@ -362,6 +363,7 @@ def _stitch_frame_time_values_equal(lhs: Any, rhs: Any) -> bool:
 def _get_stitch_frame_time_stamp(cfg: Optional[Dict[str, Any]]) -> Optional[str]:
     if not isinstance(cfg, dict):
         return None
+    normalize_runtime_config(cfg)
     value = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_PATH), None)
     if value is None:
         value = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_ALT_PATH), None)
@@ -372,6 +374,7 @@ def _set_stitch_frame_time_stamp(cfg: Dict[str, Any], stitch_frame_time: Optiona
     if not isinstance(cfg, dict):
         return False
 
+    normalize_runtime_config(cfg)
     normalized = _normalize_stitch_frame_time_value(stitch_frame_time)
     current_primary = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_PATH), None)
     current_alt = get_nested_value(cfg, ".".join(_STITCH_FRAME_TIME_ALT_PATH), None)
@@ -403,7 +406,7 @@ def sync_stitch_frame_time_state(
 ) -> bool:
     """Persist stitch-frame-time and clean cached stitch artifacts when it changes.
 
-    The persisted value lives under ``game.stitching.stitch-frame-time`` in the
+    The persisted value lives under ``stitching.stitch_frame_time`` in the
     private game config. We keep it separate from rebuildable stitch artifacts
     so `stitch --clean` can remove caches without dropping the manually entered
     stitch timestamp.
@@ -422,6 +425,7 @@ def sync_stitch_frame_time_state(
 
     try:
         private_cfg = get_game_config_private(game_id=game_id) or {}
+        normalize_runtime_config(private_cfg)
     except Exception as ex:
         logger.warning(
             "Failed to load private config for stitch-frame-time sync on %s: %s", game_id, ex
@@ -444,6 +448,7 @@ def sync_stitch_frame_time_state(
             logger.warning("Failed to clean stitch artifacts for %s: %s", game_id, ex)
         try:
             private_cfg = get_game_config_private(game_id=game_id) or {}
+            normalize_runtime_config(private_cfg)
         except Exception:
             private_cfg = {}
 
@@ -463,7 +468,7 @@ def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int
     Does not delete config.yaml, but removes cached stitching/rink entries
     from the private config so they will be recomputed (e.g. audio sync
     offsets, scoreboard selection, rink-mask metadata). Manual stitch inputs
-    such as ``game.stitching.stitch-frame-time`` are preserved.
+    such as ``stitching.stitch_frame_time`` are preserved.
     """
     game_dir = Path(game_dir)
 
@@ -488,14 +493,15 @@ def clean_stitch_game_artifacts(game_id: str, game_dir: Union[str, Path]) -> int
 
     try:
         cfg = get_game_config_private(game_id=game_id)
+        normalize_runtime_config(cfg)
     except Exception as ex:
         logger.warning("Failed to load private config while cleaning %s: %s", game_id, ex)
         cfg = None
 
     if isinstance(cfg, dict) and cfg:
         changed = False
-        changed |= _delete_nested_key(cfg, ["game", "stitching", "frame_offsets"])
-        changed |= _delete_nested_key(cfg, ["game", "stitching", "control_points"])
+        changed |= _delete_nested_key(cfg, ["stitching", "frame_offsets"])
+        changed |= _delete_nested_key(cfg, ["stitching", "control_points"])
         changed |= _delete_nested_key(cfg, ["rink", "scoreboard", "perspective_polygon"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_count"])
         changed |= _delete_nested_key(cfg, ["rink", "ice_contours_mask_centroid"])
@@ -709,8 +715,9 @@ def load_or_calculate_control_points(
     @param save: If True, persist control points into game config.
     @return: Dict with at least ``m_kpts0`` and ``m_kpts1`` tensors.
     """
-    config = get_game_config_private(game_id=game_id)
-    control_points = get_nested_value(config, "game.stitching.control_points") if not force else {}
+    config = get_game_config_private(game_id=game_id) or {}
+    normalize_runtime_config(config)
+    control_points = get_nested_value(config, "stitching.control_points") if not force else {}
     if force or not control_points:
         # Calculate them...
         control_points = calculate_control_points(image=image0, image1=image1, device=device)
@@ -720,7 +727,7 @@ def load_or_calculate_control_points(
         control_points.pop("kpts1")
 
         if save:
-            config = set_nested_value(config, "game.stitching.control_points", control_points)
+            config = set_nested_value(config, "stitching.control_points", control_points)
             save_private_config(game_id=game_id, data=config)
 
 

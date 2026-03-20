@@ -258,8 +258,8 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
             def _get_adders(side: str) -> Optional[List[float]]:
                 # Preferred structure:
-                # game.stitching.color_adjustment.left: {r: 45, g: 35, b: 56}
-                node = get_nested_value(cfg, f"game.stitching.color_adjustment.{side}")
+                # stitching.color_adjustment.left: {r: 45, g: 35, b: 56}
+                node = get_nested_value(cfg, f"stitching.color_adjustment.{side}")
                 if isinstance(node, dict):
                     try:
                         r = float(node.get("r"))
@@ -270,12 +270,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                         pass
                 # Legacy fallbacks (arrays or other key names)
                 candidate_keys = [
-                    f"game.stitching.rgb_add.{side}",
-                    f"game.stitching.channel_add.{side}",
-                    f"game.stitching.image_channel_add.{side}",
-                    f"game.stitching.image_channel_adders.{side}",
-                    f"game.rgb_add.{side}",
-                    f"game.color_add.{side}",
+                    f"stitching.rgb_add.{side}",
+                    f"stitching.channel_add.{side}",
+                    f"stitching.image_channel_add.{side}",
+                    f"stitching.image_channel_adders.{side}",
+                    f"stitching.color_add.{side}",
                 ]
                 for k in candidate_keys:
                     v = get_nested_value(cfg, k)
@@ -287,12 +286,11 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                             pass
                 # Global fallback without side (applies to both)
                 for k in [
-                    "game.stitching.rgb_add",
-                    "game.stitching.channel_add",
-                    "game.stitching.image_channel_add",
-                    "game.stitching.image_channel_adders",
-                    "game.rgb_add",
-                    "game.color_add",
+                    "stitching.rgb_add",
+                    "stitching.channel_add",
+                    "stitching.image_channel_add",
+                    "stitching.image_channel_adders",
+                    "stitching.color_add",
                 ]:
                     v = get_nested_value(cfg, k)
                     if v is not None:
