@@ -42,6 +42,8 @@ class VideoOutPlugin(Plugin):
       - bit_rate: optional encoder bit rate
     """
 
+    disable_in_cuda_graph_pipeline = True
+
     def __init__(
         self,
         enabled: bool = True,
