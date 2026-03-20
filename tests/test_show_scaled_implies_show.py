@@ -178,6 +178,7 @@ def should_persist_explicit_yaml_backed_cli_args_to_private_config(monkeypatch) 
     from hmlib.hm_opts import hm_opts
 
     argv = [
+        "--persist",
         "--game-id",
         "test-game",
         "--output",
@@ -238,8 +239,8 @@ def should_not_persist_backfilled_yaml_values_when_explicit_args_are_derived(mon
     from hmlib.hm_opts import hm_opts
 
     parser = hm_opts.parser(argparse.ArgumentParser())
-    monkeypatch.setattr(sys, "argv", ["hmtrack.py", "--game-id", "test-game"])
-    args = parser.parse_args(["--game-id", "test-game"])
+    monkeypatch.setattr(sys, "argv", ["hmtrack.py", "--persist", "--game-id", "test-game"])
+    args = parser.parse_args(["--persist", "--game-id", "test-game"])
     args.game_config = {"video_out": {"show_image": False}}
 
     args = hm_opts.init(args, parser)
@@ -264,11 +265,55 @@ def should_not_persist_backfilled_yaml_values_when_explicit_args_are_derived(mon
     assert saved == {}
 
 
+def should_not_persist_private_config_without_persist_flag(monkeypatch) -> None:
+    import hmlib.hm_opts as hm_opts_module
+    from hmlib.hm_opts import hm_opts
+
+    argv = [
+        "--game-id",
+        "test-game",
+        "--output",
+        "cli-output.mp4",
+    ]
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(argv)
+    args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser, argv)
+    args.game_config = {"video_out": {"output_video_path": "yaml-output.mp4"}}
+
+    hm_opts.apply_arg_config_overrides(
+        args.game_config,
+        args,
+        parser=parser,
+        explicit_arg_names=args.explicit_arg_names,
+    )
+    args = hm_opts.init(args, parser)
+
+    calls = {"count": 0}
+    monkeypatch.setattr(hm_opts_module, "get_game_config_private", lambda game_id: {})
+    monkeypatch.setattr(
+        hm_opts_module,
+        "save_private_config",
+        lambda game_id, data, verbose=True: calls.__setitem__("count", calls["count"] + 1),
+    )
+
+    changed = hm_opts.persist_private_config_overrides(
+        args,
+        parser=parser,
+        config=args.game_config,
+        explicit_arg_names=args.explicit_arg_names,
+        verbose=False,
+    )
+
+    assert changed is False
+    assert calls["count"] == 0
+
+
 def should_persist_config_override_to_private_config(monkeypatch) -> None:
     import hmlib.hm_opts as hm_opts_module
     from hmlib.hm_opts import hm_opts
 
     argv = [
+        "--persist",
         "--game-id",
         "test-game",
         "--config-override",
@@ -306,6 +351,7 @@ def should_not_write_private_config_when_ignored(monkeypatch) -> None:
     from hmlib.hm_opts import hm_opts
 
     argv = [
+        "--persist",
         "--game-id",
         "test-game",
         "--ignore-private-config",
