@@ -31,6 +31,30 @@ def should_map_stitch_frame_time_arg_into_config() -> None:
     assert game_config["stitching"]["stitch_frame_time"] == "00:00:07"
 
 
+def should_map_aspen_cuda_graph_arg_into_config() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(["--aspen-cuda-graph"])
+
+    game_config = {"aspen": {"pipeline": {"cuda_graph": False}}}
+    hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
+
+    assert game_config["aspen"]["pipeline"]["cuda_graph"] is True
+
+
+def should_map_no_aspen_cuda_graph_arg_into_config() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(["--no-aspen-cuda-graph"])
+
+    game_config = {"aspen": {"pipeline": {"cuda_graph": True}}}
+    hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
+
+    assert game_config["aspen"]["pipeline"]["cuda_graph"] is False
+
+
 def should_read_stitch_frame_time_from_loaded_config_when_cli_missing() -> None:
     from hmlib.hm_opts import hm_opts
 

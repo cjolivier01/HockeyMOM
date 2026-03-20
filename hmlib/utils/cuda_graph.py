@@ -80,26 +80,27 @@ class CudaGraphCallable:
 
         self._static_inputs = tuple(torch.empty_like(t) for t in example_inputs)
         with torch.cuda.stream(capture_stream):
-            for s, t in zip(self._static_inputs, example_inputs):
-                s.copy_(t)
+            with torch.inference_mode():
+                for s, t in zip(self._static_inputs, example_inputs):
+                    s.copy_(t)
 
-            # Warmup to populate caches (cuDNN/autotune, etc.).
-            for _ in range(self._warmup):
-                _ = self._fn(*self._static_inputs)
+                # Warmup to populate caches (cuDNN/autotune, etc.).
+                for _ in range(self._warmup):
+                    _ = self._fn(*self._static_inputs)
 
-            capture_stream.synchronize()
+                capture_stream.synchronize()
 
-            graph = torch.cuda.CUDAGraph()
-            pool = torch.cuda.graphs.graph_pool_handle()
-            try:
-                with torch.cuda.graph(
-                    graph, pool=pool, stream=capture_stream, capture_error_mode="thread_local"
-                ):
-                    self._static_outputs = self._fn(*self._static_inputs)
-            except Exception as ex:
-                logger.warning("Failed to capture %s CUDA graph: %s", self._name, ex)
-                raise
-            capture_stream.synchronize()
+                graph = torch.cuda.CUDAGraph()
+                pool = torch.cuda.graphs.graph_pool_handle()
+                try:
+                    with torch.cuda.graph(
+                        graph, pool=pool, stream=capture_stream, capture_error_mode="thread_local"
+                    ):
+                        self._static_outputs = self._fn(*self._static_inputs)
+                except Exception as ex:
+                    logger.warning("Failed to capture %s CUDA graph: %s", self._name, ex)
+                    raise
+                capture_stream.synchronize()
 
         self._graph = graph
         self._pool = pool
@@ -122,9 +123,10 @@ class CudaGraphCallable:
     def __call__(self, *inputs: torch.Tensor):
         inp = tuple(inputs)
         self._ensure_signature(inp)
-        for s, t in zip(self._static_inputs, inp):
-            s.copy_(t)
-        assert self._graph is not None
-        self._graph.replay()
+        with torch.inference_mode():
+            for s, t in zip(self._static_inputs, inp):
+                s.copy_(t)
+            assert self._graph is not None
+            self._graph.replay()
         self.stats.replays += 1
         return self._static_outputs

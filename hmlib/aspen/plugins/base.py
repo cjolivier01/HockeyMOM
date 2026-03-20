@@ -55,6 +55,13 @@ class Plugin(torch.nn.Module):
         """Return True if this plugin is considered a graph output node."""
         return False
 
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        """Enable or disable plugin-managed CUDA graph fast paths when supported."""
+        if hasattr(self, "_cuda_graph_enabled"):
+            setattr(self, "_cuda_graph_enabled", bool(enabled))
+            return True
+        return False
+
     def _cuda_stack_tracer_context(self):
         if not self.enabled or self.cuda_stacktrace_iter_num is None:
             return nullcontext()

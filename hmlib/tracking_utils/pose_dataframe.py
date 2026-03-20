@@ -95,6 +95,24 @@ class PoseDataFrame(HmDataFrameBase):
                 for ds in preds:
                     if isinstance(ds, dict):
                         out.append({k: _to_list(ds[k]) for k in ds.keys()})
+                        continue
+                    inst = getattr(ds, "pred_instances", None)
+                    if inst is None:
+                        continue
+                    out.append(
+                        {
+                            k: _to_list(getattr(inst, k))
+                            for k in (
+                                "bboxes",
+                                "scores",
+                                "bbox_scores",
+                                "labels",
+                                "keypoints",
+                                "keypoint_scores",
+                            )
+                            if hasattr(inst, k)
+                        }
+                    )
                 simp["predictions"] = out
         self.add_frame_records(frame_id=frame_id, pose_json=json.dumps(simp))
 

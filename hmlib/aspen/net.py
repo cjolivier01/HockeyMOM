@@ -166,6 +166,10 @@ class AspenNet(torch.nn.Module):
                 ) from exc
         cuda_streams_flag = pipeline_cfg.get("cuda_streams", True)
         self.thread_cuda_streams: bool = bool(cuda_streams_flag) or self.thread_graph_mode
+        cuda_graph_flag = pipeline_cfg.get("cuda_graph", None)
+        if cuda_graph_flag is None and isinstance(graph_cfg, dict):
+            cuda_graph_flag = graph_cfg.get("cuda_graph", False)
+        self.cuda_graph_enabled: bool = bool(cuda_graph_flag)
 
         # Accept a dict with a required {plugins: {...}} mapping.
         plugins = graph_cfg.get("plugins") if isinstance(graph_cfg, dict) else None
@@ -178,6 +182,8 @@ class AspenNet(torch.nn.Module):
         self._audit_hook = self.shared.get("_aspen_audit")
 
         self._build_nodes(plugins)
+        if self.cuda_graph_enabled:
+            self.set_cuda_graph_enabled(True)
         self._build_graph()
         self.exec_order = self._toposort()
         self.training: bool = False
@@ -350,6 +356,24 @@ class AspenNet(torch.nn.Module):
                     max(self.node_map[p].graph_degree for p in G.predecessors(n)) + 1
                 )
                 self.max_graph_degree = max(self.max_graph_degree, node.graph_degree)
+
+    def set_cuda_graph_enabled(self, enabled: bool = True) -> int:
+        enabled = bool(enabled)
+        self.cuda_graph_enabled = enabled
+        supported = 0
+        for node in self.nodes:
+            setter = getattr(node.module, "set_cuda_graph_enabled", None)
+            if not callable(setter):
+                continue
+            try:
+                if setter(enabled):
+                    supported += 1
+            except Exception:
+                logger.exception(
+                    "Failed to configure CUDA graph mode for Aspen plugin %s", node.name
+                )
+        self.shared["aspen_cuda_graph_enabled"] = enabled
+        return supported
 
     @staticmethod
     def _instantiate(cls_path: str, params: Dict[str, Any]) -> torch.nn.Module:

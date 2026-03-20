@@ -87,6 +87,7 @@ class DetectorFactoryPlugin(Plugin):
         nms_backend: str = "trt",
         nms_test: bool = False,
         nms_plugin: str = "batched",
+        cuda_graph: bool = True,
     ):
         super().__init__(enabled=enabled)
         self._detector_dict = detector
@@ -112,6 +113,7 @@ class DetectorFactoryPlugin(Plugin):
         self._nms_backend: str = str(nms_backend or "trt").lower()
         self._nms_test: bool = bool(nms_test)
         self._nms_plugin: str = str(nms_plugin or "batched")
+        self._cuda_graph_enabled: bool = bool(cuda_graph)
         # Optional cached wrapper for pure-PyTorch YOLOX detectors so we don't
         # rebuild the wrapper on every forward().
         self._torch_wrapper: Optional[_TorchDetectorWrapper] = None
@@ -290,7 +292,10 @@ class DetectorFactoryPlugin(Plugin):
                                 nms_backend=self._nms_backend,
                                 nms_test=self._nms_test,
                                 nms_plugin=self._nms_plugin,
+                                cuda_graph=self._cuda_graph_enabled,
                             )
+                        else:
+                            self._torch_wrapper.set_cuda_graph_enabled(self._cuda_graph_enabled)
                         detector_model = self._torch_wrapper
                 except Exception:
                     detector_model = self._model
@@ -305,6 +310,15 @@ class DetectorFactoryPlugin(Plugin):
 
     def output_keys(self):
         return {"detector_model"}
+
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        self._cuda_graph_enabled = bool(enabled)
+        if self._torch_wrapper is not None:
+            self._torch_wrapper.set_cuda_graph_enabled(enabled)
+        runtime = self._runtime_detector
+        if hasattr(runtime, "set_cuda_graph_enabled"):
+            runtime.set_cuda_graph_enabled(enabled)
+        return True
 
 
 class _BackboneNeckWrapper(torch.nn.Module):
@@ -967,6 +981,13 @@ class _TorchDetectorWrapper(_ProfilerMixin):
             compare_backends=compare_backends,
             trt_plugin=self._nms_plugin,
         )
+
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        self._cuda_graph_enabled = bool(enabled)
+        if not self._cuda_graph_enabled:
+            self._cg = None
+            self._cg_device = None
+        return True
 
     def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
         with self._profile_scope():

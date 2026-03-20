@@ -81,9 +81,17 @@ def should_threaded_graph_preserve_plugin_order():
                 "params": {"name": "right", "delay": 0.0},
             },
             "join": {
-                "class": "hmlib.aspen.plugins.test_threaded_graph_plugin.RecordPlugin",
+                "class": "hmlib.aspen.plugins.join_plugin.JoinPlugin",
                 "depends": ["left", "right"],
-                "params": {"name": "join", "mark_done": True},
+                "params": {
+                    "required_plugins": ["left", "right"],
+                    "output_key": "joined",
+                },
+            },
+            "sink": {
+                "class": "hmlib.aspen.plugins.test_threaded_graph_plugin.RecordPlugin",
+                "depends": ["join"],
+                "params": {"name": "sink", "mark_done": True},
             },
         }
     )
