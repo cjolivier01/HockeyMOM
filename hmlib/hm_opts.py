@@ -1569,6 +1569,12 @@ class hm_opts(object):
                 "Unknown key paths raise an error. (repeatable)"
             ),
         )
+        overrides.add_argument(
+            "--persist",
+            dest="persist",
+            action="store_true",
+            help="Persist explicit CLI-backed config overrides into the per-game private config.",
+        )
 
         #
         # UI controls
@@ -2024,6 +2030,9 @@ class hm_opts(object):
     ) -> bool:
         """Write explicit YAML-backed CLI overrides into the per-game private config."""
         if args is None:
+            return False
+        persist = _get_arg_value(args, "persist")
+        if persist is _MISSING_ARG or not bool(persist):
             return False
         game_id = _get_arg_value(args, "game_id")
         if game_id is _MISSING_ARG or not game_id:
