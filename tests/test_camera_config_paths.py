@@ -118,10 +118,8 @@ def should_store_camera_color_only_under_rink_level():
 def should_clear_rink_geometry_when_stitch_rotation_changes(monkeypatch):
     # Simulate an existing private config with rink geometry + a previous stitch angle.
     priv_store: Dict[str, Any] = {
-        "game": {
-            "stitching": {
-                "stitch-rotate-degrees": 0.0,
-            },
+        "stitching": {
+            "post_stitch_rotate_degrees": 0.0,
         },
         "rink": {
             "ice_contours_mask_count": 1,
@@ -196,11 +194,12 @@ def should_clear_rink_geometry_when_stitch_rotation_changes(monkeypatch):
     )
 
     # Mark a change in stitch rotation; _set_stitch_rotation_degrees flags the
-    # path as dirty and updates cfg["game"]["stitching"]["stitch-rotate-degrees"].
+    # path as dirty and updates cfg["stitching"]["post_stitch_rotate_degrees"].
     tracker._set_stitch_rotation_degrees(8.0)
     tracker._save_ui_config()
 
     # Rink geometry keys should be removed from the saved private config.
+    assert saved.get("stitching", {}) == {"post_stitch_rotate_degrees": 8.0}
     rink_saved = saved.get("rink", {})
     assert "ice_contours_mask_count" not in rink_saved
     assert "ice_contours_mask_centroid" not in rink_saved

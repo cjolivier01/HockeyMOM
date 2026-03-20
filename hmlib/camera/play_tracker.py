@@ -30,7 +30,12 @@ from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
-from hmlib.config import get_game_config_private, get_nested_value, save_private_config
+from hmlib.config import (
+    get_game_config_private,
+    get_nested_value,
+    normalize_runtime_config,
+    save_private_config,
+)
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
 from hmlib.tracking_utils import visualization as vis
@@ -1561,9 +1566,7 @@ class PlayTracker(torch.nn.Module):
             except Exception:
                 pass
         try:
-            return (
-                self._game_config.get("game", {}).get("stitching", {}).get("stitch-rotate-degrees")
-            )
+            return get_nested_value(self._game_config, "stitching.post_stitch_rotate_degrees")
         except Exception:
             return None
 
@@ -1581,7 +1584,7 @@ class PlayTracker(torch.nn.Module):
                 pass
         self._set_config_value(
             self._game_config,
-            ("game", "stitching", "stitch-rotate-degrees"),
+            ("stitching", "post_stitch_rotate_degrees"),
             degrees,
             mark_dirty=True,
         )
@@ -1663,12 +1666,11 @@ class PlayTracker(torch.nn.Module):
         return self._base_color_slider_defaults(color_cfg)
 
     def _stitch_side_color_defaults(self, side: str) -> Dict[str, int]:
-        # Per-side stitching defaults under game.stitching.<side>.color (if present).
+        # Per-side stitching defaults under stitching.<side>.color (if present).
         cfg: Dict[str, Any] = {}
         try:
             if isinstance(self._game_config, dict):
-                game_cfg = self._game_config.get("game", {})
-                stitching = game_cfg.get("stitching", {}) if isinstance(game_cfg, dict) else {}
+                stitching = self._game_config.get("stitching", {})
                 side_cfg = stitching.get(side, {}) if isinstance(stitching, dict) else {}
                 if isinstance(side_cfg, dict):
                     color_sub = side_cfg.get("color", {}) or side_cfg
@@ -2040,13 +2042,13 @@ class PlayTracker(torch.nn.Module):
                 # Left camera in stitching dataloader
                 self._apply_color_window(
                     self._ui_color_left_window_name,
-                    prefixes=[("game", "stitching", "left", "color")],
+                    prefixes=[("stitching", "left", "color")],
                 )
             if self._ui_color_right_inited:
                 # Right camera in stitching dataloader
                 self._apply_color_window(
                     self._ui_color_right_window_name,
-                    prefixes=[("game", "stitching", "right", "color")],
+                    prefixes=[("stitching", "right", "color")],
                 )
             # Read selection + constraints
             apply_fast = bool(cv2.getTrackbarPos("Apply_To_Fast_Box", self._ui_window_name))
@@ -2389,10 +2391,11 @@ class PlayTracker(torch.nn.Module):
             if not self._ui_dirty_paths:
                 return
             priv = get_game_config_private(game_id=game_id) or {}
+            normalize_runtime_config(priv)
 
             # If the stitched rotation angle changed, clear cached rink geometry
             # that would become stale under a new rotation.
-            stitch_path: Tuple[str, ...] = ("game", "stitching", "stitch-rotate-degrees")
+            stitch_path: Tuple[str, ...] = ("stitching", "post_stitch_rotate_degrees")
             if stitch_path in self._ui_dirty_paths:
                 # Helper: read a nested value from the private config.
                 def _get_priv_path(path: Tuple[str, ...]):

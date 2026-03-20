@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from hmlib.config import (
     get_game_config_private,
     get_nested_value,
+    normalize_runtime_config,
     save_private_config,
     set_nested_value,
 )
@@ -110,9 +111,10 @@ def configure_synchronization(
     @param force: If True, ignore any cached offsets and recompute.
     @return: Mapping with ``\"left\"`` and ``\"right\"`` frame offsets.
     """
-    config = get_game_config_private(game_id=game_id)
+    config = get_game_config_private(game_id=game_id) or {}
+    normalize_runtime_config(config)
     frame_offsets = (
-        get_nested_value(config, "game.stitching.frame_offsets", None) if not force else dict()
+        get_nested_value(config, "stitching.frame_offsets", None) if not force else dict()
     )
     if (
         force
@@ -132,14 +134,14 @@ def configure_synchronization(
             frame_offsets = {}
         frame_offsets["left"] = float(lfo)
         frame_offsets["right"] = float(rfo)
-        set_nested_value(config, "game.stitching.frame_offsets", frame_offsets)
+        set_nested_value(config, "stitching.frame_offsets", frame_offsets)
         save_private_config(game_id=game_id, data=config)
     else:
         print(
             f"Preconfigured: left frame offset: {frame_offsets['left']}, right frame offset: {frame_offsets['right']}"
         )
     # Not get form the config
-    frame_offsets = get_nested_value(config, "game.stitching.frame_offsets")
+    frame_offsets = get_nested_value(config, "stitching.frame_offsets")
     return frame_offsets
 
 

@@ -183,19 +183,18 @@ class StitchingPlugin(Plugin):
             return
 
         def _get_adders(side: str) -> Optional[List[float]]:
-            node = get_nested_value(cfg, f"game.stitching.color_adjustment.{side}")
+            node = get_nested_value(cfg, f"stitching.color_adjustment.{side}")
             if isinstance(node, dict):
                 try:
                     return [float(node.get("r")), float(node.get("g")), float(node.get("b"))]
                 except Exception:
                     pass
             candidate_keys = [
-                f"game.stitching.rgb_add.{side}",
-                f"game.stitching.channel_add.{side}",
-                f"game.stitching.image_channel_add.{side}",
-                f"game.stitching.image_channel_adders.{side}",
-                f"game.rgb_add.{side}",
-                f"game.color_add.{side}",
+                f"stitching.rgb_add.{side}",
+                f"stitching.channel_add.{side}",
+                f"stitching.image_channel_add.{side}",
+                f"stitching.image_channel_adders.{side}",
+                f"stitching.color_add.{side}",
             ]
             for key in candidate_keys:
                 val = get_nested_value(cfg, key)
@@ -205,12 +204,11 @@ class StitchingPlugin(Plugin):
                     except Exception:
                         pass
             for key in [
-                "game.stitching.rgb_add",
-                "game.stitching.channel_add",
-                "game.stitching.image_channel_add",
-                "game.stitching.image_channel_adders",
-                "game.rgb_add",
-                "game.color_add",
+                "stitching.rgb_add",
+                "stitching.channel_add",
+                "stitching.image_channel_add",
+                "stitching.image_channel_adders",
+                "stitching.color_add",
             ]:
                 val = get_nested_value(cfg, key)
                 if isinstance(val, (list, tuple)) and len(val) >= 3:
@@ -399,13 +397,8 @@ class StitchingPlugin(Plugin):
         shared = context.get("shared", {})
         cfg = shared.get("game_config") or {}
         try:
-            val = get_nested_value(cfg, "game.stitching.stitch-rotate-degrees", None)
-            if val is None:
-                val = get_nested_value(cfg, "game.stitching.stitch_rotate_degrees", None)
+            val = get_nested_value(cfg, "stitching.post_stitch_rotate_degrees", None)
             if val is not None:
-                assert (
-                    not self._post_stitch_rotate_degrees
-                ), "Rotation degrees specified in both plugin config and game config; please consolidate to one location"
                 return float(val)
         except Exception:
             pass

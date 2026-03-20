@@ -140,11 +140,9 @@ def should_clean_stitch_game_artifacts_delete_files_and_cached_config(monkeypatc
 
     def _fake_get_game_config_private(game_id: str):
         return {
-            "game": {
-                "stitching": {
-                    "stitch-frame-time": "00:00:07",
-                    "frame_offsets": {"left": 1.0, "right": 2.0},
-                }
+            "stitching": {
+                "stitch_frame_time": "00:00:07",
+                "frame_offsets": {"left": 1.0, "right": 2.0},
             },
             "rink": {
                 "scoreboard": {
@@ -173,9 +171,34 @@ def should_clean_stitch_game_artifacts_delete_files_and_cached_config(monkeypatc
     assert not (cam_dir / "left.png").exists()
     assert saved.get("game_id") == "test-game"
     assert saved.get("data") == {
-        "game": {"stitching": {"stitch-frame-time": "00:00:07"}},
+        "stitching": {"stitch_frame_time": "00:00:07"},
         "rink": {"scoreboard": {"scoreboard_scale": 1.25}},
     }
+
+
+def should_normalize_legacy_game_stitching_keys_to_root_level():
+    from hmlib.config import normalize_runtime_config
+
+    cfg = {
+        "stitching": {"stitch_frame_time": "00:00:07"},
+        "game": {
+            "stitching": {
+                "stitch-frame-time": "00:00:03",
+                "stitch-rotate-degrees": 5.0,
+                "frame_offsets": {"left": 1.0, "right": 2.0},
+            },
+            "rgb_add": {"left": [1.0, 2.0, 3.0]},
+        },
+    }
+
+    normalize_runtime_config(cfg)
+
+    assert cfg["stitching"]["stitch_frame_time"] == "00:00:07"
+    assert cfg["stitching"]["post_stitch_rotate_degrees"] == 5.0
+    assert cfg["stitching"]["frame_offsets"] == {"left": 1.0, "right": 2.0}
+    assert cfg["stitching"]["rgb_add"] == {"left": [1.0, 2.0, 3.0]}
+    assert "stitching" not in cfg.get("game", {})
+    assert "rgb_add" not in cfg.get("game", {})
 
 
 def should_sync_stitch_frame_time_state_clean_and_persist_when_it_changes(monkeypatch, tmp_path):
@@ -186,11 +209,9 @@ def should_sync_stitch_frame_time_state_clean_and_persist_when_it_changes(monkey
     saved = {}
     cleaned = {}
     private_cfg = {
-        "game": {
-            "stitching": {
-                "stitch-frame-time": "00:00:03",
-                "frame_offsets": {"left": 1.0, "right": 2.0},
-            }
+        "stitching": {
+            "stitch_frame_time": "00:00:03",
+            "frame_offsets": {"left": 1.0, "right": 2.0},
         }
     }
 
@@ -222,9 +243,9 @@ def should_sync_stitch_frame_time_state_clean_and_persist_when_it_changes(monkey
 
     assert changed is True
     assert cleaned == {"game_id": "test-game", "game_dir": str(tmp_path)}
-    assert runtime_cfg == {"game": {"stitching": {"stitch-frame-time": "00:00:07"}}}
+    assert runtime_cfg == {"stitching": {"stitch_frame_time": "00:00:07"}}
     assert saved["game_id"] == "test-game"
-    assert saved["data"]["game"]["stitching"]["stitch-frame-time"] == "00:00:07"
+    assert saved["data"]["stitching"]["stitch_frame_time"] == "00:00:07"
 
 
 def should_clean_exit_before_configuring(monkeypatch, tmp_path):
