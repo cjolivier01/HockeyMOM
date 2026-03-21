@@ -13,11 +13,15 @@ class Plugin(torch.nn.Module):
     should be a dict of new or updated context entries.
     """
 
+    disable_in_cuda_graph_pipeline: bool = False
+
     def __init__(self, enabled: bool = True):
         super().__init__()
         self.enabled = enabled
         self._profiler: Optional[Any] = None
         self._iter_num: int = 0
+        self._cuda_graph_enabled: bool = False
+        self._cuda_graph_prev_enabled: Optional[bool] = None
         self.cuda_stacktrace_iter_num: Optional[bool] = None
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -57,10 +61,8 @@ class Plugin(torch.nn.Module):
 
     def set_cuda_graph_enabled(self, enabled: bool) -> bool:
         """Enable or disable plugin-managed CUDA graph fast paths when supported."""
-        if hasattr(self, "_cuda_graph_enabled"):
-            setattr(self, "_cuda_graph_enabled", bool(enabled))
-            return True
-        return False
+        self._cuda_graph_enabled = bool(enabled)
+        return True
 
     def _cuda_stack_tracer_context(self):
         if not self.enabled or self.cuda_stacktrace_iter_num is None:

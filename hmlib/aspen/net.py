@@ -361,18 +361,35 @@ class AspenNet(torch.nn.Module):
         enabled = bool(enabled)
         self.cuda_graph_enabled = enabled
         supported = 0
+        disabled_plugins: List[str] = []
+        supported_plugins: List[str] = []
         for node in self.nodes:
+            module = node.module
             setter = getattr(node.module, "set_cuda_graph_enabled", None)
             if not callable(setter):
                 continue
             try:
                 if setter(enabled):
                     supported += 1
+                    supported_plugins.append(node.name)
+                if getattr(module, "disable_in_cuda_graph_pipeline", False):
+                    prev_enabled = getattr(module, "_cuda_graph_prev_enabled", None)
+                    if enabled:
+                        if prev_enabled is None:
+                            setattr(module, "_cuda_graph_prev_enabled", bool(module.enabled))
+                        if getattr(module, "enabled", False):
+                            module.enabled = False
+                        disabled_plugins.append(node.name)
+                    elif prev_enabled is not None:
+                        module.enabled = bool(prev_enabled)
+                        setattr(module, "_cuda_graph_prev_enabled", None)
             except Exception:
                 logger.exception(
                     "Failed to configure CUDA graph mode for Aspen plugin %s", node.name
                 )
         self.shared["aspen_cuda_graph_enabled"] = enabled
+        self.shared["aspen_cuda_graph_supported_plugins"] = supported_plugins
+        self.shared["aspen_cuda_graph_disabled_plugins"] = disabled_plugins if enabled else []
         return supported
 
     @staticmethod

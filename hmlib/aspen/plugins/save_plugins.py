@@ -75,6 +75,8 @@ def _apply_track_mask(inst, tids, tlbr, scores, labels):
 class SavePluginBase(Plugin):
     """Base class for save plugins with common utilities."""
 
+    disable_in_cuda_graph_pipeline = True
+
     def is_output(self) -> bool:
         """If enabled, this node is an output."""
         return self.enabled

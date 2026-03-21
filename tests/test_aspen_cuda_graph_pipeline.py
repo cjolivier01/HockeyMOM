@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,10 +13,15 @@ except ModuleNotFoundError:  # pragma: no cover - Bazel Python toolchain lacks t
     torch = None  # type: ignore[assignment]
 
 if torch is not None:
+    TESTS_DIR = Path(__file__).resolve().parent
+    if str(TESTS_DIR) not in sys.path:
+        sys.path.insert(0, str(TESTS_DIR))
+
     from mmengine.structures import InstanceData
     from mmdet.structures import DetDataSample, TrackDataSample
     from mmpose.structures import PoseDataSample
 
+    from aspen_plugin_harness import make_instance_data, make_track_data_sample
     from hmlib.aspen import AspenNet
     from hmlib.aspen.plugins.base import Plugin
     from hmlib.aspen.plugins.detector_factory_plugin import _TorchDetectorWrapper
@@ -34,6 +41,8 @@ else:
     PosePlugin = None  # type: ignore[assignment]
     CudaGraphCallable = None  # type: ignore[assignment]
     unwrap_tensor = None  # type: ignore[assignment]
+    make_instance_data = None  # type: ignore[assignment]
+    make_track_data_sample = None  # type: ignore[assignment]
 
 _TORCH_MODULE_BASE = torch.nn.Module if torch is not None else object
 requires_torch = pytest.mark.skipif(torch is None, reason="requires torch")
@@ -70,6 +79,38 @@ class GraphableAffinePlugin(Plugin):  # type: ignore[misc]
                 self._cg_device = x.device
             return {"x": self._cg(x)}
         return {"x": (x * self.scale) + self.bias}
+
+
+class StaticContextSourcePlugin(Plugin):  # type: ignore[misc]
+    def __init__(
+        self,
+        *,
+        x: torch.Tensor,
+        img: torch.Tensor,
+        data_samples: Any,
+        work_dir: str,
+        frame_id: int = 1,
+        enabled: bool = True,
+    ) -> None:
+        super().__init__(enabled=enabled)
+        self._x = x.clone()
+        self._img = img.clone()
+        self._data_samples = data_samples
+        self._work_dir = str(work_dir)
+        self._frame_id = int(frame_id)
+
+    def output_keys(self):
+        return {"x", "img", "data_samples", "frame_id", "work_dir"}
+
+    def forward(self, context: dict[str, Any]):  # type: ignore[override]
+        _ = context
+        return {
+            "x": self._x.clone(),
+            "img": self._img.clone(),
+            "data_samples": self._data_samples,
+            "frame_id": self._frame_id,
+            "work_dir": self._work_dir,
+        }
 
 
 class YOLOXHead(_TORCH_MODULE_BASE):
@@ -397,3 +438,99 @@ def should_match_rink_pruning_with_and_without_cuda_graph():
     assert torch.allclose(unwrap_tensor(ref_inst.bboxes), unwrap_tensor(got_inst.bboxes))
     assert torch.equal(unwrap_tensor(ref_inst.labels), unwrap_tensor(got_inst.labels))
     assert torch.allclose(unwrap_tensor(ref_inst.scores), unwrap_tensor(got_inst.scores))
+
+
+@requires_cuda
+def should_disable_sink_plugins_and_restore_them_for_cuda_graph_pipeline(monkeypatch, tmp_path):
+    from hmlib.aspen.plugins.save_plugins import SaveDetectionsPlugin
+    from hmlib.aspen.plugins.video_out_plugin import VideoOutPlugin
+
+    fake_video_outputs = []
+
+    class _FakeVideoOutput(torch.nn.Module):
+        def __init__(self, **kwargs: Any):
+            super().__init__()
+            self.kwargs = kwargs
+            self.calls: list[dict[str, Any]] = []
+            fake_video_outputs.append(self)
+
+        def to(self, device: Any):  # type: ignore[override]
+            _ = device
+            return self
+
+        def forward(self, context: dict[str, Any]):  # type: ignore[override]
+            self.calls.append(dict(context))
+            return context
+
+        def stop(self) -> None:
+            return None
+
+    monkeypatch.setattr("hmlib.aspen.plugins.video_out_plugin.VideoOutput", _FakeVideoOutput)
+
+    det_inst = make_instance_data(
+        bboxes=torch.tensor([[1.0, 2.0, 5.0, 6.0]], dtype=torch.float32),
+        scores=torch.tensor([0.9], dtype=torch.float32),
+        labels=torch.tensor([1], dtype=torch.long),
+    )
+    track_data_sample = make_track_data_sample(num_frames=1, pred_instances=[det_inst])
+    x = torch.arange(8, device="cuda", dtype=torch.float32)
+    img = torch.zeros((1, 3, 8, 8), dtype=torch.float32)
+
+    graph_cfg = {
+        "pipeline": {"cuda_graph": True},
+        "plugins": {
+            "source": {
+                "class": f"{__name__}.StaticContextSourcePlugin",
+                "params": {
+                    "x": x,
+                    "img": img,
+                    "data_samples": track_data_sample,
+                    "work_dir": str(tmp_path),
+                    "frame_id": 1,
+                },
+            },
+            "compute": {
+                "class": f"{__name__}.GraphableAffinePlugin",
+                "depends": ["source"],
+                "params": {"scale": 2.0, "bias": 1.0},
+            },
+            "save_detections": {
+                "class": "hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin",
+                "depends": ["source"],
+                "params": {},
+            },
+            "video_out": {
+                "class": "hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin",
+                "depends": ["source"],
+                "params": {"output_video_path": "tracking.mkv"},
+            },
+        },
+    }
+    shared = {"device": torch.device("cpu"), "game_config": {}}
+    net = AspenNet("cuda_graph_sinks", graph_cfg, shared=shared)
+    assert isinstance(net.node_map["save_detections"].module, SaveDetectionsPlugin)
+    assert isinstance(net.node_map["video_out"].module, VideoOutPlugin)
+    assert net.node_map["save_detections"].module.enabled is False
+    assert net.node_map["video_out"].module.enabled is False
+    assert set(net.shared["aspen_cuda_graph_disabled_plugins"]) == {
+        "save_detections",
+        "video_out",
+    }
+
+    out = net({})
+    expected = (x * 2.0) + 1.0
+    assert torch.allclose(out["x"], expected)
+    assert not (tmp_path / "detections.csv").exists()
+    assert fake_video_outputs == []
+
+    net.set_cuda_graph_enabled(False)
+    assert net.node_map["save_detections"].module.enabled is True
+    assert net.node_map["video_out"].module.enabled is True
+    assert net.shared["aspen_cuda_graph_disabled_plugins"] == []
+
+    out_no_graph = net({})
+    net.node_map["save_detections"].module.finalize()
+    assert torch.allclose(out_no_graph["x"], expected)
+    assert (tmp_path / "detections.csv").exists()
+    assert len(fake_video_outputs) == 1
+    assert len(fake_video_outputs[0].calls) == 1
