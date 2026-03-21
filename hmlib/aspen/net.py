@@ -116,6 +116,7 @@ class AspenNet(torch.nn.Module):
         self._progress_last_sample_active: Optional[List[int]] = None
         # Track which plugins have already had their output_keys() contract validated.
         self._output_keys_validated: Set[str] = set()
+        self._cuda_graph_deferred_nodes: List[str] = []
         # NetworkX DiGraph storing the plugins graph and attributes
         self.graph: nx.DiGraph = nx.DiGraph()
         self.max_graph_degree: int = 0
@@ -182,10 +183,10 @@ class AspenNet(torch.nn.Module):
         self._audit_hook = self.shared.get("_aspen_audit")
 
         self._build_nodes(plugins)
-        if self.cuda_graph_enabled:
-            self.set_cuda_graph_enabled(True)
         self._build_graph()
         self.exec_order = self._toposort()
+        if self.cuda_graph_enabled:
+            self.set_cuda_graph_enabled(True)
         self.training: bool = False
         self._iter_num: int = 0
         self._call_seq: int = 0
@@ -361,7 +362,7 @@ class AspenNet(torch.nn.Module):
         enabled = bool(enabled)
         self.cuda_graph_enabled = enabled
         supported = 0
-        disabled_plugins: List[str] = []
+        deferred_plugins: List[str] = []
         supported_plugins: List[str] = []
         for node in self.nodes:
             module = node.module
@@ -373,24 +374,35 @@ class AspenNet(torch.nn.Module):
                     supported += 1
                     supported_plugins.append(node.name)
                 if getattr(module, "disable_in_cuda_graph_pipeline", False):
-                    prev_enabled = getattr(module, "_cuda_graph_prev_enabled", None)
                     if enabled:
-                        if prev_enabled is None:
-                            setattr(module, "_cuda_graph_prev_enabled", bool(module.enabled))
-                        if getattr(module, "enabled", False):
-                            module.enabled = False
-                        disabled_plugins.append(node.name)
-                    elif prev_enabled is not None:
-                        module.enabled = bool(prev_enabled)
-                        setattr(module, "_cuda_graph_prev_enabled", None)
+                        deferred_plugins.append(node.name)
             except Exception:
                 logger.exception(
                     "Failed to configure CUDA graph mode for Aspen plugin %s", node.name
                 )
+        self._cuda_graph_deferred_nodes = deferred_plugins if enabled else []
+        if enabled and self._cuda_graph_deferred_nodes:
+            self._validate_cuda_graph_deferred_nodes()
         self.shared["aspen_cuda_graph_enabled"] = enabled
         self.shared["aspen_cuda_graph_supported_plugins"] = supported_plugins
-        self.shared["aspen_cuda_graph_disabled_plugins"] = disabled_plugins if enabled else []
+        self.shared["aspen_cuda_graph_disabled_plugins"] = []
+        self.shared["aspen_cuda_graph_deferred_plugins"] = (
+            self._cuda_graph_deferred_nodes if enabled else []
+        )
         return supported
+
+    def _validate_cuda_graph_deferred_nodes(self) -> None:
+        deferred = set(self._cuda_graph_deferred_nodes)
+        if not deferred:
+            return
+        for node_name in deferred:
+            successors = list(self.graph.successors(node_name))
+            non_deferred_successors = [name for name in successors if name not in deferred]
+            if non_deferred_successors:
+                raise ValueError(
+                    "Aspen CUDA graph deferred sink plugins must be terminal. "
+                    f"Plugin '{node_name}' feeds non-deferred successors {non_deferred_successors}."
+                )
 
     @staticmethod
     def _instantiate(cls_path: str, params: Dict[str, Any]) -> torch.nn.Module:
@@ -425,6 +437,8 @@ class AspenNet(torch.nn.Module):
         if "_aspen_seq" not in context:
             self._call_seq += 1
             context["_aspen_seq"] = self._call_seq
+        if self.cuda_graph_enabled and self._cuda_graph_deferred_nodes:
+            return self._forward_with_deferred_sinks(context)
         if self.threaded_trunks:
             self._maybe_reraise_thread_error()
             return self._forward_threaded(context)
@@ -437,6 +451,22 @@ class AspenNet(torch.nn.Module):
                 self._execute_node(node, context)
             # if do_trace:
             #     pass
+        self._iter_num += 1
+        self._finalize_timing(context)
+        return context
+
+    def _forward_with_deferred_sinks(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        deferred = set(self._cuda_graph_deferred_nodes)
+        grad_ctx = torch.enable_grad() if self.training else torch.no_grad()
+        with grad_ctx:
+            for node in self.exec_order:
+                if node.name in deferred:
+                    continue
+                self._execute_node(node, context)
+            for node in self.exec_order:
+                if node.name not in deferred:
+                    continue
+                self._execute_node(node, context)
         self._iter_num += 1
         self._finalize_timing(context)
         return context

@@ -372,6 +372,8 @@ def stitch_videos(
         # parameters (output path, skip-final-save, frame dumping).
         aspen_graph_cfg: Dict[str, Any] = aspen_cfg_all.get("aspen", {}) or {}
         plugins_cfg: Dict[str, Any] = aspen_graph_cfg.get("plugins", {}) or {}
+        video_out_prep_spec: Dict[str, Any] = plugins_cfg.get("video_out_prep", {}) or {}
+        video_out_prep_params: Dict[str, Any] = video_out_prep_spec.get("params", {}) or {}
         video_out_spec: Dict[str, Any] = plugins_cfg.get("video_out", {}) or {}
         video_out_params: Dict[str, Any] = video_out_spec.get("params", {}) or {}
         output_label = None
@@ -384,6 +386,8 @@ def stitch_videos(
             except Exception:
                 pass
         video_out_params.setdefault("output_video_path", output_path)
+        video_out_prep_spec["params"] = video_out_prep_params
+        plugins_cfg["video_out_prep"] = video_out_prep_spec
         video_out_spec["params"] = video_out_params
         plugins_cfg["video_out"] = video_out_spec
         aspen_graph_cfg["plugins"] = plugins_cfg

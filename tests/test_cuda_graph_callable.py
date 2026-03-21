@@ -54,6 +54,22 @@ def should_support_multiple_tensor_outputs():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+def should_reuse_shared_capture_stream_per_device():
+    from hmlib.utils.cuda_graph import CudaGraphCallable
+
+    def fn(x: torch.Tensor) -> torch.Tensor:
+        return x + 1
+
+    x0 = torch.randn(8, device="cuda", dtype=torch.float32)
+    cg0 = CudaGraphCallable(fn, (x0,), warmup=0, name="shared_stream_a")
+    cg1 = CudaGraphCallable(fn, (x0,), warmup=0, name="shared_stream_b")
+
+    assert cg0._capture_stream is not None
+    assert cg1._capture_stream is not None
+    assert cg0._capture_stream is cg1._capture_stream
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 def should_prune_detections_static_with_fixed_outputs():
     from hmlib.tracking_utils.segm_boundaries import SegmBoundaries
 

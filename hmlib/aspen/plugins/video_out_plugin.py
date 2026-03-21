@@ -13,34 +13,7 @@ from .base import Plugin
 
 @HM.register_module()
 class VideoOutPlugin(Plugin):
-    """
-    Plugin wrapping VideoOutput to process final overlays/cropping and save/show frames.
-
-    Expects in context:
-      - img: batched image tensor (from PlayTrackerPlugin)
-      - current_box: TLBR camera boxes per frame
-      - frame_ids: tensor[B]
-      - play_box: TLBR arena/play box (for sizing when crop_play_box)
-      - shared.game_config: full game config dict
-      - shared.original_clip_box: optional clip box
-      - shared.device: preferred device
-      - fps: float (optional; defaults to 30.0)
-
-    Params:
-      - output_video_path: str or None (if None, creates under CWD; skip_final_save honored)
-      - cache_size: int for small internal buffering
-      - video_out_device: torch.device or str
-      - video_out_pipeline: dict/list pipeline; passed to VideoOutput
-      - no_cuda_streams: bool
-      - skip_final_save: bool
-      - save_frame_dir: optional frame dump dir
-      - encoder_backend: optional encoder/muxer backend selection
-      - output_width: optional target output width
-      - output_height: optional target output height
-      - show_image: enable live preview window
-      - show_scaled: optional preview scale factor
-      - bit_rate: optional encoder bit rate
-    """
+    """Sink plugin that writes prepared frames, with legacy prep fallback."""
 
     disable_in_cuda_graph_pipeline = True
 
@@ -50,8 +23,6 @@ class VideoOutPlugin(Plugin):
         output_video_path: Optional[str] = None,
         cache_size: int = 2,
         video_out_device: Optional[str] = None,
-        video_out_pipeline: Optional[Dict[str, Any]] = None,
-        no_cuda_streams: bool = False,
         skip_final_save: bool = False,
         save_frame_dir: Optional[str] = None,
         encoder_backend: Optional[str] = None,
@@ -65,13 +36,36 @@ class VideoOutPlugin(Plugin):
         show_scaled: Optional[float] = None,
         bit_rate: Optional[int] = None,
     ) -> None:
+        """Construct the Aspen video sink plugin.
+
+        This plugin owns the stateful pieces of video output: writer creation,
+        frame-id validation, optional muxing, optional UI display, and final
+        frame emission. When the prep plugin is present upstream, this plugin
+        should mostly just consume already-prepared tensors.
+
+        @param enabled: Whether this plugin should execute.
+        @param output_video_path: Explicit output path or basename override.
+        @param cache_size: Small writer/UI cache size carried through to
+                           :class:`VideoOutput`.
+        @param video_out_device: Optional preferred writer device.
+        @param skip_final_save: When True, suppress final encoded output writes.
+        @param save_frame_dir: Optional PNG frame dump directory.
+        @param encoder_backend: Optional encoder backend override.
+        @param mux_audio_file: Optional audio file to mux into the output.
+        @param mux_audio_stream: Audio stream index to mux from the source.
+        @param mux_audio_offset_seconds: Audio offset applied during muxing.
+        @param mux_audio_aac_bitrate: AAC bitrate when re-encoding audio.
+        @param output_width: Optional final output width for legacy sink-only use.
+        @param output_height: Optional final output height for legacy sink-only use.
+        @param show_image: Whether to show frames live during writing.
+        @param show_scaled: Optional scale factor for the live preview window.
+        @param bit_rate: Optional target encoded video bitrate.
+        """
         super().__init__(enabled=enabled)
         self._vo: Optional[VideoOutput] = None
         self._out_path = output_video_path
         self._cache = int(cache_size)
         self._vo_dev = video_out_device
-        self._pipeline = video_out_pipeline
-        self._no_cuda_streams = bool(no_cuda_streams)
         self._skip_final_save = bool(skip_final_save)
         self._save_dir = save_frame_dir
         self._encoder_backend = encoder_backend
@@ -85,30 +79,17 @@ class VideoOutPlugin(Plugin):
         self._show_scaled = show_scaled
         self._bit_rate = bit_rate
 
-    def is_output(self) -> bool:
-        """If enabled, this node is an output."""
-        return self.enabled
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        self._cuda_graph_enabled = bool(enabled)
+        if self._vo is not None and hasattr(self._vo, "set_cuda_graph_enabled"):
+            self._vo.set_cuda_graph_enabled(enabled)
+        return True
 
-    def _ensure_initialized(self, context: Dict[str, Any]) -> None:
-        if self._vo is not None:
-            return
-        shared = context.get("shared", {})
-        img = context.get("img")
-        if img is None:
-            # Try fallbacks
-            img = context.get("original_images")
-        assert img is not None, "VideoOutPlugin requires 'img' in context"
-
-        device = shared.get("device")
-        cfg = shared.get("game_config") or {}
-        normalize_runtime_config(cfg)
-        vo_dev = self._vo_dev if self._vo_dev is not None else device
-        # Resolve the output video path:
-        #   1. Explicit path passed via plugin params (_out_path)
-        #   2. CLI/config-derived path in game_config.video_out.output_video_path
-        #   3. Fallback to <work_dir>/tracking_output.mkv
+    def _resolve_output_path(self, cfg: Dict[str, Any], context: Dict[str, Any]) -> str:
         out_path = self._out_path
         if not out_path or "/" not in out_path:
+            # Prefer the resolved game config path, but still allow a bare
+            # filename override to land under the active work directory.
             candidate = get_nested_value(cfg, "video_out.output_video_path", default_value=None)
             if not candidate:
                 candidate = get_nested_value(
@@ -118,6 +99,7 @@ class VideoOutPlugin(Plugin):
                 work_dir = context.get("work_dir") or os.path.join(os.getcwd(), "output_workdirs")
                 candidate = os.path.join(str(work_dir), out_path or "tracking_output.mkv")
             out_path = candidate
+        shared = context.get("shared", {})
         label = None
         if isinstance(shared, dict):
             label = shared.get("output_label") or shared.get("label")
@@ -126,8 +108,10 @@ class VideoOutPlugin(Plugin):
                 out_path = str(add_prefix_to_filename(out_path, str(label)))
             except Exception:
                 pass
-        self._out_path = out_path
+        return str(out_path)
 
+    def _resolve_fps(self, context: Dict[str, Any]) -> float:
+        shared = context.get("shared", {})
         fps = None
         try:
             fps_val = context.get("fps")
@@ -136,8 +120,27 @@ class VideoOutPlugin(Plugin):
             fps = float(fps_val) if fps_val is not None else None
         except Exception:
             fps = None
-        if fps is None:
-            fps = 30.0
+        return 30.0 if fps is None else float(fps)
+
+    def _ensure_initialized(self, context: Dict[str, Any]) -> None:
+        if self._vo is not None:
+            return
+        shared = context.get("shared", {})
+        img = context.get("img")
+        if img is None:
+            img = context.get("original_images")
+        assert img is not None, "VideoOutPlugin requires 'img' in context"
+
+        device = shared.get("device") if isinstance(shared, dict) else None
+        cfg = shared.get("game_config") if isinstance(shared, dict) else {}
+        cfg = cfg or {}
+        normalize_runtime_config(cfg)
+        out_path = self._resolve_output_path(cfg, context)
+        self._out_path = out_path
+        # If the sink is used without the prep plugin, it still needs enough
+        # layout information to prepare frames correctly on its own.
+        vo_dev = self._vo_dev if self._vo_dev is not None else device
+        fps = self._resolve_fps(context)
 
         bit_rate = self._bit_rate
         if bit_rate is None:
@@ -146,6 +149,7 @@ class VideoOutPlugin(Plugin):
             bit_rate = get_nested_value(cfg, "aspen.video_out.bit_rate", default_value=None)
         if bit_rate is None:
             bit_rate = int(55e6)
+
         mux_audio_file = self._mux_audio_file
         mux_audio_stream = self._mux_audio_stream
         mux_audio_offset_seconds = self._mux_audio_offset_seconds
@@ -159,6 +163,7 @@ class VideoOutPlugin(Plugin):
                 mux_audio_offset_seconds = float(shared.get("mux_audio_offset_seconds") or 0.0)
             if shared.get("mux_audio_aac_bitrate") is not None:
                 mux_audio_aac_bitrate = str(shared.get("mux_audio_aac_bitrate") or "192k")
+
         self._vo = VideoOutput(
             output_video_path=out_path,
             fps=fps,
@@ -196,28 +201,18 @@ class VideoOutPlugin(Plugin):
                     ),
                 )
             ),
-            profiler=shared.get("profiler", None),
+            profiler=shared.get("profiler", None) if isinstance(shared, dict) else None,
             enable_end_zones=False,
             encoder_backend=self._encoder_backend,
         )
-        self._vo = self._vo.to(device)
-
-    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
-        if not self.enabled:
-            return {}
-        self._ensure_initialized(context)
-        assert self._vo is not None
-        # Call VideoOutput as a regular nn.Module (forward) to write frames.
-        self._vo(context)
-        return {}
+        if hasattr(self._vo, "set_cuda_graph_enabled"):
+            self._vo.set_cuda_graph_enabled(self._cuda_graph_enabled)
 
     def finalize(self) -> None:
-        """Release any UI/video resources held by VideoOutput."""
         if self._vo is not None:
             try:
                 self._vo.stop()
             except Exception:
-                # Finalization should be best-effort; ignore errors here.
                 pass
 
     def input_keys(self):
@@ -235,8 +230,31 @@ class VideoOutPlugin(Plugin):
                 "game_id",
                 "work_dir",
                 "video_frame_cfg",
+                "end_zone_img",
+                "video_out_prepared",
             }
         return self._input_keys
 
+    def is_output(self) -> bool:
+        return self.enabled
+
     def output_keys(self):
         return set()
+
+    def forward(self, context: Dict[str, Any]):  # type: ignore[override]
+        if not self.enabled:
+            return {}
+        self._ensure_initialized(context)
+        assert self._vo is not None
+        prepared = dict(context)
+        if not prepared.get("video_out_prepared", False):
+            # Preserve backward compatibility for configs that instantiate only
+            # the sink plugin: it can still perform prep internally.
+            prepared = self._vo.prepare_results(prepared)
+        self._vo.write_prepared_results(prepared)
+        return {}
+
+
+from .video_out_prep_plugin import VideoOutPrepPlugin
+
+__all__ = ["VideoOutPlugin", "VideoOutPrepPlugin"]
