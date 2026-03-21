@@ -1,11 +1,45 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import torch
 
 from hmlib.log import logger
+
+_CAPTURE_STREAMS: Dict[Tuple[str, int], torch.cuda.Stream] = {}
+_CAPTURE_LOCKS: Dict[Tuple[str, int], threading.Lock] = {}
+_REGISTRY_LOCK = threading.Lock()
+
+
+def _device_key(device: torch.device) -> Tuple[str, int]:
+    if device.type != "cuda":
+        raise ValueError(f"CUDA graph capture requires a CUDA device, got {device!r}")
+    index = device.index
+    if index is None:
+        index = torch.cuda.current_device()
+    return (device.type, int(index))
+
+
+def _get_shared_capture_stream(device: torch.device) -> torch.cuda.Stream:
+    key = _device_key(device)
+    with _REGISTRY_LOCK:
+        stream = _CAPTURE_STREAMS.get(key)
+        if stream is None:
+            stream = torch.cuda.Stream(device=torch.device(key[0], key[1]))
+            _CAPTURE_STREAMS[key] = stream
+        return stream
+
+
+def _get_capture_lock(device: torch.device) -> threading.Lock:
+    key = _device_key(device)
+    with _REGISTRY_LOCK:
+        lock = _CAPTURE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _CAPTURE_LOCKS[key] = lock
+        return lock
 
 
 def _same_tensor_signature(a: torch.Tensor, b: torch.Tensor) -> bool:
@@ -50,6 +84,7 @@ class CudaGraphCallable:
 
         self._graph: Optional[torch.cuda.CUDAGraph] = None
         self._pool: Optional[torch.cuda.graphs.graph_pool_handle] = None
+        self._capture_stream: Optional[torch.cuda.Stream] = None
         self._static_inputs: Tuple[torch.Tensor, ...] = ()
         self._static_outputs: Any = None
         self.stats = CudaGraphStats()
@@ -74,33 +109,38 @@ class CudaGraphCallable:
         self.stats.last_signature = signature
 
         device = example_inputs[0].device
-        torch.cuda.synchronize(device)
-        # CUDA graphs must be captured on a non-default stream in recent PyTorch versions.
-        capture_stream = torch.cuda.Stream(device=device)
+        capture_stream = _get_shared_capture_stream(device)
+        capture_lock = _get_capture_lock(device)
+        self._capture_stream = capture_stream
 
-        self._static_inputs = tuple(torch.empty_like(t) for t in example_inputs)
-        with torch.cuda.stream(capture_stream):
-            with torch.inference_mode():
-                for s, t in zip(self._static_inputs, example_inputs):
-                    s.copy_(t)
+        with capture_lock:
+            torch.cuda.synchronize(device)
+            self._static_inputs = tuple(torch.empty_like(t) for t in example_inputs)
+            with torch.cuda.stream(capture_stream):
+                with torch.inference_mode():
+                    for s, t in zip(self._static_inputs, example_inputs):
+                        s.copy_(t)
 
-                # Warmup to populate caches (cuDNN/autotune, etc.).
-                for _ in range(self._warmup):
-                    _ = self._fn(*self._static_inputs)
+                    # Warmup to populate caches (cuDNN/autotune, etc.).
+                    for _ in range(self._warmup):
+                        _ = self._fn(*self._static_inputs)
 
-                capture_stream.synchronize()
+                    capture_stream.synchronize()
 
-                graph = torch.cuda.CUDAGraph()
-                pool = torch.cuda.graphs.graph_pool_handle()
-                try:
-                    with torch.cuda.graph(
-                        graph, pool=pool, stream=capture_stream, capture_error_mode="thread_local"
-                    ):
-                        self._static_outputs = self._fn(*self._static_inputs)
-                except Exception as ex:
-                    logger.warning("Failed to capture %s CUDA graph: %s", self._name, ex)
-                    raise
-                capture_stream.synchronize()
+                    graph = torch.cuda.CUDAGraph()
+                    pool = torch.cuda.graphs.graph_pool_handle()
+                    try:
+                        with torch.cuda.graph(
+                            graph,
+                            pool=pool,
+                            stream=capture_stream,
+                            capture_error_mode="thread_local",
+                        ):
+                            self._static_outputs = self._fn(*self._static_inputs)
+                    except Exception as ex:
+                        logger.warning("Failed to capture %s CUDA graph: %s", self._name, ex)
+                        raise
+                    capture_stream.synchronize()
 
         self._graph = graph
         self._pool = pool

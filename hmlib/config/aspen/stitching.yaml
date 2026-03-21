@@ -40,17 +40,24 @@ aspen:
         crop_play_box: false
         end_zones: false
 
-    video_out:
-      class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
+    video_out_prep:
+      class: hmlib.aspen.plugins.video_out_prep_plugin.VideoOutPrepPlugin
       depends: [apply_camera]
       enabled: true
       params:
-        # output_video_path, skip_final_save and save_frame_dir are wired
-        # in programmatically from the CLI (stitch.py) before AspenNet
-        # is constructed.
-        cache_size: 2
-        bit_rate: GLOBAL.video_out.bit_rate
+        # skip_final_save remains prep-relevant because it controls whether
+        # prepared frames are moved to the sink/output device at all.
+        skip_final_save: GLOBAL.video_out.skip_final_save
         output_width: GLOBAL.video_out.output_width
         output_height: GLOBAL.video_out.output_height
+
+    video_out:
+      class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
+      depends: [video_out_prep]
+      enabled: true
+      params:
+        cache_size: 2
+        skip_final_save: GLOBAL.video_out.skip_final_save
+        bit_rate: GLOBAL.video_out.bit_rate
         show_image: GLOBAL.video_out.show_image
         show_scaled: GLOBAL.video_out.show_scaled

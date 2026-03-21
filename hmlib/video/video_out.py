@@ -19,6 +19,7 @@ import torch
 import torch.nn.functional as F
 
 from hmlib.log import logger
+from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import get_gpu_capabilities, unwrap_tensor, wrap_tensor
@@ -289,6 +290,15 @@ class VideoOutput(torch.nn.ModuleDict):
         self._bit_rate = bit_rate
         self._enable_end_zones: bool = bool(enable_end_zones)
         self._last_frame_id: Optional[torch.Tensor] = None
+        self._cuda_graph_enabled: bool = False
+        self._img_prepare_cg: Optional[CudaGraphCallable] = None
+        self._img_prepare_cg_signature: Optional[
+            Tuple[torch.device, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]
+        ] = None
+        self._end_zone_prepare_cg: Optional[CudaGraphCallable] = None
+        self._end_zone_prepare_cg_signature: Optional[
+            Tuple[torch.device, Optional[Tuple[int, int]], Optional[Tuple[int, int]]]
+        ] = None
 
         self._fourcc = fourcc
 
@@ -423,6 +433,139 @@ class VideoOutput(torch.nn.ModuleDict):
         x = F.pad(x, [pad_left, pad_right, pad_top, pad_bottom], "constant", 0)
         return make_channels_last(x)
 
+    def _reset_prepare_cuda_graphs(self) -> None:
+        self._img_prepare_cg = None
+        self._img_prepare_cg_signature = None
+        self._end_zone_prepare_cg = None
+        self._end_zone_prepare_cg_signature = None
+
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        self._cuda_graph_enabled = bool(enabled)
+        if not self._cuda_graph_enabled:
+            self._reset_prepare_cuda_graphs()
+        return True
+
+    @staticmethod
+    def _normalize_input_image(img: Any) -> Any:
+        if isinstance(img, np.ndarray):
+            img = torch.from_numpy(img)
+        if isinstance(img, torch.Tensor) and img.ndim == 3:
+            img = img.unsqueeze(0)
+        return img
+
+    def _prepare_output_layout(
+        self, results: Dict[str, Any], online_im: Any
+    ) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+        resize_wh = self._output_resize_wh
+        canvas_wh = self._output_canvas_wh
+        if self._output_width is None and self._output_height is None:
+            return resize_wh, canvas_wh
+        if resize_wh is None and canvas_wh is None:
+            resize_wh, canvas_wh = self._get_output_resize_and_canvas(
+                width=image_width(online_im),
+                height=image_height(online_im),
+            )
+            self._output_resize_wh = resize_wh
+            self._output_canvas_wh = canvas_wh
+            self._reset_prepare_cuda_graphs()
+        output_wh = canvas_wh or resize_wh
+        if output_wh is not None:
+            video_frame_cfg = results.get("video_frame_cfg")
+            if isinstance(video_frame_cfg, dict):
+                target_w, target_h = output_wh
+                video_frame_cfg_local = dict(video_frame_cfg)
+                video_frame_cfg_local["output_frame_width"] = target_w
+                video_frame_cfg_local["output_frame_height"] = target_h
+                video_frame_cfg_local["output_aspect_ratio"] = float(target_w) / float(target_h)
+                results["video_frame_cfg"] = video_frame_cfg_local
+        return resize_wh, canvas_wh
+
+    def _apply_output_transforms(
+        self,
+        img: Any,
+        resize_wh: Optional[Tuple[int, int]],
+        canvas_wh: Optional[Tuple[int, int]],
+    ) -> Any:
+        out = img
+        if resize_wh is not None:
+            target_w, target_h = resize_wh
+            if image_width(out) != target_w or image_height(out) != target_h:
+                out_t = unwrap_tensor(out)
+                out_t = resize_image(
+                    img=out_t,
+                    new_width=target_w,
+                    new_height=target_h,
+                )
+                out = to_uint8_image(out_t).contiguous()
+        if canvas_wh is not None:
+            target_w, target_h = canvas_wh
+            out = self._letterbox_tensor(unwrap_tensor(out), target_w, target_h)
+            out = to_uint8_image(out).contiguous()
+        return out
+
+    def _maybe_move_to_output_device(self, img: Any) -> Any:
+        out = img
+        if not self._skip_final_save and self._device is not None:
+            if str(out.device) != str(self._device):
+                out = unwrap_tensor(out).to(self._device)
+            if out.device.type != "cpu" and self._device.type == "cpu":
+                out = out.to("cpu", non_blocking=True)
+                out = wrap_tensor(out)
+            else:
+                assert self._device is None or out.device == self._device
+        return out
+
+    def _graph_prepare_tensor(
+        self,
+        img: Any,
+        *,
+        resize_wh: Optional[Tuple[int, int]],
+        canvas_wh: Optional[Tuple[int, int]],
+        slot: str,
+    ) -> Any:
+        if resize_wh is None and canvas_wh is None:
+            return img
+        if not self._cuda_graph_enabled:
+            return self._apply_output_transforms(img, resize_wh, canvas_wh)
+        if self._device is None or self._device.type != "cuda":
+            return self._apply_output_transforms(img, resize_wh, canvas_wh)
+        img_t = unwrap_tensor(img)
+        if not isinstance(img_t, torch.Tensor) or img_t.device.type != "cuda":
+            return self._apply_output_transforms(img, resize_wh, canvas_wh)
+        signature = (img_t.device, resize_wh, canvas_wh)
+        if slot == self.VIDEO_DEFAULT:
+            cg = self._img_prepare_cg
+            cg_sig = self._img_prepare_cg_signature
+        else:
+            cg = self._end_zone_prepare_cg
+            cg_sig = self._end_zone_prepare_cg_signature
+        if cg is None or cg_sig != signature:
+            cg = CudaGraphCallable(
+                lambda t: self._apply_output_transforms(t, resize_wh, canvas_wh),
+                (img_t,),
+                warmup=0,
+                name=f"video_out_{slot}_prep",
+            )
+            if slot == self.VIDEO_DEFAULT:
+                self._img_prepare_cg = cg
+                self._img_prepare_cg_signature = signature
+            else:
+                self._end_zone_prepare_cg = cg
+                self._end_zone_prepare_cg_signature = signature
+        return cg(img_t)
+
+    def _prepare_single_image(
+        self,
+        img: Any,
+        *,
+        resize_wh: Optional[Tuple[int, int]],
+        canvas_wh: Optional[Tuple[int, int]],
+        slot: str,
+    ) -> Any:
+        out = self._normalize_input_image(img)
+        out = self._maybe_move_to_output_device(out)
+        return self._graph_prepare_tensor(out, resize_wh=resize_wh, canvas_wh=canvas_wh, slot=slot)
+
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
         """Resolve device and codec configuration before the first write.
 
@@ -433,14 +576,25 @@ class VideoOutput(torch.nn.ModuleDict):
             :func:`get_best_codec`.
         """
         if self._device is None:
-            self._device = self._output_aspect_ratio.device
+            img = context.get("img")
+            if img is None:
+                img = context.get("end_zone_img")
+            img = self._normalize_input_image(img)
+            img_t = unwrap_tensor(img) if img is not None else None
+            if isinstance(img_t, torch.Tensor):
+                self._device = img_t.device
+            else:
+                self._device = torch.device("cpu")
         if self._fourcc == "auto":
             video_frame_cfg = context["video_frame_cfg"]
             output_frame_width = int(video_frame_cfg["output_frame_width"])
             output_frame_height = int(video_frame_cfg["output_frame_height"])
             if self._device.type == "cuda":
+                device_index = self._device.index
+                if device_index is None:
+                    device_index = torch.cuda.current_device()
                 self._fourcc, is_gpu = get_best_codec(
-                    self._device.index,
+                    device_index,
                     width=output_frame_width,
                     height=output_frame_height,
                     allow_scaling=self._allow_scaling,
@@ -448,6 +602,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 if not is_gpu:
                     logger.info(f"Can't use GPU for output video {self._output_video_path}")
                     self._device = torch.device("cpu")
+                    self._reset_prepare_cuda_graphs()
             else:
                 self._fourcc = "XVID"
             logger.info(
@@ -509,6 +664,52 @@ class VideoOutput(torch.nn.ModuleDict):
                     profiler=self._prof,
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
+
+    def prepare_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        prepared = dict(results)
+        online_im = prepared["img"]
+        online_im = self._normalize_input_image(online_im)
+
+        resize_wh, canvas_wh = self._prepare_output_layout(prepared, online_im)
+
+        self._ensure_initialized(prepared)
+
+        prepared["img"] = self._prepare_single_image(
+            online_im,
+            resize_wh=resize_wh,
+            canvas_wh=canvas_wh,
+            slot=self.VIDEO_DEFAULT,
+        )
+
+        ez_img = prepared.get("end_zone_img")
+        if ez_img is not None:
+            prepared["end_zone_img"] = self._prepare_single_image(
+                ez_img,
+                resize_wh=resize_wh,
+                canvas_wh=canvas_wh,
+                slot=self.VIDEO_END_ZONES,
+            )
+        return prepared
+
+    def _validate_frame_ids(self, results: Dict[str, Any]) -> None:
+        frame_ids = results["frame_ids"]
+        if self._last_frame_id is not None and torch.any(frame_ids <= self._last_frame_id):
+            raise ValueError(
+                "VideoOutput received non-monotonic frame_ids. "
+                f"last_frame_id={self._last_frame_id}, "
+                f"current_frame_ids={frame_ids}"
+            )
+        self._last_frame_id = frame_ids.max()
+
+    def write_prepared_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        self._ensure_initialized(results)
+        self._validate_frame_ids(results)
+        if not self._output_videos:
+            self.create_output_videos(results)
+        with self._sctx:
+            out = self._save_frame(results)
+        assert "img" not in out
+        return out
 
     def _save_frame(
         self,
@@ -597,122 +798,5 @@ class VideoOutput(torch.nn.ModuleDict):
         @return: The updated ``results`` dict (for chaining if desired).
         """
         with self._fctx:
-            frame_ids = results["frame_ids"]
-            if self._last_frame_id is not None:
-                if torch.any(frame_ids <= self._last_frame_id):
-                    raise ValueError(
-                        "VideoOutput received non-monotonic frame_ids. "
-                        f"last_frame_id={self._last_frame_id}, "
-                        f"current_frame_ids={frame_ids}"
-                    )
-            self._last_frame_id = frame_ids.max()
-
-            online_im = results["img"]
-
-            if isinstance(online_im, np.ndarray):
-                online_im = torch.from_numpy(online_im)
-
-            if online_im.ndim == 3:
-                # Ensure a batch dimension is present: [H, W, C] -> [1, H, W, C]
-                online_im = online_im.unsqueeze(0)
-
-            # Optional output resize/letterbox (keeps aspect ratio).
-            resize_wh = self._output_resize_wh
-            canvas_wh = self._output_canvas_wh
-            if self._output_width is not None or self._output_height is not None:
-                if resize_wh is None and canvas_wh is None:
-                    resize_wh, canvas_wh = self._get_output_resize_and_canvas(
-                        width=image_width(online_im),
-                        height=image_height(online_im),
-                    )
-                    self._output_resize_wh = resize_wh
-                    self._output_canvas_wh = canvas_wh
-                output_wh = canvas_wh or resize_wh
-                if output_wh is not None:
-                    video_frame_cfg = results.get("video_frame_cfg")
-                    if isinstance(video_frame_cfg, dict):
-                        target_w, target_h = output_wh
-                        video_frame_cfg_local = dict(video_frame_cfg)
-                        video_frame_cfg_local["output_frame_width"] = target_w
-                        video_frame_cfg_local["output_frame_height"] = target_h
-                        video_frame_cfg_local["output_aspect_ratio"] = float(target_w) / float(
-                            target_h
-                        )
-                        results["video_frame_cfg"] = video_frame_cfg_local
-
-            # Step 1: Lazy initialization of device + codec
-            self._ensure_initialized(results)
-
-            # Step 2: Ensure underlying video streams are open
-            if not self._output_videos:
-                self.create_output_videos(results)
-
-            if not self._skip_final_save:
-                if self._device is not None:
-                    # Move to writer device and ensure channels-last layout
-                    if str(online_im.device) != str(self._device):
-                        online_im = unwrap_tensor(online_im).to(self._device)
-
-                # Optional final move to CPU for CPU-only writers
-                if (
-                    online_im.device.type != "cpu"
-                    and self._device is not None
-                    and self._device.type == "cpu"
-                ):
-                    online_im = online_im.to("cpu", non_blocking=True)
-                    online_im = wrap_tensor(online_im)
-
-                assert self._device is None or online_im.device == self._device
-
-            if resize_wh is not None:
-                target_w, target_h = resize_wh
-                if image_width(online_im) != target_w or image_height(online_im) != target_h:
-                    online_im_t = unwrap_tensor(online_im)
-                    online_im_t = resize_image(
-                        img=online_im_t,
-                        new_width=target_w,
-                        new_height=target_h,
-                    )
-                    online_im = to_uint8_image(online_im_t).contiguous()
-            if canvas_wh is not None:
-                target_w, target_h = canvas_wh
-                online_im = self._letterbox_tensor(unwrap_tensor(online_im), target_w, target_h)
-                online_im = to_uint8_image(online_im).contiguous()
-
-            ez_img = results.get("end_zone_img")
-            if ez_img is not None and (resize_wh is not None or canvas_wh is not None):
-                if isinstance(ez_img, np.ndarray):
-                    ez_img = torch.from_numpy(ez_img)
-                if ez_img.ndim == 3:
-                    ez_img = ez_img.unsqueeze(0)
-                if (
-                    not self._skip_final_save
-                    and self._device is not None
-                    and str(ez_img.device) != str(self._device)
-                ):
-                    ez_img = unwrap_tensor(ez_img).to(self._device)
-                if resize_wh is not None:
-                    target_w, target_h = resize_wh
-                    if image_width(ez_img) != target_w or image_height(ez_img) != target_h:
-                        ez_t = unwrap_tensor(ez_img)
-                        ez_t = resize_image(
-                            img=ez_t,
-                            new_width=target_w,
-                            new_height=target_h,
-                        )
-                        ez_img = to_uint8_image(ez_t).contiguous()
-                if canvas_wh is not None:
-                    canvas_w, canvas_h = canvas_wh
-                    ez_img = self._letterbox_tensor(unwrap_tensor(ez_img), canvas_w, canvas_h)
-                    ez_img = to_uint8_image(ez_img).contiguous()
-                results["end_zone_img"] = ez_img
-
-            results["img"] = online_im
-
-            # Step 4: Persist frames to disk under profiling scopes
-            with self._sctx:
-                results = self._save_frame(results)
-
-            assert "img" not in results
-
-            return results
+            prepared = self.prepare_results(results)
+            return self.write_prepared_results(prepared)

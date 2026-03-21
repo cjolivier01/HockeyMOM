@@ -43,6 +43,7 @@ if torch is not None:
         FakePlayTrackerRuntime,
         FakePoseInferencer,
         FakeVideoOutput,
+        FakeVideoOutputPreparer,
         discover_production_plugin_classes,
         install_fake_module,
         make_det_sample,
@@ -57,6 +58,7 @@ else:
     FakePlayTrackerRuntime = None
     FakePoseInferencer = None
     FakeVideoOutput = None
+    FakeVideoOutputPreparer = None
     discover_production_plugin_classes = None
     install_fake_module = None
     make_det_sample = None
@@ -943,6 +945,34 @@ def _case_tracker(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False)
     assert int(track_data_sample[0].pred_track_instances.instances_id[0].item()) == 7
 
 
+def _case_video_out_prep(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
+    from hmlib.aspen.plugins.video_out_prep_plugin import VideoOutPrepPlugin
+
+    FakeVideoOutputPreparer.instances.clear()
+    monkeypatch.setattr(
+        "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutputPreparer",
+        FakeVideoOutputPreparer,
+    )
+    plugin = VideoOutPrepPlugin()
+    _maybe_enable_cuda_graph(plugin, cuda_graph_enabled)
+    out = plugin(
+        {
+            "img": torch.zeros((1, 3, 8, 8), dtype=torch.float32),
+            "video_frame_cfg": {
+                "output_frame_width": 8,
+                "output_frame_height": 8,
+                "output_aspect_ratio": 1.0,
+            },
+            "work_dir": str(tmp_path),
+            "shared": {"device": torch.device("cpu"), "game_config": {}},
+        }
+    )
+    assert out["video_out_prepared"] is True
+    assert len(FakeVideoOutputPreparer.instances) == 1
+    assert len(FakeVideoOutputPreparer.instances[0].prepare_calls) == 1
+    assert FakeVideoOutputPreparer.instances[0].cuda_graph_enabled is cuda_graph_enabled
+
+
 def _case_video_out(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
     from hmlib.aspen.plugins.video_out_plugin import VideoOutPlugin
 
@@ -959,7 +989,9 @@ def _case_video_out(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = Fals
     )
     assert out == {}
     assert len(FakeVideoOutput.instances) == 1
+    assert len(FakeVideoOutput.instances[0].prepare_calls) == 1
     assert len(FakeVideoOutput.instances[0].calls) == 1
+    assert FakeVideoOutput.instances[0].cuda_graph_enabled is cuda_graph_enabled
 
 
 def _case_apply_camera(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
@@ -1018,6 +1050,7 @@ PLUGIN_CASES: dict[str, Callable[[Any, Path, bool], None]] = {
     "hmlib.aspen.plugins.save_plugins.SaveCameraPlugin": _case_save_camera,
     "hmlib.aspen.plugins.stitching_plugin.StitchingPlugin": _case_stitching,
     "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin": _case_tracker,
+    "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutPrepPlugin": _case_video_out_prep,
     "hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin": _case_video_out,
     "hmlib.camera.apply_camera_plugin.ApplyCameraPlugin": _case_apply_camera,
 }

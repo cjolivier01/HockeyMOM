@@ -441,31 +441,120 @@ def should_match_rink_pruning_with_and_without_cuda_graph():
 
 
 @requires_cuda
-def should_disable_sink_plugins_and_restore_them_for_cuda_graph_pipeline(monkeypatch, tmp_path):
+def should_match_video_output_prep_with_and_without_cuda_graph(tmp_path):
+    from hmlib.video.video_out import VideoOutput
+
+    base_results = {
+        "img": torch.arange(1 * 12 * 20 * 3, device="cuda", dtype=torch.uint8).reshape(
+            1, 12, 20, 3
+        ),
+        "end_zone_img": torch.full((1, 12, 20, 3), 17, device="cuda", dtype=torch.uint8),
+        "frame_ids": torch.tensor([1], dtype=torch.int64),
+        "video_frame_cfg": {
+            "output_frame_width": 20,
+            "output_frame_height": 12,
+            "output_aspect_ratio": 20.0 / 12.0,
+        },
+    }
+
+    ref = VideoOutput(
+        output_video_path=str(tmp_path / "ref.mkv"),
+        fps=30.0,
+        skip_final_save=True,
+        device="cuda",
+        output_width=18,
+        output_height=18,
+    )
+    cg = VideoOutput(
+        output_video_path=str(tmp_path / "cg.mkv"),
+        fps=30.0,
+        skip_final_save=True,
+        device="cuda",
+        output_width=18,
+        output_height=18,
+    )
+    cg.set_cuda_graph_enabled(True)
+
+    ref_out = ref.prepare_results(dict(base_results))
+    cg_out = cg.prepare_results(dict(base_results))
+
+    assert torch.equal(unwrap_tensor(ref_out["img"]), unwrap_tensor(cg_out["img"]))
+    assert torch.equal(
+        unwrap_tensor(ref_out["end_zone_img"]), unwrap_tensor(cg_out["end_zone_img"])
+    )
+    assert ref_out["video_frame_cfg"] == cg_out["video_frame_cfg"]
+    assert cg._img_prepare_cg is not None
+    assert cg._img_prepare_cg.stats.replays >= 1
+    assert cg._end_zone_prepare_cg is not None
+    assert cg._end_zone_prepare_cg.stats.replays >= 1
+
+
+@requires_cuda
+def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch, tmp_path):
     from hmlib.aspen.plugins.save_plugins import SaveDetectionsPlugin
+    from hmlib.aspen.plugins.video_out_prep_plugin import VideoOutPrepPlugin
     from hmlib.aspen.plugins.video_out_plugin import VideoOutPlugin
 
+    fake_preparers = []
     fake_video_outputs = []
+
+    class _FakeVideoOutputPreparer(torch.nn.Module):
+        def __init__(self, **kwargs: Any):
+            super().__init__()
+            self.kwargs = kwargs
+            self.prepare_calls: list[dict[str, Any]] = []
+            self.cuda_graph_enabled = False
+            fake_preparers.append(self)
+
+        def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+            self.cuda_graph_enabled = bool(enabled)
+            return True
+
+        def prepare_results(self, context: dict[str, Any]) -> dict[str, Any]:
+            out = dict(context)
+            self.prepare_calls.append(dict(out))
+            out["video_out_prepared"] = True
+            return out
 
     class _FakeVideoOutput(torch.nn.Module):
         def __init__(self, **kwargs: Any):
             super().__init__()
             self.kwargs = kwargs
+            self.prepare_calls: list[dict[str, Any]] = []
             self.calls: list[dict[str, Any]] = []
+            self.cuda_graph_enabled = False
             fake_video_outputs.append(self)
 
         def to(self, device: Any):  # type: ignore[override]
             _ = device
             return self
 
-        def forward(self, context: dict[str, Any]):  # type: ignore[override]
+        def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+            self.cuda_graph_enabled = bool(enabled)
+            return True
+
+        def prepare_results(self, context: dict[str, Any]) -> dict[str, Any]:
+            out = dict(context)
+            self.prepare_calls.append(dict(out))
+            out["video_out_prepared"] = True
+            return out
+
+        def write_prepared_results(self, context: dict[str, Any]) -> dict[str, Any]:
             self.calls.append(dict(context))
             return context
+
+        def forward(self, context: dict[str, Any]):  # type: ignore[override]
+            prepared = self.prepare_results(context)
+            return self.write_prepared_results(prepared)
 
         def stop(self) -> None:
             return None
 
     monkeypatch.setattr("hmlib.aspen.plugins.video_out_plugin.VideoOutput", _FakeVideoOutput)
+    monkeypatch.setattr(
+        "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutputPreparer",
+        _FakeVideoOutputPreparer,
+    )
 
     det_inst = make_instance_data(
         bboxes=torch.tensor([[1.0, 2.0, 5.0, 6.0]], dtype=torch.float32),
@@ -499,9 +588,14 @@ def should_disable_sink_plugins_and_restore_them_for_cuda_graph_pipeline(monkeyp
                 "depends": ["source"],
                 "params": {},
             },
+            "video_out_prep": {
+                "class": "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutPrepPlugin",
+                "depends": ["source"],
+                "params": {},
+            },
             "video_out": {
                 "class": "hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin",
-                "depends": ["source"],
+                "depends": ["video_out_prep"],
                 "params": {"output_video_path": "tracking.mkv"},
             },
         },
@@ -509,28 +603,35 @@ def should_disable_sink_plugins_and_restore_them_for_cuda_graph_pipeline(monkeyp
     shared = {"device": torch.device("cpu"), "game_config": {}}
     net = AspenNet("cuda_graph_sinks", graph_cfg, shared=shared)
     assert isinstance(net.node_map["save_detections"].module, SaveDetectionsPlugin)
+    assert isinstance(net.node_map["video_out_prep"].module, VideoOutPrepPlugin)
     assert isinstance(net.node_map["video_out"].module, VideoOutPlugin)
-    assert net.node_map["save_detections"].module.enabled is False
-    assert net.node_map["video_out"].module.enabled is False
-    assert set(net.shared["aspen_cuda_graph_disabled_plugins"]) == {
+    assert net.node_map["save_detections"].module.enabled is True
+    assert net.node_map["video_out"].module.enabled is True
+    assert net.shared["aspen_cuda_graph_disabled_plugins"] == []
+    assert set(net.shared["aspen_cuda_graph_deferred_plugins"]) == {
         "save_detections",
         "video_out",
     }
 
     out = net({})
     expected = (x * 2.0) + 1.0
+    net.node_map["save_detections"].module.finalize()
     assert torch.allclose(out["x"], expected)
-    assert not (tmp_path / "detections.csv").exists()
-    assert fake_video_outputs == []
+    assert (tmp_path / "detections.csv").exists()
+    assert len(fake_preparers) == 1
+    assert len(fake_preparers[0].prepare_calls) == 1
+    assert fake_preparers[0].cuda_graph_enabled is True
+    assert len(fake_video_outputs) == 1
+    assert fake_video_outputs[0].prepare_calls == []
+    assert len(fake_video_outputs[0].calls) == 1
 
     net.set_cuda_graph_enabled(False)
-    assert net.node_map["save_detections"].module.enabled is True
-    assert net.node_map["video_out"].module.enabled is True
     assert net.shared["aspen_cuda_graph_disabled_plugins"] == []
+    assert net.shared["aspen_cuda_graph_deferred_plugins"] == []
 
     out_no_graph = net({})
     net.node_map["save_detections"].module.finalize()
     assert torch.allclose(out_no_graph["x"], expected)
     assert (tmp_path / "detections.csv").exists()
-    assert len(fake_video_outputs) == 1
-    assert len(fake_video_outputs[0].calls) == 1
+    assert len(fake_preparers[0].prepare_calls) == 2
+    assert len(fake_video_outputs[0].calls) == 2

@@ -184,21 +184,63 @@ class FakeVideoOutput(torch.nn.Module):
     def __init__(self, **kwargs: Any):
         super().__init__()
         self.kwargs = kwargs
+        self.prepare_calls: list[dict[str, Any]] = []
         self.calls: list[dict[str, Any]] = []
         self.stopped = False
         self.to_device = None
+        self.cuda_graph_enabled = False
         FakeVideoOutput.instances.append(self)
 
     def to(self, device: Any):  # type: ignore[override]
         self.to_device = device
         return self
 
-    def forward(self, context: dict[str, Any]):  # type: ignore[override]
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        self.cuda_graph_enabled = bool(enabled)
+        return True
+
+    def prepare_results(self, context: dict[str, Any]) -> dict[str, Any]:
+        out = dict(context)
+        self.prepare_calls.append(dict(out))
+        out["video_out_prepared"] = True
+        return out
+
+    def write_prepared_results(self, context: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(dict(context))
         return context
 
+    def forward(self, context: dict[str, Any]):  # type: ignore[override]
+        prepared = self.prepare_results(context)
+        return self.write_prepared_results(prepared)
+
     def stop(self) -> None:
         self.stopped = True
+
+
+class FakeVideoOutputPreparer(torch.nn.Module):
+    instances: list["FakeVideoOutputPreparer"] = []
+
+    def __init__(self, **kwargs: Any):
+        super().__init__()
+        self.kwargs = kwargs
+        self.prepare_calls: list[dict[str, Any]] = []
+        self.to_device = None
+        self.cuda_graph_enabled = False
+        FakeVideoOutputPreparer.instances.append(self)
+
+    def to(self, device: Any):  # type: ignore[override]
+        self.to_device = device
+        return self
+
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        self.cuda_graph_enabled = bool(enabled)
+        return True
+
+    def prepare_results(self, context: dict[str, Any]) -> dict[str, Any]:
+        out = dict(context)
+        self.prepare_calls.append(dict(out))
+        out["video_out_prepared"] = True
+        return out
 
 
 class FakeCompose:
