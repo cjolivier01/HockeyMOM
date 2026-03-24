@@ -4,31 +4,7 @@
       "path": "."
     },
     {
-      "path": "../hm-cupano"
-    },
-    {
-      "path": "../jersey-number-pipeline"
-    },
-    {
-      "path": "../cuda-stacktrace"
-    },
-    {
-      "path": "../hstream"
-    },
-    {
-      "path": "../jetson-utils"
-    },
-    {
-      "path": "../pytorch"
-    },
-    {
-      "path": "../PyNvVideoCodec"
-    },
-    {
-      "path": "../../Videos/jrsharks2013-2025-2026"
-    },
-    {
-      "path": "../../Videos/tv-12-1-prr"
+      "path": "../snapshot"
     }
   ],
   "settings": {
