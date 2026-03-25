@@ -268,7 +268,6 @@ class ProgressBar:
         total_value = self._total if self._total > 0 else None
         self._rich_task = self._progress.add_task(description=description, total=total_value)
         self._rich_started: bool = False
-        self._progress_started: bool = False
         self._live: Optional[Live] = None
         self._line_count: int = 0
         self._log_lines: List[str] = []
@@ -512,11 +511,6 @@ class ProgressBar:
             try:
                 if self._live is not None:
                     self._live.stop()
-            except Exception:
-                pass
-            try:
-                if self._progress_started:
-                    self._progress.stop()
             except Exception:
                 pass
             self._rich_started = False
