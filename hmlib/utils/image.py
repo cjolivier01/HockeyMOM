@@ -641,19 +641,13 @@ def resize_image(
                 interp_kwargs = {}
                 if mode in ("bilinear", "bicubic"):
                     interp_kwargs["antialias"] = bool(antialias)
-                try:
-                    img = TF.interpolate(
-                        img,
-                        size=(h, w),
-                        mode=mode,
-                        align_corners=_allow_align_corners(mode, False),
-                        **interp_kwargs,
-                    )
-                except TypeError:
-                    # Older torch versions may not accept the antialias kwarg.
-                    img = TF.interpolate(
-                        img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False)
-                    )
+                img = TF.interpolate(
+                    img,
+                    size=(h, w),
+                    mode=mode,
+                    align_corners=_allow_align_corners(mode, False),
+                    **interp_kwargs,
+                )
                 if not was_batched:
                     img = img.squeeze(0)
                 # Assert that it reshaped as we expected
