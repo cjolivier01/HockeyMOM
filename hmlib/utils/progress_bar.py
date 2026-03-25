@@ -268,6 +268,7 @@ class ProgressBar:
         total_value = self._total if self._total > 0 else None
         self._rich_task = self._progress.add_task(description=description, total=total_value)
         self._rich_started: bool = False
+        self._progress_started: bool = False
         self._live: Optional[Live] = None
         self._line_count: int = 0
         self._log_lines: List[str] = []
@@ -428,8 +429,9 @@ class ProgressBar:
 
     def _ensure_rich_started(self) -> None:
         if not self._rich_started:
-            # Start the rich.Progress and Live render loop the first time we render.
-            self._progress.start()
+            # Render RichProgress inside a single outer Live context.
+            # Calling self._progress.start() would create a second live display
+            # on the same console and raise rich.errors.LiveError.
             self._live = Live(
                 self._build_layout(),
                 console=self._console,
@@ -513,7 +515,8 @@ class ProgressBar:
             except Exception:
                 pass
             try:
-                self._progress.stop()
+                if self._progress_started:
+                    self._progress.stop()
             except Exception:
                 pass
             self._rich_started = False
