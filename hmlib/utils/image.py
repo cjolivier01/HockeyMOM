@@ -638,8 +638,15 @@ def resize_image(
                 was_batched = img.ndim == 4
                 if not was_batched:
                     img = img.unsqueeze(0)
+                interp_kwargs = {}
+                if mode in ("bilinear", "bicubic"):
+                    interp_kwargs["antialias"] = bool(antialias)
                 img = TF.interpolate(
-                    img, size=(h, w), mode=mode, align_corners=_allow_align_corners(mode, False)
+                    img,
+                    size=(h, w),
+                    mode=mode,
+                    align_corners=_allow_align_corners(mode, False),
+                    **interp_kwargs,
                 )
                 if not was_batched:
                     img = img.squeeze(0)

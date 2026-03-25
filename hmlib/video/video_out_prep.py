@@ -253,10 +253,19 @@ class VideoOutputPreparer(torch.nn.Module):
             target_w, target_h = resize_wh
             if image_width(out) != target_w or image_height(out) != target_h:
                 out_t = unwrap_tensor(out)
+                src_w = image_width(out_t)
+                src_h = image_height(out_t)
+                resize_mode = None
+                if target_w < src_w or target_h < src_h:
+                    # Use higher-quality bicubic filtering when downscaling final
+                    # output frames in the prep path.
+                    resize_mode = "bicubic"
                 out_t = resize_image(
                     img=out_t,
                     new_width=target_w,
                     new_height=target_h,
+                    mode=resize_mode,
+                    antialias=True,
                 )
                 out = to_uint8_image(out_t).contiguous()
         if canvas_wh is not None:
