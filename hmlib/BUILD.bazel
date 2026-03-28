@@ -14,6 +14,7 @@ python_library(
     srcs = _SOURCES,
     data = [
         "py.typed",
+        "images/scoreboard_selector_thank_you.svg",
         ":embed_enblend",
         ":embed_multiblend",
     ],
@@ -67,6 +68,7 @@ filegroup(
     srcs = [
         ":embed_enblend",
         ":embed_multiblend",
+        "images/scoreboard_selector_thank_you.svg",
         "images/sports_ai_watermark.png",
         "py.typed",
         # "@multiblend//:multiblend",
