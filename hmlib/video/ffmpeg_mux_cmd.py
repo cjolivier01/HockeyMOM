@@ -157,3 +157,62 @@ def build_ffmpeg_live_bitstream_publish_cmd(
         "flv",
         str(output_url),
     ]
+
+
+def build_ffmpeg_live_hls_bitstream_publish_cmd(
+    *,
+    ffmpeg: str,
+    output_manifest_path: Path,
+    segment_path_pattern: Path,
+    stream_format: str,
+    fps: float,
+    hls_time: float = 1.0,
+    hls_list_size: int = 6,
+) -> List[str]:
+    """Build an ffmpeg command to mux a raw elementary bitstream into live HLS."""
+    fps_frac = Fraction(float(fps)).limit_denominator(1001)
+    fps_str = (
+        f"{fps_frac.numerator}/{fps_frac.denominator}"
+        if fps_frac.denominator != 1
+        else str(fps_frac.numerator)
+    )
+    time_base = Fraction(fps_frac.denominator, fps_frac.numerator)
+    time_base_str = f"{time_base.numerator}/{time_base.denominator}"
+    setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
+
+    return [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-progress",
+        "pipe:2",
+        "-nostats",
+        "-nostdin",
+        "-f",
+        str(stream_format),
+        "-framerate",
+        fps_str,
+        "-i",
+        "-",
+        "-an",
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        setts_bsf,
+        "-f",
+        "hls",
+        "-hls_time",
+        str(float(hls_time)),
+        "-hls_list_size",
+        str(int(hls_list_size)),
+        "-hls_allow_cache",
+        "0",
+        "-hls_flags",
+        "delete_segments+append_list+independent_segments+omit_endlist+temp_file",
+        "-hls_segment_filename",
+        str(segment_path_pattern),
+        "-start_number",
+        "0",
+        str(output_manifest_path),
+    ]

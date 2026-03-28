@@ -40,6 +40,7 @@ class VideoOutPlugin(Plugin):
         youtube_stream_key: Optional[str] = None,
         headless_preview_host: Optional[str] = None,
         headless_preview_port: Optional[int] = None,
+        always_stream: Optional[bool] = None,
         bit_rate: Optional[int] = None,
     ) -> None:
         """Construct the Aspen video sink plugin.
@@ -100,6 +101,7 @@ class VideoOutPlugin(Plugin):
         self._youtube_stream_key = youtube_stream_key
         self._headless_preview_host = headless_preview_host
         self._headless_preview_port = headless_preview_port
+        self._always_stream = bool(always_stream) if always_stream is not None else None
         self._bit_rate = bit_rate
 
     def set_cuda_graph_enabled(self, enabled: bool) -> bool:
@@ -195,6 +197,7 @@ class VideoOutPlugin(Plugin):
         youtube_stream_key = None
         headless_preview_host = "0.0.0.0"
         headless_preview_port = 0
+        always_stream = False
         if self._preview_via_sink:
             show_image = bool(
                 self._show_image
@@ -273,6 +276,17 @@ class VideoOutPlugin(Plugin):
                     ),
                 )
             )
+            always_stream = bool(
+                self._always_stream
+                if self._always_stream is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.always_stream",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.always_stream", default_value=False
+                    ),
+                )
+            )
 
         self._vo = VideoOutput(
             output_video_path=out_path,
@@ -297,6 +311,7 @@ class VideoOutPlugin(Plugin):
             youtube_stream_key=youtube_stream_key,
             headless_preview_host=headless_preview_host,
             headless_preview_port=headless_preview_port,
+            always_stream=always_stream,
             profiler=shared.get("profiler", None) if isinstance(shared, dict) else None,
             enable_end_zones=False,
             encoder_backend=self._encoder_backend,

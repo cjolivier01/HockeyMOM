@@ -1209,6 +1209,13 @@ class hm_opts(object):
             ),
         )
         parser.add_argument(
+            "--always-stream",
+            dest="always_stream",
+            default=False,
+            action="store_true",
+            help="Always encode/publish preview frames even when no headless preview client is connected.",
+        )
+        parser.add_argument(
             "--scoreboard-scale",
             dest="scoreboard_scale",
             type=float,
@@ -1743,6 +1750,7 @@ class hm_opts(object):
             ("youtube_stream_key", "video_out.youtube_stream_key"),
             ("headless_preview_host", "video_out.headless_preview_host"),
             ("headless_preview_port", "video_out.headless_preview_port"),
+            ("always_stream", "video_out.always_stream"),
             ("output_width", "video_out.output_width"),
             ("output_height", "video_out.output_height"),
             ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
@@ -1790,6 +1798,7 @@ class hm_opts(object):
         "end_zones": {True: True},
         "show_image": bool,
         "show_youtube": bool,
+        "always_stream": bool,
         "debug_play_tracker": {True: True},
         "scoreboard_scale": float,
         "plot_moving_boxes": {True: True},

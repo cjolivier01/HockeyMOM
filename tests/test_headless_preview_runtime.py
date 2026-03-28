@@ -64,6 +64,7 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                 "127.0.0.1",
                 "--headless-preview-port",
                 "9001",
+                "--always-stream",
             ]
         )
         game_config = {
@@ -72,6 +73,7 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                 "youtube_stream_key": None,
                 "headless_preview_host": "0.0.0.0",
                 "headless_preview_port": 0,
+                "always_stream": False,
             }
         }
         hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
@@ -79,6 +81,7 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
         self.assertEqual(game_config["video_out"]["youtube_stream_key"], "test-key")
         self.assertEqual(game_config["video_out"]["headless_preview_host"], "127.0.0.1")
         self.assertEqual(game_config["video_out"]["headless_preview_port"], 9001)
+        self.assertTrue(game_config["video_out"]["always_stream"])
 
     def test_shower_starts_browser_preview_when_headless(self):
         with mock.patch.dict(
@@ -92,22 +95,80 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                 max_size=1,
                 headless_preview_host="127.0.0.1",
                 headless_preview_port=0,
+                always_stream=True,
             )
             try:
                 self.assertIsNotNone(shower._headless_preview)
-                shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
-                time.sleep(0.2)
+                for _ in range(48):
+                    shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
+                    time.sleep(0.05)
                 port = shower._headless_preview.port
                 self.assertGreater(port, 0)
                 html = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read()
-                self.assertIn(b"stream.mjpg", html)
-                stream = urllib.request.urlopen(f"http://127.0.0.1:{port}/stream.mjpg", timeout=5)
-                try:
-                    payload = stream.read(2048)
-                finally:
-                    stream.close()
-                self.assertIn(b"Content-Type: image/jpeg", payload)
-                self.assertIn(b"\xff\xd8", payload)
+                self.assertIn(b"stream.m3u8", html)
+
+                manifest = b""
+                deadline = time.time() + 5.0
+                while time.time() < deadline:
+                    try:
+                        manifest = urllib.request.urlopen(
+                            f"http://127.0.0.1:{port}/stream.m3u8",
+                            timeout=5,
+                        ).read()
+                    except Exception:
+                        manifest = b""
+                    if b"#EXTM3U" in manifest and b"preview-" in manifest:
+                        break
+                    time.sleep(0.1)
+                self.assertIn(b"#EXTM3U", manifest)
+                segment_name = next(
+                    line.decode("utf-8")
+                    for line in manifest.splitlines()
+                    if line and not line.startswith(b"#")
+                )
+                payload = urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/{segment_name}",
+                    timeout=5,
+                ).read(256)
+                self.assertGreater(len(payload), 0)
+            finally:
+                shower.close()
+
+    def test_shower_headless_preview_waits_for_client_by_default(self):
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"HM_FORCE_HEADLESS_PREVIEW": "1"},
+                clear=False,
+            ),
+            mock.patch(
+                "hmlib.ui.headless_preview._RawHlsPreviewPublisher", autospec=True
+            ) as pub_cls,
+        ):
+            shower = Shower(
+                "headless-preview-demand-test",
+                show_scaled=0.5,
+                max_size=1,
+                headless_preview_host="127.0.0.1",
+                headless_preview_port=0,
+            )
+            try:
+                frame = torch.full((32, 48, 3), 127, dtype=torch.uint8)
+                shower.show(frame)
+                time.sleep(0.2)
+                self.assertIsNotNone(shower._headless_preview)
+                self.assertGreater(shower._headless_preview.port, 0)
+                self.assertFalse(pub_cls.return_value.write_frame.called)
+
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{shower._headless_preview.port}/",
+                    timeout=5,
+                ).read()
+                for _ in range(3):
+                    shower.show(frame)
+                    time.sleep(0.05)
+                time.sleep(0.2)
+                self.assertTrue(pub_cls.return_value.write_frame.called)
             finally:
                 shower.close()
 

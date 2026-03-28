@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import contextlib
 import html
-import io
 import os
 import shutil
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -23,12 +24,14 @@ sanitize_display_env_for_cv2()
 
 import numpy as np
 import torch
-from PIL import Image
 
 from hmlib.log import get_root_logger
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import make_visible_image
-from hmlib.video.ffmpeg_mux_cmd import build_ffmpeg_live_bitstream_publish_cmd
+from hmlib.video.ffmpeg_mux_cmd import (
+    build_ffmpeg_live_bitstream_publish_cmd,
+    build_ffmpeg_live_hls_bitstream_publish_cmd,
+)
 
 
 def has_local_display() -> bool:
@@ -111,16 +114,19 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path in ("", "/"):
+        preview = self.server.preview
+        preview._note_client_activity()
+        path = urlsplit(self.path).path or "/"
+        if path in ("", "/"):
             self._serve_index()
             return
-        if self.path == "/stream.mjpg":
-            self._serve_stream()
+        if self._serve_output_file(path.lstrip("/")):
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
     def _serve_index(self) -> None:
         title = html.escape(self.server.preview.label)
+        manifest_path = "/" + self.server.preview.manifest_name
         body = (
             "<!doctype html><html><head>"
             f"<title>{title}</title>"
@@ -128,13 +134,36 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
             "<style>"
             "body{margin:0;background:#111;color:#eee;font-family:sans-serif;}"
             "header{padding:12px 16px;font-size:14px;background:#1a1a1a;}"
-            "main{display:flex;justify-content:center;align-items:center;min-height:calc(100vh - 48px);}"
-            "img{max-width:100vw;max-height:100vh;object-fit:contain;background:#000;}"
+            "main{display:flex;justify-content:center;align-items:center;min-height:calc(100vh - 48px);padding:16px;}"
+            ".wrap{width:min(100%,1280px);}"
+            "video{width:100%;max-height:calc(100vh - 120px);background:#000;}"
+            "p{font-size:13px;line-height:1.5;}"
             "a{color:#9cd5ff;}"
             "</style>"
             "</head><body>"
-            f'<header>{title} preview | <a href="/stream.mjpg">raw MJPEG</a></header>'
-            '<main><img src="/stream.mjpg" alt="Live preview"></main>'
+            f'<header>{title} preview | <a href="{manifest_path}">HLS manifest</a></header>'
+            '<main><div class="wrap">'
+            '<video id="preview" controls autoplay muted playsinline></video>'
+            '<p id="status">Waiting for preview data...</p>'
+            "</div></main>"
+            "<script>"
+            f"const manifestUrl={manifest_path!r};"
+            "const video=document.getElementById('preview');"
+            "const status=document.getElementById('status');"
+            "function attachNative(){video.src=manifestUrl;video.play().catch(()=>{});"
+            "status.textContent='Loading live preview...';}"
+            "if(video.canPlayType('application/vnd.apple.mpegurl')){attachNative();}else{"
+            "const script=document.createElement('script');"
+            "script.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';"
+            "script.onload=()=>{if(window.Hls&&window.Hls.isSupported()){"
+            "const hls=new window.Hls({liveDurationInfinity:true,backBufferLength:0});"
+            "hls.loadSource(manifestUrl);hls.attachMedia(video);"
+            "hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});});"
+            "status.textContent='Loading live preview...';"
+            "}else{status.innerHTML='Open <a href=\"'+manifestUrl+'\">the HLS manifest</a> in an HLS-capable player.';}};"
+            "script.onerror=()=>{status.innerHTML='Native HLS unsupported and hls.js failed to load. Open <a href=\"'+manifestUrl+'\">the HLS manifest</a> in an HLS-capable player.';};"
+            "document.head.appendChild(script);}"
+            "</script>"
             "</body></html>"
         ).encode("utf-8")
         self.send_response(HTTPStatus.OK)
@@ -143,38 +172,36 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_stream(self) -> None:
-        boundary = b"frame"
+    def _serve_output_file(self, relative_name: str) -> bool:
+        preview = self.server.preview
+        output_path = preview.resolve_output_path(relative_name)
+        if output_path is None:
+            return False
+        ready_path = preview.wait_for_output(relative_name, timeout=5.0)
+        if ready_path is None or not ready_path.exists() or ready_path.stat().st_size <= 0:
+            self.send_error(HTTPStatus.NOT_FOUND, "Preview stream is not ready")
+            return True
+        content_type = {
+            ".m3u8": "application/vnd.apple.mpegurl",
+            ".ts": "video/mp2t",
+            ".m4s": "video/iso.segment",
+            ".mp4": "video/mp4",
+        }.get(ready_path.suffix.lower(), "application/octet-stream")
         self.send_response(HTTPStatus.OK)
         self.send_header("Age", "0")
         self.send_header("Cache-Control", "no-cache, private")
         self.send_header("Pragma", "no-cache")
         self.send_header("Connection", "close")
-        self.send_header(
-            "Content-Type",
-            "multipart/x-mixed-replace; boundary=" + boundary.decode("ascii"),
-        )
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(ready_path.stat().st_size))
         self.end_headers()
-        last_sequence = -1
-        preview = self.server.preview
-        while not preview.closed:
-            frame = preview.wait_for_frame(last_sequence, timeout=1.0)
-            if frame is None:
-                continue
-            jpeg_bytes, last_sequence = frame
-            try:
-                self.wfile.write(b"--" + boundary + b"\r\n")
-                self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                self.wfile.write(f"Content-Length: {len(jpeg_bytes)}\r\n\r\n".encode("ascii"))
-                self.wfile.write(jpeg_bytes)
-                self.wfile.write(b"\r\n")
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                break
+        with open(ready_path, "rb") as stream:
+            shutil.copyfileobj(stream, self.wfile)
+        return True
 
 
 class BrowserPreviewServer:
-    """Tiny threaded MJPEG server for browser-based live previews."""
+    """Tiny threaded HLS server for browser-based live previews."""
 
     def __init__(
         self,
@@ -189,15 +216,19 @@ class BrowserPreviewServer:
         self.label = str(label or "Preview")
         self._host = str(host or "0.0.0.0")
         self._port = int(port or 0)
-        self._jpeg_quality = int(jpeg_quality)
         self._logger = logger if logger is not None else get_root_logger()
         self._profiler = profiler
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
-        self._latest_frame: Optional[bytes] = None
-        self._frame_sequence = 0
+        self._active_client_window_seconds = 10.0
+        self._last_client_activity: Optional[float] = None
         self._server: Optional[_PreviewHttpServer] = None
         self._thread: Optional[threading.Thread] = None
+        self._publisher: Optional[Any] = None
+        self._output_dir_ctx: Optional[tempfile.TemporaryDirectory[str]] = None
+        self._output_dir: Optional[Path] = None
+        self._manifest_name = "stream.m3u8"
+        self._segment_pattern = "preview-%06d.ts"
         self._announced = False
 
     @property
@@ -221,6 +252,33 @@ class BrowserPreviewServer:
                 return url
         return urls[0] if urls else None
 
+    @property
+    def manifest_name(self) -> str:
+        return self._manifest_name
+
+    @property
+    def active_client_count(self) -> int:
+        return 1 if self.has_active_clients() else 0
+
+    def has_active_clients(self) -> bool:
+        with self._condition:
+            if self._last_client_activity is None:
+                return False
+            return (
+                time.monotonic() - float(self._last_client_activity)
+            ) <= self._active_client_window_seconds
+
+    def _client_connected(self) -> None:
+        self._note_client_activity()
+
+    def _client_disconnected(self) -> None:
+        self._note_client_activity()
+
+    def _note_client_activity(self) -> None:
+        with self._condition:
+            self._last_client_activity = time.monotonic()
+            self._condition.notify_all()
+
     def _candidate_urls(self) -> list[str]:
         port = self.port
         if port <= 0:
@@ -240,6 +298,9 @@ class BrowserPreviewServer:
     def start(self) -> None:
         if self._server is not None:
             return
+        if self._output_dir_ctx is None:
+            self._output_dir_ctx = tempfile.TemporaryDirectory(prefix="hm-headless-preview-")
+            self._output_dir = Path(self._output_dir_ctx.name)
         self._server = _PreviewHttpServer((self._host, self._port), _PreviewRequestHandler, self)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
@@ -253,51 +314,95 @@ class BrowserPreviewServer:
                 )
             self._announced = True
 
+    def _select_publisher(self, img: torch.Tensor | np.ndarray | StreamTensorBase) -> Any:
+        if self._output_dir is None:
+            raise RuntimeError("Preview output directory is not initialized")
+        frame = unwrap_tensor(img)
+        if isinstance(frame, torch.Tensor) and frame.device.type == "cuda":
+            try:
+                return _NvencHlsPreviewPublisher(
+                    output_dir=self._output_dir,
+                    manifest_name=self._manifest_name,
+                    segment_pattern=self._segment_pattern,
+                    label=self.label,
+                    logger=self._logger,
+                    profiler=self._profiler,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "Falling back to raw ffmpeg browser preview for %s because NVENC preview "
+                    "initialization failed: %s",
+                    self.label,
+                    exc,
+                )
+        return _RawHlsPreviewPublisher(
+            output_dir=self._output_dir,
+            manifest_name=self._manifest_name,
+            segment_pattern=self._segment_pattern,
+            label=self.label,
+            logger=self._logger,
+            profiler=self._profiler,
+        )
+
     def publish(
         self,
         img: torch.Tensor | np.ndarray | StreamTensorBase,
         *,
         show_scaled: Optional[float] = None,
-    ) -> None:
+        require_clients: bool = False,
+    ) -> bool:
         if self._server is None:
             self.start()
-        with _prof_ctx(self._profiler, "headless_preview.normalize"):
-            frame = _normalize_preview_frame(img, show_scaled=show_scaled)
-        with _prof_ctx(self._profiler, "headless_preview.jpeg_encode"):
-            if frame.ndim == 2:
-                pil_frame = Image.fromarray(frame)
-            elif frame.ndim == 3 and frame.shape[2] == 3:
-                pil_frame = Image.fromarray(frame[:, :, ::-1])
-            elif frame.ndim == 3 and frame.shape[2] == 4:
-                pil_frame = Image.fromarray(frame[:, :, [2, 1, 0, 3]]).convert("RGB")
-            else:
-                raise ValueError(f"Unsupported preview frame shape={frame.shape}")
-            encoded = io.BytesIO()
-            pil_frame.save(encoded, format="JPEG", quality=self._jpeg_quality)
-        with self._condition:
-            self._latest_frame = encoded.getvalue()
-            self._frame_sequence += 1
-            self._condition.notify_all()
+        if require_clients and not self.has_active_clients():
+            return False
+        if self._publisher is None:
+            self._publisher = self._select_publisher(img)
+        with _prof_ctx(self._profiler, "headless_preview.publish"):
+            self._publisher.write_frame(img, show_scaled=show_scaled)
+        return True
 
-    def wait_for_frame(
-        self,
-        last_sequence: int,
-        timeout: float = 1.0,
-    ) -> Optional[tuple[bytes, int]]:
-        deadline = time.time() + float(timeout)
-        with self._condition:
-            while self._latest_frame is None or self._frame_sequence == last_sequence:
-                remaining = deadline - time.time()
-                if remaining <= 0:
-                    if self._latest_frame is None:
-                        return None
-                    break
-                self._condition.wait(timeout=remaining)
-            if self._latest_frame is None:
-                return None
-            return self._latest_frame, self._frame_sequence
+    def resolve_output_path(self, relative_name: str) -> Optional[Path]:
+        if self._output_dir is None:
+            return None
+        safe_name = Path(relative_name).name
+        if not safe_name or safe_name != relative_name:
+            return None
+        if safe_name == self._manifest_name:
+            return self._output_dir / safe_name
+        if safe_name == "init.mp4":
+            return self._output_dir / safe_name
+        if safe_name.startswith("preview-") and Path(safe_name).suffix.lower() in {
+            ".ts",
+            ".m4s",
+            ".mp4",
+        }:
+            return self._output_dir / safe_name
+        return None
+
+    def wait_for_output(self, relative_name: str, timeout: float = 5.0) -> Optional[Path]:
+        output_path = self.resolve_output_path(relative_name)
+        if output_path is None:
+            return None
+        deadline = time.monotonic() + float(timeout)
+        while time.monotonic() < deadline:
+            if output_path.exists():
+                try:
+                    if output_path.stat().st_size > 0:
+                        return output_path
+                except OSError:
+                    pass
+            if self.closed:
+                break
+            time.sleep(0.05)
+        if output_path.exists():
+            return output_path
+        return None
 
     def close(self) -> None:
+        publisher = self._publisher
+        self._publisher = None
+        if publisher is not None:
+            publisher.close()
         server = self._server
         thread = self._thread
         self._server = None
@@ -309,6 +414,11 @@ class BrowserPreviewServer:
             thread.join(timeout=2.0)
         with self._condition:
             self._condition.notify_all()
+        output_dir_ctx = self._output_dir_ctx
+        self._output_dir_ctx = None
+        self._output_dir = None
+        if output_dir_ctx is not None:
+            output_dir_ctx.cleanup()
 
 
 def mask_stream_url(url: str) -> str:
@@ -344,6 +454,380 @@ def validate_youtube_stream_url(url: str) -> None:
             "YouTube live preview requires a full publish URL with a stream key. "
             "Provide --youtube-stream-key or set HM_YOUTUBE_STREAM_KEY."
         )
+
+
+class _HlsBitstreamMuxer:
+    """Mux encoded H.264 packets into a rolling HLS playlist using ffmpeg copy mode."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        manifest_name: str,
+        segment_pattern: str,
+        fps: float,
+        label: str,
+        logger: Any = None,
+        profiler: Any = None,
+        hls_time: float = 1.0,
+        hls_list_size: int = 6,
+    ) -> None:
+        self.output_dir = Path(output_dir)
+        self.manifest_name = str(manifest_name)
+        self.segment_pattern = str(segment_pattern)
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self.label = str(label or "Preview")
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._hls_time = float(hls_time)
+        self._hls_list_size = int(hls_list_size)
+        self._process: Optional[subprocess.Popen[bytes]] = None
+        self._stderr_thread: Optional[threading.Thread] = None
+        self._stderr_tail: deque[str] = deque(maxlen=20)
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.output_dir / self.manifest_name
+
+    @property
+    def segment_path_pattern(self) -> Path:
+        return self.output_dir / self.segment_pattern
+
+    def _stderr_worker(self, pipe) -> None:
+        try:
+            for raw_line in iter(pipe.readline, b""):
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                self._stderr_tail.append(line)
+        finally:
+            pipe.close()
+
+    def _build_cmd(self) -> list[str]:
+        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+        return build_ffmpeg_live_hls_bitstream_publish_cmd(
+            ffmpeg=ffmpeg,
+            output_manifest_path=self.manifest_path,
+            segment_path_pattern=self.segment_path_pattern,
+            stream_format="h264",
+            fps=self.fps,
+            hls_time=self._hls_time,
+            hls_list_size=self._hls_list_size,
+        )
+
+    def start(self) -> None:
+        if self._process is not None:
+            return
+        if shutil.which("ffmpeg") is None:
+            raise FileNotFoundError("ffmpeg is required for headless preview streaming")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        with _prof_ctx(self._profiler, "headless_preview.start_muxer"):
+            self._process = subprocess.Popen(
+                self._build_cmd(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        assert self._process.stderr is not None
+        self._stderr_thread = threading.Thread(
+            target=self._stderr_worker,
+            args=(self._process.stderr,),
+            daemon=True,
+        )
+        self._stderr_thread.start()
+
+    def write_packet(self, payload: bytes) -> None:
+        if self._process is None:
+            self.start()
+        process = self._process
+        if process is None or process.stdin is None:
+            raise RuntimeError("HLS preview muxer is not open")
+        try:
+            with _prof_ctx(self._profiler, "headless_preview.packet_write"):
+                process.stdin.write(payload)
+        except BrokenPipeError as exc:
+            stderr_tail = "\n".join(self._stderr_tail)
+            raise RuntimeError(f"HLS preview muxer failed for {self.label}\n{stderr_tail}") from exc
+
+    def close(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=2.0)
+            self._stderr_thread = None
+        if process.returncode not in (0, None):
+            stderr_tail = "\n".join(self._stderr_tail)
+            raise RuntimeError(
+                f"HLS preview muxer exited with code {process.returncode} for {self.label}\n"
+                f"{stderr_tail}"
+            )
+
+
+class _NvencHlsPreviewPublisher:
+    """Encode CUDA preview frames with NVENC and hand encoded packets to HLS muxing."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        manifest_name: str,
+        segment_pattern: str,
+        label: str,
+        fps: float = 30.0,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.label = str(label or "Preview")
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._encoder = None
+        self._muxer = _HlsBitstreamMuxer(
+            output_dir=output_dir,
+            manifest_name=manifest_name,
+            segment_pattern=segment_pattern,
+            fps=self.fps,
+            label=self.label,
+            logger=self._logger,
+            profiler=self._profiler,
+        )
+
+    def _ensure_open(self, frame: torch.Tensor) -> None:
+        if self._encoder is not None:
+            return
+        from hmlib.video.py_nv_encoder import PyNvVideoEncoder
+
+        if frame.device.type != "cuda":
+            raise ValueError("NVENC browser preview requires CUDA frames")
+        with _prof_ctx(self._profiler, "headless_preview.start_nvenc"):
+            self._encoder = PyNvVideoEncoder(
+                output_path=None,
+                width=int(frame.shape[1]),
+                height=int(frame.shape[0]),
+                fps=self.fps,
+                codec="h264",
+                preset="P2",
+                device=frame.device,
+                gpu_id=frame.device.index or 0,
+                cuda_stream=torch.cuda.current_stream(frame.device).cuda_stream,
+                bitstream_handler=self._muxer.write_packet,
+                profiler=self._profiler,
+            )
+            self._encoder.open()
+
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        frame = unwrap_tensor(img)
+        if not isinstance(frame, torch.Tensor) or frame.device.type != "cuda":
+            raise ValueError("NVENC browser preview requires CUDA tensor frames")
+        if frame.ndim != 3:
+            raise ValueError(
+                f"Expected single frame tensor with shape (H, W, C), got {frame.shape}"
+            )
+        with _prof_ctx(self._profiler, "headless_preview.prepare_cuda_frame"):
+            frame = make_visible_image(frame, enable_resizing=show_scaled, force_numpy=False)
+            if not isinstance(frame, torch.Tensor):
+                raise TypeError("Expected make_visible_image to return a CUDA tensor for NVENC")
+            frame = _ensure_even_video_frame(frame)
+        self._ensure_open(frame)
+        assert self._encoder is not None
+        with _prof_ctx(self._profiler, "headless_preview.nvenc_encode"):
+            self._encoder.write(frame)
+
+    def close(self) -> None:
+        encoder = self._encoder
+        self._encoder = None
+        if encoder is not None:
+            encoder.close()
+        self._muxer.close()
+
+
+class _RawHlsPreviewPublisher:
+    """Encode CPU preview frames into HLS through ffmpeg when NVENC is unavailable."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        manifest_name: str,
+        segment_pattern: str,
+        label: str,
+        fps: float = 30.0,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.output_dir = Path(output_dir)
+        self.manifest_name = str(manifest_name)
+        self.segment_pattern = str(segment_pattern)
+        self.label = str(label or "Preview")
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._process: Optional[subprocess.Popen[bytes]] = None
+        self._stderr_thread: Optional[threading.Thread] = None
+        self._stderr_tail: deque[str] = deque(maxlen=20)
+        self._width: Optional[int] = None
+        self._height: Optional[int] = None
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.output_dir / self.manifest_name
+
+    @property
+    def segment_path_pattern(self) -> Path:
+        return self.output_dir / self.segment_pattern
+
+    def _stderr_worker(self, pipe) -> None:
+        try:
+            for raw_line in iter(pipe.readline, b""):
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                self._stderr_tail.append(line)
+        finally:
+            pipe.close()
+
+    def _build_cmd(self, width: int, height: int) -> list[str]:
+        gop = max(1, int(round(self.fps * 0.5)))
+        return [
+            shutil.which("ffmpeg") or "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-progress",
+            "pipe:2",
+            "-nostats",
+            "-nostdin",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "bgr24",
+            "-video_size",
+            f"{width}x{height}",
+            "-framerate",
+            f"{self.fps:.6f}",
+            "-i",
+            "-",
+            "-an",
+            "-vf",
+            "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            str(gop),
+            "-keyint_min",
+            str(gop),
+            "-sc_threshold",
+            "0",
+            "-f",
+            "hls",
+            "-hls_time",
+            "1.0",
+            "-hls_list_size",
+            "6",
+            "-hls_allow_cache",
+            "0",
+            "-hls_flags",
+            "delete_segments+append_list+independent_segments+omit_endlist+temp_file",
+            "-hls_segment_filename",
+            str(self.segment_path_pattern),
+            "-start_number",
+            "0",
+            str(self.manifest_path),
+        ]
+
+    def _ensure_open(self, width: int, height: int) -> None:
+        if self._process is not None:
+            return
+        if shutil.which("ffmpeg") is None:
+            raise FileNotFoundError("ffmpeg is required for headless preview streaming")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._width = int(width)
+        self._height = int(height)
+        with _prof_ctx(self._profiler, "headless_preview.start_raw_muxer"):
+            self._process = subprocess.Popen(
+                self._build_cmd(width=self._width, height=self._height),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+        assert self._process.stderr is not None
+        self._stderr_thread = threading.Thread(
+            target=self._stderr_worker,
+            args=(self._process.stderr,),
+            daemon=True,
+        )
+        self._stderr_thread.start()
+
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        with _prof_ctx(self._profiler, "headless_preview.normalize"):
+            frame = _normalize_preview_frame(img, show_scaled=show_scaled)
+        self._ensure_open(width=frame.shape[1], height=frame.shape[0])
+        process = self._process
+        if process is None or process.stdin is None:
+            raise RuntimeError("Raw HLS preview publisher is not open")
+        try:
+            with _prof_ctx(self._profiler, "headless_preview.raw_write"):
+                process.stdin.write(frame.tobytes())
+                process.stdin.flush()
+        except BrokenPipeError as exc:
+            stderr_tail = "\n".join(self._stderr_tail)
+            raise RuntimeError(
+                f"Raw HLS preview publisher failed for {self.label}\n{stderr_tail}"
+            ) from exc
+
+    def close(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=2.0)
+            self._stderr_thread = None
+        if process.returncode not in (0, None):
+            stderr_tail = "\n".join(self._stderr_tail)
+            raise RuntimeError(
+                f"Raw HLS preview publisher exited with code {process.returncode} for "
+                f"{self.label}\n{stderr_tail}"
+            )
 
 
 class _RawVideoLivePublisher:

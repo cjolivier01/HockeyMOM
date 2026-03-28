@@ -108,6 +108,7 @@ def _exercise_preview_smoke(args: argparse.Namespace) -> list[str]:
         youtube_stream_key=args.youtube_stream_key,
         headless_preview_host=args.headless_preview_host or "0.0.0.0",
         headless_preview_port=int(args.headless_preview_port or 0),
+        always_stream=bool(args.always_stream),
     )
     try:
         frame = torch.full((32, 48, 3), 127, dtype=torch.uint8)

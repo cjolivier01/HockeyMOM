@@ -205,6 +205,7 @@ class VideoOutput(torch.nn.ModuleDict):
         youtube_stream_key: Optional[str] = None,
         headless_preview_host: str = "0.0.0.0",
         headless_preview_port: int = 0,
+        always_stream: bool = False,
         profiler: Any = None,
         enable_end_zones: bool = False,
         encoder_backend: Optional[str] = None,
@@ -341,6 +342,7 @@ class VideoOutput(torch.nn.ModuleDict):
         self._youtube_stream_key = youtube_stream_key
         self._headless_preview_host = str(headless_preview_host or "0.0.0.0")
         self._headless_preview_port = int(headless_preview_port or 0)
+        self._always_stream = bool(always_stream)
         self._shower = (
             Shower(
                 label="Video Out",
@@ -353,6 +355,7 @@ class VideoOutput(torch.nn.ModuleDict):
                 youtube_stream_key=self._youtube_stream_key,
                 headless_preview_host=self._headless_preview_host,
                 headless_preview_port=self._headless_preview_port,
+                always_stream=self._always_stream,
             )
             if (self._show_image or self._show_youtube)
             else None

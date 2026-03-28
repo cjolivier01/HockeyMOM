@@ -91,6 +91,7 @@ class Shower:
         youtube_stream_key: Optional[str] = None,
         headless_preview_host: str = "0.0.0.0",
         headless_preview_port: int = 0,
+        always_stream: bool = False,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
@@ -116,6 +117,7 @@ class Shower:
         self._requested_local_display = bool(enable_local_display)
         self._has_local_display = has_local_display()
         self._enable_local_display = self._requested_local_display and self._has_local_display
+        self._always_stream = bool(always_stream)
         self._headless_preview: Optional[BrowserPreviewServer] = None
         self._show_youtube = bool(show_youtube)
         self._youtube_publish_failed = False
@@ -189,7 +191,11 @@ class Shower:
             for s_img in img:
                 if self._headless_preview is not None:
                     with self._prof_ctx("shower.browser_preview"):
-                        self._headless_preview.publish(s_img, show_scaled=self._show_scaled)
+                        self._headless_preview.publish(
+                            s_img,
+                            show_scaled=self._show_scaled,
+                            require_clients=not self._always_stream,
+                        )
                 if self._youtube_publisher is not None:
                     try:
                         with self._prof_ctx("shower.live_publish"):

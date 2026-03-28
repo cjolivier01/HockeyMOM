@@ -385,10 +385,11 @@ class PyNvVideoEncoder:
             "gpu_id": str(self.gpu_id),
         }
 
-        # For the raw elementary bitstream backend, request a finite GOP
-        # length so NVENC inserts regular IDR keyframes. A 0.5-second GOP
-        # is better for high-motion content like hockey.
-        if self._backend == "raw" and self.fps > 0:
+        # For file-backed and callback-backed elementary bitstreams, request a
+        # finite GOP length so NVENC inserts regular IDR keyframes. A 0.5-second
+        # GOP is better for high-motion content like hockey and is required for
+        # downstream live muxers such as HLS to cut clean segments.
+        if self._backend in {"raw", "callback"} and self.fps > 0:
             gop = max(1, int(round(self.fps * 0.5)))
             config["gop"] = str(gop)
 

@@ -27,6 +27,7 @@ class VideoPreviewPlugin(Plugin):
         youtube_stream_key: Optional[str] = None,
         headless_preview_host: Optional[str] = None,
         headless_preview_port: Optional[int] = None,
+        always_stream: Optional[bool] = None,
     ) -> None:
         super().__init__(enabled=enabled)
         self._cache_size = max(1, int(cache_size or 1))
@@ -38,6 +39,7 @@ class VideoPreviewPlugin(Plugin):
         self._youtube_stream_key = youtube_stream_key
         self._headless_preview_host = headless_preview_host
         self._headless_preview_port = headless_preview_port
+        self._always_stream = bool(always_stream) if always_stream is not None else None
         self._shower: Optional[Shower] = None
         self._progress_bar_callback_installed = False
 
@@ -161,6 +163,15 @@ class VideoPreviewPlugin(Plugin):
             ),
             headless_preview_host=str(headless_preview_host or "0.0.0.0"),
             headless_preview_port=int(headless_preview_port or 0),
+            always_stream=bool(
+                self._always_stream
+                if self._always_stream is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.always_stream",
+                    default_value=get_nested_value(cfg, "aspen.video_out.always_stream", False),
+                )
+            ),
         )
 
         progress_bar = shared.get("progress_bar") if isinstance(shared, dict) else None

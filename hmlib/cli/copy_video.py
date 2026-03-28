@@ -128,6 +128,7 @@ def copy_video(
     youtube_stream_key: Optional[str] = None,
     headless_preview_host: str = "0.0.0.0",
     headless_preview_port: int = 0,
+    always_stream: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
     batch_size: int = 8,
@@ -204,6 +205,7 @@ def copy_video(
                         youtube_stream_key=youtube_stream_key,
                         headless_preview_host=headless_preview_host or "0.0.0.0",
                         headless_preview_port=int(headless_preview_port or 0),
+                        always_stream=bool(always_stream),
                     )
                 return video_out
 
@@ -312,6 +314,7 @@ def copy_video(
                 youtube_stream_key=youtube_stream_key,
                 headless_preview_host=headless_preview_host or "0.0.0.0",
                 headless_preview_port=int(headless_preview_port or 0),
+                always_stream=bool(always_stream),
             )
             if ((show or show_youtube) and not use_video_out)
             # if show
@@ -493,6 +496,7 @@ def main():
             youtube_stream_key=args.youtube_stream_key,
             headless_preview_host=args.headless_preview_host or "0.0.0.0",
             headless_preview_port=int(args.headless_preview_port or 0),
+            always_stream=bool(args.always_stream),
             output_video=args.output_file,
             output_device=video_gpu,
             batch_size=args.batch_size,
