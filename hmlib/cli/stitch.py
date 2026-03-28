@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import math
 import os
+import sys
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -13,28 +14,26 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-import hmlib.transforms  # noqa: F401 (Register custom transforms for Aspen pipelines)
-from hmlib.aspen import AspenNet
 from hmlib.config import get_clip_box
-from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.log import get_root_logger
-from hmlib.orientation import configure_game_videos
-from hmlib.segm.ice_rink import main as ice_rink_main
-from hmlib.stitching.configure_stitching import (
-    clean_stitch_game_artifacts,
-    configure_video_stitching,
-)
-from hmlib.tracking_utils.timer import Timer
-from hmlib.ui import Shower
-from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
-from hmlib.utils.image import image_height, image_width, resize_image
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
-from hmlib.video.ffmpeg import BasicVideoInfo
-from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
+
+if "--smoke-test" not in sys.argv:
+    import hmlib.transforms  # noqa: F401 (Register custom transforms for Aspen pipelines)
+    from hmlib.aspen import AspenNet
+    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
+    from hmlib.orientation import configure_game_videos
+    from hmlib.segm.ice_rink import main as ice_rink_main
+    from hmlib.tracking_utils.timer import Timer
+    from hmlib.ui import Shower
+    from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
+    from hmlib.utils.image import image_height, image_width, resize_image
+    from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
+    from hmlib.video.ffmpeg import BasicVideoInfo
+    from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
 ROOT_DIR = os.getcwd()
 
@@ -43,6 +42,11 @@ logger = get_root_logger()
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Exercise preview output setup and exit without running full stitching.",
+    )
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs (clean then run)")
     parser.add_argument(
@@ -172,6 +176,8 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
+    from hmlib.stitching.configure_stitching import configure_video_stitching
+
     from hmlib.config import (
         get_config,
         get_nested_value,
@@ -613,6 +619,8 @@ def stitch_videos(
 
 
 def _main(args) -> None:
+    from hmlib.stitching.configure_stitching import clean_stitch_game_artifacts
+
     # `--force` implies starting from a clean stitch state.
     if args.force or args.clean:
         try:
