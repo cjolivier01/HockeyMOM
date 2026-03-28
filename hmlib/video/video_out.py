@@ -11,6 +11,7 @@ from __future__ import absolute_import, division, print_function
 import contextlib
 import math
 import os
+from collections import OrderedDict
 from typing import Any, Dict, Literal, Optional, Set, Tuple, Union
 
 import cv2
@@ -356,8 +357,24 @@ class VideoOutput(torch.nn.ModuleDict):
             if (self._show_image or self._show_youtube)
             else None
         )
+        self._progress_bar_stream_callback_installed = False
+        self._attach_stream_status_progress_callback()
 
         self._mean_tracker: Optional[MeanTracker] = None
+
+    def _attach_stream_status_progress_callback(self) -> None:
+        if (
+            self._progress_bar is None
+            or self._shower is None
+            or self._progress_bar_stream_callback_installed
+        ):
+            return
+
+        def _table_callback(table_map: OrderedDict[Any, Any]) -> None:
+            self._shower.update_progress_table(table_map)
+
+        self._progress_bar.add_table_callback(_table_callback)
+        self._progress_bar_stream_callback_installed = True
 
     def _parse_output_dim(self, value: Any, dim_label: str, natural: int) -> Optional[int]:
         if value is None:
@@ -640,6 +657,7 @@ class VideoOutput(torch.nn.ModuleDict):
     def set_progress_bar(self, progress_bar: ProgressBar):
         """Attach a progress bar instance used for external UI updates."""
         self._progress_bar = progress_bar
+        self._attach_stream_status_progress_callback()
 
     def start(self):
         """Legacy no-op; synchronous VideoOutput does not require start()."""

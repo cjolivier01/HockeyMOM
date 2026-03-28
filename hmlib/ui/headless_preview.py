@@ -183,6 +183,19 @@ class BrowserPreviewServer:
     def port(self) -> int:
         return 0 if self._server is None else int(self._server.server_port)
 
+    @property
+    def urls(self) -> list[str]:
+        return self._candidate_urls()
+
+    @property
+    def preferred_url(self) -> Optional[str]:
+        urls = self.urls
+        for url in urls:
+            host = urlsplit(url).hostname or ""
+            if host not in {"127.0.0.1", "localhost"}:
+                return url
+        return urls[0] if urls else None
+
     def _candidate_urls(self) -> list[str]:
         port = self.port
         if port <= 0:

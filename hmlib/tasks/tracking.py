@@ -317,6 +317,7 @@ def run_mmtrack(
                     # Optional stitching rotation controller (e.g., StitchDataset instance)
                     stitch_rotation_controller=config.get("stitch_rotation_controller"),
                     output_label=output_label,
+                    progress_bar=progress_bar,
                     mux_audio_file=config.get("mux_audio_file"),
                     mux_audio_stream=config.get("mux_audio_stream"),
                     mux_audio_offset_seconds=config.get("mux_audio_offset_seconds"),

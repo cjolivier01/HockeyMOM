@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+from collections import OrderedDict
 from pathlib import Path
 from unittest import mock
 
@@ -104,6 +105,76 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                     stream.close()
                 self.assertIn(b"Content-Type: image/jpeg", payload)
                 self.assertIn(b"\xff\xd8", payload)
+            finally:
+                shower.close()
+
+    def test_shower_exposes_stream_urls_for_progress_bar(self):
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"HM_FORCE_HEADLESS_PREVIEW": "1"},
+                clear=False,
+            ),
+            mock.patch("hmlib.ui.shower.FFmpegLivePublisher", autospec=True),
+        ):
+            shower = Shower(
+                "headless-progress-test",
+                show_scaled=0.5,
+                max_size=1,
+                show_youtube=True,
+                youtube_stream_url="rtmp://127.0.0.1:1935/live/secret-stream-key",
+                headless_preview_host="127.0.0.1",
+                headless_preview_port=0,
+            )
+            try:
+                table_map: dict[str, str] = {}
+                shower.update_progress_table(table_map)
+                self.assertEqual(
+                    table_map["Publish URL"],
+                    mask_stream_url("rtmp://127.0.0.1:1935/live/secret-stream-key"),
+                )
+                self.assertNotIn("Preview URL", table_map)
+
+                shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
+                time.sleep(0.2)
+
+                shower.update_progress_table(table_map)
+                self.assertIn("Preview URL", table_map)
+                self.assertTrue(table_map["Preview URL"].startswith("http://"))
+                self.assertIn("Publish URL", table_map)
+            finally:
+                shower.close()
+
+    def test_progress_bar_updates_with_shower_stream_urls(self):
+        from hmlib.utils.progress_bar import ProgressBar
+
+        with (
+            mock.patch.dict(
+                os.environ,
+                {"HM_FORCE_HEADLESS_PREVIEW": "1"},
+                clear=False,
+            ),
+            mock.patch("hmlib.ui.shower.FFmpegLivePublisher", autospec=True),
+        ):
+            progress_bar = ProgressBar(total=1)
+            shower = Shower(
+                "progress-bar-preview-test",
+                show_scaled=0.5,
+                max_size=1,
+                show_youtube=True,
+                youtube_stream_url="rtmp://127.0.0.1:1935/live/secret-stream-key",
+                headless_preview_host="127.0.0.1",
+                headless_preview_port=0,
+            )
+            try:
+                progress_bar.add_table_callback(shower.update_progress_table)
+                shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
+                time.sleep(0.2)
+                table_map: OrderedDict[str, str] = OrderedDict()
+                progress_bar._run_callbacks(table_map)
+                self.assertIn("Preview URL", table_map)
+                self.assertTrue(table_map["Preview URL"].startswith("http://"))
+                self.assertIn("Publish URL", table_map)
             finally:
                 shower.close()
 

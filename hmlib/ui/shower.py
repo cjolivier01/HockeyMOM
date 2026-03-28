@@ -10,6 +10,7 @@ import contextlib
 import threading
 import time
 import tkinter as tk
+from collections import OrderedDict
 from typing import Any, Optional, Union
 
 from hmlib.ui.display_env import sanitize_display_env_for_cv2
@@ -26,6 +27,7 @@ from hmlib.ui.headless_preview import (
     BrowserPreviewServer,
     FFmpegLivePublisher,
     has_local_display,
+    mask_stream_url,
     resolve_youtube_stream_url,
     validate_youtube_stream_url,
 )
@@ -141,6 +143,22 @@ class Shower:
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
+
+    def get_progress_stream_entries(self) -> OrderedDict[str, str]:
+        entries: OrderedDict[str, str] = OrderedDict()
+        if self._headless_preview is not None:
+            preview_url = self._headless_preview.preferred_url
+            if preview_url:
+                entries["Preview URL"] = preview_url
+        if self._youtube_stream_url is not None:
+            entries["Publish URL"] = mask_stream_url(self._youtube_stream_url)
+        return entries
+
+    def update_progress_table(self, table_map: Any) -> None:
+        for key in ("Preview URL", "Publish URL"):
+            table_map.pop(key, None)
+        for key, value in self.get_progress_stream_entries().items():
+            table_map[key] = value
 
     def _prof_ctx(self, name: str):
         prof = self._profiler

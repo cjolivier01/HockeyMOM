@@ -162,6 +162,7 @@ class VideoOutPlugin(Plugin):
         fps = self._resolve_fps(context)
 
         bit_rate = self._bit_rate
+        progress_bar = shared.get("progress_bar") if isinstance(shared, dict) else None
         if bit_rate is None:
             bit_rate = get_nested_value(cfg, "video_out.bit_rate", default_value=None)
         if bit_rate is None:
@@ -194,6 +195,7 @@ class VideoOutPlugin(Plugin):
             save_frame_dir=self._save_dir,
             name="TRACKING",
             skip_final_save=self._skip_final_save,
+            progress_bar=progress_bar,
             cache_size=self._cache,
             device=vo_dev,
             output_width=self._output_width,

@@ -377,6 +377,7 @@ def stitch_videos(
         dataset_delivery_fps = 0.0
 
         use_progress_bar: bool = not args.no_progress_bar
+        progress_bar: Optional[ProgressBar] = None
         scroll_output: Optional[ScrollOutput] = None
 
         shower = None
@@ -424,6 +425,8 @@ def stitch_videos(
                 else:
                     table_map["Stitch FPS"] = "warming up"
                     table_map["ETA"] = "--:--:--"
+                if shower is not None:
+                    shower.update_progress_table(table_map)
 
             scroll_output = ScrollOutput(lines=args.progress_bar_lines)
 
@@ -484,6 +487,7 @@ def stitch_videos(
         aspen_shared: Dict[str, Any] = {
             "device": encoder_device,
             "work_dir": work_dir,
+            "progress_bar": progress_bar,
         }
         if profiler is not None:
             aspen_shared["profiler"] = profiler

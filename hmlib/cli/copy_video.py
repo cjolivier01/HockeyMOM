@@ -292,6 +292,8 @@ def copy_video(
                 table_callback=_table_callback,
                 use_curses=True,
             )
+            if use_video_out and video_out is not None and hasattr(video_out, "set_progress_bar"):
+                video_out.set_progress_bar(progress_bar)
             v_iter = progress_bar
         frame_id = start_frame_number
         frame_ids = list()
@@ -315,6 +317,8 @@ def copy_video(
             # if show
             else None
         )
+        if progress_bar is not None and shower is not None:
+            progress_bar.add_table_callback(shower.update_progress_table)
         prof = profiler
         prof_enabled = bool(prof is not None and getattr(prof, "enabled", False))
         run_ctx = prof if prof_enabled else contextlib.nullcontext()
