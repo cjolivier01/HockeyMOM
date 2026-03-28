@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-import numpy as np
+import torch
 
 from hmlib.hm_opts import hm_opts
 from hmlib.ui.headless_preview import FFmpegLivePublisher, mask_stream_url
@@ -91,7 +91,7 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
             )
             try:
                 self.assertIsNotNone(shower._headless_preview)
-                shower.show(np.full((32, 48, 3), 127, dtype=np.uint8))
+                shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
                 time.sleep(0.2)
                 port = shower._headless_preview.port
                 self.assertGreater(port, 0)
@@ -199,7 +199,7 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                     label="rtmp-preview-test",
                     fps=10.0,
                 )
-                frame = np.zeros((48, 64, 3), dtype=np.uint8)
+                frame = torch.zeros((48, 64, 3), dtype=torch.uint8)
                 frame[..., 2] = 255
                 for _ in range(25):
                     publisher.write_frame(frame)

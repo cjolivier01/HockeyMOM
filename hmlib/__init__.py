@@ -80,4 +80,5 @@ def __getattr__(name: str) -> Any:
         return HmLoadImageFromWebcam
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-from . import hm_transforms  # noqa: F401 - ensure TRANSFORMS are registered
+
+hm_transforms = LazyImport(__name__ + ".hm_transforms")

@@ -5,6 +5,7 @@ import math
 import os
 import re
 import shutil
+import sys
 import time
 import traceback
 from collections import OrderedDict
@@ -16,19 +17,11 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import yaml
-from mmcv.transforms import Compose
 
 # from mmdet.apis import init_track_model
 # from mmengine.config import Config
 # from torch.nn.parallel import DistributedDataParallel as DDP
 import hmlib
-import hmlib.hm_transforms  # noqa: F401 (register custom MMEngine transforms)
-import hmlib.tracking_utils.segm_boundaries
-import hmlib.transforms
-
-# from hmlib.utils.checkpoint import load_checkpoint_to_model
-from hmlib.audio import concatenate_audio
-from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.config import (
     get_clip_box,
     get_config,
@@ -38,35 +31,48 @@ from hmlib.config import (
     resolve_global_refs,
     set_nested_value,
 )
-from hmlib.datasets.dataframe import find_latest_dataframe_file
-from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
-from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.hm_opts import copy_opts, hm_opts
 
-# from hmlib.hm_transforms import update_data_pipeline
 from hmlib.log import get_root_logger, logger
-from hmlib.orientation import configure_game_videos
-from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.stitching.synchronize import synchronize_by_audio
-from hmlib.tasks.tracking import run_mmtrack
-from hmlib.utils.gpu import select_gpus
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    resize_image,
-)
 from hmlib.utils.path import (
     add_game_id_prefix_to_filename,
     add_prefix_to_filename,
     add_suffix_to_filename,
 )
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
-from hmlib.video.ffmpeg import BasicVideoInfo
-from hmlib.video.video_stream import VideoStreamReader, create_output_video_stream, time_to_frame
+
+if "--smoke-test" not in sys.argv:
+    import hmlib.tracking_utils.segm_boundaries
+    import hmlib.transforms
+
+    # from hmlib.utils.checkpoint import load_checkpoint_to_model
+    from hmlib.audio import concatenate_audio
+    from hmlib.camera.camera import should_unsharp_mask_camera
+    from hmlib.datasets.dataframe import find_latest_dataframe_file
+    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+    from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
+    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
+
+    # from hmlib.hm_transforms import update_data_pipeline
+    from hmlib.orientation import configure_game_videos
+    from hmlib.stitching.configure_stitching import configure_video_stitching
+    from hmlib.stitching.synchronize import synchronize_by_audio
+    from hmlib.tasks.tracking import run_mmtrack
+    from hmlib.utils.gpu import select_gpus
+    from hmlib.utils.image import (
+        image_height,
+        image_width,
+        make_channels_first,
+        make_channels_last,
+        resize_image,
+    )
+    from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+    from hmlib.video.ffmpeg import BasicVideoInfo
+    from hmlib.video.video_stream import (
+        VideoStreamReader,
+        create_output_video_stream,
+        time_to_frame,
+    )
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -370,15 +376,6 @@ def _run_smoke_test(args: argparse.Namespace) -> int:
         except Exception:
             game_dir = None
 
-    # Validate imports for the pieces hmtrack expects to have available.
-    import hockeymom._hockeymom  # noqa: F401
-    import lightglue  # noqa: F401
-    import mmcv  # noqa: F401
-    import mmdet  # noqa: F401
-    import mmengine  # noqa: F401
-    import mmpose  # noqa: F401
-    import mmyolo  # noqa: F401
-
     for message in _exercise_preview_smoke(args):
         print(message)
     print(
@@ -389,6 +386,7 @@ def _run_smoke_test(args: argparse.Namespace) -> int:
         f"game_dir={game_dir}"
     )
     return 0
+
 
 def _slugify_label(value: str) -> str:
     if value is None:
@@ -1554,6 +1552,8 @@ def _main(args, num_gpu):
                     hm_crop = get_pipeline_item(pipeline, "HmCrop")
                     if hm_crop is not None:
                         hm_crop["rectangle"] = orig_clip_box
+                from mmcv.transforms import Compose
+
                 data_pipeline = Compose(pipeline)
             else:
                 data_pipeline = None
@@ -2195,6 +2195,9 @@ def main():
     args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser)
     if args.smoke_test:
         return _run_smoke_test(args)
+
+    import hmlib.hm_transforms  # noqa: F401 (register custom MMEngine transforms)
+
     game_config = get_config(
         game_id=args.game_id,
         rink=args.rink,
