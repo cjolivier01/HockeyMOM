@@ -174,3 +174,18 @@ pytest_test(
         requirement("pytest"),
     ],
 )
+
+pytest_test(
+    name="test_hm_cuda_container",
+    srcs=["test_hm_cuda_container.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    data = [
+        "//:scripts/hm_cuda_container.py",
+    ],
+    deps=[
+        requirement("pytest"),
+    ],
+)

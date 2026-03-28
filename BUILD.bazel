@@ -1,5 +1,10 @@
 exports_files(
-    ["Pipfile", "Pipfile.lock", "pyproject.toml"]
+    [
+        "Pipfile",
+        "Pipfile.lock",
+        "pyproject.toml",
+        "scripts/hm_cuda_container.py",
+    ]
 )
 
 

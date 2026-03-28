@@ -39,6 +39,44 @@ def _run(
     )
 
 
+def _is_transient_dns_failure(text: str) -> bool:
+    lower = str(text).lower()
+    return any(
+        marker in lower
+        for marker in (
+            "temporary failure in name resolution",
+            "could not resolve host",
+            "failed to resolve host",
+            "failure in name resolution",
+        )
+    )
+
+
+def _run_streaming(
+    cmd: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, bool]:
+    print("+", shlex.join(cmd))
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd is not None else None,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    saw_transient_dns_failure = False
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        if _is_transient_dns_failure(line):
+            saw_transient_dns_failure = True
+    return int(proc.wait()), saw_transient_dns_failure
+
+
 def _docker_env() -> dict[str, str]:
     env = dict(os.environ)
     env.setdefault("DOCKER_BUILDKIT", "1")
@@ -107,7 +145,8 @@ def cmd_build(args: argparse.Namespace) -> None:
     repo_root = _repo_root()
     tag = args.tag or _read_default_tag(repo_root)
 
-    network = args.network
+    network = args.network or _default_build_network()
+    network_was_explicit = args.network is not None
     if network == "bridge":
         network = "default"
 
@@ -138,7 +177,22 @@ def cmd_build(args: argparse.Namespace) -> None:
         f"TORCHAUDIO_VERSION={args.torchaudio_version}",
         str(repo_root),
     ]
-    _run(build_cmd, env=_docker_env(), check=True)
+    returncode, saw_transient_dns_failure = _run_streaming(build_cmd, env=_docker_env())
+    if (
+        returncode
+        and not network_was_explicit
+        and network == "default"
+        and saw_transient_dns_failure
+    ):
+        retry_cmd = list(build_cmd)
+        retry_cmd[retry_cmd.index("--network") + 1] = "host"
+        print(
+            "NOTE: docker build hit a transient DNS failure; retrying with --network host",
+            file=sys.stderr,
+        )
+        returncode, _ = _run_streaming(retry_cmd, env=_docker_env())
+    if returncode:
+        raise SystemExit(returncode)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -255,8 +309,11 @@ def main(argv: list[str]) -> int:
     build = subparsers.add_parser("build", parents=[common], help="Build the CUDA image")
     build.add_argument(
         "--network",
-        default=default_build_network,
-        help=f"Docker networking mode for build containers (default: {default_build_network})",
+        default=None,
+        help=(
+            "Docker networking mode for build containers "
+            f"(default: auto -> {default_build_network})"
+        ),
     )
     build.add_argument(
         "--cuda-base",
