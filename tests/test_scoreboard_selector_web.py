@@ -66,6 +66,26 @@ def should_serve_scoreboard_selector_page_and_image():
         selector.close()
 
 
+def should_list_hostname_localhost_and_interface_ips(monkeypatch):
+    selector_module = _selector_module()
+    monkeypatch.setattr(selector_module.socket, "gethostname", lambda: "scorebox")
+    monkeypatch.setattr(
+        selector_module,
+        "_iter_local_ipv4_addresses",
+        lambda: ["10.1.2.3", "192.168.4.10"],
+    )
+
+    urls = selector_module._build_access_urls("0.0.0.0", 8123)
+
+    assert urls == [
+        "http://scorebox:8123/",
+        "http://localhost:8123/",
+        "http://127.0.0.1:8123/",
+        "http://10.1.2.3:8123/",
+        "http://192.168.4.10:8123/",
+    ]
+
+
 def should_save_clockwise_points_from_web_submission():
     selector = _make_selector()
     selector._start_server()

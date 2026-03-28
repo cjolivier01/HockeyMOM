@@ -3,9 +3,12 @@ from __future__ import annotations
 import base64
 import html
 import io
+import ipaddress
 import json
 import os
+import re
 import socket
+import subprocess
 import sys
 import threading
 import traceback
@@ -43,9 +46,19 @@ def _has_local_display() -> bool:
 
 
 def _default_bind_host() -> str:
-    if _has_local_display():
-        return "127.0.0.1"
     return "0.0.0.0"
+
+
+def _iter_detected_ipv4_addresses(raw_output: str) -> List[str]:
+    addresses: set[str] = set()
+    for match in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", raw_output):
+        try:
+            parsed = ipaddress.ip_address(match)
+        except ValueError:
+            continue
+        if parsed.version == 4 and not parsed.is_loopback and str(parsed) != "0.0.0.0":
+            addresses.add(str(parsed))
+    return sorted(addresses)
 
 
 def _iter_local_ipv4_addresses() -> List[str]:
@@ -58,6 +71,19 @@ def _iter_local_ipv4_addresses() -> List[str]:
                 addresses.add(address)
     except OSError:
         pass
+    for command in (["hostname", "-I"], ["ip", "-4", "addr", "show"], ["ifconfig"]):
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            continue
+        if completed.stdout:
+            addresses.update(_iter_detected_ipv4_addresses(completed.stdout))
     return sorted(addresses)
 
 
@@ -74,8 +100,9 @@ def _build_access_urls(bind_host: str, port: int) -> List[str]:
             urls.append(url)
 
     if bind_host in ("0.0.0.0", "", "::"):
-        _add("127.0.0.1")
+        _add(socket.gethostname())
         _add("localhost")
+        _add("127.0.0.1")
         for address in _iter_local_ipv4_addresses():
             _add(address)
     else:
@@ -84,6 +111,10 @@ def _build_access_urls(bind_host: str, port: int) -> List[str]:
             _add("localhost")
 
     return urls
+
+
+def _build_browser_url(port: int) -> str:
+    return f"http://localhost:{port}/"
 
 
 def get_max_screen_height() -> Optional[int]:
@@ -136,6 +167,7 @@ class ScoreboardSelector:
         self._image_bytes = image_buffer.getvalue()
         self._done_background_data_url = self._load_done_background_data_url()
         self._access_urls: List[str] = []
+        self._browser_url: Optional[str] = None
 
         self.points: List[Tuple[int, int]] = []
         if initial_points == ScoreboardSelector.NULL_POINTS:
@@ -236,21 +268,18 @@ class ScoreboardSelector:
     def _announce_urls(self) -> None:
         print("")
         print("Scoreboard selector is ready.")
-        print("Open this link in a browser to select the scoreboard:")
-        print(f"  {self.primary_url}")
-        if len(self._access_urls) > 1:
-            print("Additional links:")
-            for url in self._access_urls[1:]:
-                print(f"  {url}")
+        print("Open any of these links in a browser to select the scoreboard:")
+        for url in self._access_urls:
+            print(f"  {url}")
         print("")
 
     def _maybe_open_browser(self) -> None:
-        if not self._open_browser:
+        if not self._open_browser or self._browser_url is None:
             return
 
         def _open() -> None:
             try:
-                webbrowser.open(self.primary_url, new=1, autoraise=True)
+                webbrowser.open(self._browser_url, new=1, autoraise=True)
             except Exception as exc:
                 print(f"Could not launch a browser automatically: {exc}")
 
@@ -276,6 +305,7 @@ class ScoreboardSelector:
             self._server = server
             self._port = int(server.server_address[1])
             self._access_urls = _build_access_urls(self._bind_host, self._port)
+            self._browser_url = _build_browser_url(self._port)
             server_thread = threading.Thread(target=server.serve_forever, daemon=True)
             server_thread.start()
             self._server_thread = server_thread
