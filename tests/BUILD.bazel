@@ -127,6 +127,14 @@ py_test(
     ],
 )
 
+sh_test(
+    name = "test_headless_preview_runtime",
+    srcs = ["test_headless_preview_runtime.sh"],
+    data = [
+        "//hmlib:hmlib.lib",
+        "test_headless_preview_runtime.py",
+    ],
+)
 pytest_test(
     name="test_video_output_naming",
     srcs=["test_video_output_naming.py"],

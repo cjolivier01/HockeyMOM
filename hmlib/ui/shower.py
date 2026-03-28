@@ -12,16 +12,31 @@ import time
 import tkinter as tk
 from typing import Any, Optional, Union
 
+from hmlib.ui.display_env import sanitize_display_env_for_cv2
+
+sanitize_display_env_for_cv2()
+
 import cv2
 import numpy as np
 import torch
 from PIL import Image, ImageTk
 
 from hmlib.log import get_root_logger
+from hmlib.ui.headless_preview import (
+    BrowserPreviewServer,
+    FFmpegLivePublisher,
+    has_local_display,
+    resolve_youtube_stream_url,
+    validate_youtube_stream_url,
+)
 from hmlib.utils.containers import create_queue
 from hmlib.utils.gpu import StreamTensorBase, cuda_stream_scope, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import make_channels_last, make_visible_image
-from hockeymom.core import show_cuda_tensor
+
+try:
+    from hockeymom.core import show_cuda_tensor
+except Exception:  # pragma: no cover - optional native extension
+    show_cuda_tensor = None
 
 from .show import cv2_has_opengl, show_gpu_tensor
 
@@ -66,6 +81,12 @@ class Shower:
         step: int = 1,
         hold_tensor_ref: bool = True,
         skip_frame_when_full: bool = False,
+        enable_local_display: bool = True,
+        show_youtube: bool = False,
+        youtube_stream_url: Optional[str] = None,
+        youtube_stream_key: Optional[str] = None,
+        headless_preview_host: str = "0.0.0.0",
+        headless_preview_port: int = 0,
     ):
         self._label = label
         self._allow_gpu_gl = allow_gpu_gl
@@ -87,6 +108,35 @@ class Shower:
         # Holds a ref to a displayed tensor so the memory pointer is valid
         self._hold_tensor_ref = hold_tensor_ref
         self._displayed_tensor: Optional[torch.Tensor] = None
+        self._requested_local_display = bool(enable_local_display)
+        self._has_local_display = has_local_display()
+        self._enable_local_display = self._requested_local_display and self._has_local_display
+        self._headless_preview: Optional[BrowserPreviewServer] = None
+        self._show_youtube = bool(show_youtube)
+        self._youtube_stream_url = (
+            resolve_youtube_stream_url(youtube_stream_url or "", youtube_stream_key)
+            if self._show_youtube
+            else None
+        )
+        if self._show_youtube and self._youtube_stream_url is not None:
+            validate_youtube_stream_url(self._youtube_stream_url)
+        self._youtube_publisher: Optional[FFmpegLivePublisher] = (
+            FFmpegLivePublisher(
+                output_url=self._youtube_stream_url,
+                label=self._label,
+                fps=self._fps if self._fps is not None else 30.0,
+                logger=logger,
+            )
+            if self._show_youtube and self._youtube_stream_url
+            else None
+        )
+        if self._requested_local_display and not self._has_local_display:
+            self._headless_preview = BrowserPreviewServer(
+                label=self._label,
+                host=headless_preview_host,
+                port=headless_preview_port,
+                logger=logger,
+            )
         self._logger = logger if logger is not None else get_root_logger()
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
@@ -113,18 +163,34 @@ class Shower:
 
             img = unwrap_tensor(img)
             for s_img in img:
+                if self._headless_preview is not None:
+                    self._headless_preview.publish(s_img, show_scaled=self._show_scaled)
+                if self._youtube_publisher is not None:
+                    self._youtube_publisher.write_frame(s_img)
+                if not self._enable_local_display:
+                    continue
                 if self._use_tk:
                     self._tk_displayer.display(s_img)
                 else:
-                    if self._cv2_has_opengl_support and s_img.device.type == "cuda":
+                    if (
+                        isinstance(s_img, torch.Tensor)
+                        and self._cv2_has_opengl_support
+                        and s_img.device.type == "cuda"
+                    ):
                         # This doesn't work last time I checked
                         show_gpu_tensor(label=self._label, tensor=s_img, wait=False)
                     else:
-                        if self._allow_gpu_gl and s_img.device.type == "cuda":
+                        if (
+                            isinstance(s_img, torch.Tensor)
+                            and self._allow_gpu_gl
+                            and show_cuda_tensor is not None
+                            and s_img.device.type == "cuda"
+                        ):
                             s_img = make_visible_image(
                                 s_img, enable_resizing=self._show_scaled, force_numpy=False
                             )
-                            self._stream.synchronize()
+                            if self._stream is not None:
+                                self._stream.synchronize()
                             show_cuda_tensor(self._label, s_img, False, None)
                             if self._hold_tensor_ref:
                                 # Holds a ref to this image to keep its GPU surface valid
@@ -144,6 +210,12 @@ class Shower:
             self._q.put(None)
             self._thread.join()
             self._thread = None
+        if self._headless_preview is not None:
+            self._headless_preview.close()
+            self._headless_preview = None
+        if self._youtube_publisher is not None:
+            self._youtube_publisher.close()
+            self._youtube_publisher = None
         self._displayed_tensor = None
 
     def _worker(self):
@@ -192,8 +264,10 @@ class Shower:
         if self._iter % self._step != 0:
             return
         with self._prof_ctx("shower.show"):
-            if self._stream is None and img.device.type == "cuda":
-                self._ensure_stream(img.device)
+            img_unwrapped = unwrap_tensor(img)
+            img_device = img_unwrapped.device if isinstance(img_unwrapped, torch.Tensor) else None
+            if self._stream is None and img_device is not None and img_device.type == "cuda":
+                self._ensure_stream(img_device)
             if self._thread is not None:
                 counter: int = 0
                 while self._q.qsize() >= self._max_size:
@@ -208,18 +282,21 @@ class Shower:
                     img = img.cpu()
                 if self._fps is None or img.ndim == 3:
                     if not self._cache_on_cpu:
-                        prev_stream = (
-                            torch.cuda.current_stream(img.device)
-                            if img.device.type == "cuda"
-                            else None
-                        )
-                        with cuda_stream_scope(self._stream):
-                            if prev_stream is not None:
-                                self._stream.wait_stream(prev_stream)
-                            img = unwrap_tensor(img)
-                        if clone:
-                            img = img.clone()
-                        img = wrap_tensor(img)
+                        if isinstance(img_unwrapped, torch.Tensor):
+                            prev_stream = (
+                                torch.cuda.current_stream(img_unwrapped.device)
+                                if img_unwrapped.device.type == "cuda"
+                                else None
+                            )
+                            with cuda_stream_scope(self._stream):
+                                if prev_stream is not None and self._stream is not None:
+                                    self._stream.wait_stream(prev_stream)
+                                img = unwrap_tensor(img)
+                            if clone:
+                                img = img.clone()
+                            img = wrap_tensor(img)
+                        elif clone:
+                            img = np.array(img, copy=True)
                     self._q.put(img)
                 else:
                     assert img.ndim == 4

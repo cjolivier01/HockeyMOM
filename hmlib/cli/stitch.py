@@ -78,6 +78,68 @@ def convert_seconds_to_hms(total_seconds):
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 
+def _torch_backend_label() -> str:
+    if getattr(torch.version, "hip", None):
+        return "rocm:" + str(torch.version.hip)
+    if getattr(torch.version, "cuda", None):
+        return "cuda:" + str(torch.version.cuda)
+    return "cpu"
+
+
+def _exercise_preview_smoke(args: argparse.Namespace) -> list[str]:
+    if not args.show_image and not args.show_youtube:
+        return []
+
+    from hmlib.ui.headless_preview import mask_stream_url
+    from hmlib.ui.shower import Shower
+
+    messages: list[str] = []
+    shower = Shower(
+        label="stitch-smoke-preview",
+        show_scaled=args.show_scaled,
+        max_size=2,
+        enable_local_display=args.show_image,
+        show_youtube=args.show_youtube,
+        youtube_stream_url=args.youtube_stream_url,
+        youtube_stream_key=args.youtube_stream_key,
+        headless_preview_host=args.headless_preview_host or "0.0.0.0",
+        headless_preview_port=int(args.headless_preview_port or 0),
+    )
+    try:
+        frame = torch.full((32, 48, 3), 127, dtype=torch.uint8)
+        for _ in range(3):
+            shower.show(frame)
+            time.sleep(0.05)
+        time.sleep(0.2)
+        if args.show_image:
+            if shower._headless_preview is not None:
+                messages.append(
+                    f"Headless preview OK. url=http://127.0.0.1:{shower._headless_preview.port}/"
+                )
+            else:
+                messages.append("Local preview OK.")
+        if args.show_youtube and shower._youtube_stream_url is not None:
+            messages.append(
+                "YouTube preview publish OK. " f"url={mask_stream_url(shower._youtube_stream_url)}"
+            )
+    finally:
+        shower.close()
+    return messages
+
+
+def _run_smoke_test(args: argparse.Namespace) -> int:
+    for message in _exercise_preview_smoke(args):
+        print(message)
+    print(
+        "Smoke test OK. "
+        f"backend={_torch_backend_label()} "
+        f"cuda_available={torch.cuda.is_available()} "
+        f"game_id={args.game_id} "
+        f"video_dir={args.video_dir}"
+    )
+    return 0
+
+
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
@@ -312,12 +374,18 @@ def stitch_videos(
         scroll_output: Optional[ScrollOutput] = None
 
         shower = None
-        if show and not use_aspen_stitching:
+        if (show or args.show_youtube) and not use_aspen_stitching:
             shower = Shower(
                 label="stitched_image",
                 show_scaled=show_scaled,
                 cache_on_cpu=lowmem,
                 max_size=0,
+                enable_local_display=bool(show),
+                show_youtube=bool(args.show_youtube),
+                youtube_stream_url=args.youtube_stream_url,
+                youtube_stream_key=args.youtube_stream_key,
+                headless_preview_host=args.headless_preview_host or "0.0.0.0",
+                headless_preview_port=int(args.headless_preview_port or 0),
             )
 
         if use_progress_bar and not configure_only:
@@ -671,6 +739,8 @@ def main() -> None:
     parser = hm_opts.parser(parser=make_parser())
     args = parser.parse_args()
     args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser)
+    if args.smoke_test:
+        return _run_smoke_test(args)
     args = hm_opts.init(args, parser=parser)
     _main(args)
 
