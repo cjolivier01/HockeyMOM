@@ -197,6 +197,7 @@ conda_repository(
     # the {python} gets filled in at repo-fetch time
     package_dir = "lib/python{python}/site-packages/torch",
     strip_prefix = "lib/python{python}/site-packages/torch",
+    torch_aware = True,
 )
 
 

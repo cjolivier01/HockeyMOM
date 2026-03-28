@@ -27,6 +27,11 @@ from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import StreamTensorBase, cuda_stream_scope, unwrap_tensor, wrap_tensor
+from hmlib.utils.hockeymom_compat import (
+    CudaStitchPanoF32,
+    CudaStitchPanoU8,
+    HOCKEYMOM_AVAILABLE,
+)
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -37,7 +42,6 @@ from hmlib.utils.image import (
 from hmlib.utils.persist_cache_mixin import PersistCacheMixin
 from hmlib.utils.tensor import make_const_tensor
 from hmlib.video.ffmpeg import BasicVideoInfo
-from hockeymom.core import CudaStitchPanoF32, CudaStitchPanoU8
 
 
 def _get_dir_name(path: Any) -> Any:
@@ -690,6 +694,12 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             )
         else:
             levels_arg = 0
+
+        if not self._python_blender and not HOCKEYMOM_AVAILABLE:
+            logger.warning(
+                "Native hockeymom stitcher is unavailable; falling back to python_blender."
+            )
+            self._python_blender = True
 
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,

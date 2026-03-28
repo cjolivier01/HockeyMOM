@@ -1,7 +1,19 @@
-load("@bazel_tools//tools/build_defs/repo:utils.bzl", "workspace_and_buildfile")
-
-def _detect_py_version(ctx):
+def _require_valid_conda_prefix(ctx):
     conda_root = ctx.os.environ.get("CONDA_PREFIX")
+    if not conda_root:
+        fail("Environment variable CONDA_PREFIX is not set.")
+
+    python_bin = conda_root + "/bin/python"
+    if not ctx.path(python_bin).exists:
+        fail(
+            "CONDA_PREFIX points to '%s', but '%s' does not exist. " %
+            (conda_root, python_bin) +
+            "Activate a valid conda environment or export CONDA_PREFIX to the prefix that matches the Python you want Bazel to use."
+        )
+
+    return conda_root
+
+def _detect_py_version(ctx, conda_root):
     python_bin = conda_root + "/bin/python"
     # run Python to get "3.12", "3.11", etc
     result = ctx.execute([
@@ -18,16 +30,131 @@ def _ends_with_slash(s):
         return False
     return s[len(s) - 1:] == "/"
 
+def _read_repo_file_content(ctx, label_attr, content_attr, description):
+    label = getattr(ctx.attr, label_attr)
+    content = getattr(ctx.attr, content_attr)
+    if label and content:
+        fail("Provide either '%s' or '%s', not both." % (label_attr, content_attr))
+    if label:
+        return ctx.read(ctx.path(label))
+    if content:
+        return content
+    fail("A %s must be provided via '%s' or '%s'." % (description, label_attr, content_attr))
+
+def _write_workspace_file(ctx):
+    workspace_content = getattr(ctx.attr, "workspace_file_content")
+    workspace_label = getattr(ctx.attr, "workspace_file")
+    if workspace_label and workspace_content:
+        fail("Provide either 'workspace_file' or 'workspace_file_content', not both.")
+    if workspace_label:
+        workspace_content = ctx.read(ctx.path(workspace_label))
+    if not workspace_content:
+        workspace_content = "workspace(name = \"" + ctx.name + "\")\n"
+    ctx.file("WORKSPACE", workspace_content)
+
+def _torch_repo_metadata(ctx, conda_root):
+    python_bin = conda_root + "/bin/python"
+    result = ctx.execute([
+        python_bin,
+        "-c",
+        """
+import os
+import sys
+
+cwd = os.getcwd()
+sys.path = [p for p in sys.path if p not in ("", cwd)]
+
+import torch
+
+backend = "cpu"
+if getattr(torch.version, "hip", None):
+    backend = "rocm"
+elif getattr(torch.version, "cuda", None):
+    backend = "cuda"
+
+print(int(getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", 1)))
+print(backend)
+for name in sorted(os.listdir(os.path.join(os.path.dirname(torch.__file__), "lib"))):
+    print(name)
+""",
+    ])
+    if result.return_code != 0:
+        fail("Could not inspect torch installation: " + result.stderr)
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) < 2:
+        fail("Unexpected torch inspection output: " + result.stdout)
+    return struct(
+        abi = lines[0],
+        backend = lines[1],
+        libs = lines[2:],
+    )
+
+def _contains(items, value):
+    for item in items:
+        if item == value:
+            return True
+    return False
+
+def _starts_with_any(value, prefixes):
+    for prefix in prefixes:
+        if value.startswith(prefix):
+            return True
+    return False
+
+def _format_build_string_list(items):
+    return "\n".join(['        "' + item + '",' for item in items])
+
+def _render_libtorch_build_file(ctx, conda_root):
+    template = _read_repo_file_content(ctx, "build_file", "build_file_content", "build file")
+    metadata = _torch_repo_metadata(ctx, conda_root)
+
+    required_common = [
+        "libc10.so",
+        "libshm.so",
+        "libtorch.so",
+        "libtorch_cpu.so",
+        "libtorch_global_deps.so",
+    ]
+    for name in required_common + ["libtorch_python.so"]:
+        if not _contains(metadata.libs, name):
+            fail(
+                "Torch library '%s' was not found in CONDA_PREFIX '%s'." %
+                (name, conda_root)
+            )
+
+    backend_srcs = []
+    backend_exact = {
+        "cuda": ["libcaffe2_nvrtc.so", "libc10_cuda.so"],
+        "rocm": ["libcaffe2_nvrtc.so", "libc10_hip.so"],
+        "cpu": [],
+    }
+    backend_prefixes = {
+        "cuda": ["libtorch_cuda"],
+        "rocm": ["libtorch_hip"],
+        "cpu": [],
+    }
+
+    for name in metadata.libs:
+        if name in backend_exact.get(metadata.backend, []):
+            backend_srcs.append("lib/" + name)
+            continue
+        if name.endswith(".so") and _starts_with_any(name, backend_prefixes.get(metadata.backend, [])):
+            backend_srcs.append("lib/" + name)
+
+    libtorch_srcs = ["lib/" + name for name in required_common] + backend_srcs
+    return template.replace("%{LIBTORCH_SO_FILES}", _format_build_string_list(libtorch_srcs)).replace(
+        "%{GLIBCXX_USE_CXX11_ABI}",
+        metadata.abi,
+    )
+
 # Implementation of the conda repository rule.
 def conda_repo_setup(ctx):
     # Get the conda installation root.
-    conda_root = ctx.os.environ.get("CONDA_PREFIX")
-    if not conda_root:
-        fail("Environment variable CONDA_PREFIX is not set.")
+    conda_root = _require_valid_conda_prefix(ctx)
 
     # 1) figure out what Python X.Y we’re on,
     #    so users don’t have to hard-code “3.12” in WORKSPACE
-    py_ver = _detect_py_version(ctx)
+    py_ver = _detect_py_version(ctx, conda_root)
 
     # Retrieve rule attributes.
     pkg_dir = ctx.attr.package_dir.replace("{python}", py_ver)
@@ -73,7 +200,14 @@ def conda_repo_setup(ctx):
         ctx.symlink(abs_file, f)
 
     # Finally, generate the BUILD and WORKSPACE files in this repository.
-    workspace_and_buildfile(ctx)
+    _write_workspace_file(ctx)
+    if ctx.attr.torch_aware:
+        ctx.file("BUILD.bazel", _render_libtorch_build_file(ctx, conda_root))
+    else:
+        ctx.file(
+            "BUILD.bazel",
+            _read_repo_file_content(ctx, "build_file", "build_file_content", "build file"),
+        )
 
 # The repository rule "conda_repository" creates a repository by symlinking
 # content from your conda environment (under CONDA_PREFIX). It can either symlink
@@ -112,6 +246,7 @@ conda_repository = repository_rule(
         "workspace_file": attr.label(allow_single_file = True),
         "workspace_file_content": attr.string(),
         "strip_prefix": attr.string(),
+        "torch_aware": attr.bool(default = False),
     },
     environ = ["CONDA_PREFIX"],
 )

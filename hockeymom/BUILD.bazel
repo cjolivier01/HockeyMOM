@@ -1,6 +1,7 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python//python:packaging.bzl", "py_wheel")
 load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@rules_cuda//cuda:defs.bzl", "requires_cuda")
 load("@py_soabi//:soabi.bzl", "SOABI", "PLATFORM", "ABI")  # Now this load will succeed
 
 config_setting(
@@ -21,12 +22,18 @@ selects.config_setting_group(
     ],
 )
 
+CUDA_ONLY_COMPAT = select({
+    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+}) + requires_cuda()
+
 
 genrule(
   name = "hockeymom_ext",
   srcs = ["//hockeymom/src:_hockeymom.so"],
   outs = ["_hockeymom.%s.so" % SOABI],
   cmd = "cp $(location //hockeymom/src:_hockeymom.so) $@",
+  target_compatible_with = CUDA_ONLY_COMPAT,
   visibility = ["//visibility:public"],
 )
 
@@ -64,6 +71,7 @@ py_library(
     "core.py",
   ],
   imports = [".."],
+  target_compatible_with = CUDA_ONLY_COMPAT,
   visibility = ["//visibility:public"],
 )
 
