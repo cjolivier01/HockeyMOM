@@ -153,6 +153,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         python_blender: bool = True,
         use_cuda_pano_n: bool = False,
         no_cuda_streams: bool = False,
+        prefetch_batches: int = 2,
         show_image_components: bool = False,
         post_stitch_rotate_degrees: Optional[float] = None,
         profiler: Any = None,
@@ -167,6 +168,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         super().__init__()
         self._start_frame_number = start_frame_number
         self._no_cuda_streams = bool(no_cuda_streams)
+        self._prefetch_batches = max(1, int(prefetch_batches))
         self._checkerboard_input = checkerboard_input
         self._dtype = dtype
         self._verbose = verbose
@@ -407,6 +409,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 image_channel_adders=self._channel_add_left,
                 checkerboard_input=self._checkerboard_input,
                 async_mode=True,
+                prefetch_batches=self._prefetch_batches,
             )
         )
         dataloaders.append(
@@ -425,6 +428,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 image_channel_adders=self._channel_add_right,
                 checkerboard_input=self._checkerboard_input,
                 async_mode=True,
+                prefetch_batches=self._prefetch_batches,
             )
         )
         stitching_worker = MultiDataLoaderWrapper(dataloaders=dataloaders)

@@ -327,6 +327,7 @@ def stitch_videos(
                 image_channel_adders=None,
                 checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
+                prefetch_batches=args.dataset_prefetch_batches,
             )
             right_loader = MOTLoadVideoWithOrig(
                 path=stitch_videos["right"]["files"],
@@ -343,6 +344,7 @@ def stitch_videos(
                 image_channel_adders=None,
                 checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
+                prefetch_batches=args.dataset_prefetch_batches,
             )
             data_loader = MultiDataLoaderWrapper(
                 dataloaders=[left_loader, right_loader],
@@ -370,6 +372,7 @@ def stitch_videos(
                 profiler=profiler,
                 no_cuda_streams=args.no_cuda_streams,
                 max_blend_levels=args.max_blend_levels,
+                prefetch_batches=args.dataset_prefetch_batches,
             )
 
         data_loader_iter = CachedIterator(iterator=iter(data_loader), cache_size=cache_size)

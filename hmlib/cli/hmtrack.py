@@ -1747,6 +1747,7 @@ def _main(args, num_gpu):
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     right_loader = MOTLoadVideoWithOrig(
                         path=game_videos["right"],
@@ -1764,6 +1765,7 @@ def _main(args, num_gpu):
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     stitch_inputs = MultiDataLoaderWrapper(
                         dataloaders=[left_loader, right_loader],
@@ -1819,6 +1821,7 @@ def _main(args, num_gpu):
                             )
                         ),
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     # Expose the StitchDataset instance so PlayTracker can control
                     # post-stitch rotation via the UI slider.
@@ -1838,6 +1841,7 @@ def _main(args, num_gpu):
                         adjust_exposure=args.adjust_exposure,
                         no_cuda_streams=args.no_cuda_streams,
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     try:
                         mot_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -1889,6 +1893,7 @@ def _main(args, num_gpu):
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
                     checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
+                    prefetch_batches=args.dataset_prefetch_batches,
                 )
                 try:
                     pano_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -1915,6 +1920,7 @@ def _main(args, num_gpu):
                             no_cuda_streams=args.no_cuda_streams,
                             async_mode=args.no_async_dataset,
                             checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
+                            prefetch_batches=args.dataset_prefetch_batches,
                         )
                     try:
                         extra_dataloader.set_profiler(getattr(args, "profiler", None))

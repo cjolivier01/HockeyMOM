@@ -1013,6 +1013,12 @@ class hm_opts(object):
             help="Disable async dataset loading and use synchronous video I/O.",
         )
         parser.add_argument(
+            "--dataset-prefetch-batches",
+            type=int,
+            default=2,
+            help="Maximum number of async dataset batches to keep in flight.",
+        )
+        parser.add_argument(
             "--no-cuda-streams",
             action="store_true",
             help="Don't use CUDA streams",
