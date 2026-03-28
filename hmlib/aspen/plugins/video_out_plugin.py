@@ -34,6 +34,11 @@ class VideoOutPlugin(Plugin):
         output_height: Optional[str | int] = None,
         show_image: Optional[bool] = None,
         show_scaled: Optional[float] = None,
+        show_youtube: Optional[bool] = None,
+        youtube_stream_url: Optional[str] = None,
+        youtube_stream_key: Optional[str] = None,
+        headless_preview_host: Optional[str] = None,
+        headless_preview_port: Optional[int] = None,
         bit_rate: Optional[int] = None,
     ) -> None:
         """Construct the Aspen video sink plugin.
@@ -59,6 +64,15 @@ class VideoOutPlugin(Plugin):
         @param output_height: Optional final output height for legacy sink-only use.
         @param show_image: Whether to show frames live during writing.
         @param show_scaled: Optional scale factor for the live preview window.
+        @param show_youtube: Whether to publish preview frames to a YouTube
+                             RTMP(S) ingest URL.
+        @param youtube_stream_url: Base YouTube ingest URL or a full RTMP(S)
+                                   publish URL.
+        @param youtube_stream_key: Stream key appended to the YouTube ingest URL.
+        @param headless_preview_host: Listen host for browser-based fallback
+                                      preview when no display is available.
+        @param headless_preview_port: Listen port for browser-based fallback
+                                      preview when no display is available.
         @param bit_rate: Optional target encoded video bitrate.
         """
         super().__init__(enabled=enabled)
@@ -77,6 +91,11 @@ class VideoOutPlugin(Plugin):
         self._output_height = output_height
         self._show_image = bool(show_image) if show_image is not None else None
         self._show_scaled = show_scaled
+        self._show_youtube = bool(show_youtube) if show_youtube is not None else None
+        self._youtube_stream_url = youtube_stream_url
+        self._youtube_stream_key = youtube_stream_key
+        self._headless_preview_host = headless_preview_host
+        self._headless_preview_port = headless_preview_port
         self._bit_rate = bit_rate
 
     def set_cuda_graph_enabled(self, enabled: bool) -> bool:
@@ -198,6 +217,61 @@ class VideoOutPlugin(Plugin):
                     "video_out.show_scaled",
                     default_value=get_nested_value(
                         cfg, "aspen.video_out.show_scaled", default_value=None
+                    ),
+                )
+            ),
+            show_youtube=bool(
+                self._show_youtube
+                if self._show_youtube is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.show_youtube",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.show_youtube", default_value=False
+                    ),
+                )
+            ),
+            youtube_stream_url=(
+                self._youtube_stream_url
+                if self._youtube_stream_url is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.youtube_stream_url",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.youtube_stream_url", default_value=None
+                    ),
+                )
+            ),
+            youtube_stream_key=(
+                self._youtube_stream_key
+                if self._youtube_stream_key is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.youtube_stream_key",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.youtube_stream_key", default_value=None
+                    ),
+                )
+            ),
+            headless_preview_host=(
+                self._headless_preview_host
+                if self._headless_preview_host is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.headless_preview_host",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.headless_preview_host", default_value="0.0.0.0"
+                    ),
+                )
+            ),
+            headless_preview_port=(
+                self._headless_preview_port
+                if self._headless_preview_port is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.headless_preview_port",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.headless_preview_port", default_value=0
                     ),
                 )
             ),

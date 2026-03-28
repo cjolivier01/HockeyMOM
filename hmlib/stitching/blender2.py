@@ -1327,6 +1327,13 @@ def blend_video(
                         cache_size=queue_size,
                         name="StitchedOutput",
                         device=blended.device,
+                        show_image=bool(show),
+                        show_scaled=show_scaled,
+                        show_youtube=bool(opts.show_youtube),
+                        youtube_stream_url=opts.youtube_stream_url,
+                        youtube_stream_key=opts.youtube_stream_key,
+                        headless_preview_host=opts.headless_preview_host or "0.0.0.0",
+                        headless_preview_port=int(opts.headless_preview_port or 0),
                     )
 
             if video_out is not None:

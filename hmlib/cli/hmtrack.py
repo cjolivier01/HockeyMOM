@@ -5,8 +5,7 @@ import math
 import os
 import re
 import shutil
-
-# import sys
+import time
 import traceback
 from collections import OrderedDict
 from pathlib import Path
@@ -313,6 +312,83 @@ def make_parser(parser: argparse.ArgumentParser = None):
     )
     return hm_opts.finalize_parser(parser)
 
+
+def _torch_backend_label() -> str:
+    if getattr(torch.version, "hip", None):
+        return "rocm:" + str(torch.version.hip)
+    if getattr(torch.version, "cuda", None):
+        return "cuda:" + str(torch.version.cuda)
+    return "cpu"
+
+
+def _exercise_preview_smoke(args: argparse.Namespace) -> list[str]:
+    if not args.show_image and not args.show_youtube:
+        return []
+
+    from hmlib.ui.headless_preview import mask_stream_url
+    from hmlib.ui.shower import Shower
+
+    messages: list[str] = []
+    shower = Shower(
+        label="hmtrack-smoke-preview",
+        show_scaled=args.show_scaled,
+        max_size=2,
+        enable_local_display=args.show_image,
+        show_youtube=args.show_youtube,
+        youtube_stream_url=args.youtube_stream_url,
+        youtube_stream_key=args.youtube_stream_key,
+        headless_preview_host=args.headless_preview_host or "0.0.0.0",
+        headless_preview_port=int(args.headless_preview_port or 0),
+    )
+    try:
+        frame = torch.full((32, 48, 3), 127, dtype=torch.uint8)
+        for _ in range(3):
+            shower.show(frame)
+            time.sleep(0.05)
+        time.sleep(0.2)
+        if args.show_image:
+            if shower._headless_preview is not None:
+                messages.append(
+                    f"Headless preview OK. url=http://127.0.0.1:{shower._headless_preview.port}/"
+                )
+            else:
+                messages.append("Local preview OK.")
+        if args.show_youtube and shower._youtube_stream_url is not None:
+            messages.append(
+                "YouTube preview publish OK. " f"url={mask_stream_url(shower._youtube_stream_url)}"
+            )
+    finally:
+        shower.close()
+    return messages
+
+
+def _run_smoke_test(args: argparse.Namespace) -> int:
+    game_dir = None
+    if args.game_id:
+        try:
+            game_dir = get_game_dir(args.game_id, assert_exists=False)
+        except Exception:
+            game_dir = None
+
+    # Validate imports for the pieces hmtrack expects to have available.
+    import hockeymom._hockeymom  # noqa: F401
+    import lightglue  # noqa: F401
+    import mmcv  # noqa: F401
+    import mmdet  # noqa: F401
+    import mmengine  # noqa: F401
+    import mmpose  # noqa: F401
+    import mmyolo  # noqa: F401
+
+    for message in _exercise_preview_smoke(args):
+        print(message)
+    print(
+        "Smoke test OK. "
+        f"backend={_torch_backend_label()} "
+        f"cuda_available={torch.cuda.is_available()} "
+        f"game_id={args.game_id} "
+        f"game_dir={game_dir}"
+    )
+    return 0
 
 def _slugify_label(value: str) -> str:
     if value is None:
@@ -2117,7 +2193,8 @@ def main():
     parser = make_parser()
     args = parser.parse_args()
     args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser)
-
+    if args.smoke_test:
+        return _run_smoke_test(args)
     game_config = get_config(
         game_id=args.game_id,
         rink=args.rink,
@@ -2188,26 +2265,6 @@ def main():
     args.game_config = game_config
 
     args = configure_model(config=args.game_config, args=args)
-
-    if getattr(args, "smoke_test", False):
-        game_dir = None
-        if getattr(args, "game_id", None):
-            try:
-                game_dir = get_game_dir(args.game_id, assert_exists=False)
-            except Exception:
-                game_dir = None
-
-        # Validate imports for the pieces hmtrack expects to have available.
-        import hockeymom._hockeymom  # noqa: F401
-        import lightglue  # noqa: F401
-        import mmcv  # noqa: F401
-        import mmdet  # noqa: F401
-        import mmengine  # noqa: F401
-        import mmpose  # noqa: F401
-        import mmyolo  # noqa: F401
-
-        print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
-        return 0
 
     if args.game_id:
         num_gpus = 1
