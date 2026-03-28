@@ -25,6 +25,7 @@ from hmlib.aspen.plugins.base import Plugin
 from hmlib.log import get_logger
 from hmlib.utils.containers import SidebandQueue as Queue
 from hmlib.utils.containers import create_queue
+from hmlib.utils.gpu import stream_tensor_tracking
 
 logger = get_logger(__name__)
 
@@ -1504,27 +1505,40 @@ class AspenNet(torch.nn.Module):
             self.thread_cuda_streams  # and torch.cuda.is_available() and device is not None
         )
         if use_cuda_stream:
+            profiler = self._profiler
+            init_ctx = (
+                profiler.rf(f"aspen.stream_init.{node.name}")
+                if getattr(profiler, "enabled", False)
+                else contextlib.nullcontext()
+            )
             if node.stream is None:
-                device = self._infer_device(context)
-                # Arbitrarily make normal priority 10
-                # Smaller/neg numbers are higher priority
-                priority: int = self.max_graph_degree + 1
-                if node.graph_degree is not None:
-                    priority -= node.graph_degree
-                node.stream = torch.cuda.Stream(
-                    device=device,
-                    priority=priority,
-                )
-                print(f"Created stream for plugin {node.name} with priority {priority}")
+                with init_ctx:
+                    device = self._infer_device(context)
+                    # Arbitrarily make normal priority 10
+                    # Smaller/neg numbers are higher priority
+                    priority: int = self.max_graph_degree + 1
+                    if node.graph_degree is not None:
+                        priority -= node.graph_degree
+                    node.stream = torch.cuda.Stream(
+                        device=device,
+                        priority=priority,
+                    )
+                    print(f"Created stream for plugin {node.name} with priority {priority}")
             # Ensure plugins that fetch context["cuda_stream"] see the stream actually running them.
             prev_stream = context.get("cuda_stream")
             if prev_stream is None:
                 prev_stream = torch.cuda.current_stream(device=node.stream.device)
             if prev_stream is not None:
-                node.stream.wait_stream(prev_stream)
+                wait_ctx = (
+                    profiler.rf(f"aspen.stream_wait.{node.name}")
+                    if getattr(profiler, "enabled", False)
+                    else contextlib.nullcontext()
+                )
+                with wait_ctx:
+                    node.stream.wait_stream(prev_stream)
             context["cuda_stream"] = node.stream
             try:
-                with torch.cuda.stream(node.stream):
+                with torch.cuda.stream(node.stream), stream_tensor_tracking("stream"):
                     self._execute_node(node, context)
             finally:
                 if prev_stream is not None:
