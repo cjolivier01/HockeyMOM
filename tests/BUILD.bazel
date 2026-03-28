@@ -14,6 +14,14 @@ py_test(
     ],
 )
 
+sh_test(
+    name = "cli_script_smoke",
+    srcs = ["cli_script_smoke.sh"],
+    data = [
+        "//hmlib:hmlib.lib",
+    ],
+)
+
 py_test(
     name="test_unified_config",
     srcs=["test_unified_config.py"],
@@ -124,6 +132,15 @@ py_test(
     deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
+    ],
+)
+
+sh_test(
+    name = "test_rocm_runtime_fallbacks",
+    srcs = ["test_rocm_runtime_fallbacks.sh"],
+    data = [
+        "//hmlib:hmlib.lib",
+        "test_rocm_runtime_fallbacks.py",
     ],
 )
 

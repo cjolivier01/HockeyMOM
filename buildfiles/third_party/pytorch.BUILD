@@ -1,15 +1,7 @@
 filegroup(
     name = "libtorch_so_files",
     srcs = [
-        "lib/libcaffe2_nvrtc.so",
-        "lib/libc10_cuda.so",
-        "lib/libtorch_cuda.so",
-        "lib/libtorch_cuda_linalg.so",
-        "lib/libtorch_global_deps.so",
-        "lib/libc10.so",
-        "lib/libshm.so",
-        "lib/libtorch.so",
-        "lib/libtorch_cpu.so",
+%{LIBTORCH_SO_FILES}
     ],
     visibility = ["//visibility:public"],
 )
@@ -20,8 +12,7 @@ cc_library(
     hdrs = glob(["include/**/*.h*"]),
     defines = [
         # Must match `torch._C._GLIBCXX_USE_CXX11_ABI` for the installed torch.
-        # Newer CUDA wheels (e.g. cu128) use the C++11 ABI (1).
-        "_GLIBCXX_USE_CXX11_ABI=1",
+        "_GLIBCXX_USE_CXX11_ABI=%{GLIBCXX_USE_CXX11_ABI}",
     ],
     includes = [
         "include",
@@ -47,7 +38,7 @@ cc_library(
     name = "libtorch_python",
     srcs = ["lib/libtorch_python.so"],
     defines = [
-        "_GLIBCXX_USE_CXX11_ABI=1",
+        "_GLIBCXX_USE_CXX11_ABI=%{GLIBCXX_USE_CXX11_ABI}",
     ],
     visibility = ["//visibility:public"],
     deps = [

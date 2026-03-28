@@ -1,6 +1,11 @@
+load("@rules_cuda//cuda:defs.bzl", "requires_cuda")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 INCLUDE_PREFIX = "hockeymom/csrc/bytetrack"
+CUDA_ONLY_COMPAT = select({
+    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+}) + requires_cuda()
 
 cc_library(
     name = "bytetrack",
@@ -24,6 +29,7 @@ cc_library(
     ],
     includes = ["."],
     visibility = ["//visibility:public"],
+    target_compatible_with = CUDA_ONLY_COMPAT,
     deps = [
         "@libtorch",
         "//hockeymom/csrc/pytorch:bytetrack_cuda_ops",
@@ -34,6 +40,7 @@ cc_library(
 cc_test(
     name = "byte_tracker_cuda_test",
     srcs = ["byte_tracker_cuda_test.cpp"],
+    target_compatible_with = CUDA_ONLY_COMPAT,
     deps = [
         ":bytetrack",
         "//hockeymom/csrc/pytorch:bytetrack_cuda_ops",

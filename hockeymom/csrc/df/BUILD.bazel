@@ -1,6 +1,11 @@
+load("@rules_cuda//cuda:defs.bzl", "requires_cuda")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 INCLUDE_PREFIX = "hockeymom/csrc/df"
+CUDA_ONLY_COMPAT = select({
+    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+}) + requires_cuda()
 
 cc_library(
     name = "df_tracker",
@@ -8,6 +13,7 @@ cc_library(
     hdrs = ["DfTrackerCudaStatic.h"],
     includes = ["."],
     visibility = ["//visibility:public"],
+    target_compatible_with = CUDA_ONLY_COMPAT,
     deps = [
         "@libtorch",
         "//hockeymom/csrc/bytetrack:bytetrack",
