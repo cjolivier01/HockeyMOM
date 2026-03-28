@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import html
 import io
 import os
@@ -27,6 +28,7 @@ from PIL import Image
 from hmlib.log import get_root_logger
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import make_visible_image
+from hmlib.video.ffmpeg_mux_cmd import build_ffmpeg_live_bitstream_publish_cmd
 
 
 def has_local_display() -> bool:
@@ -70,6 +72,27 @@ def _normalize_preview_frame(
     if visible.dtype != np.uint8:
         visible = visible.astype(np.uint8)
     return np.ascontiguousarray(visible)
+
+
+def _ensure_even_video_frame(frame: torch.Tensor) -> torch.Tensor:
+    """Crop preview frames to even dimensions for YUV420/NVENC compatibility."""
+    if frame.ndim != 3:
+        raise ValueError(f"Expected HWC frame for video publishing, got shape={frame.shape}")
+    height = int(frame.shape[0])
+    width = int(frame.shape[1])
+    even_height = height - (height % 2)
+    even_width = width - (width % 2)
+    if even_height <= 0 or even_width <= 0:
+        raise ValueError(f"Preview frame became too small after even-dimension crop: {frame.shape}")
+    if even_height == height and even_width == width:
+        return frame
+    return frame[:even_height, :even_width, ...]
+
+
+def _prof_ctx(profiler: Any, name: str):
+    if profiler is not None and getattr(profiler, "enabled", False):
+        return profiler.rf(name)
+    return contextlib.nullcontext()
 
 
 class _PreviewHttpServer(ThreadingHTTPServer):
@@ -161,12 +184,14 @@ class BrowserPreviewServer:
         port: int = 0,
         jpeg_quality: int = 80,
         logger: Any = None,
+        profiler: Any = None,
     ) -> None:
         self.label = str(label or "Preview")
         self._host = str(host or "0.0.0.0")
         self._port = int(port or 0)
         self._jpeg_quality = int(jpeg_quality)
         self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
         self._latest_frame: Optional[bytes] = None
@@ -236,17 +261,19 @@ class BrowserPreviewServer:
     ) -> None:
         if self._server is None:
             self.start()
-        frame = _normalize_preview_frame(img, show_scaled=show_scaled)
-        if frame.ndim == 2:
-            pil_frame = Image.fromarray(frame)
-        elif frame.ndim == 3 and frame.shape[2] == 3:
-            pil_frame = Image.fromarray(frame[:, :, ::-1])
-        elif frame.ndim == 3 and frame.shape[2] == 4:
-            pil_frame = Image.fromarray(frame[:, :, [2, 1, 0, 3]]).convert("RGB")
-        else:
-            raise ValueError(f"Unsupported preview frame shape={frame.shape}")
-        encoded = io.BytesIO()
-        pil_frame.save(encoded, format="JPEG", quality=self._jpeg_quality)
+        with _prof_ctx(self._profiler, "headless_preview.normalize"):
+            frame = _normalize_preview_frame(img, show_scaled=show_scaled)
+        with _prof_ctx(self._profiler, "headless_preview.jpeg_encode"):
+            if frame.ndim == 2:
+                pil_frame = Image.fromarray(frame)
+            elif frame.ndim == 3 and frame.shape[2] == 3:
+                pil_frame = Image.fromarray(frame[:, :, ::-1])
+            elif frame.ndim == 3 and frame.shape[2] == 4:
+                pil_frame = Image.fromarray(frame[:, :, [2, 1, 0, 3]]).convert("RGB")
+            else:
+                raise ValueError(f"Unsupported preview frame shape={frame.shape}")
+            encoded = io.BytesIO()
+            pil_frame.save(encoded, format="JPEG", quality=self._jpeg_quality)
         with self._condition:
             self._latest_frame = encoded.getvalue()
             self._frame_sequence += 1
@@ -319,7 +346,7 @@ def validate_youtube_stream_url(url: str) -> None:
         )
 
 
-class FFmpegLivePublisher:
+class _RawVideoLivePublisher:
     """Pipe raw preview frames into ffmpeg for live RTMP(S) publishing."""
 
     def __init__(
@@ -329,11 +356,13 @@ class FFmpegLivePublisher:
         label: str,
         fps: float,
         logger: Any = None,
+        profiler: Any = None,
     ) -> None:
         self.output_url = str(output_url)
         self.label = str(label or "Live Preview")
         self.fps = float(fps) if fps and fps > 0 else 30.0
         self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
         self._process: Optional[subprocess.Popen[bytes]] = None
         self._stderr_thread: Optional[threading.Thread] = None
         self._stderr_tail: deque[str] = deque(maxlen=20)
@@ -433,15 +462,22 @@ class FFmpegLivePublisher:
             mask_stream_url(self.output_url),
         )
 
-    def write_frame(self, img: torch.Tensor | np.ndarray | StreamTensorBase) -> None:
-        frame = _normalize_preview_frame(img, show_scaled=None)
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        with _prof_ctx(self._profiler, "live_publish.normalize"):
+            frame = _normalize_preview_frame(img, show_scaled=show_scaled)
         self._ensure_open(width=frame.shape[1], height=frame.shape[0])
         process = self._process
         if process is None or process.stdin is None:
             raise RuntimeError("ffmpeg live publisher is not open")
         try:
-            process.stdin.write(frame.tobytes())
-            process.stdin.flush()
+            with _prof_ctx(self._profiler, "live_publish.raw_write"):
+                process.stdin.write(frame.tobytes())
+                process.stdin.flush()
         except BrokenPipeError as exc:
             stderr_tail = "\n".join(self._stderr_tail)
             raise RuntimeError(
@@ -486,3 +522,271 @@ class FFmpegLivePublisher:
                 f"ffmpeg live publisher exited with code {process.returncode} for "
                 f"{mask_stream_url(self.output_url)}\n{stderr_tail}"
             )
+
+
+class _BitstreamLiveMuxer:
+    """Mux encoded H.264 packets into RTMP(S) using ffmpeg copy mode."""
+
+    def __init__(
+        self,
+        output_url: str,
+        *,
+        fps: float,
+        label: str,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.output_url = str(output_url)
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self.label = str(label or "Live Preview")
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._process: Optional[subprocess.Popen[bytes]] = None
+        self._stderr_thread: Optional[threading.Thread] = None
+        self._stderr_tail: deque[str] = deque(maxlen=20)
+
+    def _stderr_worker(self, pipe) -> None:
+        try:
+            for raw_line in iter(pipe.readline, b""):
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                self._stderr_tail.append(line)
+        finally:
+            pipe.close()
+
+    def _build_cmd(self) -> list[str]:
+        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+        return build_ffmpeg_live_bitstream_publish_cmd(
+            ffmpeg=ffmpeg,
+            output_url=self.output_url,
+            stream_format="h264",
+            fps=self.fps,
+        )
+
+    def start(self) -> None:
+        if self._process is not None:
+            return
+        if shutil.which("ffmpeg") is None:
+            raise FileNotFoundError("ffmpeg is required for live preview streaming")
+        with _prof_ctx(self._profiler, "live_publish.start_muxer"):
+            self._process = subprocess.Popen(
+                self._build_cmd(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        assert self._process.stderr is not None
+        self._stderr_thread = threading.Thread(
+            target=self._stderr_worker,
+            args=(self._process.stderr,),
+            daemon=True,
+        )
+        self._stderr_thread.start()
+        self._logger.info(
+            "Publishing %s to %s",
+            self.label,
+            mask_stream_url(self.output_url),
+        )
+
+    def write_packet(self, payload: bytes) -> None:
+        if self._process is None:
+            self.start()
+        process = self._process
+        if process is None or process.stdin is None:
+            raise RuntimeError("ffmpeg live muxer is not open")
+        try:
+            with _prof_ctx(self._profiler, "live_publish.packet_write"):
+                process.stdin.write(payload)
+        except BrokenPipeError as exc:
+            stderr_tail = "\n".join(self._stderr_tail)
+            raise RuntimeError(
+                f"ffmpeg live muxer failed for {mask_stream_url(self.output_url)}\n{stderr_tail}"
+            ) from exc
+
+    def close(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        if self._stderr_thread is not None:
+            self._stderr_thread.join(timeout=2.0)
+            self._stderr_thread = None
+        if process.returncode not in (0, None):
+            stderr_tail = "\n".join(self._stderr_tail)
+            if any(
+                marker in stderr_tail
+                for marker in (
+                    "Connection reset by peer",
+                    "Broken pipe",
+                    "Error writing trailer",
+                )
+            ):
+                self._logger.warning(
+                    "ffmpeg live muxer for %s ended after the remote peer closed the stream.\n%s",
+                    mask_stream_url(self.output_url),
+                    stderr_tail,
+                )
+                return
+            raise RuntimeError(
+                f"ffmpeg live muxer exited with code {process.returncode} for "
+                f"{mask_stream_url(self.output_url)}\n{stderr_tail}"
+            )
+
+
+class _NvencLivePublisher:
+    """Encode CUDA frames with NVENC and publish packets live through ffmpeg."""
+
+    def __init__(
+        self,
+        output_url: str,
+        *,
+        label: str,
+        fps: float,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.output_url = str(output_url)
+        self.label = str(label or "Live Preview")
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._encoder = None
+        self._muxer = _BitstreamLiveMuxer(
+            output_url=self.output_url,
+            fps=self.fps,
+            label=self.label,
+            logger=self._logger,
+            profiler=self._profiler,
+        )
+
+    def _ensure_open(self, frame: torch.Tensor) -> None:
+        if self._encoder is not None:
+            return
+        from hmlib.video.py_nv_encoder import PyNvVideoEncoder
+
+        if frame.device.type != "cuda":
+            raise ValueError("NVENC live publisher requires CUDA frames")
+        with _prof_ctx(self._profiler, "live_publish.start_nvenc"):
+            self._encoder = PyNvVideoEncoder(
+                output_path=None,
+                width=int(frame.shape[1]),
+                height=int(frame.shape[0]),
+                fps=self.fps,
+                codec="h264",
+                preset="P2",
+                device=frame.device,
+                gpu_id=frame.device.index or 0,
+                cuda_stream=torch.cuda.current_stream(frame.device).cuda_stream,
+                bitstream_handler=self._muxer.write_packet,
+                profiler=self._profiler,
+            )
+            self._encoder.open()
+
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        frame = unwrap_tensor(img)
+        if not isinstance(frame, torch.Tensor) or frame.device.type != "cuda":
+            raise ValueError("NVENC live publisher requires CUDA tensor frames")
+        if frame.ndim != 3:
+            raise ValueError(
+                f"Expected single frame tensor with shape (H, W, C), got {frame.shape}"
+            )
+        with _prof_ctx(self._profiler, "live_publish.prepare_cuda_frame"):
+            frame = make_visible_image(frame, enable_resizing=show_scaled, force_numpy=False)
+            if not isinstance(frame, torch.Tensor):
+                raise TypeError("Expected make_visible_image to return a CUDA tensor for NVENC")
+            frame = _ensure_even_video_frame(frame)
+        self._ensure_open(frame)
+        assert self._encoder is not None
+        with _prof_ctx(self._profiler, "live_publish.nvenc_encode"):
+            self._encoder.write(frame)
+
+    def close(self) -> None:
+        encoder = self._encoder
+        self._encoder = None
+        if encoder is not None:
+            encoder.close()
+        self._muxer.close()
+
+
+class FFmpegLivePublisher:
+    """Live RTMP(S) publisher.
+
+    Uses NVENC via :class:`PyNvVideoEncoder` when CUDA frames are available and
+    falls back to the rawvideo->ffmpeg path for CPU frames or unsupported
+    environments.
+    """
+
+    def __init__(
+        self,
+        output_url: str,
+        *,
+        label: str,
+        fps: float,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.output_url = str(output_url)
+        self.label = str(label or "Live Preview")
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._backend: Optional[Any] = None
+
+    def _select_backend(self, img: torch.Tensor | np.ndarray | StreamTensorBase) -> Any:
+        frame = unwrap_tensor(img)
+        if isinstance(frame, torch.Tensor) and frame.device.type == "cuda":
+            try:
+                return _NvencLivePublisher(
+                    output_url=self.output_url,
+                    label=self.label,
+                    fps=self.fps,
+                    logger=self._logger,
+                    profiler=self._profiler,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "Falling back to raw ffmpeg live publisher for %s because NVENC live "
+                    "publisher initialization failed: %s",
+                    mask_stream_url(self.output_url),
+                    exc,
+                )
+        return _RawVideoLivePublisher(
+            output_url=self.output_url,
+            label=self.label,
+            fps=self.fps,
+            logger=self._logger,
+            profiler=self._profiler,
+        )
+
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        if self._backend is None:
+            self._backend = self._select_backend(img)
+        self._backend.write_frame(img, show_scaled=show_scaled)
+
+    def close(self) -> None:
+        if self._backend is None:
+            return
+        self._backend.close()
+        self._backend = None

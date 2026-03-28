@@ -22,6 +22,7 @@ class VideoOutPlugin(Plugin):
         enabled: bool = True,
         output_video_path: Optional[str] = None,
         cache_size: int = 2,
+        preview_via_sink: bool = True,
         video_out_device: Optional[str] = None,
         skip_final_save: bool = False,
         save_frame_dir: Optional[str] = None,
@@ -52,6 +53,8 @@ class VideoOutPlugin(Plugin):
         @param output_video_path: Explicit output path or basename override.
         @param cache_size: Small writer/UI cache size carried through to
                            :class:`VideoOutput`.
+        @param preview_via_sink: When False, keep this plugin write-only and
+                                 leave preview/streaming to a separate sink.
         @param video_out_device: Optional preferred writer device.
         @param skip_final_save: When True, suppress final encoded output writes.
         @param save_frame_dir: Optional PNG frame dump directory.
@@ -79,6 +82,7 @@ class VideoOutPlugin(Plugin):
         self._vo: Optional[VideoOutput] = None
         self._out_path = output_video_path
         self._cache = int(cache_size)
+        self._preview_via_sink = bool(preview_via_sink)
         self._vo_dev = video_out_device
         self._skip_final_save = bool(skip_final_save)
         self._save_dir = save_frame_dir
@@ -184,6 +188,92 @@ class VideoOutPlugin(Plugin):
             if shared.get("mux_audio_aac_bitrate") is not None:
                 mux_audio_aac_bitrate = str(shared.get("mux_audio_aac_bitrate") or "192k")
 
+        show_image = False
+        show_scaled = None
+        show_youtube = False
+        youtube_stream_url = None
+        youtube_stream_key = None
+        headless_preview_host = "0.0.0.0"
+        headless_preview_port = 0
+        if self._preview_via_sink:
+            show_image = bool(
+                self._show_image
+                if self._show_image is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.show_image",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.show_image", default_value=False
+                    ),
+                )
+            )
+            show_scaled = (
+                self._show_scaled
+                if self._show_scaled is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.show_scaled",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.show_scaled", default_value=None
+                    ),
+                )
+            )
+            show_youtube = bool(
+                self._show_youtube
+                if self._show_youtube is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.show_youtube",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.show_youtube", default_value=False
+                    ),
+                )
+            )
+            youtube_stream_url = (
+                self._youtube_stream_url
+                if self._youtube_stream_url is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.youtube_stream_url",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.youtube_stream_url", default_value=None
+                    ),
+                )
+            )
+            youtube_stream_key = (
+                self._youtube_stream_key
+                if self._youtube_stream_key is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.youtube_stream_key",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.youtube_stream_key", default_value=None
+                    ),
+                )
+            )
+            headless_preview_host = (
+                self._headless_preview_host
+                if self._headless_preview_host is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.headless_preview_host",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.headless_preview_host", default_value="0.0.0.0"
+                    ),
+                )
+            )
+            headless_preview_port = (
+                self._headless_preview_port
+                if self._headless_preview_port is not None
+                else get_nested_value(
+                    cfg,
+                    "video_out.headless_preview_port",
+                    default_value=get_nested_value(
+                        cfg, "aspen.video_out.headless_preview_port", default_value=0
+                    ),
+                )
+            )
+
         self._vo = VideoOutput(
             output_video_path=out_path,
             fps=fps,
@@ -200,83 +290,13 @@ class VideoOutPlugin(Plugin):
             device=vo_dev,
             output_width=self._output_width,
             output_height=self._output_height,
-            show_image=bool(
-                self._show_image
-                if self._show_image is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.show_image",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.show_image", default_value=False
-                    ),
-                )
-            ),
-            show_scaled=(
-                self._show_scaled
-                if self._show_scaled is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.show_scaled",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.show_scaled", default_value=None
-                    ),
-                )
-            ),
-            show_youtube=bool(
-                self._show_youtube
-                if self._show_youtube is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.show_youtube",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.show_youtube", default_value=False
-                    ),
-                )
-            ),
-            youtube_stream_url=(
-                self._youtube_stream_url
-                if self._youtube_stream_url is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.youtube_stream_url",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.youtube_stream_url", default_value=None
-                    ),
-                )
-            ),
-            youtube_stream_key=(
-                self._youtube_stream_key
-                if self._youtube_stream_key is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.youtube_stream_key",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.youtube_stream_key", default_value=None
-                    ),
-                )
-            ),
-            headless_preview_host=(
-                self._headless_preview_host
-                if self._headless_preview_host is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.headless_preview_host",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.headless_preview_host", default_value="0.0.0.0"
-                    ),
-                )
-            ),
-            headless_preview_port=(
-                self._headless_preview_port
-                if self._headless_preview_port is not None
-                else get_nested_value(
-                    cfg,
-                    "video_out.headless_preview_port",
-                    default_value=get_nested_value(
-                        cfg, "aspen.video_out.headless_preview_port", default_value=0
-                    ),
-                )
-            ),
+            show_image=show_image,
+            show_scaled=show_scaled,
+            show_youtube=show_youtube,
+            youtube_stream_url=youtube_stream_url,
+            youtube_stream_key=youtube_stream_key,
+            headless_preview_host=headless_preview_host,
+            headless_preview_port=headless_preview_port,
             profiler=shared.get("profiler", None) if isinstance(shared, dict) else None,
             enable_end_zones=False,
             encoder_backend=self._encoder_backend,
@@ -286,10 +306,11 @@ class VideoOutPlugin(Plugin):
 
     def finalize(self) -> None:
         if self._vo is not None:
-            try:
-                self._vo.stop()
-            except Exception:
-                pass
+            with self.profile_scope("video_out.finalize"):
+                try:
+                    self._vo.stop()
+                except Exception:
+                    pass
 
     def input_keys(self):
         if not hasattr(self, "_input_keys"):
@@ -320,14 +341,17 @@ class VideoOutPlugin(Plugin):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        self._ensure_initialized(context)
+        with self.profile_scope("video_out.ensure_initialized"):
+            self._ensure_initialized(context)
         assert self._vo is not None
         prepared = dict(context)
         if not prepared.get("video_out_prepared", False):
             # Preserve backward compatibility for configs that instantiate only
             # the sink plugin: it can still perform prep internally.
-            prepared = self._vo.prepare_results(prepared)
-        self._vo.write_prepared_results(prepared)
+            with self.profile_scope("video_out.prepare_fallback"):
+                prepared = self._vo.prepare_results(prepared)
+        with self.profile_scope("video_out.write"):
+            self._vo.write_prepared_results(prepared)
         return {}
 
 

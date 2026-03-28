@@ -7,7 +7,7 @@ import threading
 from collections import deque
 from fractions import Fraction
 from pathlib import Path
-from typing import IO, Any, List, Optional, Union
+from typing import IO, Any, Callable, List, Optional, Union
 
 import torch
 from typeguard import typechecked
@@ -91,7 +91,7 @@ class PyNvVideoEncoder:
     @typechecked
     def __init__(
         self,
-        output_path: Union[str, Path],
+        output_path: Optional[Union[str, Path]],
         width: int,
         height: int,
         fps: float,
@@ -109,6 +109,7 @@ class PyNvVideoEncoder:
         use_pyav: Optional[bool] = None,
         profiler: Optional[Any] = None,
         ffmpeg_output_handler: Optional[Any] = None,
+        bitstream_handler: Optional[Callable[[bytes], None]] = None,
     ) -> None:
         if nvc is None:
             raise ImportError(
@@ -116,7 +117,7 @@ class PyNvVideoEncoder:
                 "(import PyNvVideoCodec failed)."
             )
 
-        self.output_path = Path(output_path)
+        self.output_path = Path(output_path) if output_path is not None else None
         self.width = int(width)
         self.height = int(height)
         self.fps = float(fps)
@@ -143,10 +144,13 @@ class PyNvVideoEncoder:
         # Optional HmProfiler instance injected by callers.
         self._profiler: Optional[Any] = profiler
         self._ffmpeg_output_handler = ffmpeg_output_handler
+        self._bitstream_handler = bitstream_handler
 
         backend_env = os.environ.get("HM_VIDEO_ENCODER_BACKEND", "").lower()
         backend: str
-        if use_pyav is not None:
+        if self._bitstream_handler is not None:
+            backend = "callback"
+        elif use_pyav is not None:
             # Explicit caller override wins: True -> pyav, False -> ffmpeg pipe.
             backend = "pyav" if use_pyav else "raw"
         elif backend_env in {"pyav", "raw"}:
@@ -205,6 +209,8 @@ class PyNvVideoEncoder:
             self._open_bitstream_file()
         elif self._backend == "raw":
             self._open_bitstream_file()
+        elif self._backend == "callback":
+            pass
         else:
             raise ValueError(f"Unsupported NVENC encoder backend: {self._backend}")
         self._opened = True
@@ -292,6 +298,12 @@ class PyNvVideoEncoder:
                                     "Bitstream backend is selected but bitstream file is not open."
                                 )
                             self._bitstream_file.write(bytearray(bitstream))
+                        elif self._backend == "callback":
+                            if self._bitstream_handler is None:
+                                raise RuntimeError(
+                                    "Callback backend is selected but bitstream handler is not set."
+                                )
+                            self._bitstream_handler(bytes(bitstream))
                         else:
                             raise RuntimeError(
                                 f"Unsupported NVENC encoder backend: {self._backend}"
@@ -312,6 +324,12 @@ class PyNvVideoEncoder:
                             "Bitstream backend is selected but bitstream file is not open."
                         )
                     self._bitstream_file.write(bytearray(bitstream))
+                elif self._backend == "callback":
+                    if self._bitstream_handler is None:
+                        raise RuntimeError(
+                            "Callback backend is selected but bitstream handler is not set."
+                        )
+                    self._bitstream_handler(bytes(bitstream))
                 else:
                     raise RuntimeError(f"Unsupported NVENC encoder backend: {self._backend}")
 
@@ -338,6 +356,8 @@ class PyNvVideoEncoder:
                     self._mux_bitstream_file_with_ffmpeg(bitstream_path)
                 else:
                     raise RuntimeError(f"Unsupported NVENC encoder backend: {self._backend}")
+        elif self._backend == "callback":
+            pass
         else:
             assert self._bitstream_file is None
 
@@ -411,6 +431,8 @@ class PyNvVideoEncoder:
 
     def _container_format(self) -> Optional[str]:
         """Return an ffmpeg muxer name based on the output file extension."""
+        if self.output_path is None:
+            return None
         suffix = self.output_path.suffix.lower()
         if not suffix:
             return None
@@ -432,6 +454,8 @@ class PyNvVideoEncoder:
           - ``tracking_output.mkv`` -> ``tracking_output.mkv.h265``
         """
         ext = self._bitstream_extension()
+        if self.output_path is None:
+            raise RuntimeError("output_path is required for file-backed NVENC encoders")
         if self.output_path.suffix:
             raw_suffix = self.output_path.suffix + ext
             bitstream_path = self.output_path.with_suffix(raw_suffix)

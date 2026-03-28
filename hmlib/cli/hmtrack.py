@@ -348,10 +348,11 @@ def _exercise_preview_smoke(args: argparse.Namespace) -> list[str]:
     )
     try:
         frame = torch.full((32, 48, 3), 127, dtype=torch.uint8)
-        for _ in range(3):
+        frame_count = 24 if args.show_youtube else 3
+        for _ in range(frame_count):
             shower.show(frame)
             time.sleep(0.05)
-        time.sleep(0.2)
+        time.sleep(1.0 if args.show_youtube else 0.2)
         if args.show_image:
             if shower._headless_preview is not None:
                 messages.append(

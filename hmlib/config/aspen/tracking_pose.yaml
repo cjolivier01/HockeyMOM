@@ -322,14 +322,15 @@ aspen:
       depends: [video_out_prep]
       enabled: true
       params:
+        preview_via_sink: false
         skip_final_save: GLOBAL.video_out.skip_final_save
         encoder_backend: GLOBAL.video_out.encoder_backend
         bit_rate: GLOBAL.video_out.bit_rate
-        show_image: GLOBAL.video_out.show_image
-        show_scaled: GLOBAL.video_out.show_scaled
-        show_youtube: GLOBAL.video_out.show_youtube
-        youtube_stream_url: GLOBAL.video_out.youtube_stream_url
-        youtube_stream_key: GLOBAL.video_out.youtube_stream_key
-        headless_preview_host: GLOBAL.video_out.headless_preview_host
-        headless_preview_port: GLOBAL.video_out.headless_preview_port
         output_video_path: GLOBAL.video_out.output_video_path
+
+    video_preview:
+      class: hmlib.aspen.plugins.video_preview_plugin.VideoPreviewPlugin
+      depends: [video_out_prep]
+      enabled: true
+      params:
+        cache_size: 1

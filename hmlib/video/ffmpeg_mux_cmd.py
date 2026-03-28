@@ -91,3 +91,69 @@ def build_ffmpeg_raw_bitstream_mux_cmd(
 
     cmd.append(str(output_path))
     return cmd
+
+
+def build_ffmpeg_live_bitstream_publish_cmd(
+    *,
+    ffmpeg: str,
+    output_url: str,
+    stream_format: str,
+    fps: float,
+    aac_bitrate: str = "128k",
+) -> List[str]:
+    """Build an ffmpeg command to publish a raw elementary bitstream live.
+
+    This is used for NVENC-backed RTMP(S) publishing where encoded H.264
+    packets are produced in-memory and piped directly into ffmpeg for muxing
+    and transport.
+    """
+    fps_frac = Fraction(float(fps)).limit_denominator(1001)
+    fps_str = (
+        f"{fps_frac.numerator}/{fps_frac.denominator}"
+        if fps_frac.denominator != 1
+        else str(fps_frac.numerator)
+    )
+    time_base = Fraction(fps_frac.denominator, fps_frac.numerator)
+    time_base_str = f"{time_base.numerator}/{time_base.denominator}"
+    setts_bsf = f"setts=pts=N:dts=N:duration=1:time_base={time_base_str}"
+
+    return [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-progress",
+        "pipe:2",
+        "-nostats",
+        "-nostdin",
+        "-f",
+        str(stream_format),
+        "-framerate",
+        fps_str,
+        "-i",
+        "-",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=48000",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-bsf:v",
+        setts_bsf,
+        "-c:a",
+        "aac",
+        "-b:a",
+        str(aac_bitrate),
+        "-ac",
+        "2",
+        "-ar",
+        "48000",
+        "-shortest",
+        "-f",
+        "flv",
+        str(output_url),
+    ]

@@ -1,10 +1,13 @@
 import argparse
 import os
+import queue
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import types
 import unittest
 import urllib.request
 from collections import OrderedDict
@@ -178,6 +181,60 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
             finally:
                 shower.close()
 
+    def test_shower_disables_live_publisher_after_publish_failure(self):
+        with mock.patch("hmlib.ui.shower.FFmpegLivePublisher", autospec=True) as publisher_cls:
+            publisher = publisher_cls.return_value
+            publisher.write_frame.side_effect = RuntimeError("broken pipe")
+            shower = Shower(
+                "publish-failure-test",
+                max_size=1,
+                enable_local_display=False,
+                show_youtube=True,
+                youtube_stream_url="rtmp://127.0.0.1:1935/live/test",
+            )
+            try:
+                shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
+                time.sleep(0.2)
+                self.assertTrue(publisher.close.called)
+                self.assertIsNone(shower._youtube_publisher)
+            finally:
+                shower.close()
+
+    def test_shower_close_stops_fps_worker(self):
+        shower = Shower(
+            "fps-close-test",
+            fps=10.0,
+            max_size=1,
+            enable_local_display=False,
+        )
+        shower.show(torch.full((16, 16, 3), 127, dtype=torch.uint8))
+        time.sleep(0.1)
+        closer = threading.Thread(target=shower.close)
+        closer.start()
+        closer.join(timeout=2.0)
+        self.assertFalse(closer.is_alive(), "Shower.close() should stop fps workers promptly")
+
+    def test_shower_drop_oldest_when_full_keeps_latest_frame(self):
+        shower = Shower(
+            "drop-oldest-preview-test",
+            max_size=1,
+            enable_local_display=False,
+            skip_frame_when_full=True,
+            drop_oldest_when_full=True,
+        )
+        try:
+            shower.close()
+            shower._q = queue.Queue()
+            shower._thread = object()
+            first = torch.full((8, 8, 3), 1, dtype=torch.uint8)
+            second = torch.full((8, 8, 3), 2, dtype=torch.uint8)
+            shower._q.put(first)
+            shower.show(second, clone=False)
+            kept = shower._q.get_nowait()
+            self.assertTrue(torch.equal(kept, second))
+        finally:
+            shower._thread = None
+
     def test_cli_smoke_runs_headless_preview_for_hmtrack_and_stitch(self):
         for script_name in ("hmtrack.py", "stitch.py"):
             result = self._run_cli_smoke(
@@ -236,6 +293,121 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                 self.assertEqual(receiver.returncode, 0)
                 self.assertTrue(output_path.exists())
                 self.assertGreater(output_path.stat().st_size, 0)
+
+    def test_ffmpeg_live_publisher_prefers_nvenc_for_cuda_frames(self):
+        if not torch.cuda.is_available():
+            self.skipTest("requires CUDA")
+
+        packets: list[bytes] = []
+        encoder_instances: list[object] = []
+
+        class _FakeMuxer:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                self.closed = False
+
+            def write_packet(self, payload: bytes) -> None:
+                packets.append(payload)
+
+            def close(self) -> None:
+                self.closed = True
+
+        class _FakeEncoder:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+                self.opened = False
+                self.closed = False
+                self.written_shapes: list[tuple[int, ...]] = []
+                encoder_instances.append(self)
+
+            def open(self) -> None:
+                self.opened = True
+
+            def write(self, frame: torch.Tensor) -> None:
+                self.written_shapes.append(tuple(int(dim) for dim in frame.shape))
+                handler = self.kwargs["bitstream_handler"]
+                handler(b"fake-nvenc-packet")
+
+            def close(self) -> None:
+                self.closed = True
+
+        with (
+            mock.patch("hmlib.ui.headless_preview._BitstreamLiveMuxer", _FakeMuxer),
+            mock.patch.dict(
+                sys.modules,
+                {"hmlib.video.py_nv_encoder": types.SimpleNamespace(PyNvVideoEncoder=_FakeEncoder)},
+            ),
+        ):
+            publisher = FFmpegLivePublisher(
+                output_url="rtmp://127.0.0.1:1935/live/test",
+                label="nvenc-preview-test",
+                fps=10.0,
+            )
+            frame = torch.zeros((48, 64, 3), dtype=torch.uint8, device="cuda")
+            frame[..., 2] = 255
+            publisher.write_frame(frame, show_scaled=0.5)
+            publisher.close()
+
+        self.assertEqual(packets, [b"fake-nvenc-packet"])
+        self.assertEqual(len(encoder_instances), 1)
+        self.assertTrue(encoder_instances[0].opened)
+        self.assertTrue(encoder_instances[0].closed)
+        self.assertEqual(encoder_instances[0].kwargs["codec"], "h264")
+        self.assertEqual(encoder_instances[0].written_shapes, [(24, 32, 3)])
+
+    def test_ffmpeg_live_publisher_nvenc_crops_odd_dimensions(self):
+        if not torch.cuda.is_available():
+            self.skipTest("requires CUDA")
+
+        encoder_instances: list[object] = []
+
+        class _FakeMuxer:
+            def __init__(self, *args, **kwargs):
+                self.closed = False
+
+            def write_packet(self, payload: bytes) -> None:
+                return None
+
+            def close(self) -> None:
+                self.closed = True
+
+        class _FakeEncoder:
+            def __init__(self, *args, **kwargs):
+                self.kwargs = kwargs
+                self.written_shapes: list[tuple[int, ...]] = []
+                encoder_instances.append(self)
+
+            def open(self) -> None:
+                return None
+
+            def write(self, frame: torch.Tensor) -> None:
+                self.written_shapes.append(tuple(int(dim) for dim in frame.shape))
+
+            def close(self) -> None:
+                return None
+
+        with (
+            mock.patch("hmlib.ui.headless_preview._BitstreamLiveMuxer", _FakeMuxer),
+            mock.patch.dict(
+                sys.modules,
+                {"hmlib.video.py_nv_encoder": types.SimpleNamespace(PyNvVideoEncoder=_FakeEncoder)},
+            ),
+        ):
+            publisher = FFmpegLivePublisher(
+                output_url="rtmp://127.0.0.1:1935/live/test",
+                label="nvenc-odd-dims-test",
+                fps=10.0,
+            )
+            frame = torch.zeros((49, 65, 3), dtype=torch.uint8, device="cuda")
+            publisher.write_frame(frame)
+            publisher.close()
+
+        self.assertEqual(len(encoder_instances), 1)
+        self.assertEqual(encoder_instances[0].kwargs["width"], 64)
+        self.assertEqual(encoder_instances[0].kwargs["height"], 48)
+        self.assertEqual(encoder_instances[0].written_shapes, [(48, 64, 3)])
 
     def test_ffmpeg_live_publisher_streams_to_local_rtmp_listener(self):
         port = _find_free_port()
