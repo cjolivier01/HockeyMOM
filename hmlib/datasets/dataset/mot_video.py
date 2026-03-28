@@ -66,6 +66,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         adjust_exposure: Optional[float] = None,
         no_cuda_streams: bool = False,
         async_mode: bool = True,
+        prefetch_batches: int = 2,
         checkerboard_input: bool = False,
     ):
         self._instance_id = MOTLoadVideoWithOrig._instance_counter
@@ -102,6 +103,8 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self._multi_width_img_info = multi_width_img_info
         self._original_image_only = original_image_only
         self._async_mode = bool(async_mode)
+        self._prefetch_batches = max(1, int(prefetch_batches))
+        self._pending_worker_requests = 0
         self._checkerboard_input = bool(checkerboard_input)
         self.width_t = None
         self.height_t = None
@@ -445,7 +448,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         return self.letterbox_dw, self.letterbox_dh
 
     def _next_frame_worker(self):
-        self._to_worker_queue.put("ok")
         try:
             self._open_video()
 
@@ -489,7 +491,23 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             target=self._next_frame_worker, name="MOTVideoNextFrameWorker"
         )
         self._next_counter = 0
+        self._pending_worker_requests = 0
         self._thread.start()
+
+    def _request_next_batch(self) -> None:
+        if not self._async_mode or self._thread is None:
+            return
+        self._to_worker_queue.put("ok")
+        self._pending_worker_requests += 1
+
+    def _refill_prefetch(self) -> None:
+        if not self._async_mode or self._thread is None:
+            return
+        while self._pending_worker_requests < self._prefetch_batches:
+            self._request_next_batch()
+
+    def _reset_prefetch(self) -> None:
+        self._pending_worker_requests = 0
 
     def close(self):
         if self._async_mode:
@@ -497,6 +515,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 self._to_worker_queue.put("stop")
                 self._thread.join()
                 self._thread = None
+            self._reset_prefetch()
         else:
             # In synchronous mode, just close any open video or embedded loader.
             self._close_video()
@@ -522,6 +541,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         if self._async_mode:
             if self._thread is None:
                 self._start_worker()
+            self._refill_prefetch()
         else:
             # Synchronous mode: open video lazily on first iteration if needed.
             if self.cap is None:
@@ -783,8 +803,27 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             )
             with qctx:
                 if self._async_mode:
-                    self._to_worker_queue.put("ok")
-                    results = self._from_worker_queue.get()
+                    rctx = (
+                        prof.rf("dataloader.prefetch_refill")
+                        if getattr(prof, "enabled", False)
+                        else _contextlib.nullcontext()
+                    )
+                    with rctx:
+                        self._refill_prefetch()
+                    wctx = (
+                        prof.rf("dataloader.dequeue_wait")
+                        if getattr(prof, "enabled", False)
+                        else _contextlib.nullcontext()
+                    )
+                    with wctx:
+                        results = self._from_worker_queue.get()
+                    if self._pending_worker_requests > 0:
+                        self._pending_worker_requests -= 1
+                    if not isinstance(results, Exception):
+                        with rctx:
+                            self._refill_prefetch()
+                    else:
+                        self._reset_prefetch()
                 else:
                     try:
                         results = self._get_next_batch()
@@ -829,6 +868,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                 return
             if self._async_mode:
                 self._to_worker_queue.put(f"seek:{frame_number}")
+                self._reset_prefetch()
                 while True:
                     response = self._from_worker_queue.get()
                     if isinstance(response, Exception):
@@ -836,6 +876,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
                     if isinstance(response, str) and response == "seek_ok":
                         break
                         # otherwise it's probably a queued frame, so discard it
+                self._refill_prefetch()
             else:
                 # Best-effort synchronous seek for file-backed videos; embedded loaders are unsupported.
                 if self._embedded_data_loader is not None:

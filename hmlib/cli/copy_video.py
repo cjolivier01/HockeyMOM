@@ -123,6 +123,12 @@ def copy_video(
     device: torch.device,
     output_device: torch.device,
     show: bool = False,
+    show_youtube: bool = False,
+    youtube_stream_url: Optional[str] = None,
+    youtube_stream_key: Optional[str] = None,
+    headless_preview_host: str = "0.0.0.0",
+    headless_preview_port: int = 0,
+    always_stream: bool = False,
     start_frame_number: int = 0,
     output_video: str = None,
     batch_size: int = 8,
@@ -194,6 +200,12 @@ def copy_video(
                         bit_rate=video_info.bit_rate,
                         cache_size=0,
                         show_scaled=None if isinstance(show, bool) else show,
+                        show_youtube=bool(show_youtube),
+                        youtube_stream_url=youtube_stream_url,
+                        youtube_stream_key=youtube_stream_key,
+                        headless_preview_host=headless_preview_host or "0.0.0.0",
+                        headless_preview_port=int(headless_preview_port or 0),
+                        always_stream=bool(always_stream),
                     )
                 return video_out
 
@@ -282,6 +294,8 @@ def copy_video(
                 table_callback=_table_callback,
                 use_curses=True,
             )
+            if use_video_out and video_out is not None and hasattr(video_out, "set_progress_bar"):
+                video_out.set_progress_bar(progress_bar)
             v_iter = progress_bar
         frame_id = start_frame_number
         frame_ids = list()
@@ -294,11 +308,20 @@ def copy_video(
                 "copy_video",
                 show_scaled=None if isinstance(show, bool) else show,
                 profiler=profiler,
+                enable_local_display=bool(show),
+                show_youtube=bool(show_youtube),
+                youtube_stream_url=youtube_stream_url,
+                youtube_stream_key=youtube_stream_key,
+                headless_preview_host=headless_preview_host or "0.0.0.0",
+                headless_preview_port=int(headless_preview_port or 0),
+                always_stream=bool(always_stream),
             )
-            if (show and not use_video_out)
+            if ((show or show_youtube) and not use_video_out)
             # if show
             else None
         )
+        if progress_bar is not None and shower is not None:
+            progress_bar.add_table_callback(shower.update_progress_table)
         prof = profiler
         prof_enabled = bool(prof is not None and getattr(prof, "enabled", False))
         run_ctx = prof if prof_enabled else contextlib.nullcontext()
@@ -468,6 +491,12 @@ def main():
             video_file=video_files,
             start_frame_number=args.start_frame_number,
             show=args.show_image,
+            show_youtube=bool(args.show_youtube),
+            youtube_stream_url=args.youtube_stream_url,
+            youtube_stream_key=args.youtube_stream_key,
+            headless_preview_host=args.headless_preview_host or "0.0.0.0",
+            headless_preview_port=int(args.headless_preview_port or 0),
+            always_stream=bool(args.always_stream),
             output_video=args.output_file,
             output_device=video_gpu,
             batch_size=args.batch_size,

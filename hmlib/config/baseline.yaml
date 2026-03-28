@@ -79,6 +79,12 @@ video_out:
   bit_rate: 55000000
   show_image: false
   show_scaled: null
+  show_youtube: false
+  youtube_stream_url: "rtmps://a.rtmps.youtube.com/live2"
+  youtube_stream_key: null
+  headless_preview_host: "0.0.0.0"
+  headless_preview_port: 0
+  always_stream: false
   output_video_path: null
   save_frame_dir: null
 

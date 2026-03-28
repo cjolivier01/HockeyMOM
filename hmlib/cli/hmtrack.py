@@ -5,8 +5,8 @@ import math
 import os
 import re
 import shutil
-
-# import sys
+import sys
+import time
 import traceback
 from collections import OrderedDict
 from pathlib import Path
@@ -17,19 +17,11 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import yaml
-from mmcv.transforms import Compose
 
 # from mmdet.apis import init_track_model
 # from mmengine.config import Config
 # from torch.nn.parallel import DistributedDataParallel as DDP
 import hmlib
-import hmlib.hm_transforms  # noqa: F401 (register custom MMEngine transforms)
-import hmlib.tracking_utils.segm_boundaries
-import hmlib.transforms
-
-# from hmlib.utils.checkpoint import load_checkpoint_to_model
-from hmlib.audio import concatenate_audio
-from hmlib.camera.camera import should_unsharp_mask_camera
 from hmlib.config import (
     get_clip_box,
     get_config,
@@ -39,35 +31,48 @@ from hmlib.config import (
     resolve_global_refs,
     set_nested_value,
 )
-from hmlib.datasets.dataframe import find_latest_dataframe_file
-from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
-from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
 from hmlib.hm_opts import copy_opts, hm_opts
 
-# from hmlib.hm_transforms import update_data_pipeline
 from hmlib.log import get_root_logger, logger
-from hmlib.orientation import configure_game_videos
-from hmlib.stitching.configure_stitching import configure_video_stitching
-from hmlib.stitching.synchronize import synchronize_by_audio
-from hmlib.tasks.tracking import run_mmtrack
-from hmlib.utils.gpu import select_gpus
-from hmlib.utils.image import (
-    image_height,
-    image_width,
-    make_channels_first,
-    make_channels_last,
-    resize_image,
-)
 from hmlib.utils.path import (
     add_game_id_prefix_to_filename,
     add_prefix_to_filename,
     add_suffix_to_filename,
 )
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
-from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
-from hmlib.video.ffmpeg import BasicVideoInfo
-from hmlib.video.video_stream import VideoStreamReader, create_output_video_stream, time_to_frame
+
+if "--smoke-test" not in sys.argv:
+    import hmlib.tracking_utils.segm_boundaries
+    import hmlib.transforms
+
+    # from hmlib.utils.checkpoint import load_checkpoint_to_model
+    from hmlib.audio import concatenate_audio
+    from hmlib.camera.camera import should_unsharp_mask_camera
+    from hmlib.datasets.dataframe import find_latest_dataframe_file
+    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+    from hmlib.datasets.dataset.multi_dataset import MultiDatasetWrapper
+    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
+
+    # from hmlib.hm_transforms import update_data_pipeline
+    from hmlib.orientation import configure_game_videos
+    from hmlib.stitching.configure_stitching import configure_video_stitching
+    from hmlib.stitching.synchronize import synchronize_by_audio
+    from hmlib.tasks.tracking import run_mmtrack
+    from hmlib.utils.gpu import select_gpus
+    from hmlib.utils.image import (
+        image_height,
+        image_width,
+        make_channels_first,
+        make_channels_last,
+        resize_image,
+    )
+    from hmlib.utils.progress_bar import ProgressBar, ScrollOutput
+    from hmlib.video.ffmpeg import BasicVideoInfo
+    from hmlib.video.video_stream import (
+        VideoStreamReader,
+        create_output_video_stream,
+        time_to_frame,
+    )
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -312,6 +317,77 @@ def make_parser(parser: argparse.ArgumentParser = None):
         "See also --smooth-filter-cfg.",
     )
     return hm_opts.finalize_parser(parser)
+
+
+def _torch_backend_label() -> str:
+    if getattr(torch.version, "hip", None):
+        return "rocm:" + str(torch.version.hip)
+    if getattr(torch.version, "cuda", None):
+        return "cuda:" + str(torch.version.cuda)
+    return "cpu"
+
+
+def _exercise_preview_smoke(args: argparse.Namespace) -> list[str]:
+    if not args.show_image and not args.show_youtube:
+        return []
+
+    from hmlib.ui.headless_preview import mask_stream_url
+    from hmlib.ui.shower import Shower
+
+    messages: list[str] = []
+    shower = Shower(
+        label="hmtrack-smoke-preview",
+        show_scaled=args.show_scaled,
+        max_size=2,
+        enable_local_display=args.show_image,
+        show_youtube=args.show_youtube,
+        youtube_stream_url=args.youtube_stream_url,
+        youtube_stream_key=args.youtube_stream_key,
+        headless_preview_host=args.headless_preview_host or "0.0.0.0",
+        headless_preview_port=int(args.headless_preview_port or 0),
+        always_stream=bool(args.always_stream),
+    )
+    try:
+        frame = torch.full((32, 48, 3), 127, dtype=torch.uint8)
+        frame_count = 24 if args.show_youtube else 3
+        for _ in range(frame_count):
+            shower.show(frame)
+            time.sleep(0.05)
+        time.sleep(1.0 if args.show_youtube else 0.2)
+        if args.show_image:
+            if shower._headless_preview is not None:
+                messages.append(
+                    f"Headless preview OK. url=http://127.0.0.1:{shower._headless_preview.port}/"
+                )
+            else:
+                messages.append("Local preview OK.")
+        if args.show_youtube and shower._youtube_stream_url is not None:
+            messages.append(
+                "YouTube preview publish OK. " f"url={mask_stream_url(shower._youtube_stream_url)}"
+            )
+    finally:
+        shower.close()
+    return messages
+
+
+def _run_smoke_test(args: argparse.Namespace) -> int:
+    game_dir = None
+    if args.game_id:
+        try:
+            game_dir = get_game_dir(args.game_id, assert_exists=False)
+        except Exception:
+            game_dir = None
+
+    for message in _exercise_preview_smoke(args):
+        print(message)
+    print(
+        "Smoke test OK. "
+        f"backend={_torch_backend_label()} "
+        f"cuda_available={torch.cuda.is_available()} "
+        f"game_id={args.game_id} "
+        f"game_dir={game_dir}"
+    )
+    return 0
 
 
 def _slugify_label(value: str) -> str:
@@ -1478,6 +1554,8 @@ def _main(args, num_gpu):
                     hm_crop = get_pipeline_item(pipeline, "HmCrop")
                     if hm_crop is not None:
                         hm_crop["rectangle"] = orig_clip_box
+                from mmcv.transforms import Compose
+
                 data_pipeline = Compose(pipeline)
             else:
                 data_pipeline = None
@@ -1670,6 +1748,7 @@ def _main(args, num_gpu):
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     right_loader = MOTLoadVideoWithOrig(
                         path=game_videos["right"],
@@ -1687,6 +1766,7 @@ def _main(args, num_gpu):
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     stitch_inputs = MultiDataLoaderWrapper(
                         dataloaders=[left_loader, right_loader],
@@ -1742,6 +1822,7 @@ def _main(args, num_gpu):
                             )
                         ),
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     # Expose the StitchDataset instance so PlayTracker can control
                     # post-stitch rotation via the UI slider.
@@ -1761,6 +1842,7 @@ def _main(args, num_gpu):
                         adjust_exposure=args.adjust_exposure,
                         no_cuda_streams=args.no_cuda_streams,
                         checkerboard_input=args.checkerboard_input,
+                        prefetch_batches=args.dataset_prefetch_batches,
                     )
                     try:
                         mot_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -1812,6 +1894,7 @@ def _main(args, num_gpu):
                     no_cuda_streams=args.no_cuda_streams,
                     async_mode=not args.no_async_dataset,
                     checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
+                    prefetch_batches=args.dataset_prefetch_batches,
                 )
                 try:
                     pano_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -1838,6 +1921,7 @@ def _main(args, num_gpu):
                             no_cuda_streams=args.no_cuda_streams,
                             async_mode=args.no_async_dataset,
                             checkerboard_input=bool(getattr(args, "checkerboard_input", False)),
+                            prefetch_batches=args.dataset_prefetch_batches,
                         )
                     try:
                         extra_dataloader.set_profiler(getattr(args, "profiler", None))
@@ -2117,6 +2201,10 @@ def main():
     parser = make_parser()
     args = parser.parse_args()
     args.explicit_arg_names = hm_opts.collect_explicit_arg_names(parser)
+    if args.smoke_test:
+        return _run_smoke_test(args)
+
+    import hmlib.hm_transforms  # noqa: F401 (register custom MMEngine transforms)
 
     game_config = get_config(
         game_id=args.game_id,
@@ -2188,26 +2276,6 @@ def main():
     args.game_config = game_config
 
     args = configure_model(config=args.game_config, args=args)
-
-    if getattr(args, "smoke_test", False):
-        game_dir = None
-        if getattr(args, "game_id", None):
-            try:
-                game_dir = get_game_dir(args.game_id, assert_exists=False)
-            except Exception:
-                game_dir = None
-
-        # Validate imports for the pieces hmtrack expects to have available.
-        import hockeymom._hockeymom  # noqa: F401
-        import lightglue  # noqa: F401
-        import mmcv  # noqa: F401
-        import mmdet  # noqa: F401
-        import mmengine  # noqa: F401
-        import mmpose  # noqa: F401
-        import mmyolo  # noqa: F401
-
-        print(f"Smoke test OK. game_id={getattr(args, 'game_id', None)} game_dir={game_dir}")
-        return 0
 
     if args.game_id:
         num_gpus = 1

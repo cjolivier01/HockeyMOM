@@ -127,6 +127,14 @@ py_test(
     ],
 )
 
+sh_test(
+    name="test_headless_preview_runtime",
+    srcs=["test_headless_preview_runtime.sh"],
+    data=[
+        "//hmlib:hmlib.lib",
+        "test_headless_preview_runtime.py",
+    ],
+)
 pytest_test(
     name="test_video_output_naming",
     srcs=["test_video_output_naming.py"],
@@ -164,5 +172,30 @@ pytest_test(
     deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
+    ],
+)
+
+pytest_test(
+    name="test_hm_cuda_container",
+    srcs=["test_hm_cuda_container.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    data=[
+        "//:scripts/hm_cuda_container.py",
+    ],
+    deps=[
+        requirement("pytest"),
+    ],
+)
+
+sh_test(
+    name="test_mot_video_prefetch",
+    srcs=["test_mot_video_prefetch.sh"],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "test_mot_video_prefetch.py",
     ],
 )

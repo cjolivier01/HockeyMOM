@@ -11,6 +11,7 @@ from __future__ import absolute_import, division, print_function
 import contextlib
 import math
 import os
+from collections import OrderedDict
 from typing import Any, Dict, Literal, Optional, Set, Tuple, Union
 
 import cv2
@@ -199,6 +200,12 @@ class VideoOutput(torch.nn.ModuleDict):
         output_height: int | str | None = None,
         show_image: bool = False,
         show_scaled: Optional[float] = None,
+        show_youtube: bool = False,
+        youtube_stream_url: Optional[str] = None,
+        youtube_stream_key: Optional[str] = None,
+        headless_preview_host: str = "0.0.0.0",
+        headless_preview_port: int = 0,
+        always_stream: bool = False,
         profiler: Any = None,
         enable_end_zones: bool = False,
         encoder_backend: Optional[str] = None,
@@ -246,6 +253,17 @@ class VideoOutput(torch.nn.ModuleDict):
         @param show_image: When True, enables an interactive OpenCV window that
                            displays frames as they are written.
         @param show_scaled: Optional scale factor for the interactive viewer.
+        @param show_youtube: When True, publish preview frames to a YouTube
+                             RTMP(S) ingest URL instead of only local display.
+        @param youtube_stream_url: Base YouTube ingest URL or a full RTMP(S)
+                                   publish URL.
+        @param youtube_stream_key: Stream key appended to
+                                   ``youtube_stream_url`` when needed.
+        @param headless_preview_host: Listen host for the browser-based
+                                      fallback preview server.
+        @param headless_preview_port: Listen port for the browser-based
+                                      fallback preview server. Use ``0`` for an
+                                      ephemeral free port.
         @param profiler: Optional profiler object exposing ``rf(label)`` for
                          scoped timings; see :mod:`hmlib.utils.profiler`.
         @param game_config: Optional game configuration dict; kept for parity with
@@ -319,18 +337,47 @@ class VideoOutput(torch.nn.ModuleDict):
 
         self._show_image = bool(show_image)
         self._show_scaled = show_scaled
+        self._show_youtube = bool(show_youtube)
+        self._youtube_stream_url = youtube_stream_url
+        self._youtube_stream_key = youtube_stream_key
+        self._headless_preview_host = str(headless_preview_host or "0.0.0.0")
+        self._headless_preview_port = int(headless_preview_port or 0)
+        self._always_stream = bool(always_stream)
         self._shower = (
             Shower(
                 label="Video Out",
                 show_scaled=self._show_scaled,
                 max_size=cache_size,
                 profiler=self._prof,
+                enable_local_display=self._show_image,
+                show_youtube=self._show_youtube,
+                youtube_stream_url=self._youtube_stream_url,
+                youtube_stream_key=self._youtube_stream_key,
+                headless_preview_host=self._headless_preview_host,
+                headless_preview_port=self._headless_preview_port,
+                always_stream=self._always_stream,
             )
-            if self._show_image
+            if (self._show_image or self._show_youtube)
             else None
         )
+        self._progress_bar_stream_callback_installed = False
+        self._attach_stream_status_progress_callback()
 
         self._mean_tracker: Optional[MeanTracker] = None
+
+    def _attach_stream_status_progress_callback(self) -> None:
+        if (
+            self._progress_bar is None
+            or self._shower is None
+            or self._progress_bar_stream_callback_installed
+        ):
+            return
+
+        def _table_callback(table_map: OrderedDict[Any, Any]) -> None:
+            self._shower.update_progress_table(table_map)
+
+        self._progress_bar.add_table_callback(_table_callback)
+        self._progress_bar_stream_callback_installed = True
 
     def _parse_output_dim(self, value: Any, dim_label: str, natural: int) -> Optional[int]:
         if value is None:
@@ -613,6 +660,7 @@ class VideoOutput(torch.nn.ModuleDict):
     def set_progress_bar(self, progress_bar: ProgressBar):
         """Attach a progress bar instance used for external UI updates."""
         self._progress_bar = progress_bar
+        self._attach_stream_status_progress_callback()
 
     def start(self):
         """Legacy no-op; synchronous VideoOutput does not require start()."""

@@ -21,7 +21,7 @@ if torch is not None:
     from mmdet.structures import DetDataSample, TrackDataSample
     from mmpose.structures import PoseDataSample
 
-    from aspen_plugin_harness import make_instance_data, make_track_data_sample
+    from aspen_plugin_harness import FakeShower, make_instance_data, make_track_data_sample
     from hmlib.aspen import AspenNet
     from hmlib.aspen.plugins.base import Plugin
     from hmlib.aspen.plugins.detector_factory_plugin import _TorchDetectorWrapper
@@ -41,6 +41,7 @@ else:
     PosePlugin = None  # type: ignore[assignment]
     CudaGraphCallable = None  # type: ignore[assignment]
     unwrap_tensor = None  # type: ignore[assignment]
+    FakeShower = None  # type: ignore[assignment]
     make_instance_data = None  # type: ignore[assignment]
     make_track_data_sample = None  # type: ignore[assignment]
 
@@ -493,10 +494,12 @@ def should_match_video_output_prep_with_and_without_cuda_graph(tmp_path):
 def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch, tmp_path):
     from hmlib.aspen.plugins.save_plugins import SaveDetectionsPlugin
     from hmlib.aspen.plugins.video_out_prep_plugin import VideoOutPrepPlugin
+    from hmlib.aspen.plugins.video_preview_plugin import VideoPreviewPlugin
     from hmlib.aspen.plugins.video_out_plugin import VideoOutPlugin
 
     fake_preparers = []
     fake_video_outputs = []
+    FakeShower.instances.clear()
 
     class _FakeVideoOutputPreparer(torch.nn.Module):
         def __init__(self, **kwargs: Any):
@@ -555,6 +558,7 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
         "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutputPreparer",
         _FakeVideoOutputPreparer,
     )
+    monkeypatch.setattr("hmlib.aspen.plugins.video_preview_plugin.Shower", FakeShower)
 
     det_inst = make_instance_data(
         bboxes=torch.tensor([[1.0, 2.0, 5.0, 6.0]], dtype=torch.float32),
@@ -596,7 +600,12 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
             "video_out": {
                 "class": "hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin",
                 "depends": ["video_out_prep"],
-                "params": {"output_video_path": "tracking.mkv"},
+                "params": {"output_video_path": "tracking.mkv", "preview_via_sink": False},
+            },
+            "video_preview": {
+                "class": "hmlib.aspen.plugins.video_preview_plugin.VideoPreviewPlugin",
+                "depends": ["video_out_prep"],
+                "params": {"show_image": True},
             },
         },
     }
@@ -605,17 +614,20 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
     assert isinstance(net.node_map["save_detections"].module, SaveDetectionsPlugin)
     assert isinstance(net.node_map["video_out_prep"].module, VideoOutPrepPlugin)
     assert isinstance(net.node_map["video_out"].module, VideoOutPlugin)
+    assert isinstance(net.node_map["video_preview"].module, VideoPreviewPlugin)
     assert net.node_map["save_detections"].module.enabled is True
     assert net.node_map["video_out"].module.enabled is True
     assert net.shared["aspen_cuda_graph_disabled_plugins"] == []
     assert set(net.shared["aspen_cuda_graph_deferred_plugins"]) == {
         "save_detections",
         "video_out",
+        "video_preview",
     }
 
     out = net({})
     expected = (x * 2.0) + 1.0
     net.node_map["save_detections"].module.finalize()
+    net.node_map["video_preview"].module.finalize()
     assert torch.allclose(out["x"], expected)
     assert (tmp_path / "detections.csv").exists()
     assert len(fake_preparers) == 1
@@ -624,6 +636,8 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
     assert len(fake_video_outputs) == 1
     assert fake_video_outputs[0].prepare_calls == []
     assert len(fake_video_outputs[0].calls) == 1
+    assert len(FakeShower.instances) == 1
+    assert len(FakeShower.instances[0].calls) == 1
 
     net.set_cuda_graph_enabled(False)
     assert net.shared["aspen_cuda_graph_disabled_plugins"] == []
@@ -631,7 +645,9 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
 
     out_no_graph = net({})
     net.node_map["save_detections"].module.finalize()
+    net.node_map["video_preview"].module.finalize()
     assert torch.allclose(out_no_graph["x"], expected)
     assert (tmp_path / "detections.csv").exists()
     assert len(fake_preparers[0].prepare_calls) == 2
     assert len(fake_video_outputs[0].calls) == 2
+    assert len(FakeShower.instances[0].calls) == 2
