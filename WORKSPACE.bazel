@@ -403,13 +403,13 @@ new_local_repository(
 new_local_repository(
     name = "glibconfig_x86",
     build_file = "@//buildfiles/third_party:glibconfig.BUILD",
-    path = "/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+    path = "/usr",
 )
 
 new_local_repository(
     name = "glibconfig_aarch64",
     build_file = "@//buildfiles/third_party:glibconfig.BUILD",
-    path = "/usr/lib/aarch64-linux-gnu/glib-2.0/include",
+    path = "/usr",
 )
 
 new_local_repository(

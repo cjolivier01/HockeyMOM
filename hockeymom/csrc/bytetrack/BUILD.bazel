@@ -34,6 +34,12 @@ cc_library(
 cc_test(
     name = "byte_tracker_cuda_test",
     srcs = ["byte_tracker_cuda_test.cpp"],
+    linkopts = [
+        # Ubuntu 26.04's OpenMPI packages no longer ship libmpi_cxx.so.40.
+        # This test binary links against libtorch_cpu.so, which still declares
+        # that optional SONAME dependency.
+        "-Wl,--allow-shlib-undefined",
+    ],
     deps = [
         ":bytetrack",
         "//hockeymom/csrc/pytorch:bytetrack_cuda_ops",
