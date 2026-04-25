@@ -16,7 +16,6 @@ from typing import Any, Dict, Literal, Optional, Tuple, Union
 import cv2
 import numpy as np
 import torch
-import torchvision
 from torchaudio.io import StreamReader as StreamingMediaDecoder
 from torchaudio.io import StreamWriter as StreamingMediaEncoder
 from typeguard import typechecked
@@ -54,6 +53,15 @@ _FOURCC_TO_CODEC = {
 
 MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
 MAX_NEVC_VIDEO_WIDTH: int = 8192
+
+
+def _normalize_decoder_name(decoder_name: str) -> str:
+    if not isinstance(decoder_name, str):
+        return decoder_name
+    key = decoder_name.strip().lower()
+    if key == "pynvdec":
+        return "pynvcodec"
+    return key
 
 
 def _load_pynvcodec():
@@ -603,19 +611,6 @@ class CVVideoCaptureIterator:
             logger.info("CVVideoCaptureIterator delivered %d frames", self.frames_delivered_count)
 
 
-class VideoReaderIterator:
-    def __init__(self, vr: torchvision.io.VideoReader, batch_size: int = 1):
-        self._vr = vr
-        self._batch_size = batch_size
-
-    def __next__(self):
-        assert self._batch_size == 1
-        next_frame = next(self._vr)
-        if next_frame is None:
-            raise StopIteration()
-        return next_frame["data"].unsqueeze(0)
-
-
 class TAStreamReaderIterator:
     def __init__(self, sr: StreamingMediaDecoder, batch_size: int = 1):
         self._iter = sr.stream()
@@ -714,7 +709,7 @@ class VideoStreamReader:
         pynvc_simple_decoder: Optional[bool] = None,
     ):
         self._filename = filename
-        self._type = type
+        self._type = _normalize_decoder_name(type)
         self._codec = codec
         self._fps = None
         self._width = None
@@ -764,8 +759,6 @@ class VideoStreamReader:
     def __iter__(self):
         if self._type == "torchaudio":
             return TAStreamReaderIterator(self._video_in, batch_size=self._batch_size)
-        elif self._type == "torchvision":
-            return VideoReaderIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "cv2":
             return CVVideoCaptureIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "gstreamer":
@@ -826,8 +819,6 @@ class VideoStreamReader:
             frame_number = timestamp * self.fps
         if self._torchaudio_stream:
             self._video_in.seek(timestamp=timestamp, mode="precise")
-        elif isinstance(self._video_in, torchvision.io.VideoReader):
-            self._video_in.seek(time_s=timestamp)
         elif isinstance(self._video_in, cv2.VideoCapture):
             if isinstance(frame_number, Fraction):
                 frame_number = frame_number.numerator / frame_number.denominator
@@ -884,11 +875,6 @@ class VideoStreamReader:
             self._video_in = StreamingMediaDecoder(src=self._filename)
             self._torchaudio_stream = True
             self._add_stream()
-        elif self._type == "torchvision":
-            self._video_in = torchvision.io.VideoReader(
-                src=self._filename, stream="video", num_threads=32
-            )
-            self._meta = self._video_in.get_metadata()
         elif self._type == "cv2":
             self._video_in = cv2.VideoCapture(self._filename)
             if not self._video_in.isOpened():
@@ -967,8 +953,6 @@ class VideoStreamReader:
         if self._video_in is not None:
             if self._torchaudio_stream:
                 self._video_in.remove_stream(0)
-            elif isinstance(self._video_in, torchvision.io.VideoReader):
-                pass
             elif isinstance(self._video_in, cv2.VideoCapture):
                 self._video_in.release()
             elif self._gstreamer_stream and hasattr(self._video_in, "Close"):
