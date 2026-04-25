@@ -1,15 +1,73 @@
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "workspace_and_buildfile")
 
-def _detect_py_version(ctx):
-    conda_root = ctx.os.environ.get("CONDA_PREFIX")
-    python_bin = conda_root + "/bin/python"
+def _detect_py_version_from_conda_layout(ctx, conda_root):
+    lib_dir = ctx.path(conda_root + "/lib")
+    if not lib_dir.exists:
+        return None
+
+    best_key = None
+    best_version = None
+    for entry in lib_dir.readdir():
+        name = entry.basename
+        if not name.startswith("python"):
+            continue
+        version = name[len("python"):]
+        parts = version.split(".")
+        if len(parts) < 2:
+            continue
+        if not ctx.path(str(entry) + "/site-packages").exists:
+            continue
+        key = (int(parts[0]), int(parts[1]))
+        if best_key == None or key > best_key:
+            best_key = key
+            best_version = "%s.%s" % (parts[0], parts[1])
+    return best_version
+
+def _resolve_python_bin(ctx, conda_root):
+    candidates = []
+
+    env_python = ctx.os.environ.get("PYTHON_BIN_PATH")
+    if env_python:
+        candidates.append(env_python)
+
+    candidates.append(conda_root + "/bin/python")
+    candidates.append(conda_root + "/bin/python3")
+
+    python_on_path = ctx.which("python")
+    if python_on_path != None:
+        candidates.append(str(python_on_path))
+
+    python3_on_path = ctx.which("python3")
+    if python3_on_path != None:
+        candidates.append(str(python3_on_path))
+
+    seen = {}
+    for candidate in candidates:
+        if not candidate or seen.get(candidate):
+            continue
+        seen[candidate] = True
+        if ctx.path(candidate).exists:
+            return candidate
+
+    return None
+
+def _detect_py_version(ctx, conda_root):
+    py_ver = _detect_py_version_from_conda_layout(ctx, conda_root)
+    if py_ver:
+        return py_ver
+
+    python_bin = _resolve_python_bin(ctx, conda_root)
+    if python_bin == None:
+        fail("Could not detect Python version: no interpreter found. Checked PYTHON_BIN_PATH, CONDA_PREFIX/bin/python, CONDA_PREFIX/bin/python3, python, and python3.")
+
     # run Python to get "3.12", "3.11", etc
     result = ctx.execute([
         python_bin,
-        "-c", "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")"
+        "-c",
+        "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")",
     ])
     if result.return_code != 0:
-        fail("Could not detect Python version: " + result.stderr)
+        fail("Could not detect Python version from " + python_bin + ": " + result.stderr)
     return result.stdout.strip()
 
 # Returns True if the given string ends with a slash.
@@ -24,10 +82,12 @@ def conda_repo_setup(ctx):
     conda_root = ctx.os.environ.get("CONDA_PREFIX")
     if not conda_root:
         fail("Environment variable CONDA_PREFIX is not set.")
+    if not ctx.path(conda_root).exists:
+        fail("CONDA_PREFIX does not exist: " + conda_root)
 
     # 1) figure out what Python X.Y we’re on,
     #    so users don’t have to hard-code “3.12” in WORKSPACE
-    py_ver = _detect_py_version(ctx)
+    py_ver = _detect_py_version(ctx, conda_root)
 
     # Retrieve rule attributes.
     pkg_dir = ctx.attr.package_dir.replace("{python}", py_ver)
