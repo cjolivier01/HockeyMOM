@@ -15,6 +15,8 @@ def _detect_py_version_from_conda_layout(ctx, conda_root):
         parts = version.split(".")
         if len(parts) < 2:
             continue
+        if not parts[0].isdigit() or not parts[1].isdigit():
+            continue
         if not ctx.path(str(entry) + "/site-packages").exists:
             continue
         key = (int(parts[0]), int(parts[1]))
@@ -173,5 +175,5 @@ conda_repository = repository_rule(
         "workspace_file_content": attr.string(),
         "strip_prefix": attr.string(),
     },
-    environ = ["CONDA_PREFIX"],
+    environ = ["CONDA_PREFIX", "PYTHON_BIN_PATH"],
 )

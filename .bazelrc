@@ -29,6 +29,7 @@ build:x86_64 --define=multiarch=x86_64-linux-gnu
 
 build --define=target_platform=jetson
 build --action_env=target_platform="jetson"
+build --define=multiarch=x86_64-linux-gnu
 
 build:jetson --cpu=k8
 build:jetson --repo_env=CC=/usr/bin/aarch64-linux-gnu-gcc
