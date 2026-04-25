@@ -21,6 +21,7 @@ from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
 
 if "--smoke-test" not in sys.argv:
+    import hmlib.hm_transforms  # noqa: F401 (Register legacy custom MMEngine transforms)
     import hmlib.transforms  # noqa: F401 (Register custom transforms for Aspen pipelines)
     from hmlib.aspen import AspenNet
     from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
