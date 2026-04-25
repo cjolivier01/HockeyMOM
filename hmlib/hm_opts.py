@@ -1237,7 +1237,7 @@ class hm_opts(object):
             default="auto",
             type=str,
             help=(
-                "Video stream decode method [auto, cv2, ffmpeg, torchvision, torchaudio, "
+                "Video stream decode method [auto, cv2, ffmpeg, torchaudio, "
                 "gstreamer, pynvcodec]"
             ),
         )
@@ -1245,7 +1245,7 @@ class hm_opts(object):
             "--decoder-device",
             default="cuda",
             type=str,
-            help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
+            help="Video stream decode method [cv2, ffmpeg, torchaudio, gstreamer, pynvcodec]",
         )
         parser.add_argument(
             "--encoder-device",
@@ -1270,7 +1270,7 @@ class hm_opts(object):
         #     dest="video_stream_encode_method",
         #     default="cv2",
         #     type=str,
-        #     help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
+        #     help="Video stream decode method [cv2, ffmpeg, torchaudio, gstreamer, pynvcodec]",
         # )
         parser.add_argument(
             "-o",
