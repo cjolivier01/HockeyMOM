@@ -16,12 +16,12 @@ limitations under the License.
 
 config_setting(
     name = "aarch64-linux-gnu",
-    constraint_values = ["@platforms//cpu:aarch64"],
+    define_values = {"multiarch": "aarch64-linux-gnu"},
 )
 
 config_setting(
     name = "x86_64-linux-gnu",
-    constraint_values = ["@platforms//cpu:x86_64"],
+    define_values = {"multiarch": "x86_64-linux-gnu"},
 )
 
 cc_binary(
@@ -49,14 +49,13 @@ cc_library(
     includes = [
         "include/glib-2.0",
     ],
-    linkopts = [
-        "-Llib/x86_64-linux-gnu",
-        "-lglib-2.0",
-    ] + select({
+    linkopts = select({
         ":aarch64-linux-gnu": ["-Llib/aarch64-linux-gnu"],
         ":x86_64-linux-gnu": ["-Llib/x86_64-linux-gnu"],
         "//conditions:default": [],
-    }),
+    }) + [
+        "-lglib-2.0",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         ":libgobject",
