@@ -23,6 +23,7 @@ sudo apt install -y \
   gettext \
   libyaml-cpp-dev \
   liblapack-dev \
+  libboost-all-dev \
   libglfw3-dev \
   libtiff-dev \
   libpng-dev \

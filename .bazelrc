@@ -24,14 +24,20 @@ build:release --strip="always"
 build:x86_64 --cpu=k8
 build:x86_64 --define=target_platform=x86_64
 build:x86_64 --action_env=target_platform="x86_64"
+build:x86_64 --define=multiarch=x86_64-linux-gnu
 
 
 build --define=target_platform=jetson
 build --action_env=target_platform="jetson"
 
-build:jetson --cpu=aarch64
+build:jetson --cpu=k8
+build:jetson --repo_env=CC=/usr/bin/aarch64-linux-gnu-gcc
+build:jetson --repo_env=CXX=/usr/bin/aarch64-linux-gnu-g++
+build:jetson --action_env=CC=/usr/bin/aarch64-linux-gnu-gcc
+build:jetson --action_env=CXX=/usr/bin/aarch64-linux-gnu-g++
 build:jetson --define=target_platform=jetson
 build:jetson --action_env=target_platform="jetson"
+build:jetson --define=multiarch=aarch64-linux-gnu
 
 # Necessary for some bazel functionality:
 build --java_runtime_version=remotejdk_11
