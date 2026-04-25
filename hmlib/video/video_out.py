@@ -411,6 +411,57 @@ class VideoOutput(torch.nn.ModuleDict):
             return adjusted
         return value
 
+    def _coerce_even_down(self, value: int, label: str) -> int:
+        if value % 2 == 0:
+            return value
+        adjusted = value - 1 if value > 2 else value + 1
+        logger.warning(
+            "output_%s=%d is not even; adjusting to %d for YUV420 encoders",
+            label,
+            value,
+            adjusted,
+        )
+        return adjusted
+
+    @staticmethod
+    def _is_auto_output_dim(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value.strip().lower() == "auto"
+        return False
+
+    def _get_auto_resize_and_canvas(
+        self, width: int, height: int
+    ) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+        if self._skip_final_save or not self._clip_to_max_dimensions:
+            return None, None
+        if not self._is_auto_output_dim(self._output_width) or not self._is_auto_output_dim(
+            self._output_height
+        ):
+            return None, None
+
+        resize_w = int(width)
+        resize_h = int(height)
+        if resize_w > MAX_NEVC_VIDEO_WIDTH:
+            scale = float(MAX_NEVC_VIDEO_WIDTH) / float(resize_w)
+            resize_w = MAX_NEVC_VIDEO_WIDTH
+            resize_h = int(float(resize_h) * scale)
+
+        resize_w = self._coerce_even_down(resize_w, "width")
+        resize_h = self._coerce_even_down(resize_h, "height")
+        if resize_w == int(width) and resize_h == int(height):
+            return None, None
+
+        logger.info(
+            "Auto-resizing output from %dx%d to %dx%d for encoder compatibility",
+            int(width),
+            int(height),
+            resize_w,
+            resize_h,
+        )
+        return (resize_w, resize_h), None
+
     def _get_output_resize_and_canvas(
         self, width: int, height: int
     ) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
@@ -419,7 +470,7 @@ class VideoOutput(torch.nn.ModuleDict):
         target_h = self._parse_output_dim(self._output_height, "height", height)
 
         if target_w is None and target_h is None:
-            return None, None
+            return self._get_auto_resize_and_canvas(width, height)
 
         if target_w is None:
             if target_h is None or target_h <= 0:

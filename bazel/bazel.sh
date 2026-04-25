@@ -19,4 +19,21 @@ fi
 # pybind11_bazel's python_configure looks for this env var.
 export PYTHON_BIN_PATH
 
-bazelisk "$@" ${BAZEL_FLAGS}
+case "${1:-}" in
+  build|coverage|run|test)
+    CUDA_BAZEL_ARCHS="$(detect_cuda_bazel_archs)"
+    export CUDA_BAZEL_ARCHS
+    BAZEL_FLAGS="${BAZEL_FLAGS} --@rules_cuda//cuda:archs=${CUDA_BAZEL_ARCHS}"
+    ;;
+esac
+
+args=("$@")
+for i in "${!args[@]}"; do
+  if [[ "${args[$i]}" == "--" ]]; then
+    before=("${args[@]:0:i}")
+    after=("${args[@]:i+1}")
+    exec bazelisk "${before[@]}" ${BAZEL_FLAGS} -- "${after[@]}"
+  fi
+done
+
+exec bazelisk "${args[@]}" ${BAZEL_FLAGS}

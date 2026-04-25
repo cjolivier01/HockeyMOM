@@ -231,6 +231,7 @@ class ApplyCameraPlugin(Plugin):
                 results["end_zone_img"] = ez_data["end_zone_img"]
 
         # Video-out pipeline (perspective, cropping, overlays, etc.)
+        video_frame_cfg = self._video_frame_cfg
         if self._pipeline is not None:
             try:
                 if self._color_adjust_tf is None:
@@ -306,11 +307,20 @@ class ApplyCameraPlugin(Plugin):
             pipeline_outputs = self._pipeline(pipeline_inputs)
             img = pipeline_outputs.pop("img")
             current_boxes = pipeline_outputs.pop("camera_box", current_boxes)
+            video_frame_cfg = pipeline_outputs.pop("video_frame_cfg", video_frame_cfg)
             results.update(pipeline_outputs)
+
+        if isinstance(video_frame_cfg, dict):
+            video_frame_cfg = dict(video_frame_cfg)
+            actual_w = int(image_width(img))
+            actual_h = int(image_height(img))
+            video_frame_cfg["output_frame_width"] = actual_w
+            video_frame_cfg["output_frame_height"] = actual_h
+            video_frame_cfg["output_aspect_ratio"] = float(actual_w) / float(actual_h)
 
         results = {
             "img": wrap_tensor(img),
-            "video_frame_cfg": self._video_frame_cfg,
+            "video_frame_cfg": video_frame_cfg,
         }
         #  results["current_box"] = wrap_tensor(current_boxes)
         # if frame_ids is not None:
