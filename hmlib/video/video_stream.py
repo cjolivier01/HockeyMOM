@@ -58,10 +58,7 @@ MAX_NEVC_VIDEO_WIDTH: int = 8192
 def _normalize_decoder_name(decoder_name: str) -> str:
     if not isinstance(decoder_name, str):
         return decoder_name
-    key = decoder_name.strip().lower()
-    if key == "pynvdec":
-        return "pynvcodec"
-    return key
+    return decoder_name.strip().lower()
 
 
 def _load_pynvcodec():

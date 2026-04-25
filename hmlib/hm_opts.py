@@ -2225,9 +2225,6 @@ class hm_opts(object):
         try:
             method = getattr(opt, "video_stream_decode_method", None)
             key = method.strip().lower() if isinstance(method, str) else ""
-            if key == "pynvdec":
-                key = "pynvcodec"
-                opt.video_stream_decode_method = key
             if key in ("", "auto", "cuda"):
                 chosen = "cv2"
                 cuda_ok = False
