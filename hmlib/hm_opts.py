@@ -2215,6 +2215,13 @@ class hm_opts(object):
             )
             if opt.config_overrides:
                 hm_opts.apply_config_overrides(game_cfg, opt.config_overrides)
+            if opt.serial:
+                set_nested_value(game_cfg, "aspen.pipeline.threaded", False)
+                set_nested_value(game_cfg, "aspen.threaded_trunks", False)
+                set_nested_value(game_cfg, "aspen.pipeline.graph", False)
+                set_nested_value(game_cfg, "aspen.pipeline.cuda_streams", False)
+                set_nested_value(game_cfg, "aspen.pipeline.queue_size", 1)
+                set_nested_value(game_cfg, "aspen.pipeline.max_concurrent", 1)
         elif getattr(opt, "config_overrides", []):
             raise RuntimeError(
                 "--config-override requires a loaded game_config; pass --game-id or set args.game_config."
