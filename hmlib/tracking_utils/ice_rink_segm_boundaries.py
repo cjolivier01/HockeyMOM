@@ -42,7 +42,8 @@ class IceRinkSegmConfig(torch.nn.Module):
             batch_size = len(image)
             rink_profile = configure_ice_rink_mask(
                 game_id=self._game_id,
-                device=self._device,
+                # device=self._device,
+                device="cpu",
                 expected_shape=image_shape,
                 image=image[0],
                 scale=self._ice_rink_inference_scale,
