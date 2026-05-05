@@ -42,6 +42,7 @@ hmtrack --input-video path/to/stitched_output-with-audio.mp4 --output tracking.m
 - `--plot-tracking`, `--plot-trajectories` — Visualize tracking overlays (circles by default) and paths; use `--no-plot-tracking-circles` for boxes
 - `--cvat-output` — Export data for CVAT
 - `--save-tracking-data`, `--save-detection-data`, `--save-camera-data` — Write CSV artifacts
+- `--camera-controller rule|transformer|gpt|drivegpt`, `--camera-model <pt>` — Use a learned camera controller; `drivegpt` checkpoints are trained with `camgpt_train.py --model-kind=drivegpt` and initialize compatible blocks from OpenDriveLab UniAD planning weights.
 - `--output-video <file>` and `--no-save-video` — Control rendered output
 - `--checkpoint` / `--detector` / `--reid` — Override model weights
 

@@ -186,6 +186,8 @@ class PlayTrackerPlugin(Plugin):
         controller = self._camera_controller or get_nested_value(
             game_cfg, "rink.camera.controller", "rule"
         )
+        if controller == "drivegpt":
+            controller = "gpt"
         cam_model = self._camera_model or get_nested_value(
             game_cfg, "rink.camera.camera_model", None
         )

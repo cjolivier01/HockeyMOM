@@ -306,7 +306,9 @@ class PlayTracker(torch.nn.Module):
         self._stitch_slider_enabled = False
 
         # Optional transformer-based camera controller
-        self._camera_controller = camera_controller or "rule"
+        self._camera_controller = (
+            "gpt" if camera_controller == "drivegpt" else camera_controller or "rule"
+        )
         self._camera_model: Optional[CameraPanZoomTransformer] = None
         self._camera_norm: Optional[CameraNorm] = None
         self._camera_window: int = int(camera_window)
