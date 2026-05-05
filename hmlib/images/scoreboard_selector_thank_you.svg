@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Youth hockey game celebration">
+  <defs>
+    <linearGradient id="arenaGlow" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#8edcff"/>
+      <stop offset="50%" stop-color="#3e86b0"/>
+      <stop offset="100%" stop-color="#16334c"/>
+    </linearGradient>
+    <linearGradient id="ice" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f9fdff"/>
+      <stop offset="100%" stop-color="#d6f1ff"/>
+    </linearGradient>
+    <linearGradient id="boards" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fefefe"/>
+      <stop offset="100%" stop-color="#d6e8f3"/>
+    </linearGradient>
+    <filter id="softBlur">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#arenaGlow)"/>
+  <ellipse cx="800" cy="118" rx="420" ry="110" fill="#eefaff" opacity="0.24" filter="url(#softBlur)"/>
+
+  <g opacity="0.3">
+    <path d="M0 245 L1600 180 L1600 430 L0 360 Z" fill="#1e4565"/>
+    <path d="M0 360 L1600 430 L1600 560 L0 505 Z" fill="#284f72"/>
+    <path d="M0 505 L1600 560 L1600 665 L0 620 Z" fill="#325b80"/>
+  </g>
+
+  <g opacity="0.9">
+    <circle cx="188" cy="206" r="12" fill="#f8fdff"/>
+    <circle cx="422" cy="164" r="10" fill="#f8fdff"/>
+    <circle cx="733" cy="138" r="11" fill="#f8fdff"/>
+    <circle cx="1082" cy="171" r="12" fill="#f8fdff"/>
+    <circle cx="1378" cy="225" r="10" fill="#f8fdff"/>
+    <circle cx="1195" cy="125" r="8" fill="#f8fdff"/>
+  </g>
+
+  <g transform="translate(175 390)">
+    <ellipse cx="625" cy="242" rx="585" ry="188" fill="#96d4f4" opacity="0.22"/>
+    <rect x="0" y="55" width="1250" height="374" rx="170" fill="url(#boards)"/>
+    <rect x="30" y="85" width="1190" height="314" rx="150" fill="url(#ice)"/>
+    <path d="M622 85 L628 399" stroke="#d72638" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="625" cy="242" r="72" fill="none" stroke="#d72638" stroke-width="8"/>
+    <circle cx="625" cy="242" r="10" fill="#d72638"/>
+    <path d="M212 113 A74 74 0 0 0 212 371" fill="none" stroke="#d72638" stroke-width="8"/>
+    <path d="M1038 113 A74 74 0 0 1 1038 371" fill="none" stroke="#d72638" stroke-width="8"/>
+    <path d="M187 155 A32 32 0 1 0 187 329" fill="none" stroke="#3c9ce0" stroke-width="7"/>
+    <path d="M1063 155 A32 32 0 1 1 1063 329" fill="none" stroke="#3c9ce0" stroke-width="7"/>
+    <circle cx="245" cy="193" r="8" fill="#d72638"/>
+    <circle cx="245" cy="291" r="8" fill="#d72638"/>
+    <circle cx="1005" cy="193" r="8" fill="#d72638"/>
+    <circle cx="1005" cy="291" r="8" fill="#d72638"/>
+    <rect x="82" y="188" width="36" height="108" rx="9" fill="none" stroke="#d72638" stroke-width="8"/>
+    <rect x="1132" y="188" width="36" height="108" rx="9" fill="none" stroke="#d72638" stroke-width="8"/>
+  </g>
+
+  <g transform="translate(418 374)">
+    <ellipse cx="0" cy="284" rx="88" ry="24" fill="#274d6d" opacity="0.28"/>
+    <path d="M-31 80 C-18 46 19 24 60 37 C88 46 102 64 105 92 C109 131 79 149 60 169 L18 215 L-56 216 C-45 179 -39 152 -39 127 C-39 111 -39 96 -31 80 Z" fill="#e33d4e"/>
+    <path d="M60 37 C104 46 130 68 132 102 C133 118 127 139 114 161 L172 190 L161 214 L98 183 C86 193 72 202 56 212 L38 262 L8 256 L18 215" fill="#ffffff"/>
+    <path d="M-39 127 L-84 176 L-63 197 L-17 155" fill="#10263d"/>
+    <path d="M40 212 L18 283 L50 289 L72 219" fill="#16344f"/>
+    <path d="M77 208 L114 278 L144 263 L105 196" fill="#16344f"/>
+    <circle cx="63" cy="17" r="39" fill="#ffd6b3"/>
+    <path d="M28 8 C39 -16 76 -23 103 -5 C113 3 117 17 118 31 C100 19 84 15 61 15 C48 15 37 13 28 8 Z" fill="#0f2843"/>
+    <path d="M-110 240 L52 195" stroke="#2f2416" stroke-width="12" stroke-linecap="round"/>
+    <path d="M-121 247 L-52 226" stroke="#ead29b" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(782 394)">
+    <ellipse cx="0" cy="292" rx="88" ry="24" fill="#274d6d" opacity="0.28"/>
+    <path d="M-48 95 C-39 58 -7 32 33 34 C71 36 103 61 112 92 C119 120 110 150 88 171 L123 229 L98 244 L60 185 L19 190 L-7 260 L-39 252 L-10 175 C-35 162 -52 132 -48 95 Z" fill="#134f8a"/>
+    <path d="M27 34 C62 39 96 63 105 96 C108 108 108 119 106 131 L177 157 L168 183 L96 159" fill="#fff3f0"/>
+    <path d="M-31 190 L-82 240 L-61 262 L-6 209" fill="#16344f"/>
+    <path d="M9 190 L-7 267 L26 273 L42 198" fill="#16344f"/>
+    <path d="M58 184 L92 268 L123 253 L85 177" fill="#16344f"/>
+    <circle cx="25" cy="12" r="38" fill="#ffd9ba"/>
+    <path d="M-8 10 C4 -16 42 -20 67 -10 C80 -4 90 8 94 25 C76 17 57 14 37 15 C18 16 5 15 -8 10 Z" fill="#17344f"/>
+    <path d="M126 230 L244 306" stroke="#2f2416" stroke-width="12" stroke-linecap="round"/>
+    <path d="M239 311 L287 341" stroke="#ead29b" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(1122 420)">
+    <ellipse cx="0" cy="260" rx="96" ry="25" fill="#274d6d" opacity="0.28"/>
+    <path d="M-18 78 C-8 42 24 20 62 28 C103 37 133 71 136 112 C139 146 120 170 91 188 L97 250 L65 253 L60 200 L15 188 L-22 239 L-48 221 L-8 164 C-28 143 -33 107 -18 78 Z" fill="#f7f9fb"/>
+    <path d="M62 28 C103 37 133 71 136 112 C137 123 135 133 132 144 L198 127 L204 155 L128 173" fill="#f28f2a"/>
+    <path d="M18 188 L7 266 L41 271 L50 193" fill="#16344f"/>
+    <path d="M63 193 L80 268 L114 260 L96 186" fill="#16344f"/>
+    <path d="M-9 183 L-52 238 L-28 257 L20 202" fill="#16344f"/>
+    <circle cx="54" cy="5" r="39" fill="#ffd8b6"/>
+    <path d="M23 6 C32 -18 74 -20 99 -6 C112 2 121 17 124 34 C105 23 87 18 67 17 C47 16 33 16 23 6 Z" fill="#12304a"/>
+    <path d="M92 245 L212 302" stroke="#2f2416" stroke-width="12" stroke-linecap="round"/>
+    <path d="M208 310 L276 343" stroke="#ead29b" stroke-width="9" stroke-linecap="round"/>
+  </g>
+
+  <g opacity="0.7">
+    <path d="M1290 420 L1478 460 L1478 618 L1290 584 Z" fill="#11263b"/>
+    <rect x="1346" y="448" width="72" height="92" rx="10" fill="#172f45"/>
+    <text x="1382" y="502" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="34" font-weight="700" fill="#dff8ff">2</text>
+    <text x="1382" y="536" text-anchor="middle" font-family="Avenir Next, Segoe UI, sans-serif" font-size="34" font-weight="700" fill="#dff8ff">1</text>
+  </g>
+</svg>

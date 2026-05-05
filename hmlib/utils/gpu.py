@@ -1,6 +1,7 @@
 import ctypes
 import os
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -25,6 +26,52 @@ def cuda_stream_scope(stream: Union[torch.cuda.Stream, None]):
         # If the resource is not None, use it as a normal context manager
         with torch.cuda.stream(stream) as r:
             yield r
+
+
+_stream_tensor_tracking_state = threading.local()
+
+
+def _normalize_stream_tracking_mode(mode: Optional[str]) -> str:
+    normalized = "event" if mode is None else str(mode).strip().lower()
+    if normalized not in ("event", "stream"):
+        raise ValueError(
+            f"Unsupported stream tensor tracking mode {mode!r}; expected 'event' or 'stream'."
+        )
+    return normalized
+
+
+def get_stream_tensor_tracking_mode() -> str:
+    return _normalize_stream_tracking_mode(getattr(_stream_tensor_tracking_state, "mode", "event"))
+
+
+@contextmanager
+def stream_tensor_tracking(mode: str):
+    prev = getattr(_stream_tensor_tracking_state, "mode", None)
+    _stream_tensor_tracking_state.mode = _normalize_stream_tracking_mode(mode)
+    try:
+        yield
+    finally:
+        if prev is None:
+            try:
+                delattr(_stream_tensor_tracking_state, "mode")
+            except AttributeError:
+                pass
+        else:
+            _stream_tensor_tracking_state.mode = prev
+
+
+def _same_cuda_stream(
+    stream_a: Optional[torch.cuda.Stream], stream_b: Optional[torch.cuda.Stream]
+) -> bool:
+    if stream_a is stream_b:
+        return True
+    if stream_a is None or stream_b is None:
+        return False
+    a_handle = getattr(stream_a, "cuda_stream", None)
+    b_handle = getattr(stream_b, "cuda_stream", None)
+    if a_handle is not None and b_handle is not None:
+        return bool(a_handle == b_handle)
+    return False
 
 
 def record_stream_event(
@@ -193,6 +240,7 @@ class StreamTensorX(StreamTensorBase):
         "_tensor",
         "_event",
         "_stream",
+        "_tracking_mode",
         "_print_thresh",
         "_sync_duration",
         "_verbose",
@@ -233,6 +281,7 @@ class StreamTensorX(StreamTensorBase):
         tensor: Union[torch.Tensor, "StreamTensorBase"],
         *,
         auto_checkpoint: bool = True,
+        tracking_mode: Optional[str] = None,
         verbose: bool = True,
         print_thresh: float = 0.001,
     ):
@@ -242,6 +291,7 @@ class StreamTensorX(StreamTensorBase):
         self._tensor = tensor
         self._event: Optional[torch.cuda.Event] = None
         self._stream: Optional[torch.cuda.Stream] = None
+        self._tracking_mode = _normalize_stream_tracking_mode(tracking_mode)
         self._print_thresh = print_thresh
         self._sync_duration: Optional[float] = None
         self._verbose = verbose
@@ -264,20 +314,26 @@ class StreamTensorX(StreamTensorBase):
     ) -> torch.Tensor:
         if self._tensor.device.type != "cuda":
             return self._tensor
-        if self._event is None:
+        if self._event is None and self._stream is None:
             return self._tensor
         if target_stream is None:
             target_stream = torch.cuda.current_stream(self._tensor.device)
-        target_stream.wait_event(self._event)
+        if self._event is not None:
+            target_stream.wait_event(self._event)
+        elif self._stream is not None and not _same_cuda_stream(target_stream, self._stream):
+            target_stream.wait_stream(self._stream)
         if clear:
             self._clear_tracking()
         return self._tensor
 
     def _ensure_ready_blocking(self) -> torch.Tensor:
-        if self._tensor.device.type != "cuda" or self._event is None:
+        if self._tensor.device.type != "cuda" or (self._event is None and self._stream is None):
             return self._tensor
         start = time.time()
-        self._event.synchronize()
+        if self._event is not None:
+            self._event.synchronize()
+        elif self._stream is not None:
+            self._stream.synchronize()
         self._sync_duration = time.time() - start
         self._clear_tracking()
         if (
@@ -315,18 +371,44 @@ class StreamTensorX(StreamTensorBase):
     def ready(self) -> bool:
         if self._tensor.device.type != "cuda":
             return True
-        return self._event is None
+        if self._event is not None:
+            return False
+        if self._stream is None:
+            return True
+        query = getattr(self._stream, "query", None)
+        if callable(query):
+            try:
+                return bool(query())
+            except Exception:
+                return False
+        return False
 
-    def checkpoint(self, stream: Optional[torch.cuda.Stream] = None) -> Optional[torch.cuda.Event]:
+    def checkpoint(
+        self,
+        stream: Optional[torch.cuda.Stream] = None,
+        tracking_mode: Optional[str] = None,
+    ) -> Optional[torch.cuda.Event]:
         if self._tensor.device.type != "cuda":
             self._clear_tracking()
             return None
         if stream is None:
             stream = torch.cuda.current_stream(self._tensor.device)
         prev_event = self._event
+        prev_stream = self._stream
         if prev_event is not None:
             stream.wait_event(prev_event)
-        self._event = record_stream_event(self._tensor, stream=stream)
+        elif prev_stream is not None and not _same_cuda_stream(prev_stream, stream):
+            stream.wait_stream(prev_stream)
+        mode = (
+            get_stream_tensor_tracking_mode()
+            if tracking_mode is None
+            else _normalize_stream_tracking_mode(tracking_mode)
+        )
+        self._tracking_mode = mode
+        if mode == "stream":
+            self._event = None
+        else:
+            self._event = record_stream_event(self._tensor, stream=stream)
         self._stream = stream
         return self._event
 
@@ -383,12 +465,14 @@ class StreamTensor(StreamTensorX):
         self,
         tensor: torch.Tensor,
         *,
+        tracking_mode: Optional[str] = None,
         verbose: bool = True,
         print_thresh: float = 0.001,
     ):
         super().__init__(
             tensor=tensor,
             auto_checkpoint=True,
+            tracking_mode=tracking_mode,
             verbose=verbose,
             print_thresh=print_thresh,
         )
@@ -401,12 +485,14 @@ class StreamCheckpoint(StreamTensorX):
         self,
         tensor: torch.Tensor,
         *,
+        tracking_mode: Optional[str] = None,
         verbose: bool = True,
         print_thresh: float = 0.001,
     ):
         super().__init__(
             tensor=tensor,
             auto_checkpoint=True,
+            tracking_mode=tracking_mode,
             verbose=verbose,
             print_thresh=print_thresh,
         )
@@ -428,13 +514,15 @@ def unwrap_tensor(
 
 
 def wrap_tensor(
-    tensor: Union[torch.Tensor, StreamTensorBase], verbose: bool = True
+    tensor: Union[torch.Tensor, StreamTensorBase],
+    verbose: bool = True,
+    tracking_mode: Optional[str] = None,
 ) -> Union[torch.Tensor, StreamTensorBase]:
     if not tensor.is_cuda:
         return tensor
     if isinstance(tensor, StreamTensorBase):
         tensor = unwrap_tensor(tensor)
-    return StreamTensorX(tensor)
+    return StreamTensorX(tensor, tracking_mode=tracking_mode, verbose=verbose)
 
 
 def copy_gpu_to_gpu_async(

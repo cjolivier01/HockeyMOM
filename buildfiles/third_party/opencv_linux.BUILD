@@ -2,34 +2,28 @@
 
 config_setting(
   name = "aarch64-linux-gnu",
-  constraint_values = ["@platforms//cpu:aarch64"],
+  define_values = {"multiarch": "aarch64-linux-gnu"},
 )
 
 config_setting(
     name = "x86_64-linux-gnu",
-    constraint_values = ["@platforms//cpu:x86_64"],
+    define_values = {"multiarch": "x86_64-linux-gnu"},
 )
 
 cc_library(
   name = "opencv",
   hdrs = glob([
       "opencv4/opencv2/**/*.h*",
-  ]) + select({
-    ":aarch64-linux-gnu":   [
-      # "aarch64-linux-gnu/opencv4/opencv2/cvconfig.h"
-    ],
-    ":x86_64-linux-gnu":    ["x86_64-linux-gnu/opencv4/opencv2/cvconfig.h"],
-    "//conditions:default": [],
-  }),
+      # Ubuntu 24.04 can ship cvconfig.h under a multiarch include dir,
+      # while newer distros place it under opencv4/opencv2 directly.
+      "x86_64-linux-gnu/opencv4/opencv2/cvconfig.h",
+      "aarch64-linux-gnu/opencv4/opencv2/cvconfig.h",
+  ]),
   includes = [
       "opencv4",
-  ] + select({
-    ":aarch64-linux-gnu":   [
-      # "aarch64-linux-gnu/opencv4",
-    ],
-    ":x86_64-linux-gnu":    ["x86_64-linux-gnu/opencv4"],
-    "//conditions:default": [],
-  }),
+      "x86_64-linux-gnu/opencv4",
+      "aarch64-linux-gnu/opencv4",
+  ],
   linkopts = [
     "-l:libopencv_core.so",
     "-l:libopencv_calib3d.so",

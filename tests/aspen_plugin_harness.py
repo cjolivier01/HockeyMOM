@@ -243,6 +243,34 @@ class FakeVideoOutputPreparer(torch.nn.Module):
         return out
 
 
+class FakeShower:
+    instances: list["FakeShower"] = []
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.args = args
+        self.kwargs = kwargs
+        self.calls: list[tuple[Any, bool]] = []
+        self.closed = False
+        FakeShower.instances.append(self)
+
+    def show(self, img: Any, clone: bool = True) -> None:
+        self.calls.append((img, bool(clone)))
+
+    def update_progress_table(self, table_map: dict[str, Any]) -> None:
+        table_map["Preview URL"] = "http://127.0.0.1:8080/"
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeProgressBar:
+    def __init__(self) -> None:
+        self.callbacks: list[Any] = []
+
+    def add_table_callback(self, callback: Any) -> None:
+        self.callbacks.append(callback)
+
+
 class FakeCompose:
     def __init__(self, transforms: Optional[Iterable[Any]] = None):
         self.transforms = list(transforms or [])

@@ -13,15 +13,75 @@ def _require_valid_conda_prefix(ctx):
 
     return conda_root
 
+def _detect_py_version_from_conda_layout(ctx, conda_root):
+    lib_dir = ctx.path(conda_root + "/lib")
+    if not lib_dir.exists:
+        return None
+
+    best_key = None
+    best_version = None
+    for entry in lib_dir.readdir():
+        name = entry.basename
+        if not name.startswith("python"):
+            continue
+        version = name[len("python"):]
+        parts = version.split(".")
+        if len(parts) < 2:
+            continue
+        if not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        if not ctx.path(str(entry) + "/site-packages").exists:
+            continue
+        key = (int(parts[0]), int(parts[1]))
+        if best_key == None or key > best_key:
+            best_key = key
+            best_version = "%s.%s" % (parts[0], parts[1])
+    return best_version
+
+def _resolve_python_bin(ctx, conda_root):
+    candidates = []
+
+    env_python = ctx.os.environ.get("PYTHON_BIN_PATH")
+    if env_python:
+        candidates.append(env_python)
+
+    candidates.append(conda_root + "/bin/python")
+    candidates.append(conda_root + "/bin/python3")
+
+    python_on_path = ctx.which("python")
+    if python_on_path != None:
+        candidates.append(str(python_on_path))
+
+    python3_on_path = ctx.which("python3")
+    if python3_on_path != None:
+        candidates.append(str(python3_on_path))
+
+    seen = {}
+    for candidate in candidates:
+        if not candidate or seen.get(candidate):
+            continue
+        seen[candidate] = True
+        if ctx.path(candidate).exists:
+            return candidate
+
+    return None
+
 def _detect_py_version(ctx, conda_root):
-    python_bin = conda_root + "/bin/python"
+    py_ver = _detect_py_version_from_conda_layout(ctx, conda_root)
+    if py_ver:
+        return py_ver
+
+    python_bin = _resolve_python_bin(ctx, conda_root)
+    if python_bin == None:
+        fail("Could not detect Python version: no interpreter found. Checked PYTHON_BIN_PATH, CONDA_PREFIX/bin/python, CONDA_PREFIX/bin/python3, python, and python3.")
     # run Python to get "3.12", "3.11", etc
     result = ctx.execute([
         python_bin,
-        "-c", "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")"
+        "-c",
+        "import sys; print(f\"{sys.version_info.major}.{sys.version_info.minor}\")",
     ])
     if result.return_code != 0:
-        fail("Could not detect Python version: " + result.stderr)
+        fail("Could not detect Python version from " + python_bin + ": " + result.stderr)
     return result.stdout.strip()
 
 # Returns True if the given string ends with a slash.
@@ -53,7 +113,9 @@ def _write_workspace_file(ctx):
     ctx.file("WORKSPACE", workspace_content)
 
 def _torch_repo_metadata(ctx, conda_root):
-    python_bin = conda_root + "/bin/python"
+    python_bin = _resolve_python_bin(ctx, conda_root)
+    if python_bin == None:
+        fail("Could not inspect torch installation: no interpreter found for CONDA_PREFIX '%s'." % conda_root)
     result = ctx.execute([
         python_bin,
         "-c",
@@ -248,5 +310,5 @@ conda_repository = repository_rule(
         "strip_prefix": attr.string(),
         "torch_aware": attr.bool(default = False),
     },
-    environ = ["CONDA_PREFIX"],
+    environ = ["CONDA_PREFIX", "PYTHON_BIN_PATH"],
 )

@@ -63,3 +63,61 @@ def should_use_bicubic_antialias_when_video_out_prep_downscales(monkeypatch):
     assert calls[0]["mode"] == "bicubic"
     assert calls[0]["antialias"] is True
     assert tuple(prepared["img"].shape) == (1, 6, 10, 3)
+
+
+@requires_torch
+def should_auto_downscale_oversized_auto_output(monkeypatch):
+    from hmlib.video import video_out_prep as prep_mod
+
+    monkeypatch.setattr(prep_mod, "MAX_NEVC_VIDEO_WIDTH", 16)
+    preparer = prep_mod.VideoOutputPreparer(
+        skip_final_save=False,
+        device="cpu",
+        output_width="auto",
+        output_height=None,
+    )
+
+    img = torch.arange(1 * 11 * 21 * 3, dtype=torch.uint8).reshape(1, 11, 21, 3)
+    results = {
+        "img": img,
+        "video_frame_cfg": {
+            "output_frame_width": 21,
+            "output_frame_height": 11,
+            "output_aspect_ratio": 21.0 / 11.0,
+        },
+    }
+
+    prepared = preparer.prepare_results(results)
+
+    assert tuple(prepared["img"].shape) == (1, 8, 16, 3)
+    assert prepared["video_frame_cfg"]["output_frame_width"] == 16
+    assert prepared["video_frame_cfg"]["output_frame_height"] == 8
+
+
+@requires_torch
+def should_auto_even_odd_auto_output_dimensions(monkeypatch):
+    from hmlib.video import video_out_prep as prep_mod
+
+    monkeypatch.setattr(prep_mod, "MAX_NEVC_VIDEO_WIDTH", 100)
+    preparer = prep_mod.VideoOutputPreparer(
+        skip_final_save=False,
+        device="cpu",
+        output_width="auto",
+        output_height=None,
+    )
+
+    img = torch.arange(1 * 9 * 15 * 3, dtype=torch.uint8).reshape(1, 9, 15, 3)
+    results = {
+        "img": img,
+        "video_frame_cfg": {
+            "output_frame_width": 15,
+            "output_frame_height": 9,
+            "output_aspect_ratio": 15.0 / 9.0,
+        },
+    }
+
+    prepared = preparer.prepare_results(results)
+
+    assert tuple(prepared["img"].shape) == (1, 8, 14, 3)
+    assert prepared["video_frame_cfg"]["output_frame_width"] == 14
+    assert prepared["video_frame_cfg"]["output_frame_height"] == 8

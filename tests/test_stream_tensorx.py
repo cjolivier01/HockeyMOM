@@ -269,3 +269,40 @@ def should_stream_checkpoint_accept_wrapped_stream_tensor():
     fetched = checkpointed.get().cpu()
 
     assert torch.allclose(fetched, host + 5.0, atol=1e-6, rtol=1e-6)
+
+
+def should_stream_tensorx_stream_only_tracking_mode():
+    torch = _torch_cuda()
+    _ensure_repo_on_path()
+    from hmlib.utils.gpu import stream_tensor_tracking, wrap_tensor
+
+    device = torch.device("cuda")
+    stream_a = torch.cuda.Stream()
+    stream_b = torch.cuda.Stream()
+
+    host = torch.linspace(0.0, 1.0, steps=1024, dtype=torch.float32).reshape(32, 32)
+
+    with torch.cuda.stream(stream_a), stream_tensor_tracking("stream"):
+        tensor = host.to(device)
+        tensor.mul_(4.0)
+        torch.cuda._sleep(100_000)
+        wrapped = wrap_tensor(tensor)
+
+    assert wrapped._event is None
+    assert wrapped._stream is not None
+    assert wrapped._stream.cuda_stream == stream_a.cuda_stream
+
+    with torch.cuda.stream(stream_b):
+        waited = wrapped.wait(stream_b)
+        waited.add_(7.0)
+        wrapped.checkpoint(stream_b, tracking_mode="stream")
+
+    assert wrapped._event is None
+    assert wrapped._stream is not None
+    assert wrapped._stream.cuda_stream == stream_b.cuda_stream
+
+    result = wrapped.get().cpu()
+    expected = host * 4.0 + 7.0
+
+    assert torch.allclose(result, expected, atol=1e-6, rtol=1e-6)
+    assert wrapped.ready()

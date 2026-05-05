@@ -20,8 +20,8 @@ load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
 git_repository(
     name = "rules_cuda",
-    # v0.2.3 breaks some lubcupti for our version of bazel
-    commit = "3f2429254ec956220557e79ea9d5f5e8871c2907",
+    # Keep a WORKSPACE-compatible rules_cuda commit with Blackwell arch support.
+    commit = "32414222a7997ee66035d51404fc5427df94c699",
     remote = "https://github.com/bazel-contrib/rules_cuda",
 )
 
@@ -204,7 +204,7 @@ conda_repository(
 ################################ HockeyMOM Sub-Modules ################################
 git_repository(
     name = "hm-cupano",
-    commit = "4792b631a1da8de52534bc1d9078daa4fc0cd4e3",
+    commit = "3ed00c2d96218af857956c13aec3ad201732bbbf",
     remote = "https://github.com/cjolivier01/hm-cupano.git",
 )
 
@@ -404,13 +404,13 @@ new_local_repository(
 new_local_repository(
     name = "glibconfig_x86",
     build_file = "@//buildfiles/third_party:glibconfig.BUILD",
-    path = "/usr/lib/x86_64-linux-gnu/glib-2.0/include",
+    path = "/usr",
 )
 
 new_local_repository(
     name = "glibconfig_aarch64",
     build_file = "@//buildfiles/third_party:glibconfig.BUILD",
-    path = "/usr/lib/aarch64-linux-gnu/glib-2.0/include",
+    path = "/usr",
 )
 
 new_local_repository(

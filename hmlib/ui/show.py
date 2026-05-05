@@ -1,18 +1,40 @@
 """Convenience helpers for quickly displaying tensors and images.
 
 These wrappers handle GPU tensors, PIL images and numpy arrays and route
-them through OpenCV windows for ad-hoc inspection.
+them through OpenCV windows for ad-hoc inspection, or a browser preview when
+no local display is available.
 """
 
+import atexit
+
 from typing import Optional, Union
+
+from hmlib.ui.display_env import sanitize_display_env_for_cv2
+
+sanitize_display_env_for_cv2()
 
 import cv2
 import numpy as np
 import torch
 from PIL.Image import Image
 
+from hmlib.ui.headless_preview import BrowserPreviewServer, has_local_display
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_visible_image
+
+_HEADLESS_PREVIEWS: dict[tuple[str, Optional[float]], BrowserPreviewServer] = {}
+
+
+def _close_headless_previews() -> None:
+    for preview in list(_HEADLESS_PREVIEWS.values()):
+        try:
+            preview.close()
+        except Exception:
+            pass
+    _HEADLESS_PREVIEWS.clear()
+
+
+atexit.register(_close_headless_previews)
 
 
 def cv2_has_opengl() -> bool:
@@ -57,6 +79,29 @@ def show_image(
         enable_resizing = scale
     else:
         assert scale is None
+    if not has_local_display():
+        key = (label, float(enable_resizing) if enable_resizing is not None else None)
+        preview = _HEADLESS_PREVIEWS.get(key)
+        if preview is None:
+            preview = BrowserPreviewServer(label=label)
+            preview.start()
+            _HEADLESS_PREVIEWS[key] = preview
+        if isinstance(img, str):
+            img = cv2.imread(img)
+        elif isinstance(img, Image):
+            img = np.array(img)
+        elif isinstance(img, StreamTensorBase):
+            img = img.get()
+        if img.ndim == 2:
+            if isinstance(img, np.ndarray):
+                img = torch.from_numpy(img)
+            img = img.unsqueeze(0).unsqueeze(0).repeat(1, 3, 1, 1)
+        if img.ndim == 4:
+            for i in img:
+                preview.publish(i, show_scaled=enable_resizing)
+        else:
+            preview.publish(img, show_scaled=enable_resizing)
+        return
     if isinstance(img, str):
         img = cv2.imread(img)
     elif isinstance(img, Image):

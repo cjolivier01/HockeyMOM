@@ -1,5 +1,10 @@
 exports_files(
-    ["Pipfile", "Pipfile.lock", "pyproject.toml"]
+    [
+        "Pipfile",
+        "Pipfile.lock",
+        "pyproject.toml",
+        "scripts/hm_cuda_container.py",
+    ]
 )
 
 
@@ -21,4 +26,14 @@ config_setting(
 config_setting(
     name = "with_exiv2",
     define_values = {"with_exiv2": "true"},
+)
+
+config_setting(
+    name = "use_hip",
+    define_values = {"backend": "hip"},
+)
+
+config_setting(
+    name = "use_vulkan",
+    define_values = {"backend": "vulkan"},
 )

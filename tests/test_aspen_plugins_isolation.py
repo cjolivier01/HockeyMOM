@@ -41,7 +41,9 @@ if torch is not None:
         FakeDetectorModel,
         FakeEndZones,
         FakePlayTrackerRuntime,
+        FakeProgressBar,
         FakePoseInferencer,
+        FakeShower,
         FakeVideoOutput,
         FakeVideoOutputPreparer,
         discover_production_plugin_classes,
@@ -56,7 +58,9 @@ else:
     FakeDetectorModel = None
     FakeEndZones = None
     FakePlayTrackerRuntime = None
+    FakeProgressBar = None
     FakePoseInferencer = None
+    FakeShower = None
     FakeVideoOutput = None
     FakeVideoOutputPreparer = None
     discover_production_plugin_classes = None
@@ -994,6 +998,36 @@ def _case_video_out(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = Fals
     assert FakeVideoOutput.instances[0].cuda_graph_enabled is cuda_graph_enabled
 
 
+def _case_video_preview(monkeypatch, _tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
+    from hmlib.aspen.plugins.video_preview_plugin import VideoPreviewPlugin
+
+    FakeShower.instances.clear()
+    monkeypatch.setattr("hmlib.aspen.plugins.video_preview_plugin.Shower", FakeShower)
+    progress_bar = FakeProgressBar()
+    plugin = VideoPreviewPlugin()
+    _maybe_enable_cuda_graph(plugin, cuda_graph_enabled)
+    out = plugin(
+        {
+            "img": torch.zeros((1, 8, 8, 3), dtype=torch.uint8),
+            "fps": 30.0,
+            "shared": {
+                "game_id": "game-1",
+                "game_config": {"video_out": {"show_image": True}},
+                "progress_bar": progress_bar,
+            },
+        }
+    )
+    assert out == {}
+    assert len(FakeShower.instances) == 1
+    assert FakeShower.instances[0].kwargs["skip_frame_when_full"] is True
+    assert FakeShower.instances[0].kwargs["drop_oldest_when_full"] is True
+    assert len(FakeShower.instances[0].calls) == 1
+    assert FakeShower.instances[0].calls[0][1] is True
+    assert len(progress_bar.callbacks) == 1
+    plugin.finalize()
+    assert FakeShower.instances[0].closed is True
+
+
 def _case_apply_camera(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
     from hmlib.camera.apply_camera_plugin import ApplyCameraPlugin
 
@@ -1051,6 +1085,7 @@ PLUGIN_CASES: dict[str, Callable[[Any, Path, bool], None]] = {
     "hmlib.aspen.plugins.stitching_plugin.StitchingPlugin": _case_stitching,
     "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin": _case_tracker,
     "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutPrepPlugin": _case_video_out_prep,
+    "hmlib.aspen.plugins.video_preview_plugin.VideoPreviewPlugin": _case_video_preview,
     "hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin": _case_video_out,
     "hmlib.camera.apply_camera_plugin.ApplyCameraPlugin": _case_apply_camera,
 }

@@ -1013,6 +1013,12 @@ class hm_opts(object):
             help="Disable async dataset loading and use synchronous video I/O.",
         )
         parser.add_argument(
+            "--dataset-prefetch-batches",
+            type=int,
+            default=2,
+            help="Maximum number of async dataset batches to keep in flight.",
+        )
+        parser.add_argument(
             "--no-cuda-streams",
             action="store_true",
             help="Don't use CUDA streams",
@@ -1162,6 +1168,54 @@ class hm_opts(object):
             help="scale preview window and imply --show/--show-image",
         )
         parser.add_argument(
+            "--show-youtube",
+            dest="show_youtube",
+            default=False,
+            action="store_true",
+            help="publish preview frames to a YouTube RTMP(S) ingest stream",
+        )
+        parser.add_argument(
+            "--youtube-stream-url",
+            dest="youtube_stream_url",
+            type=str,
+            default=None,
+            help=(
+                "Base YouTube RTMP(S) ingest URL or a full publish URL. "
+                "Defaults to the standard YouTube RTMPS ingest."
+            ),
+        )
+        parser.add_argument(
+            "--youtube-stream-key",
+            dest="youtube_stream_key",
+            type=str,
+            default=None,
+            help="YouTube stream key for --show-youtube (or set HM_YOUTUBE_STREAM_KEY).",
+        )
+        parser.add_argument(
+            "--headless-preview-host",
+            dest="headless_preview_host",
+            type=str,
+            default=None,
+            help="Listen host for the browser preview fallback used when no local display exists.",
+        )
+        parser.add_argument(
+            "--headless-preview-port",
+            dest="headless_preview_port",
+            type=int,
+            default=None,
+            help=(
+                "Listen port for the browser preview fallback used when no local display exists. "
+                "Use 0 to pick a free port automatically."
+            ),
+        )
+        parser.add_argument(
+            "--always-stream",
+            dest="always_stream",
+            default=False,
+            action="store_true",
+            help="Always encode/publish preview frames even when no headless preview client is connected.",
+        )
+        parser.add_argument(
             "--scoreboard-scale",
             dest="scoreboard_scale",
             type=float,
@@ -1183,7 +1237,7 @@ class hm_opts(object):
             default="auto",
             type=str,
             help=(
-                "Video stream decode method [auto, cv2, ffmpeg, torchvision, torchaudio, "
+                "Video stream decode method [auto, cv2, ffmpeg, torchaudio, "
                 "gstreamer, pynvcodec]"
             ),
         )
@@ -1191,7 +1245,7 @@ class hm_opts(object):
             "--decoder-device",
             default="cuda",
             type=str,
-            help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
+            help="Video stream decode method [cv2, ffmpeg, torchaudio, gstreamer, pynvcodec]",
         )
         parser.add_argument(
             "--encoder-device",
@@ -1216,7 +1270,7 @@ class hm_opts(object):
         #     dest="video_stream_encode_method",
         #     default="cv2",
         #     type=str,
-        #     help="Video stream decode method [cv2, ffmpeg, torchvision, tochaudio]",
+        #     help="Video stream decode method [cv2, ffmpeg, torchaudio, gstreamer, pynvcodec]",
         # )
         parser.add_argument(
             "-o",
@@ -1691,6 +1745,12 @@ class hm_opts(object):
             ("end_zones", "apply_camera.end_zones"),
             ("show_image", "video_out.show_image"),
             ("show_scaled", "video_out.show_scaled"),
+            ("show_youtube", "video_out.show_youtube"),
+            ("youtube_stream_url", "video_out.youtube_stream_url"),
+            ("youtube_stream_key", "video_out.youtube_stream_key"),
+            ("headless_preview_host", "video_out.headless_preview_host"),
+            ("headless_preview_port", "video_out.headless_preview_port"),
+            ("always_stream", "video_out.always_stream"),
             ("output_width", "video_out.output_width"),
             ("output_height", "video_out.output_height"),
             ("scoreboard_scale", "rink.scoreboard.scoreboard_scale"),
@@ -1737,6 +1797,8 @@ class hm_opts(object):
         "no_crop": {True: False},
         "end_zones": {True: True},
         "show_image": bool,
+        "show_youtube": bool,
+        "always_stream": bool,
         "debug_play_tracker": {True: True},
         "scoreboard_scale": float,
         "plot_moving_boxes": {True: True},
@@ -2153,6 +2215,13 @@ class hm_opts(object):
             )
             if opt.config_overrides:
                 hm_opts.apply_config_overrides(game_cfg, opt.config_overrides)
+            if opt.serial:
+                set_nested_value(game_cfg, "aspen.pipeline.threaded", False)
+                set_nested_value(game_cfg, "aspen.threaded_trunks", False)
+                set_nested_value(game_cfg, "aspen.pipeline.graph", False)
+                set_nested_value(game_cfg, "aspen.pipeline.cuda_streams", False)
+                set_nested_value(game_cfg, "aspen.pipeline.queue_size", 1)
+                set_nested_value(game_cfg, "aspen.pipeline.max_concurrent", 1)
         elif getattr(opt, "config_overrides", []):
             raise RuntimeError(
                 "--config-override requires a loaded game_config; pass --game-id or set args.game_config."

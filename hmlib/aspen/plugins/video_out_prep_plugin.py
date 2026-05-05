@@ -81,9 +81,11 @@ class VideoOutPrepPlugin(Plugin):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {}
-        self._ensure_initialized(context)
+        with self.profile_scope("video_out_prep.ensure_initialized"):
+            self._ensure_initialized(context)
         assert self._preparer is not None
-        prepared = self._preparer.prepare_results(context)
+        with self.profile_scope("video_out_prep.prepare"):
+            prepared = self._preparer.prepare_results(context)
         # Only publish the keys that downstream sinks need. The original context
         # stays in AspenNet, so there is no need to echo unrelated values here.
         out = {
