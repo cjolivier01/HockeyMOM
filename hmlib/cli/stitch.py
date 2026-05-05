@@ -17,7 +17,6 @@ from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
-from hmlib.utils.torch_backend import is_rocm_backend
 
 ROOT_DIR = os.getcwd()
 
@@ -140,28 +139,6 @@ def _arg_was_explicit(args: Optional[argparse.Namespace], name: str) -> bool:
     return name in set(explicit)
 
 
-def _apply_rocm_stitch_defaults(
-    args: Optional[argparse.Namespace],
-    config: Optional[Dict[str, Any]],
-    *,
-    python_blender: bool,
-) -> bool:
-    if not is_rocm_backend() or _arg_was_explicit(args, "python_blender"):
-        return python_blender
-    if not python_blender:
-        logger.warning(
-            "ROCm backend detected; forcing python_blender because native hockeymom stitching is CUDA-only."
-        )
-    if isinstance(config, dict):
-        config.setdefault("stitching", {})["python_blender"] = True
-        config.setdefault("aspen", {}).setdefault("plugins", {}).setdefault(
-            "stitching", {}
-        ).setdefault("params", {})["python_blender"] = True
-    if args is not None:
-        args.python_blender = True
-    return True
-
-
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
@@ -222,6 +199,9 @@ def stitch_videos(
     with torch.cuda.stream(cuda_stream):
         if configure_only:
             cache_size = 0
+        decoder_type = (
+            getattr(args, "video_stream_decode_method", None) if args is not None else None
+        )
         if dir_name is None and game_id:
             dir_name = os.path.join(os.environ["HOME"], "Videos", game_id)
         left_vid = BasicVideoInfo(",".join(videos["left"]))
@@ -264,11 +244,6 @@ def stitch_videos(
         auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
-        python_blender = _apply_rocm_stitch_defaults(
-            args,
-            aspen_cfg_all,
-            python_blender=python_blender,
-        )
         post_stitch_rotate_degrees = stitch_cfg.get(
             "post_stitch_rotate_degrees", post_stitch_rotate_degrees
         )
@@ -357,6 +332,7 @@ def stitch_videos(
                 dtype=torch.uint8,
                 device=remapping_device,
                 decoder_device=decoder_device,
+                decoder_type=decoder_type,
                 frame_step=frame_step_left,
                 no_cuda_streams=args.no_cuda_streams,
                 image_channel_adders=None,
@@ -374,6 +350,7 @@ def stitch_videos(
                 dtype=torch.uint8,
                 device=remapping_device,
                 decoder_device=decoder_device,
+                decoder_type=decoder_type,
                 frame_step=frame_step_right,
                 no_cuda_streams=args.no_cuda_streams,
                 image_channel_adders=None,
@@ -397,6 +374,7 @@ def stitch_videos(
                     else None
                 ),
                 decoder_device=decoder_device,
+                decoder_type=decoder_type,
                 blend_mode=blend_mode,
                 remapping_device=remapping_device,
                 dtype=dtype,

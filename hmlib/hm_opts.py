@@ -1238,7 +1238,7 @@ class hm_opts(object):
             type=str,
             help=(
                 "Video stream decode method [auto, cv2, ffmpeg, torchaudio, "
-                "gstreamer, pynvcodec]"
+                "gstreamer, pynvcodec, pyamdcodec]"
             ),
         )
         parser.add_argument(
@@ -2243,10 +2243,18 @@ class hm_opts(object):
                     cuda_ok = False
                 if cuda_ok:
                     try:
-                        import importlib.util
+                        from hmlib.utils.torch_backend import is_rocm_backend
 
-                        if importlib.util.find_spec("PyNvVideoCodec") is not None:
-                            chosen = "pynvcodec"
+                        if is_rocm_backend():
+                            from hmlib.video.py_amd_codec import PyAmdVideoCodec
+
+                            if PyAmdVideoCodec.is_decoder_available():
+                                chosen = "pyamdcodec"
+                        else:
+                            import importlib.util
+
+                            if importlib.util.find_spec("PyNvVideoCodec") is not None:
+                                chosen = "pynvcodec"
                     except Exception:
                         chosen = "cv2"
                 opt.video_stream_decode_method = chosen

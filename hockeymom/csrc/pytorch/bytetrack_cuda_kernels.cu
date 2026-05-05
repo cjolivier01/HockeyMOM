@@ -1,7 +1,6 @@
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <cuda.h>
-#include <cuda_runtime.h>
+
+#include "hockeymom/csrc/pytorch/torch_cuda_compat.h"
 
 namespace hm {
 namespace ops {
@@ -34,16 +33,13 @@ __global__ void IoUKernel(
   }
   const scalar_t* box1 = boxes1 + row * 4;
   const scalar_t* box2 = boxes2 + col * 4;
-  const scalar_t area1 =
-      max(static_cast<scalar_t>(0), box1[2] - box1[0]) *
+  const scalar_t area1 = max(static_cast<scalar_t>(0), box1[2] - box1[0]) *
       max(static_cast<scalar_t>(0), box1[3] - box1[1]);
-  const scalar_t area2 =
-      max(static_cast<scalar_t>(0), box2[2] - box2[0]) *
+  const scalar_t area2 = max(static_cast<scalar_t>(0), box2[2] - box2[0]) *
       max(static_cast<scalar_t>(0), box2[3] - box2[1]);
   const scalar_t inter = intersection_area(box1, box2);
-  const scalar_t denom = max(
-      static_cast<scalar_t>(1e-6),
-      area1 + area2 - inter);
+  const scalar_t denom =
+      max(static_cast<scalar_t>(1e-6), area1 + area2 - inter);
   output[row * m + col] = inter / denom;
 }
 
@@ -94,8 +90,7 @@ __global__ void HungarianKernel(
         if (used[j]) {
           continue;
         }
-        float cur =
-            cost[(i0 - 1) * n + (j - 1)] - u[i0] - v[j];
+        float cur = cost[(i0 - 1) * n + (j - 1)] - u[i0] - v[j];
         if (cur < minv[j]) {
           minv[j] = cur;
           way[j] = j0;
@@ -157,17 +152,20 @@ void launch_bbox_iou_cuda(
 
   const dim3 threads(16, 16);
   const dim3 blocks(
-      (m + threads.x - 1) / threads.x,
-      (n + threads.y - 1) / threads.y);
+      (m + threads.x - 1) / threads.x, (n + threads.y - 1) / threads.y);
 
   AT_DISPATCH_FLOATING_TYPES(
       boxes1.scalar_type(), "bytetrack_bbox_iou_cuda", [&] {
-        IoUKernel<scalar_t><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-            boxes1.data_ptr<scalar_t>(),
-            boxes2.data_ptr<scalar_t>(),
-            output.data_ptr<scalar_t>(),
-            n,
-            m);
+        IoUKernel<scalar_t>
+            <<<blocks,
+               threads,
+               0,
+               hm::torch_cuda_compat::get_current_stream()>>>(
+                boxes1.data_ptr<scalar_t>(),
+                boxes2.data_ptr<scalar_t>(),
+                output.data_ptr<scalar_t>(),
+                n,
+                m);
       });
 }
 
@@ -179,11 +177,14 @@ void launch_hungarian_cuda(
     float cost_limit,
     at::Tensor& row_solution,
     at::Tensor& col_solution) {
-  const int64_t shared_bytes =
-      (3 * (padded_size + 1) * sizeof(float)) +
+  const int64_t shared_bytes = (3 * (padded_size + 1) * sizeof(float)) +
       (2 * (padded_size + 1) * sizeof(int)) +
       ((padded_size + 1) * sizeof(unsigned char));
-  HungarianKernel<<<1, 1, shared_bytes, at::cuda::getCurrentCUDAStream()>>>(
+  HungarianKernel<<<
+      1,
+      1,
+      shared_bytes,
+      hm::torch_cuda_compat::get_current_stream()>>>(
       cost_square.data_ptr<float>(),
       padded_size,
       num_rows,
@@ -195,4 +196,3 @@ void launch_hungarian_cuda(
 
 } // namespace ops
 } // namespace hm
-

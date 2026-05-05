@@ -64,7 +64,7 @@ DfTrackerCudaStatic::DfTrackerCudaStatic(
       reid_momentum_(reid_momentum),
       min_similarity_(min_similarity),
       lost_track_cost_(lost_track_cost) {
-  TORCH_CHECK(device_.is_cuda(), "DfTrackerCudaStatic expects a CUDA device");
+  TORCH_CHECK(device_.is_cuda(), "DfTrackerCudaStatic expects a CUDA/HIP GPU device");
   TORCH_CHECK(max_detections_ > 0, "max_detections must be positive");
   TORCH_CHECK(max_tracks_ > 0, "max_tracks must be positive");
   TORCH_CHECK(reid_feature_dim_ >= 0, "reid_feature_dim must be non-negative");

@@ -22,10 +22,18 @@ echo "Experiment name: ${EXP_NAME}"
 if [ ! -z "${VIDEO}" ]; then
   VIDEO="--input_video=${VIDEO}"
 fi
+
+REPO_PYTHONPATH="$(pwd)"
+if [ -d "$(pwd)/src" ]; then
+  REPO_PYTHONPATH="${REPO_PYTHONPATH}:$(pwd)/src"
+fi
+
+OPENMM_PYTHONPATH="$(pwd)/openmm/mmcv:$(pwd)/openmm/mmengine:$(pwd)/openmm/mmeval:$(pwd)/openmm/mmdetection:$(pwd)/openmm/mmpose"
 set -x
 OMP_NUM_THREADS=16 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
-  PYTHONPATH="$(pwd):$(pwd)/src" \
+  PYTHONNOUSERSITE=1 \
+  PYTHONPATH="${OPENMM_PYTHONPATH}:${REPO_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}" \
   ${WRAPPER_CMD} python -m hmlib.cli.hmtrack \
   ${SAVE_DATA_ARGS} \
   ${EXPOSURE} \

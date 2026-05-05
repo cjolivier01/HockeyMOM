@@ -100,11 +100,22 @@ fi
 
 # echo "LOGIN_PATH=${LOGIN_PATH}"
 
-BAZEL_FLAGS="--action_env=PATH=${LOGIN_PATH}"
+BAZEL_FLAGS="--action_env=PATH=${LOGIN_PATH} --repo_env=PATH=${LOGIN_PATH}"
 
 TORCH_BACKEND="$(resolve_torch_backend | tr -d '\n' || true)"
 if [ -n "${TORCH_BACKEND}" ]; then
   BAZEL_FLAGS="${BAZEL_FLAGS} --define=torch_backend=${TORCH_BACKEND}"
+fi
+if [ "${TORCH_BACKEND}" = "rocm" ]; then
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  BAZEL_FLAGS="${BAZEL_FLAGS} --define=backend=hip --define=jetson_use_hip=true --repo_env=GPU_BACKEND=rocm"
+  for sibling_repo in hm-cupano jetson-utils; do
+    sibling_path="${REPO_ROOT}/../${sibling_repo}"
+    if [ -d "${sibling_path}" ]; then
+      sibling_path="$(cd "${sibling_path}" && pwd)"
+      BAZEL_FLAGS="${BAZEL_FLAGS} --override_repository=${sibling_repo}=${sibling_path}"
+    fi
+  done
 fi
 normalize_cuda_arch_for_rules_cuda() {
   local arch="$1"

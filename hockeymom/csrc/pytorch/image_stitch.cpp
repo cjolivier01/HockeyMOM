@@ -1,6 +1,5 @@
 #include "hockeymom/csrc/pytorch/image_stitch.h"
 
-#include <c10/cuda/CUDAGuard.h>
 #include <torch/torch.h>
 
 namespace hm {

@@ -30,7 +30,6 @@ from hmlib.utils.gpu import StreamTensorBase, cuda_stream_scope, unwrap_tensor, 
 from hmlib.utils.hockeymom_compat import (
     CudaStitchPanoF32,
     CudaStitchPanoU8,
-    HOCKEYMOM_AVAILABLE,
 )
 from hmlib.utils.image import (
     image_height,
@@ -149,6 +148,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         blend_mode: str = "laplacian",
         remapping_device: torch.device = None,
         decoder_device: torch.device = None,
+        decoder_type: Optional[str] = None,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
         auto_adjust_exposure: bool = False,
@@ -179,6 +179,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._batch_size = batch_size
         self._remapping_device = as_torch_device(remapping_device)
         self._decoder_device = decoder_device
+        self._decoder_type = decoder_type
         self._video_left_offset_frame = videos["left"]["frame_offset"]
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
@@ -408,6 +409,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.uint8,
                 device=remapping_device,
                 decoder_device=self._decoder_device,
+                decoder_type=self._decoder_type,
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_left,
@@ -427,6 +429,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 dtype=torch.uint8,
                 device=remapping_device,
                 decoder_device=self._decoder_device,
+                decoder_type=self._decoder_type,
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
                 image_channel_adders=self._channel_add_right,
@@ -698,12 +701,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             )
         else:
             levels_arg = 0
-
-        if not self._python_blender and not HOCKEYMOM_AVAILABLE:
-            logger.warning(
-                "Native hockeymom stitcher is unavailable; falling back to python_blender."
-            )
-            self._python_blender = True
 
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,

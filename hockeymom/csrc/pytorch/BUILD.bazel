@@ -1,9 +1,13 @@
+load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")
 load("@rules_cuda//cuda:defs.bzl", "cuda_library", "requires_cuda")
 
-CUDA_ONLY_COMPAT = select({
-    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+ROCM_COMPAT_COPTS = select({
+    "//bazel:torch_backend_rocm": [
+        "-DJETSON_USE_HIP",
+        "-DC10_CUDA_NO_CMAKE_CONFIGURE_FILE",
+    ],
     "//conditions:default": [],
-}) + requires_cuda()
+})
 
 cc_library(
     name = "pytorch_stitch",
@@ -19,31 +23,91 @@ cc_library(
         "-fopenmp",
         "-fPIC",
         "-Wno-error=comment",
-    ],
+    ] + ROCM_COMPAT_COPTS,
     includes=[
       ".",
     ],
     visibility = ["//visibility:public"],
-    target_compatible_with = CUDA_ONLY_COMPAT,
     deps = [
-      "@libtorch",
-      "@rules_cuda//cuda:runtime",
+        "@jetson-utils//cuda:cuda_compat_includes",
+        "@libtorch",
     ],
 )
 
 cuda_library(
-    name = "bytetrack_cuda_ops",
-    srcs = [
-        "bytetrack_cuda_ops.cpp",
-        "bytetrack_cuda_kernels.cu",
-    ],
-    hdrs = ["bytetrack_cuda_ops.h"],
+    name = "bytetrack_cuda_kernels_cuda",
+    srcs = ["bytetrack_cuda_kernels.cu"],
     features = [
         "-coverage",
     ],
     visibility = ["//visibility:public"],
-    target_compatible_with = CUDA_ONLY_COMPAT,
+    target_compatible_with = select({
+        "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }) + requires_cuda(),
     deps = [
+        "@libtorch",
+    ],
+)
+
+genrule(
+    name = "bytetrack_cuda_kernels_hip_archive",
+    srcs = [
+        "bytetrack_cuda_kernels.cu",
+        "bytetrack_cuda_ops.h",
+        "@jetson-utils//cuda:cuda_compat_includes",
+    ],
+    outs = ["libbytetrack_cuda_kernels_hip.a"],
+    cmd = """
+set -e
+HIPCC="$$(command -v hipcc)"
+if [ -z "$${HIPCC}" ]; then
+  echo "hipcc was not found on PATH" >&2
+  exit 1
+fi
+OBJ="$(@D)/bytetrack_cuda_kernels.o"
+"$${HIPCC}" -c --std=c++17 -fPIC -O2 -D__HIP_PLATFORM_AMD__ -DJETSON_USE_HIP \
+  -DC10_CUDA_NO_CMAKE_CONFIGURE_FILE \
+  -I. \
+  -Iexternal/libtorch/include \
+  -Iexternal/libtorch/include/torch/csrc/api/include \
+  -Iexternal/jetson-utils/cuda \
+  $(location bytetrack_cuda_kernels.cu) -o "$${OBJ}"
+ar rcs "$@" "$${OBJ}"
+""",
+    tags = ["no-sandbox"],
+    target_compatible_with = select({
+        "//bazel:torch_backend_rocm": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_import(
+    name = "bytetrack_cuda_kernels_hip",
+    static_library = ":bytetrack_cuda_kernels_hip_archive",
+    alwayslink = True,
+    visibility = ["//visibility:private"],
+    target_compatible_with = select({
+        "//bazel:torch_backend_rocm": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+
+cc_library(
+    name = "bytetrack_cuda_ops",
+    srcs = ["bytetrack_cuda_ops.cpp"],
+    hdrs = ["bytetrack_cuda_ops.h"],
+    copts = ROCM_COMPAT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = select({
+        "//bazel:torch_backend_rocm": [
+            ":bytetrack_cuda_kernels_hip",
+            "@jetson-utils//cuda:hip_runtime",
+        ],
+        "//conditions:default": [
+            ":bytetrack_cuda_kernels_cuda",
+        ],
+    }) + [
         "@libtorch",
     ],
 )

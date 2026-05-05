@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cuda_runtime.h>
+#include "cuda_runtime_compat.h"
 
 #include "jetson-utils/display/glDisplay.h"
 

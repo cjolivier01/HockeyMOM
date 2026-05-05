@@ -12,13 +12,10 @@ from mmengine.structures import InstanceData
 from hmlib.aspen.plugins.base import Plugin
 from hmlib.datasets.dataframe import HmDataFrameBase
 from hmlib.utils.hockeymom_compat import (
-    HOCKEYMOM_AVAILABLE,
     HmByteTrackConfig,
     HmTracker,
     HmTrackerPredictionMode,
-    hockeymom_error_message,
 )
-from hmlib.utils.torch_backend import is_rocm_backend
 
 logger = logging.getLogger(__name__)
 
@@ -32,20 +29,7 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
 
 
 def _should_use_cpp_bytetrack(requested: bool) -> bool:
-    if not requested:
-        return False
-    if is_rocm_backend():
-        logger.warning(
-            "ROCm backend detected; HmEndToEnd is disabling cpp_bytetrack and will use the Python tracker path."
-        )
-        return False
-    if not HOCKEYMOM_AVAILABLE:
-        logger.warning(
-            "HmEndToEnd requested cpp_bytetrack, but the hockeymom native extension is unavailable (%s); using the Python tracker path.",
-            hockeymom_error_message(),
-        )
-        return False
-    return True
+    return bool(requested)
 
 
 @MODELS.register_module()
@@ -88,10 +72,6 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         self._pose_weights = pose_weights
 
         if self._cpp_bytetrack:
-            if HmTracker is None:
-                raise RuntimeError(
-                    "cpp_bytetrack requires hockeymom.core.HmTracker to be available."
-                )
             config = HmByteTrackConfig()
             config.init_track_thr = 0.7
 
