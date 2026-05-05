@@ -31,7 +31,11 @@ distclean expunge:
 
 develop:
 #	bazel/bazel.sh build --config=debug //hockeymom:develop
-	bazel/bazel.sh run --config=release //hockeymom:link_ext
+	@if command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
+		bazel/bazel.sh run --config=release //hockeymom:link_ext; \
+	else \
+		printf '%s\n' 'Skipping //hockeymom:link_ext: no local CUDA toolkit detected (nvcc and /usr/local/cuda/include/cuda_runtime.h are both missing).' >&2; \
+	fi
 	bazel/bazel.sh build --config=release //hmlib:develop
 
 deps:
@@ -53,7 +57,7 @@ print_targets:
 		'' \
 		'Developer Workflow' \
 		'------------------' \
-		'develop      Refreshes symlinks for external hockeymom assets then builds the hmlib develop wheel; run after editing shared code to sync local installs.' \
+		'develop      Refreshes hockeymom extension symlinks when a local CUDA toolkit is available, then builds the hmlib develop wheel.' \
 		'test         Runs the release-configured Bazel test suite; use to verify regressions before submitting or tagging builds.' \
 		'wheel        Builds release wheels for hockeymom and hmlib; run when you need distributable Python packages.' \
 		'' \

@@ -6,7 +6,6 @@ import argparse
 import contextlib
 import math
 import os
-import sys
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -14,27 +13,11 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from hmlib.config import get_clip_box
 from hmlib.hm_opts import hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
-
-if "--smoke-test" not in sys.argv:
-    import hmlib.hm_transforms  # noqa: F401 (Register legacy custom MMEngine transforms)
-    import hmlib.transforms  # noqa: F401 (Register custom transforms for Aspen pipelines)
-    from hmlib.aspen import AspenNet
-    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
-    from hmlib.orientation import configure_game_videos
-    from hmlib.segm.ice_rink import main as ice_rink_main
-    from hmlib.tracking_utils.timer import Timer
-    from hmlib.ui import Shower
-    from hmlib.utils.gpu import GpuAllocator, unwrap_tensor, wrap_tensor
-    from hmlib.utils.image import image_height, image_width, resize_image
-    from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
-    from hmlib.video.ffmpeg import BasicVideoInfo
-    from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
+from hmlib.utils.torch_backend import is_rocm_backend
 
 ROOT_DIR = os.getcwd()
 
@@ -43,11 +26,6 @@ logger = get_root_logger()
 
 def make_parser():
     parser = argparse.ArgumentParser("YOLOX train parser")
-    parser.add_argument(
-        "--smoke-test",
-        action="store_true",
-        help="Exercise preview output setup and exit without running full stitching.",
-    )
     parser.add_argument("--batch-size", default=1, type=int, help="Batch size")
     parser.add_argument("--force", action="store_true", help="Force all recalcs (clean then run)")
     parser.add_argument(
@@ -70,6 +48,14 @@ def make_parser():
         "--multi-gpu",
         action="store_true",
         help="Use multiple GPUs (probably slower, but if memory issues)",
+    )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help=(
+            "Validate stitch CLI startup, report the active torch backend, "
+            "optionally exercise preview output setup, and exit."
+        ),
     )
     return parser
 
@@ -147,6 +133,35 @@ def _run_smoke_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def _arg_was_explicit(args: Optional[argparse.Namespace], name: str) -> bool:
+    explicit = getattr(args, "explicit_arg_names", None)
+    if explicit is None:
+        return False
+    return name in set(explicit)
+
+
+def _apply_rocm_stitch_defaults(
+    args: Optional[argparse.Namespace],
+    config: Optional[Dict[str, Any]],
+    *,
+    python_blender: bool,
+) -> bool:
+    if not is_rocm_backend() or _arg_was_explicit(args, "python_blender"):
+        return python_blender
+    if not python_blender:
+        logger.warning(
+            "ROCm backend detected; forcing python_blender because native hockeymom stitching is CUDA-only."
+        )
+    if isinstance(config, dict):
+        config.setdefault("stitching", {})["python_blender"] = True
+        config.setdefault("aspen", {}).setdefault("plugins", {}).setdefault(
+            "stitching", {}
+        ).setdefault("params", {})["python_blender"] = True
+    if args is not None:
+        args.python_blender = True
+    return True
+
+
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
@@ -179,7 +194,20 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
+    from hmlib.aspen import AspenNet
+    from hmlib.config import get_clip_box
+    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
+    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
     from hmlib.stitching.configure_stitching import configure_video_stitching
+    from hmlib.tracking_utils.timer import Timer
+    from hmlib.ui import Shower
+    from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+    from hmlib.utils.image import image_height, image_width, resize_image
+    from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
+    from hmlib.video.ffmpeg import BasicVideoInfo
+    from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
+    import hmlib.hm_transforms  # noqa: F401
+    import hmlib.transforms  # noqa: F401
 
     from hmlib.config import (
         get_config,
@@ -236,6 +264,11 @@ def stitch_videos(
         auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
+        python_blender = _apply_rocm_stitch_defaults(
+            args,
+            aspen_cfg_all,
+            python_blender=python_blender,
+        )
         post_stitch_rotate_degrees = stitch_cfg.get(
             "post_stitch_rotate_degrees", post_stitch_rotate_degrees
         )
@@ -629,7 +662,12 @@ def stitch_videos(
 
 
 def _main(args) -> None:
+    from hmlib.orientation import configure_game_videos
+    from hmlib.segm.ice_rink import main as ice_rink_main
     from hmlib.stitching.configure_stitching import clean_stitch_game_artifacts
+    from hmlib.utils.gpu import GpuAllocator
+    from hmlib.utils.progress_bar import convert_hms_to_seconds
+    from hmlib.video.ffmpeg import BasicVideoInfo
 
     # `--force` implies starting from a clean stitch state.
     if args.force or args.clean:

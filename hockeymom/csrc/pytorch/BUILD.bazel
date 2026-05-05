@@ -1,4 +1,9 @@
-load("@rules_cuda//cuda:defs.bzl", "cuda_library")
+load("@rules_cuda//cuda:defs.bzl", "cuda_library", "requires_cuda")
+
+CUDA_ONLY_COMPAT = select({
+    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+}) + requires_cuda()
 
 cc_library(
     name = "pytorch_stitch",
@@ -19,9 +24,10 @@ cc_library(
       ".",
     ],
     visibility = ["//visibility:public"],
+    target_compatible_with = CUDA_ONLY_COMPAT,
     deps = [
       "@libtorch",
-      "@local_cuda//:cuda_runtime",
+      "@rules_cuda//cuda:runtime",
     ],
 )
 
@@ -36,8 +42,8 @@ cuda_library(
         "-coverage",
     ],
     visibility = ["//visibility:public"],
+    target_compatible_with = CUDA_ONLY_COMPAT,
     deps = [
         "@libtorch",
-        "@local_cuda//:cuda_runtime",
     ],
 )

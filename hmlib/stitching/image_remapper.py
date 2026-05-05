@@ -12,12 +12,16 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-import hockeymom.core as core
 from hmlib.stitching.configure_stitching import get_image_geo_position
+from hmlib.utils.hockeymom_compat import (
+    ImageRemapper as NativeImageRemapper,
+    RemapImageInfo,
+    require_hockeymom,
+)
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
 
 
-class RemapImageInfoEx(core.RemapImageInfo):
+class RemapImageInfoEx(RemapImageInfo):
     def __init__(self, *args, xpos: int = None, ypos: int = None, **kwargs):
         """Extended remap metadata with integer canvas position.
 
@@ -120,7 +124,9 @@ class ImageRemapper(torch.nn.Module):
         src_h = self._source_hw[0]
 
         if self._use_cpp_remap_op:
-            self._remap_op = core.ImageRemapper(
+            if NativeImageRemapper is None:
+                require_hockeymom("C++ image remapper")
+            self._remap_op = NativeImageRemapper(
                 src_width=src_w,
                 src_height=src_h,
                 col_map=col_map,

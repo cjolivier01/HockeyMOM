@@ -16,7 +16,6 @@ import cv2
 import numpy as np
 import torch
 
-import hockeymom.core as core
 from hmlib.hm_opts import copy_opts, hm_opts, preferred_arg
 from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import get_image_geo_position
@@ -26,19 +25,25 @@ from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
 from hmlib.utils.gpu import GpuAllocator
+from hmlib.utils.hockeymom_compat import (
+    BlenderConfig,
+    CudaStitchPanoF32,
+    CudaStitchPanoNF32,
+    CudaStitchPanoNU8,
+    CudaStitchPanoU8,
+    EnBlender,
+    HOCKEYMOM_AVAILABLE,
+    ImageBlender,
+    ImageBlenderMode,
+    WHDims,
+    require_hockeymom,
+)
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.utils.progress_bar import convert_hms_to_seconds
 from hmlib.video.ffmpeg import BasicVideoInfo
 from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
-from hockeymom.core import (
-    CudaStitchPanoF32,
-    CudaStitchPanoNF32,
-    CudaStitchPanoNU8,
-    CudaStitchPanoU8,
-    WHDims,
-)
 
 try:
     import torch2trt
@@ -369,8 +374,8 @@ def make_seam_and_xor_masks(
         else:
             print(f"Warning: no mapping file found: {mapping_file}")
     if force or not os.path.isfile(seam_filename):
-        if not use_enblend_tool and core.EnBlender is not None:
-            blender = core.EnBlender(
+        if not use_enblend_tool and EnBlender is not None:
+            blender = EnBlender(
                 args=[
                     "--save-seams",
                     seam_filename,
@@ -430,9 +435,9 @@ def create_blender_config(
     levels: int = 10,
     lazy_init: bool = False,
     interpolation: str = "bilinear",
-) -> core.BlenderConfig:
-    """Construct a :class:`core.BlenderConfig` for Laplacian or hard-seam."""
-    config = core.BlenderConfig()
+) -> BlenderConfig:
+    """Construct a :class:`BlenderConfig` for Laplacian or hard-seam."""
+    config = BlenderConfig()
     if not mode or mode == "multiblend":
         # Nothing needed for legacy multiblend mode
         return config
@@ -619,11 +624,13 @@ class SmartRemapperBlender(torch.nn.Module):
 
         if not self._use_python_blender:
             # assert False  # Not interested in this path atm
-            self._blender = core.ImageBlender(
+            if ImageBlender is None:
+                require_hockeymom("native image blender")
+            self._blender = ImageBlender(
                 mode=(
-                    core.ImageBlenderMode.Laplacian
+                    ImageBlenderMode.Laplacian
                     if self._blend_mode == "laplacian"
-                    else core.ImageBlenderMode.HardSeam
+                    else ImageBlenderMode.HardSeam
                 ),
                 half=False,
                 levels=self._blend_levels,
@@ -854,7 +861,7 @@ class ImageStitcher(torch.nn.Module):
         batch_size: int,
         device: torch.device,
         remap_image_info: List[RemapImageInfoEx],
-        blender_config: core.BlenderConfig,
+        blender_config: BlenderConfig,
         dtype: torch.dtype,
         channels: int = 3,
         minimize_blend: bool = True,
@@ -986,6 +993,8 @@ def create_stitcher(
 ):
     """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
+        if not HOCKEYMOM_AVAILABLE:
+            require_hockeymom("native panorama stitching")
         assert not auto_adjust_exposure  # messes with minimize_blend results
         assert dir_name
         if input_image_sizes_wh is None:
@@ -1051,7 +1060,7 @@ def create_stitcher(
             )
         raise ValueError(f"Unsupported dtype for cuda pano N: {dtype}")
 
-    blender_config: core.BlenderConfig = create_blender_config(
+    blender_config: BlenderConfig = create_blender_config(
         mode=blend_mode,
         dir_name=dir_name,
         basename=remapped_basename,

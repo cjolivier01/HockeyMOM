@@ -3,6 +3,7 @@ import unittest
 import torch
 
 from hmlib.aspen.plugins.tracker_plugin import TrackerPlugin
+from hmlib.utils.hockeymom_compat import HOCKEYMOM_AVAILABLE
 
 
 class TrackerPluginConfigTest(unittest.TestCase):
@@ -10,8 +11,15 @@ class TrackerPluginConfigTest(unittest.TestCase):
         trunk = TrackerPlugin(enabled=True)
         trunk._ensure_tracker(image_size=torch.Size([1, 3, 720, 1280]))
         self.assertIsNotNone(trunk._hm_tracker)
-        self.assertEqual(trunk.tracker_class, "hockeymom.core.HmTracker")
-        self.assertEqual(trunk._hm_tracker.__class__.__name__, "HmTracker")
+        if HOCKEYMOM_AVAILABLE:
+            self.assertEqual(trunk.tracker_class, "hockeymom.core.HmTracker")
+            self.assertEqual(trunk._hm_tracker.__class__.__name__, "HmTracker")
+        else:
+            self.assertEqual(
+                trunk.tracker_class,
+                "hmlib.tracking_utils.bytetrack.HmByteTrackerCuda",
+            )
+            self.assertEqual(trunk._hm_tracker.__class__.__name__, "HmByteTrackerCuda")
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA not available")
     def test_cuda_tracker_class_instantiates_cuda_tracker(self):

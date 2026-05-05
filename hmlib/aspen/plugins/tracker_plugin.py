@@ -7,8 +7,13 @@ from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
+from hmlib.utils.hockeymom_compat import (
+    HOCKEYMOM_AVAILABLE,
+    HmByteTrackConfig,
+    HmTrackerPredictionMode,
+)
+from hmlib.utils.torch_backend import is_rocm_backend
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
-from hockeymom.core import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
 
@@ -43,8 +48,11 @@ class TrackerPlugin(Plugin):
         super().__init__(enabled=enabled)
         self._cpp_tracker = bool(cpp_tracker)
         if tracker_class is None:
+            use_native_tracker = cpp_tracker and HOCKEYMOM_AVAILABLE and not is_rocm_backend()
             default_class = (
-                "hockeymom.core.HmTracker" if cpp_tracker else "hockeymom.core.HmByteTrackerCuda"
+                "hockeymom.core.HmTracker"
+                if use_native_tracker
+                else "hmlib.tracking_utils.bytetrack.HmByteTrackerCuda"
             )
             self._tracker_class_path = default_class
         else:
@@ -62,6 +70,11 @@ class TrackerPlugin(Plugin):
         return self._tracker_class_path
 
     def _resolve_tracker_class(self):
+        if self._tracker_class_path.startswith("hockeymom.core.") and not HOCKEYMOM_AVAILABLE:
+            raise RuntimeError(
+                "Requested hockeymom native tracker, but the extension is unavailable. "
+                "Use the Python ByteTrack backend on ROCm/non-native setups."
+            )
         module_name, _, attr = self._tracker_class_path.rpartition(".")
         if not module_name:
             raise ValueError(
@@ -71,7 +84,7 @@ class TrackerPlugin(Plugin):
         tracker_cls = getattr(module, attr)
         return tracker_cls
 
-    def _ensure_tracker(self, image_size: torch.Size):
+    def _ensure_tracker(self, image_size: torch.Size, device: Optional[torch.device] = None):
         if self._hm_tracker is not None:
             return
 
@@ -102,9 +115,19 @@ class TrackerPlugin(Plugin):
         config.track_buffer_size = 60
         config.return_user_ids = False
         config.return_track_age = False
-        config.prediction_mode = HmTrackerPredictionMode.BoundingBox
+        prediction_mode = getattr(HmTrackerPredictionMode, "BoundingBox", None)
+        if prediction_mode is not None:
+            config.prediction_mode = prediction_mode
         tracker_cls = self._resolve_tracker_class()
         init_kwargs = dict(self._tracker_kwargs)
+        if (
+            self._tracker_class_path.startswith("hmlib.tracking_utils.bytetrack.")
+            and "device" not in init_kwargs
+        ):
+            fallback_device = device
+            if fallback_device is None:
+                fallback_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            init_kwargs["device"] = str(fallback_device)
         try:
             self._hm_tracker = tracker_cls(config, **init_kwargs)
         except TypeError:
@@ -138,7 +161,10 @@ class TrackerPlugin(Plugin):
         # using_precalc_track: bool = bool(context.get("using_precalculated_tracking", False))
         # using_precalc_det: bool = bool(context.get("using_precalculated_detection", False))
 
-        self._ensure_tracker(image_size=context["original_images"].shape)
+        self._ensure_tracker(
+            image_size=context["original_images"].shape,
+            device=context["original_images"].device,
+        )
 
         # Access TrackDataSample list
         track_samples = context.get("data_samples")
