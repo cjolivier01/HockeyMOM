@@ -9,9 +9,16 @@ from typing import Any, Optional
 _core = None
 HOCKEYMOM_IMPORT_ERROR: Optional[BaseException] = None
 
+
+def _is_optional_hockeymom_import_error(exc: ModuleNotFoundError) -> bool:
+    return exc.name in {"hockeymom", "hockeymom.core", "hockeymom._hockeymom"}
+
+
 try:
     _core = import_module("hockeymom.core")
-except Exception as exc:  # pragma: no cover - exercised in ROCm/non-native envs
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised in ROCm/non-native envs
+    if not _is_optional_hockeymom_import_error(exc):
+        raise
     HOCKEYMOM_IMPORT_ERROR = exc
 
 
@@ -97,12 +104,14 @@ if HOCKEYMOM_AVAILABLE:
     CudaStitchPanoNU8 = _core.CudaStitchPanoNU8
     CudaStitchPanoU8 = _core.CudaStitchPanoU8
     HmByteTrackConfig = _core.HmByteTrackConfig
+    HmTracker = getattr(_core, "HmTracker", None)
     HmTrackerPredictionMode = _core.HmTrackerPredictionMode
 else:
     ImageBlender = None
     EnBlender = None
     ImageRemapper = None
     CudaStitchPanoF32 = _UnavailableNativeType
+    HmTracker = None
     CudaStitchPanoNF32 = _UnavailableNativeType
     CudaStitchPanoNU8 = _UnavailableNativeType
     CudaStitchPanoU8 = _UnavailableNativeType
@@ -116,6 +125,7 @@ __all__ = [
     "CudaStitchPanoU8",
     "EnBlender",
     "HmByteTrackConfig",
+    "HmTracker",
     "HmTrackerPredictionMode",
     "HOCKEYMOM_AVAILABLE",
     "HOCKEYMOM_IMPORT_ERROR",

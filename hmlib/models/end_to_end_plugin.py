@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -10,7 +11,16 @@ from mmengine.structures import InstanceData
 
 from hmlib.aspen.plugins.base import Plugin
 from hmlib.datasets.dataframe import HmDataFrameBase
-from hockeymom.core import HmByteTrackConfig, HmTracker, HmTrackerPredictionMode
+from hmlib.utils.hockeymom_compat import (
+    HOCKEYMOM_AVAILABLE,
+    HmByteTrackConfig,
+    HmTracker,
+    HmTrackerPredictionMode,
+    hockeymom_error_message,
+)
+from hmlib.utils.torch_backend import is_rocm_backend
+
+logger = logging.getLogger(__name__)
 
 
 def _use_cpp_tracker(dflt: bool = False) -> bool:
@@ -19,6 +29,23 @@ def _use_cpp_tracker(dflt: bool = False) -> bool:
         return False
         # return True
     return int(s) != 0
+
+
+def _should_use_cpp_bytetrack(requested: bool) -> bool:
+    if not requested:
+        return False
+    if is_rocm_backend():
+        logger.warning(
+            "ROCm backend detected; HmEndToEnd is disabling cpp_bytetrack and will use the Python tracker path."
+        )
+        return False
+    if not HOCKEYMOM_AVAILABLE:
+        logger.warning(
+            "HmEndToEnd requested cpp_bytetrack, but the hockeymom native extension is unavailable (%s); using the Python tracker path.",
+            hockeymom_error_message(),
+        )
+        return False
+    return True
 
 
 @MODELS.register_module()
@@ -50,7 +77,7 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         # We intentionally ignore `detector` and `tracker` here to decouple from ByteTrack.
         super().__init__(data_preprocessor=data_preprocessor, init_cfg=init_cfg)
         self._enabled = enabled
-        self._cpp_bytetrack = cpp_bytetrack
+        self._cpp_bytetrack = _should_use_cpp_bytetrack(bool(cpp_bytetrack))
         # legacy post-detection pipeline removed
         self.post_tracking_pipeline = post_tracking_pipeline
         self.post_tracking_composed_pipeline = None
@@ -61,6 +88,10 @@ class HmEndToEnd(BaseMOTModel, Plugin):
         self._pose_weights = pose_weights
 
         if self._cpp_bytetrack:
+            if HmTracker is None:
+                raise RuntimeError(
+                    "cpp_bytetrack requires hockeymom.core.HmTracker to be available."
+                )
             config = HmByteTrackConfig()
             config.init_track_thr = 0.7
 
@@ -76,7 +107,9 @@ class HmEndToEnd(BaseMOTModel, Plugin):
             config.track_buffer_size = 60
             config.return_user_ids = False
             config.return_track_age = False
-            config.prediction_mode = HmTrackerPredictionMode.BoundingBox
+            prediction_mode = getattr(HmTrackerPredictionMode, "BoundingBox", None)
+            if prediction_mode is not None:
+                config.prediction_mode = prediction_mode
 
             self._hm_byte_tracker = HmTracker(config)
         else:

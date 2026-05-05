@@ -381,18 +381,27 @@ def _apply_rocm_runtime_defaults(
         return
 
     set_nested_value(game_config, "stitching.python_blender", True)
-    game_config.setdefault("aspen", {}).setdefault("plugins", {}).setdefault(
-        "stitching", {}
-    ).setdefault("params", {})["python_blender"] = True
+    aspen_cfg = game_config.get("aspen")
+    plugins_cfg = aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
+    if isinstance(plugins_cfg, dict):
+        stitching_plugin = plugins_cfg.get("stitching")
+        if isinstance(stitching_plugin, dict):
+            stitching_params = stitching_plugin.get("params")
+            if not isinstance(stitching_params, dict):
+                stitching_params = {}
+                stitching_plugin["params"] = stitching_params
+            stitching_params["python_blender"] = True
     for plugin_name in (
         "camera_controller",
         "play_tracker",
         "save_camera",
         "rgb_stats_check",
     ):
-        game_config.setdefault("aspen", {}).setdefault("plugins", {}).setdefault(plugin_name, {})[
-            "enabled"
-        ] = False
+        if not isinstance(plugins_cfg, dict):
+            break
+        plugin_cfg = plugins_cfg.get(plugin_name)
+        if isinstance(plugin_cfg, dict):
+            plugin_cfg["enabled"] = False
 
     logger.warning(
         "ROCm backend detected; using Python stitching/ByteTrack fallbacks and disabling the C++ play-tracker branch."
