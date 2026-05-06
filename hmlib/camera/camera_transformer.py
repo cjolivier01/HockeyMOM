@@ -94,6 +94,41 @@ def build_frame_base_features(tlwh: np.ndarray, norm: CameraNorm) -> np.ndarray:
     return feat
 
 
+def build_player_box_features(
+    tlwh: np.ndarray, norm: CameraNorm, max_players: Optional[int] = None
+) -> np.ndarray:
+    """Return sorted, padded normalized TLWH player boxes.
+
+    Sorting by center-x gives the sequence model a stable per-frame layout while
+    preserving substantially more input detail than aggregate statistics alone.
+    """
+    limit = int(max_players if max_players is not None else norm.max_players)
+    limit = max(1, limit)
+    out = np.zeros((limit, 4), dtype=np.float32)
+    if tlwh is None or len(tlwh) == 0:
+        return out.reshape(-1)
+    arr = np.asarray(tlwh, dtype=np.float32).reshape(-1, 4)
+    finite = np.isfinite(arr).all(axis=1)
+    arr = arr[finite]
+    if arr.size == 0:
+        return out.reshape(-1)
+    centers = arr[:, 0] + arr[:, 2] * 0.5
+    arr = arr[np.argsort(centers)[:limit]]
+    sx = max(1e-6, float(norm.scale_x))
+    sy = max(1e-6, float(norm.scale_y))
+    normed = np.stack(
+        [
+            np.clip(arr[:, 0] / sx, 0.0, 1.0),
+            np.clip(arr[:, 1] / sy, 0.0, 1.0),
+            np.clip(arr[:, 2] / sx, 0.0, 1.0),
+            np.clip(arr[:, 3] / sy, 0.0, 1.0),
+        ],
+        axis=1,
+    ).astype(np.float32, copy=False)
+    out[: normed.shape[0], :] = normed
+    return out.reshape(-1)
+
+
 def build_frame_features_torch(
     tlwh: torch.Tensor,
     norm: CameraNorm,
@@ -171,6 +206,39 @@ def build_frame_base_features_torch(tlwh: torch.Tensor, norm: CameraNorm) -> tor
         dim=0,
     )
     return feat
+
+
+def build_player_box_features_torch(
+    tlwh: torch.Tensor, norm: CameraNorm, max_players: Optional[int] = None
+) -> torch.Tensor:
+    """Torch variant of build_player_box_features (stays on the input device)."""
+    limit = int(max_players if max_players is not None else norm.max_players)
+    limit = max(1, limit)
+    device = tlwh.device if isinstance(tlwh, torch.Tensor) else torch.device("cpu")
+    out = torch.zeros((limit, 4), device=device, dtype=torch.float32)
+    if tlwh is None or tlwh.numel() == 0:
+        return out.reshape(-1)
+    arr = tlwh.to(device=device, dtype=torch.float32).reshape(-1, 4)
+    finite = torch.isfinite(arr).all(dim=1)
+    arr = arr[finite]
+    if arr.numel() == 0:
+        return out.reshape(-1)
+    centers = arr[:, 0] + arr[:, 2] * 0.5
+    order = torch.argsort(centers)[:limit]
+    arr = arr[order]
+    sx = max(1e-6, float(norm.scale_x))
+    sy = max(1e-6, float(norm.scale_y))
+    normed = torch.stack(
+        [
+            torch.clamp(arr[:, 0] / sx, 0.0, 1.0),
+            torch.clamp(arr[:, 1] / sy, 0.0, 1.0),
+            torch.clamp(arr[:, 2] / sx, 0.0, 1.0),
+            torch.clamp(arr[:, 3] / sy, 0.0, 1.0),
+        ],
+        dim=1,
+    )
+    out[: normed.shape[0], :] = normed
+    return out.reshape(-1)
 
 
 class PositionalEncoding(nn.Module):

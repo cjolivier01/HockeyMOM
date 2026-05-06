@@ -7,7 +7,7 @@ import random
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,7 @@ from hmlib.camera.camera_transformer import (
     CameraNorm,
     build_frame_base_features,
     build_frame_features,
+    build_player_box_features,
 )
 
 
@@ -304,8 +305,8 @@ def _load_game(
                 fid = int(getattr(row, "Frame"))
                 pose_json = getattr(row, "PoseJSON")
                 pose_feat_by_frame[fid] = _pose_features_from_json(str(pose_json), norm=norm)
-        except Exception:
-            pose_feat_by_frame = {}
+        except Exception as ex:
+            raise RuntimeError(f"Failed to parse pose CSV {paths.pose_csv!r}") from ex
 
     rink_feat = (
         _rink_features_from_mask_png(str(Path(paths.tracking_csv).parent), norm=norm)
@@ -363,7 +364,8 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         self._shard_games_by_worker = bool(shard_games_by_worker)
         self._cache: Dict[str, _LoadedGame] = {}
         self._cache_order: deque[str] = deque()
-        if self._feature_mode not in {"legacy_prev_slow", "base_prev_y"}:
+        self._unusable_reasons: Dict[str, str] = {}
+        if self._feature_mode not in {"legacy_prev_slow", "base_prev_y", "players_prev_y"}:
             raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
         if self._preload_csv not in {"none", "shard", "all"}:
             raise ValueError(f"Unknown preload_csv: {self._preload_csv}")
@@ -375,13 +377,16 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
     @property
     def base_dim(self) -> int:
         """Dimension of per-frame inputs excluding previous camera state."""
-        return 8 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
+        player_dim = (
+            4 * int(self._norm.max_players) if self._feature_mode == "players_prev_y" else 0
+        )
+        return 8 + player_dim + int(self._pose_feat_dim) + int(self._rink_feat_dim)
 
     @property
     def feature_dim(self) -> int:
         if self._feature_mode == "legacy_prev_slow":
             return 11 + int(self._pose_feat_dim) + int(self._rink_feat_dim)
-        if self._feature_mode == "base_prev_y":
+        if self._feature_mode in {"base_prev_y", "players_prev_y"}:
             return int(self.base_dim) + int(self.target_dim)
         raise ValueError(f"Unknown feature_mode: {self._feature_mode}")
 
@@ -401,6 +406,7 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         if cached is not None:
             return cached
         if self._target_mode == "slow_fast_tlwh" and not paths.camera_fast_csv:
+            self._unusable_reasons[game_id] = "missing camera_fast.csv"
             return None
         try:
             loaded = _load_game(
@@ -410,16 +416,31 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                 include_pose=self._include_pose,
                 include_rink=self._include_rink,
             )
-        except Exception:
-            return None
+        except Exception as ex:
+            raise RuntimeError(f"Failed to load camera GPT CSVs for game {game_id!r}") from ex
         if len(loaded.frames) < self._seq_len:
+            self._unusable_reasons[game_id] = (
+                f"only {len(loaded.frames)} usable frames for seq_len={self._seq_len}"
+            )
             return None
+        self._unusable_reasons.pop(game_id, None)
         self._cache[game_id] = loaded
         self._cache_order.append(game_id)
         while len(self._cache_order) > self._max_cached:
             old = self._cache_order.popleft()
             self._cache.pop(old, None)
         return loaded
+
+    def _usable_game_paths(self, games: List[GameCsvPaths]) -> List[GameCsvPaths]:
+        usable = [
+            p for p in games if p.game_id in self._cache or p.game_id not in self._unusable_reasons
+        ]
+        if usable:
+            return usable
+        reasons = ", ".join(
+            f"{gid}: {reason}" for gid, reason in sorted(self._unusable_reasons.items())
+        )
+        raise RuntimeError(f"No usable camera GPT games remain. {reasons}")
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         worker = get_worker_info()
@@ -439,11 +460,13 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
             self._max_cached = max(self._max_cached, len(to_load))
             for paths in to_load:
                 self._get_game(paths)
+            games = self._usable_game_paths(games)
 
         while True:
             paths = rng.choice(games)
             game = self._get_game(paths)
             if game is None:
+                games = self._usable_game_paths(games)
                 continue
 
             frames = game.frames
@@ -453,9 +476,11 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
             feats = []
             targets = []
             prev0: Optional[np.ndarray] = None
-            if self._feature_mode == "base_prev_y":
-                prev_frame = frames[start - 1] if start > 0 else seq_frames[0]
-                prev_slow = game.cam_slow_tlwh_by_frame.get(prev_frame)
+            if self._feature_mode in {"base_prev_y", "players_prev_y"}:
+                prev_frame = frames[start - 1] if start > 0 else None
+                prev_slow = (
+                    game.cam_slow_tlwh_by_frame.get(prev_frame) if prev_frame is not None else None
+                )
                 if prev_slow is None:
                     prev_slow = np.asarray([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
                 if self._target_mode == "slow_center_h":
@@ -470,7 +495,11 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                 elif self._target_mode == "slow_tlwh":
                     prev0 = prev_slow.astype(np.float32, copy=False)
                 elif self._target_mode == "slow_fast_tlwh":
-                    prev_fast = game.cam_fast_tlwh_by_frame.get(prev_frame)
+                    prev_fast = (
+                        game.cam_fast_tlwh_by_frame.get(prev_frame)
+                        if prev_frame is not None
+                        else None
+                    )
                     if prev_fast is None:
                         prev_fast = prev_slow
                     prev0 = np.concatenate(
@@ -517,6 +546,18 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
                     )
                 else:
                     feat = build_frame_base_features(tlwh=tlwh, norm=self._norm)
+                    if self._feature_mode == "players_prev_y":
+                        feat = np.concatenate(
+                            [
+                                feat,
+                                build_player_box_features(
+                                    tlwh=tlwh,
+                                    norm=self._norm,
+                                    max_players=int(self._norm.max_players),
+                                ),
+                            ],
+                            axis=0,
+                        )
 
                 if self._include_pose:
                     pose_feat = game.pose_feat_by_frame.get(f)

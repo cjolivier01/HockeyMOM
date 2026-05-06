@@ -234,7 +234,7 @@ aspen:
       params: {}
 
     # Optional camera controller (rule-based by default). Enable transformer/GPT by
-    # setting controller: transformer|gpt and model_path to your checkpoint.
+    # setting controller: transformer|gpt|drivegpt and model_path to your checkpoint.
     camera_controller:
       class: hmlib.aspen.plugins.camera_controller_plugin.CameraControllerPlugin
       depends: [camera_controller_join]

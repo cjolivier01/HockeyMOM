@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import torch
-import torch.nn.functional as F
 from mmengine.structures import InstanceData
 
 from hmlib.bbox.box_functions import center, clamp_box, make_box_at_center
@@ -18,9 +17,11 @@ from hmlib.camera.camera_transformer import (
     CameraPanZoomTransformer,
     build_frame_base_features_torch,
     build_frame_features_torch,
+    build_player_box_features_torch,
     unpack_checkpoint,
 )
 from hmlib.camera.clusters import ClusterMan
+from hmlib.log import logger
 from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
@@ -35,7 +36,7 @@ class CameraControllerPlugin(Plugin):
     Modes:
       - controller="rule": cluster-based heuristic similar to PlayTracker.
       - controller="transformer": use trained transformer checkpoint.
-      - controller="gpt": use trained causal transformer checkpoint.
+      - controller="gpt" / "drivegpt": use trained causal transformer checkpoint.
 
     Expects in context:
       - data_samples: TrackDataSample (or list)
@@ -55,7 +56,8 @@ class CameraControllerPlugin(Plugin):
         aspect_ratio: float = 16.0 / 9.0,
     ) -> None:
         super().__init__(enabled=enabled)
-        self._controller = controller
+        self._requested_controller = str(controller)
+        self._controller = "gpt" if self._requested_controller == "drivegpt" else str(controller)
         self._model: Optional[CameraPanZoomTransformer] = None
         self._gpt_model: Optional[CameraPanZoomGPT] = None
         self._gpt_cfg: Optional[CameraGPTConfig] = None
@@ -69,6 +71,8 @@ class CameraControllerPlugin(Plugin):
         self._ar = float(aspect_ratio)
         self._feat_device: Optional[torch.device] = None
 
+        controller = self._controller
+
         if controller == "transformer":
             if model_path:
                 try:
@@ -80,9 +84,10 @@ class CameraControllerPlugin(Plugin):
                     self._norm = norm
                     self._window = int(w)
                     self._feat_buf = deque(maxlen=self._window)
-                except Exception:
-                    # Fall back to rule-based
-                    self._controller = "rule"
+                except Exception as ex:
+                    raise RuntimeError(
+                        f"Failed to load transformer camera controller checkpoint {model_path!r}"
+                    ) from ex
             else:
                 # No checkpoint -> do not override PlayTracker.
                 self._controller = "rule"
@@ -91,6 +96,14 @@ class CameraControllerPlugin(Plugin):
                 try:
                     ckpt = torch.load(model_path, map_location="cpu")
                     sd, norm, w, cfg = unpack_gpt_checkpoint(ckpt)
+                    if (
+                        self._requested_controller == "drivegpt"
+                        and str(getattr(cfg, "model_kind", "gpt")) != "drivegpt"
+                    ):
+                        raise ValueError(
+                            "controller='drivegpt' requires a checkpoint with "
+                            "model_kind='drivegpt'"
+                        )
                     self._gpt_cfg = cfg
                     self._gpt_model = CameraPanZoomGPT(cfg)
                     self._gpt_model.load_state_dict(sd)
@@ -98,9 +111,14 @@ class CameraControllerPlugin(Plugin):
                     self._norm = norm
                     self._window = int(w)
                     self._feat_buf = deque(maxlen=self._window)
-                except Exception:
-                    self._controller = "rule"
+                except Exception as ex:
+                    raise RuntimeError(
+                        f"Failed to load {controller} camera controller checkpoint "
+                        f"{model_path!r}: {ex}"
+                    ) from ex
             else:
+                if self._requested_controller == "drivegpt":
+                    raise ValueError("controller='drivegpt' requires model_path")
                 self._controller = "rule"
 
     def _ensure_cluster_man(self, sizes: List[int] = [3, 2]):
@@ -118,6 +136,117 @@ class CameraControllerPlugin(Plugin):
                 [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0], device=device, dtype=dtype
             )
         return torch.zeros((int(d_out),), device=device, dtype=dtype)
+
+    def _output_scales(self, frame_w: int, frame_h: int) -> tuple[float, float]:
+        if self._norm is None:
+            return max(1.0, float(frame_w)), max(1.0, float(frame_h))
+        return (
+            max(1.0, float(self._norm.scale_x)),
+            max(1.0, float(self._norm.scale_y)),
+        )
+
+    @staticmethod
+    def _fit_box_inside_bounds(box: torch.Tensor, bounds: torch.Tensor) -> torch.Tensor:
+        box = box.to(dtype=torch.float32, device=bounds.device)
+        bounds = bounds.to(dtype=torch.float32, device=box.device)
+        w = torch.clamp(box[2] - box[0], min=1.0)
+        h = torch.clamp(box[3] - box[1], min=1.0)
+        bw = torch.clamp(bounds[2] - bounds[0], min=1.0)
+        bh = torch.clamp(bounds[3] - bounds[1], min=1.0)
+        scale = torch.minimum(box.new_tensor(1.0), torch.minimum(bw / w, bh / h))
+        w2 = w * scale
+        h2 = h * scale
+        half_w = w2 * 0.5
+        half_h = h2 * 0.5
+        cx = (box[0] + box[2]) * 0.5
+        cy = (box[1] + box[3]) * 0.5
+        cx = torch.clamp(cx, min=bounds[0] + half_w, max=bounds[2] - half_w)
+        cy = torch.clamp(cy, min=bounds[1] + half_h, max=bounds[3] - half_h)
+        return torch.stack([cx - half_w, cy - half_h, cx + half_w, cy + half_h])
+
+    @staticmethod
+    def _play_bounds(
+        context: Dict[str, Any],
+        frame_index: int,
+        frame_w: int,
+        frame_h: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        frame_bounds = torch.tensor([0, 0, frame_w, frame_h], device=device, dtype=dtype)
+        arena = context.get("arena")
+        if arena is None:
+            return frame_bounds
+        arena_t = arena if isinstance(arena, torch.Tensor) else torch.as_tensor(arena)
+        if arena_t.ndim == 0:
+            raise RuntimeError("camera_controller arena must be a TLBR box, got scalar")
+        if arena_t.ndim > 1:
+            if arena_t.shape[0] == 1:
+                arena_t = arena_t[0]
+            elif frame_index < int(arena_t.shape[0]):
+                arena_t = arena_t[frame_index]
+            else:
+                raise RuntimeError(
+                    "camera_controller arena batch is shorter than the tracking batch"
+                )
+        arena_t = arena_t.reshape(-1)
+        if int(arena_t.numel()) < 4:
+            raise RuntimeError(
+                f"camera_controller arena must contain at least 4 values, got {arena_t.numel()}"
+            )
+        return clamp_box(arena_t[:4].to(device=device, dtype=dtype), frame_bounds)
+
+    def _box_to_prev_y(
+        self,
+        box: torch.Tensor,
+        fast_box: Optional[torch.Tensor],
+        d_out: int,
+        frame_w: int,
+        frame_h: int,
+    ) -> torch.Tensor:
+        x_scale, y_scale = self._output_scales(frame_w, frame_h)
+        slow_tlwh = torch.stack(
+            [
+                torch.clamp(box[0] / x_scale, 0.0, 1.0),
+                torch.clamp(box[1] / y_scale, 0.0, 1.0),
+                torch.clamp((box[2] - box[0]) / x_scale, 0.0, 1.0),
+                torch.clamp((box[3] - box[1]) / y_scale, 0.0, 1.0),
+            ],
+            dim=0,
+        ).to(dtype=torch.float32)
+        if int(d_out) == 3:
+            return torch.stack(
+                [
+                    slow_tlwh[0] + slow_tlwh[2] * 0.5,
+                    slow_tlwh[1] + slow_tlwh[3] * 0.5,
+                    slow_tlwh[3],
+                ],
+                dim=0,
+            )
+        if int(d_out) == 4:
+            return slow_tlwh
+        if int(d_out) == 8:
+            fast = fast_box if fast_box is not None else box
+            fast_tlwh = torch.stack(
+                [
+                    torch.clamp(fast[0] / x_scale, 0.0, 1.0),
+                    torch.clamp(fast[1] / y_scale, 0.0, 1.0),
+                    torch.clamp((fast[2] - fast[0]) / x_scale, 0.0, 1.0),
+                    torch.clamp((fast[3] - fast[1]) / y_scale, 0.0, 1.0),
+                ],
+                dim=0,
+            ).to(dtype=torch.float32)
+            return torch.cat([slow_tlwh, fast_tlwh], dim=0)
+        return self._default_prev_y(int(d_out), device=box.device, dtype=torch.float32)
+
+    @staticmethod
+    def _uses_prev_y_feature(cfg: Optional[CameraGPTConfig]) -> bool:
+        if cfg is None:
+            return False
+        return str(getattr(cfg, "feature_mode", "legacy_prev_slow")) in {
+            "base_prev_y",
+            "players_prev_y",
+        }
 
     @staticmethod
     def _resolve_device(context: Dict[str, Any], fallback: Optional[torch.device] = None):
@@ -161,10 +290,16 @@ class CameraControllerPlugin(Plugin):
             preds = pr.get("predictions") if isinstance(pr, dict) else None
             ds0 = preds[0] if isinstance(preds, list) and preds else None
             inst0 = getattr(ds0, "pred_instances", ds0)
-            bxs = getattr(inst0, "bboxes", None)
-            kps = getattr(inst0, "keypoint_scores", None)
-            bbox_scores = getattr(inst0, "bbox_scores", None)
-            scores = getattr(inst0, "scores", None)
+            if isinstance(inst0, dict):
+                bxs = inst0.get("bboxes")
+                kps = inst0.get("keypoint_scores")
+                bbox_scores = inst0.get("bbox_scores")
+                scores = inst0.get("scores")
+            else:
+                bxs = getattr(inst0, "bboxes", None)
+                kps = getattr(inst0, "keypoint_scores", None)
+                bbox_scores = getattr(inst0, "bbox_scores", None)
+                scores = getattr(inst0, "scores", None)
         except Exception:
             return feat
 
@@ -328,6 +463,17 @@ class CameraControllerPlugin(Plugin):
             track_data_sample = track_samples
         video_len = len(track_data_sample)
         pose_results = context.get("pose_results")
+        if (
+            self._controller == "gpt"
+            and self._gpt_cfg is not None
+            and bool(getattr(self._gpt_cfg, "include_pose", False))
+            and (not isinstance(pose_results, list) or len(pose_results) < video_len)
+        ):
+            raise RuntimeError(
+                "Camera GPT checkpoint expects pose features, but pose_results are missing or "
+                "shorter than the tracking batch. Use a no-pose checkpoint or run camera_controller "
+                "after the pose trunk."
+            )
 
         cam_boxes: List[torch.Tensor] = []
         cam_fast_boxes: List[torch.Tensor] = []
@@ -349,6 +495,7 @@ class CameraControllerPlugin(Plugin):
             ori_shape = img_data_sample.metainfo.get("ori_shape")
             H = int(ori_shape[0]) if isinstance(ori_shape, (list, tuple)) else int(1080)
             W = int(ori_shape[1]) if isinstance(ori_shape, (list, tuple)) else int(1920)
+            play_bounds = self._play_bounds(context, frame_index, W, H, device, dtype=torch.float32)
             if inst is None or not hasattr(inst, "bboxes"):
                 # Default to centered wide shot
                 h_px = H * 0.8
@@ -359,6 +506,7 @@ class CameraControllerPlugin(Plugin):
                     dtype=torch.float32,
                     device=device,
                 )
+                box = self._fit_box_inside_bounds(box, play_bounds)
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 if (
@@ -369,8 +517,7 @@ class CameraControllerPlugin(Plugin):
                     cam_fast_boxes.append(box)
                     setattr(img_data_sample, "pred_cam_fast_box", box)
                 try:
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
+                    w_denom, h_denom = self._output_scales(W, H)
                     self._prev_center = torch.stack(
                         [
                             (box[0] + box[2]) / (2.0 * w_denom),
@@ -384,13 +531,11 @@ class CameraControllerPlugin(Plugin):
                 if (
                     self._controller == "gpt"
                     and self._gpt_cfg is not None
-                    and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow"))
-                    == "base_prev_y"
+                    and self._uses_prev_y_feature(self._gpt_cfg)
                 ):
                     # Seed prev_y from the default wide shot.
                     try:
-                        w_denom = max(1.0, float(W))
-                        h_denom = max(1.0, float(H))
+                        w_denom, h_denom = self._output_scales(W, H)
                         slow_tlwh = torch.stack(
                             [
                                 torch.clamp(box[0] / w_denom, 0.0, 1.0),
@@ -430,6 +575,7 @@ class CameraControllerPlugin(Plugin):
             if not isinstance(det_tlbr, torch.Tensor):
                 det_tlbr = torch.as_tensor(det_tlbr, device=device, dtype=torch.float32)
             device = det_tlbr.device
+            play_bounds = play_bounds.to(device=device, dtype=torch.float32)
             if self._feat_device is None:
                 self._feat_device = device
             elif self._feat_device != device:
@@ -450,6 +596,7 @@ class CameraControllerPlugin(Plugin):
                     dtype=torch.float32,
                     device=device,
                 )
+                box = self._fit_box_inside_bounds(box, play_bounds)
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 if (
@@ -460,8 +607,7 @@ class CameraControllerPlugin(Plugin):
                     cam_fast_boxes.append(box)
                     setattr(img_data_sample, "pred_cam_fast_box", box)
                 try:
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
+                    w_denom, h_denom = self._output_scales(W, H)
                     self._prev_center = torch.stack(
                         [
                             (box[0] + box[2]) / (2.0 * w_denom),
@@ -475,12 +621,10 @@ class CameraControllerPlugin(Plugin):
                 if (
                     self._controller == "gpt"
                     and self._gpt_cfg is not None
-                    and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow"))
-                    == "base_prev_y"
+                    and self._uses_prev_y_feature(self._gpt_cfg)
                 ):
                     try:
-                        w_denom = max(1.0, float(W))
-                        h_denom = max(1.0, float(H))
+                        w_denom, h_denom = self._output_scales(W, H)
                         slow_tlwh = torch.stack(
                             [
                                 torch.clamp(box[0] / w_denom, 0.0, 1.0),
@@ -543,8 +687,7 @@ class CameraControllerPlugin(Plugin):
                     cx, cy, hr = pred[0], pred[1], pred[2]
                     self._prev_center = torch.stack([cx, cy], dim=0)
                     self._prev_h = hr
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
+                    w_denom, h_denom = self._output_scales(W, H)
                     h_px = torch.clamp(hr * h_denom, min=1.0)
                     w_px = h_px * self._ar
                     cx_px = cx * w_denom
@@ -577,8 +720,21 @@ class CameraControllerPlugin(Plugin):
                     else None
                 )
 
-                if str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow")) == "base_prev_y":
+                feature_mode = str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow"))
+                if feature_mode in {"base_prev_y", "players_prev_y"}:
                     base_feat = build_frame_base_features_torch(tlwh=tlwh, norm=self._norm)
+                    if feature_mode == "players_prev_y":
+                        base_feat = torch.cat(
+                            [
+                                base_feat,
+                                build_player_box_features_torch(
+                                    tlwh=tlwh,
+                                    norm=self._norm,
+                                    max_players=int(self._norm.max_players),
+                                ),
+                            ],
+                            dim=0,
+                        )
                     if pose_feat is not None:
                         base_feat = torch.cat([base_feat, pose_feat], dim=0)
                     if rink_feat is not None:
@@ -602,16 +758,18 @@ class CameraControllerPlugin(Plugin):
                     if rink_feat is not None:
                         feat = torch.cat([feat, rink_feat], dim=0)
 
-                # Pad/truncate to the model's expected input dimension.
-                if int(feat.shape[0]) < int(self._gpt_cfg.d_in):
-                    feat = F.pad(
-                        feat,
-                        (0, int(self._gpt_cfg.d_in) - int(feat.shape[0])),
-                        mode="constant",
-                        value=0.0,
+                expected_dim = int(self._gpt_cfg.d_in)
+                actual_dim = int(feat.shape[0])
+                if actual_dim != expected_dim:
+                    msg = (
+                        "Camera GPT feature schema mismatch: "
+                        f"feature_mode={feature_mode!r} include_pose="
+                        f"{bool(getattr(self._gpt_cfg, 'include_pose', False))} include_rink="
+                        f"{bool(getattr(self._gpt_cfg, 'include_rink', False))} "
+                        f"expected d_in={expected_dim}, got {actual_dim}"
                     )
-                elif int(feat.shape[0]) > int(self._gpt_cfg.d_in):
-                    feat = feat[: int(self._gpt_cfg.d_in)]
+                    logger.error(msg)
+                    raise RuntimeError(msg)
 
                 gpt_device = next(self._gpt_model.parameters()).device
                 if gpt_device != device:
@@ -625,8 +783,7 @@ class CameraControllerPlugin(Plugin):
 
                 if int(self._gpt_cfg.d_out) == 3:
                     cx, cy, hr = pred_last[0], pred_last[1], pred_last[2]
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
+                    w_denom, h_denom = self._output_scales(W, H)
                     h_px = torch.clamp(hr * h_denom, min=1.0)
                     w_px = h_px * self._ar
                     cx_px = cx * w_denom
@@ -652,8 +809,7 @@ class CameraControllerPlugin(Plugin):
                         torch.tensor([0, 0, W, H], dtype=box_out.dtype, device=device),
                     )
                     try:
-                        w_denom = max(1.0, float(W))
-                        h_denom = max(1.0, float(H))
+                        w_denom, h_denom = self._output_scales(W, H)
                         self._prev_center = torch.stack(
                             [
                                 (box_out[0] + box_out[2]) / (2.0 * w_denom),
@@ -666,8 +822,7 @@ class CameraControllerPlugin(Plugin):
                         pass
                 elif int(self._gpt_cfg.d_out) in (4, 8):
                     slow_tlwh = pred_last[:4]
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
+                    w_denom, h_denom = self._output_scales(W, H)
                     cx_px = (slow_tlwh[0] + slow_tlwh[2] * 0.5) * w_denom
                     cy_px = (slow_tlwh[1] + slow_tlwh[3] * 0.5) * h_denom
                     h0 = torch.clamp(slow_tlwh[3] * h_denom, min=1.0)
@@ -699,8 +854,7 @@ class CameraControllerPlugin(Plugin):
                         torch.tensor([0, 0, W, H], dtype=box_out.dtype, device=device),
                     )
                     try:
-                        w_denom = max(1.0, float(W))
-                        h_denom = max(1.0, float(H))
+                        w_denom, h_denom = self._output_scales(W, H)
                         cxn = (box_out[0] + box_out[2]) / (2.0 * w_denom)
                         cyn = (box_out[1] + box_out[3]) / (2.0 * h_denom)
                         hrn = (box_out[3] - box_out[1]) / h_denom
@@ -756,52 +910,24 @@ class CameraControllerPlugin(Plugin):
                     )
                 box_out = clamp_box(box_out, self._wh_box)
 
+            box_out = self._fit_box_inside_bounds(box_out, play_bounds)
+            if box_fast_out is not None:
+                box_fast_out = self._fit_box_inside_bounds(box_fast_out, play_bounds)
+
             # For base_prev_y checkpoints, feed back the *actual* box used after clamping/aspect enforcement.
             if (
                 self._controller == "gpt"
                 and self._gpt_cfg is not None
-                and str(getattr(self._gpt_cfg, "feature_mode", "legacy_prev_slow")) == "base_prev_y"
+                and self._uses_prev_y_feature(self._gpt_cfg)
             ):
                 try:
-                    w_denom = max(1.0, float(W))
-                    h_denom = max(1.0, float(H))
-                    slow_tlwh = torch.stack(
-                        [
-                            torch.clamp(box_out[0] / w_denom, 0.0, 1.0),
-                            torch.clamp(box_out[1] / h_denom, 0.0, 1.0),
-                            torch.clamp((box_out[2] - box_out[0]) / w_denom, 0.0, 1.0),
-                            torch.clamp((box_out[3] - box_out[1]) / h_denom, 0.0, 1.0),
-                        ],
-                        dim=0,
-                    ).to(dtype=torch.float32)
-                    d_out = int(self._gpt_cfg.d_out)
-                    if d_out == 3:
-                        self._prev_y = torch.stack(
-                            [
-                                slow_tlwh[0] + slow_tlwh[2] * 0.5,
-                                slow_tlwh[1] + slow_tlwh[3] * 0.5,
-                                slow_tlwh[3],
-                            ],
-                            dim=0,
-                        )
-                    elif d_out == 4:
-                        self._prev_y = slow_tlwh
-                    elif d_out == 8:
-                        fast_box = box_fast_out if box_fast_out is not None else box_out
-                        fast_tlwh = torch.stack(
-                            [
-                                torch.clamp(fast_box[0] / w_denom, 0.0, 1.0),
-                                torch.clamp(fast_box[1] / h_denom, 0.0, 1.0),
-                                torch.clamp((fast_box[2] - fast_box[0]) / w_denom, 0.0, 1.0),
-                                torch.clamp((fast_box[3] - fast_box[1]) / h_denom, 0.0, 1.0),
-                            ],
-                            dim=0,
-                        ).to(dtype=torch.float32)
-                        self._prev_y = torch.cat([slow_tlwh, fast_tlwh], dim=0)
-                    else:
-                        self._prev_y = self._default_prev_y(
-                            d_out, device=device, dtype=torch.float32
-                        )
+                    self._prev_y = self._box_to_prev_y(
+                        box_out,
+                        box_fast_out,
+                        int(self._gpt_cfg.d_out),
+                        W,
+                        H,
+                    )
                 except Exception:
                     self._prev_y = self._default_prev_y(
                         int(self._gpt_cfg.d_out), device=device, dtype=torch.float32
@@ -828,6 +954,7 @@ class CameraControllerPlugin(Plugin):
             "original_images",
             "shared",
             "rink_profile",
+            "arena",
         }
 
     def output_keys(self):
