@@ -75,6 +75,16 @@ def _runtime_aspect_slow_tlwh(tlwh: torch.Tensor, aspect_norm: float) -> torch.T
     return torch.stack([left, top, out_w, h], dim=-1)
 
 
+def _center_h_to_runtime_tlwh(center_h: torch.Tensor, aspect_norm: float) -> torch.Tensor:
+    h = torch.clamp(center_h[..., 2], min=1e-6, max=1.0)
+    w = torch.clamp(h * float(aspect_norm), min=1e-6, max=1.0)
+    cx = torch.clamp(center_h[..., 0], min=w * 0.5, max=1.0 - w * 0.5)
+    cy = torch.clamp(center_h[..., 1], min=h * 0.5, max=1.0 - h * 0.5)
+    left = cx - w * 0.5
+    top = cy - h * 0.5
+    return torch.stack([left, top, w, h], dim=-1)
+
+
 def _clamp_unit_tlwh(tlwh: torch.Tensor) -> torch.Tensor:
     x1 = torch.clamp(tlwh[..., 0], min=0.0, max=1.0)
     y1 = torch.clamp(tlwh[..., 1], min=0.0, max=1.0)
@@ -90,11 +100,15 @@ def _runtime_feedback_target(
         return pred
     d_out = int(pred.shape[-1])
     if d_out == 3:
-        h = torch.clamp(pred[..., 2], min=1e-6, max=1.0)
-        w = torch.clamp(h * float(runtime_slow_aspect_norm), min=1e-6, max=1.0)
-        cx = torch.clamp(pred[..., 0], min=w * 0.5, max=1.0 - w * 0.5)
-        cy = torch.clamp(pred[..., 1], min=h * 0.5, max=1.0 - h * 0.5)
-        return torch.stack([cx, cy, h], dim=-1)
+        tlwh = _center_h_to_runtime_tlwh(pred, runtime_slow_aspect_norm)
+        return torch.stack(
+            [
+                tlwh[..., 0] + tlwh[..., 2] * 0.5,
+                tlwh[..., 1] + tlwh[..., 3] * 0.5,
+                tlwh[..., 3],
+            ],
+            dim=-1,
+        )
     if d_out == 4:
         return _runtime_aspect_slow_tlwh(pred, runtime_slow_aspect_norm)
     if d_out == 8:
@@ -205,25 +219,34 @@ def _compute_losses(
         metrics["acc_fast"] = float(acc_fast.detach().item()) if pred.size(1) > 2 else 0.0
 
     else:
-        pred_loss = (
-            _runtime_aspect_slow_tlwh(pred, runtime_slow_aspect_norm)
-            if d_out == 4 and runtime_slow_aspect_norm is not None
-            else pred
-        )
-        l1 = nn.functional.l1_loss(pred_loss, y)
+        pred_loss = pred
+        y_loss = y
+        if runtime_slow_aspect_norm is not None:
+            if d_out == 3:
+                pred_loss = _runtime_feedback_target(pred, runtime_slow_aspect_norm)
+                y_loss = _runtime_feedback_target(y, runtime_slow_aspect_norm)
+            elif d_out == 4:
+                pred_loss = _runtime_aspect_slow_tlwh(pred, runtime_slow_aspect_norm)
+        l1 = nn.functional.l1_loss(pred_loss, y_loss)
         metrics["l1"] = float(l1.detach().item())
         iou_loss = pred.new_zeros(())
         if d_out == 4:
             iou = _mean_iou_tlwh(pred_loss, y)
             iou_loss = 1.0 - iou
             metrics["iou"] = float(iou.detach().item())
+        elif d_out == 3 and runtime_slow_aspect_norm is not None:
+            pred_tlwh = _center_h_to_runtime_tlwh(pred_loss, runtime_slow_aspect_norm)
+            y_tlwh = _center_h_to_runtime_tlwh(y_loss, runtime_slow_aspect_norm)
+            iou = _mean_iou_tlwh(pred_tlwh, y_tlwh)
+            iou_loss = 1.0 - iou
+            metrics["iou"] = float(iou.detach().item())
         vel = (
-            nn.functional.l1_loss(_diff1(pred_loss), _diff1(y))
+            nn.functional.l1_loss(_diff1(pred_loss), _diff1(y_loss))
             if pred.size(1) > 1
             else pred.new_zeros(())
         )
         acc = (
-            nn.functional.l1_loss(_diff2(pred_loss), _diff2(y))
+            nn.functional.l1_loss(_diff2(pred_loss), _diff2(y_loss))
             if pred.size(1) > 2
             else pred.new_zeros(())
         )
@@ -913,6 +936,14 @@ def main():
             "slow_tlwh",
             "slow_fast_tlwh",
         }
+    if (
+        float(args.target_iou) > 0.0
+        and str(args.target_mode) == "slow_center_h"
+        and not bool(args.runtime_slow_iou)
+    ):
+        raise SystemExit(
+            "--target-iou with --target-mode=slow_center_h requires --runtime-slow-iou"
+        )
 
     # --max-iters is an alias for --steps. If both are provided explicitly, require they match.
     if args.max_iters is not None:

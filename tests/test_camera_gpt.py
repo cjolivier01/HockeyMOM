@@ -140,7 +140,7 @@ def should_sample_gpt_dataset_and_run_model_forward():
 def should_free_run_legacy_prev_slow_by_feeding_predictions():
     torch = _torch()
 
-    from hmlib.cli.camgpt_train import _predict_batch
+    from hmlib.cli.camgpt_train import _compute_losses, _predict_batch
 
     class AddToPrev(torch.nn.Module):
         def forward(self, x):
@@ -172,6 +172,18 @@ def should_free_run_legacy_prev_slow_by_feeding_predictions():
 
     assert torch.allclose(teacher_pred[0, :, 0], torch.tensor([0.3, 0.9, 0.9]))
     assert torch.allclose(free_pred[0, :, 0], torch.tensor([0.3, 0.4, 0.5]))
+
+    _, metrics = _compute_losses(
+        pred=torch.tensor([[[0.5, 0.5, 0.5]]], dtype=torch.float32),
+        y=torch.tensor([[[0.5, 0.5, 0.5]]], dtype=torch.float32),
+        w_l1=1.0,
+        w_iou=1.0,
+        w_vel=0.0,
+        w_acc=0.0,
+        fast_mult=1.0,
+        runtime_slow_aspect_norm=0.5,
+    )
+    assert metrics["iou"] == pytest.approx(1.0)
 
 
 def should_pack_drivegpt_metadata_and_init_from_opendrive_planning():
