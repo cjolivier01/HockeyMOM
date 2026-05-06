@@ -442,10 +442,7 @@ class StitchingPlugin(Plugin):
 
         x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         b, c, h, w = x.shape
-        work_dtype = (
-            torch.float16 if device.type != "cpu" and orig_dtype == torch.uint8 else torch.float32
-        )
-        x_work = x.to(dtype=work_dtype, non_blocking=True)
+        x_work = x.to(dtype=torch.float32, non_blocking=True)
 
         cache_key = (int(h), int(w), device)
         cache = self._rotate_cache.get(cache_key)
@@ -489,7 +486,7 @@ class StitchingPlugin(Plugin):
             ]
         )
         a = cache["s_inv"] @ m_inv @ cache["s"]
-        theta = a[:2, :].to(dtype=work_dtype).unsqueeze(0).repeat(b, 1, 1)
+        theta = a[:2, :].unsqueeze(0).repeat(b, 1, 1)
         grid = F.affine_grid(theta, size=(b, c, h, w), align_corners=True)
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
         del x_work, grid, theta, a, m_inv
