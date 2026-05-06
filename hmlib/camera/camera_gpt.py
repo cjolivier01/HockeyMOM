@@ -12,7 +12,8 @@ previous camera state) and predicts normalized camera center/height:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from torch import nn
@@ -20,13 +21,23 @@ from torch import nn
 from hmlib.camera.camera_transformer import CameraNorm, PositionalEncoding
 
 
+OPENDRIVE_UNIAD_MODEL_ID = "OpenDriveLab/UniAD2.0_R101_nuScenes"
+OPENDRIVE_UNIAD_PLANNING_FILE = "ckpts/uniad_base_e2e.pth"
+
+
 @dataclass(frozen=True)
 class CameraGPTConfig:
     d_in: int = 11
     d_out: int = 3
+    model_kind: str = "gpt"
     feature_mode: str = "legacy_prev_slow"
     include_pose: bool = False
     include_rink: bool = False
+    source_model_id: str = ""
+    source_checkpoint: str = ""
+    source_init: str = ""
+    residual_prev_y: bool = False
+    residual_scale: float = 0.1
     # Defaults chosen to be ~10M params with typical camgpt training settings.
     d_model: int = 448
     nhead: int = 8
@@ -43,14 +54,26 @@ class CameraPanZoomGPT(nn.Module):
         self.cfg = cfg
         self.input = nn.Linear(int(cfg.d_in), int(cfg.d_model))
         self.pe = PositionalEncoding(int(cfg.d_model))
-        enc_layer = nn.TransformerEncoderLayer(
-            d_model=int(cfg.d_model),
-            nhead=int(cfg.nhead),
-            dim_feedforward=int(cfg.dim_feedforward),
-            batch_first=True,
-            dropout=float(cfg.dropout),
-        )
-        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=int(cfg.nlayers))
+        self.encoder: Optional[nn.TransformerEncoder] = None
+        self.decoder: Optional[nn.TransformerDecoder] = None
+        if str(getattr(cfg, "model_kind", "gpt")) == "drivegpt":
+            dec_layer = nn.TransformerDecoderLayer(
+                d_model=int(cfg.d_model),
+                nhead=int(cfg.nhead),
+                dim_feedforward=int(cfg.dim_feedforward),
+                batch_first=True,
+                dropout=float(cfg.dropout),
+            )
+            self.decoder = nn.TransformerDecoder(dec_layer, num_layers=int(cfg.nlayers))
+        else:
+            enc_layer = nn.TransformerEncoderLayer(
+                d_model=int(cfg.d_model),
+                nhead=int(cfg.nhead),
+                dim_feedforward=int(cfg.dim_feedforward),
+                batch_first=True,
+                dropout=float(cfg.dropout),
+            )
+            self.encoder = nn.TransformerEncoder(enc_layer, num_layers=int(cfg.nlayers))
         self.head = nn.Sequential(
             nn.LayerNorm(int(cfg.d_model)),
             nn.Linear(int(cfg.d_model), int(cfg.d_model)),
@@ -68,8 +91,23 @@ class CameraPanZoomGPT(nn.Module):
         h = self.pe(h)
         # Causal (GPT-style) mask: prevent attending to future timesteps.
         mask = torch.triu(torch.ones((t, t), device=x.device, dtype=torch.bool), diagonal=1)
-        h = self.encoder(h, mask=mask)
-        return self.head(h)
+        if self.decoder is not None:
+            h = self.decoder(h, h, tgt_mask=mask, memory_mask=mask)
+        elif self.encoder is not None:
+            h = self.encoder(h, mask=mask)
+        else:
+            raise RuntimeError("CameraPanZoomGPT has neither encoder nor decoder initialized")
+        out = self.head(h)
+        if bool(getattr(self.cfg, "residual_prev_y", False)):
+            d_out = int(self.cfg.d_out)
+            if int(x.shape[-1]) < d_out:
+                raise ValueError(
+                    "residual_prev_y requires previous target values at the end of the input"
+                )
+            prev_y = x[..., -d_out:].to(device=out.device, dtype=out.dtype)
+            delta = (out - 0.5) * (2.0 * float(getattr(self.cfg, "residual_scale", 0.1)))
+            out = torch.clamp(prev_y + delta, 0.0, 1.0)
+        return out
 
 
 def pack_gpt_checkpoint(
@@ -86,9 +124,15 @@ def pack_gpt_checkpoint(
         "model": {
             "d_in": int(cfg.d_in),
             "d_out": int(cfg.d_out),
+            "model_kind": str(getattr(cfg, "model_kind", "gpt")),
             "feature_mode": str(cfg.feature_mode),
             "include_pose": bool(cfg.include_pose),
             "include_rink": bool(getattr(cfg, "include_rink", False)),
+            "source_model_id": str(getattr(cfg, "source_model_id", "")),
+            "source_checkpoint": str(getattr(cfg, "source_checkpoint", "")),
+            "source_init": str(getattr(cfg, "source_init", "")),
+            "residual_prev_y": bool(getattr(cfg, "residual_prev_y", False)),
+            "residual_scale": float(getattr(cfg, "residual_scale", 0.1)),
             "d_model": int(cfg.d_model),
             "nhead": int(cfg.nhead),
             "nlayers": int(cfg.nlayers),
@@ -110,9 +154,15 @@ def unpack_gpt_checkpoint(
     cfg = CameraGPTConfig(
         d_in=int(model_cfg.get("d_in", 11)),
         d_out=int(model_cfg.get("d_out", 3)),
+        model_kind=str(model_cfg.get("model_kind", "gpt")),
         feature_mode=str(model_cfg.get("feature_mode", "legacy_prev_slow")),
         include_pose=bool(include_pose),
         include_rink=bool(include_rink),
+        source_model_id=str(model_cfg.get("source_model_id", "")),
+        source_checkpoint=str(model_cfg.get("source_checkpoint", "")),
+        source_init=str(model_cfg.get("source_init", "")),
+        residual_prev_y=bool(model_cfg.get("residual_prev_y", False)),
+        residual_scale=float(model_cfg.get("residual_scale", 0.1)),
         d_model=int(model_cfg.get("d_model", 448)),
         nhead=int(model_cfg.get("nhead", 8)),
         nlayers=int(model_cfg.get("nlayers", 4)),
@@ -125,3 +175,128 @@ def unpack_gpt_checkpoint(
         max_players=int(n["max_players"]),
     )
     return sd, norm, window, cfg
+
+
+def resolve_opendrive_checkpoint(
+    *,
+    model_id: str = OPENDRIVE_UNIAD_MODEL_ID,
+    filename: str = OPENDRIVE_UNIAD_PLANNING_FILE,
+    checkpoint_path: Optional[str] = None,
+) -> str:
+    """Resolve an OpenDriveLab checkpoint path, downloading it from Hugging Face if needed."""
+    if checkpoint_path:
+        path = Path(checkpoint_path).expanduser()
+        if not path.is_file():
+            raise FileNotFoundError(f"OpenDriveLab checkpoint does not exist: {path}")
+        return str(path)
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as ex:
+        raise RuntimeError(
+            "huggingface_hub is required to download OpenDriveLab weights. "
+            "Install it or pass --drivegpt-source-checkpoint."
+        ) from ex
+
+    return str(hf_hub_download(repo_id=str(model_id), filename=str(filename)))
+
+
+def init_from_opendrive_uniad_planning(
+    model: CameraPanZoomGPT, checkpoint_path: str
+) -> Dict[str, Any]:
+    """Initialize matching decoder blocks from UniAD's planning head.
+
+    UniAD's public OpenDriveLab checkpoint contains a planning ``TransformerDecoder``
+    head with self-attention, cross-attention, FFN, and three layer norms. DriveGPT uses
+    the same decoder layer layout with causal masks over both target and memory streams;
+    non-matching tensors are reported and skipped.
+    """
+    ckpt_path = Path(checkpoint_path).expanduser()
+    if not ckpt_path.is_file():
+        raise FileNotFoundError(f"OpenDriveLab checkpoint does not exist: {ckpt_path}")
+    if str(getattr(model.cfg, "model_kind", "gpt")) != "drivegpt":
+        raise ValueError(
+            "OpenDriveLab UniAD planning initialization requires model_kind='drivegpt'"
+        )
+    if (
+        int(model.cfg.d_model) != 256
+        or int(model.cfg.nhead) != 8
+        or int(model.cfg.dim_feedforward) != 512
+    ):
+        raise ValueError(
+            "OpenDriveLab UniAD planning initialization requires "
+            "d_model=256, nhead=8, and dim_feedforward=512."
+        )
+    if int(model.cfg.nlayers) != 3:
+        raise ValueError(
+            "OpenDriveLab UniAD planning initialization requires nlayers=3 to match "
+            "the public UniAD planning decoder."
+        )
+
+    ckpt = torch.load(str(ckpt_path), map_location="cpu")
+    source_sd = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else ckpt
+    if not isinstance(source_sd, dict):
+        raise ValueError(f"Unsupported OpenDriveLab checkpoint format: {type(source_sd).__name__}")
+
+    target_sd = model.state_dict()
+    copied = 0
+    skipped = 0
+    initialized_layers: set[int] = set()
+    mapping = {
+        "self_attn.in_proj_weight": "self_attn.in_proj_weight",
+        "self_attn.in_proj_bias": "self_attn.in_proj_bias",
+        "self_attn.out_proj.weight": "self_attn.out_proj.weight",
+        "self_attn.out_proj.bias": "self_attn.out_proj.bias",
+        "multihead_attn.in_proj_weight": "multihead_attn.in_proj_weight",
+        "multihead_attn.in_proj_bias": "multihead_attn.in_proj_bias",
+        "multihead_attn.out_proj.weight": "multihead_attn.out_proj.weight",
+        "multihead_attn.out_proj.bias": "multihead_attn.out_proj.bias",
+        "linear1.weight": "linear1.weight",
+        "linear1.bias": "linear1.bias",
+        "linear2.weight": "linear2.weight",
+        "linear2.bias": "linear2.bias",
+        "norm1.weight": "norm1.weight",
+        "norm1.bias": "norm1.bias",
+        "norm2.weight": "norm2.weight",
+        "norm2.bias": "norm2.bias",
+        "norm3.weight": "norm3.weight",
+        "norm3.bias": "norm3.bias",
+    }
+
+    for layer_idx in range(int(model.cfg.nlayers)):
+        source_prefix = f"planning_head.attn_module.layers.{layer_idx}."
+        target_prefix = f"decoder.layers.{layer_idx}."
+        layer_copied = 0
+        for source_suffix, target_suffix in mapping.items():
+            source_key = source_prefix + source_suffix
+            target_key = target_prefix + target_suffix
+            source_tensor = source_sd.get(source_key)
+            target_tensor = target_sd.get(target_key)
+            if source_tensor is None or target_tensor is None:
+                skipped += 1
+                continue
+            if tuple(source_tensor.shape) != tuple(target_tensor.shape):
+                skipped += 1
+                continue
+            target_sd[target_key] = source_tensor.to(dtype=target_tensor.dtype)
+            copied += 1
+            layer_copied += 1
+        if layer_copied:
+            initialized_layers.add(layer_idx)
+
+    expected_copied = len(mapping) * int(model.cfg.nlayers)
+    if copied != expected_copied:
+        raise ValueError(
+            f"Incomplete UniAD planning initialization: copied {copied}/{expected_copied} "
+            "compatible decoder tensors. Use d_model=256, nhead=8, dim_feedforward=512, "
+            "and nlayers matching the OpenDriveLab planning checkpoint."
+        )
+
+    model.load_state_dict(target_sd, strict=True)
+    return {
+        "source": "opendrive-uniad-planning",
+        "checkpoint_path": str(ckpt_path),
+        "copied_tensors": int(copied),
+        "skipped_tensors": int(skipped),
+        "initialized_layers": int(len(initialized_layers)),
+    }

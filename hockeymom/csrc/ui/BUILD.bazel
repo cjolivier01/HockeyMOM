@@ -1,11 +1,10 @@
-load("@rules_cuda//cuda:defs.bzl", "requires_cuda")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 INCLUDE_PREFIX = "hockeymom/csrc/ui"
-CUDA_ONLY_COMPAT = select({
-    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+ROCM_COMPAT_COPTS = select({
+    "//bazel:torch_backend_rocm": ["-DJETSON_USE_HIP"],
     "//conditions:default": [],
-}) + requires_cuda()
+})
 
 cc_library(
     name = "hm_render_set",
@@ -21,9 +20,9 @@ cc_library(
         "-fopenmp",
         "-fPIC",
         "-Wno-error=comment",
-    ],
-    target_compatible_with = CUDA_ONLY_COMPAT,
+    ] + ROCM_COMPAT_COPTS,
     deps=[
+      "@jetson-utils//cuda:cuda_compat_includes",
       "@jetson-utils//display",
     ]
 )

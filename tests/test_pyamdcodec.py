@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from fractions import Fraction
@@ -25,6 +26,19 @@ def _require_rocm_torch():
         pytest.skip("PyAmdVideoCodec tests require a ROCm torch runtime")
     _ensure_repo_on_path()
     return torch
+
+
+def _require_torch():
+    torch = pytest.importorskip("torch")
+    _ensure_repo_on_path()
+    return torch
+
+
+def _require_ffmpeg() -> str:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("ffmpeg is required for PyAmdVideoCodec tests")
+    return ffmpeg
 
 
 def _ffprobe_stream_metadata(video_path: Path) -> dict:
@@ -106,6 +120,52 @@ def should_write_h264_with_pyamdencoder(tmp_path: Path):
     assert int(meta.get("nb_frames") or meta.get("nb_read_frames") or 0) == 4
 
 
+def should_preserve_rtmp_output_url_in_encoder_cmd(monkeypatch):
+    torch = _require_torch()
+    from hmlib.video import py_amd_codec as amd_codec
+
+    monkeypatch.setattr(amd_codec, "_require_ffmpeg_path", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        amd_codec.PyAmdVideoCodec,
+        "resolve_encoder",
+        classmethod(lambda cls, codec, backend="auto": "h264_vaapi"),
+    )
+    monkeypatch.setattr(
+        amd_codec.PyAmdVideoCodec,
+        "default_vaapi_device",
+        classmethod(lambda cls: "/dev/dri/renderD128"),
+    )
+
+    output_url = "rtmp://127.0.0.1:1935/live/test-stream"
+    encoder = amd_codec.PyAmdVideoEncoder(
+        output_path=output_url,
+        width=128,
+        height=96,
+        fps=10.0,
+        codec="h264",
+        device=torch.device("cpu"),
+        backend="vaapi",
+    )
+
+    cmd = encoder._build_cmd()
+    assert cmd[-1] == output_url
+    assert "rtmp:/127.0.0.1" not in cmd[-1]
+
+
+def should_report_decoder_unavailable_without_ffmpeg(monkeypatch):
+    _ensure_repo_on_path()
+    from hmlib.video import py_amd_codec as amd_codec
+
+    monkeypatch.setattr(amd_codec.shutil, "which", lambda name: None)
+    monkeypatch.setattr(amd_codec, "_FFMPEG_ENCODERS", None)
+    monkeypatch.setattr(amd_codec, "_FFMPEG_HWACCELS", None)
+
+    assert amd_codec._ffmpeg_path() is None
+    assert not amd_codec.PyAmdVideoCodec.is_decoder_available("software")
+    with pytest.raises(RuntimeError, match="FFmpeg"):
+        amd_codec._require_ffmpeg_path()
+
+
 def should_stream_h264_bitstream_with_pyamdencoder():
     torch = _require_rocm_torch()
     from hmlib.video.py_amd_codec import PyAmdVideoCodec, PyAmdVideoEncoder
@@ -137,6 +197,43 @@ def should_stream_h264_bitstream_with_pyamdencoder():
 
     assert payloads
     assert sum(len(chunk) for chunk in payloads) > 0
+
+
+def should_seek_to_exact_frame_with_software_decoder(tmp_path: Path):
+    _require_ffmpeg()
+    torch = _require_torch()
+    cv2 = pytest.importorskip("cv2")
+    del cv2
+
+    from hmlib.video.py_amd_codec import PyAmdVideoCodec, PyAmdVideoDecoder
+
+    if not PyAmdVideoCodec.is_decoder_available("software"):
+        pytest.skip("FFmpeg software decoder is not available")
+
+    src = tmp_path / "seek_source.mp4"
+    _write_test_video_cv2(src, fps=10.0, width=64, height=48, frames=12)
+
+    decoder = PyAmdVideoDecoder(
+        src,
+        device=torch.device("cpu"),
+        backend="software",
+        batch_size=1,
+    )
+    try:
+        decoder.seek_to_index(7)
+        batch = decoder.read_batch(1)
+        assert batch is not None
+        frame = batch[0]
+        green_mean = float(frame[1].to(torch.float32).mean().item())
+        assert green_mean == pytest.approx(70.0, abs=12.0)
+
+        batch = decoder.read_batch(1)
+        assert batch is not None
+        next_frame = batch[0]
+        next_green_mean = float(next_frame[1].to(torch.float32).mean().item())
+        assert next_green_mean == pytest.approx(80.0, abs=12.0)
+    finally:
+        decoder.close()
 
 
 def should_transcode_with_pyamd_decoder_and_writer(tmp_path: Path):

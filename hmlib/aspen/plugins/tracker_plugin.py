@@ -8,11 +8,9 @@ from mmengine.structures import InstanceData
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
 from hmlib.utils.hockeymom_compat import (
-    HOCKEYMOM_AVAILABLE,
     HmByteTrackConfig,
     HmTrackerPredictionMode,
 )
-from hmlib.utils.torch_backend import is_rocm_backend
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 
 from .base import Plugin
@@ -48,10 +46,9 @@ class TrackerPlugin(Plugin):
         super().__init__(enabled=enabled)
         self._cpp_tracker = bool(cpp_tracker)
         if tracker_class is None:
-            use_native_tracker = cpp_tracker and HOCKEYMOM_AVAILABLE and not is_rocm_backend()
             default_class = (
                 "hockeymom.core.HmTracker"
-                if use_native_tracker
+                if cpp_tracker
                 else "hmlib.tracking_utils.bytetrack.HmByteTrackerCuda"
             )
             self._tracker_class_path = default_class
@@ -70,11 +67,6 @@ class TrackerPlugin(Plugin):
         return self._tracker_class_path
 
     def _resolve_tracker_class(self):
-        if self._tracker_class_path.startswith("hockeymom.core.") and not HOCKEYMOM_AVAILABLE:
-            raise RuntimeError(
-                "Requested hockeymom native tracker, but the extension is unavailable. "
-                "Use the Python ByteTrack backend on ROCm/non-native setups."
-            )
         module_name, _, attr = self._tracker_class_path.rpartition(".")
         if not module_name:
             raise ValueError(

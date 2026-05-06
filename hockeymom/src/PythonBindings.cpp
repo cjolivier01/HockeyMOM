@@ -1,4 +1,6 @@
 #include <ATen/ATen.h>
+#include <torch/extension.h>
+#include <torch/torch.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -9,10 +11,6 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
-#include <c10/cuda/CUDAGuard.h> // for CUDAStreamGuard
-#include <c10/cuda/CUDAStream.h>
-#include <torch/extension.h>
-#include <torch/torch.h>
 
 #include "cudaYUV.h"
 
@@ -33,6 +31,7 @@
 #include "hockeymom/csrc/pytorch/image_blend.h"
 #include "hockeymom/csrc/pytorch/image_remap.h"
 #include "hockeymom/csrc/pytorch/image_stitch.h"
+#include "hockeymom/csrc/pytorch/torch_cuda_compat.h"
 #include "hockeymom/csrc/ui/HmRenderSet.h"
 
 #ifndef NO_CPP_BLENDING
@@ -67,7 +66,10 @@ struct BlenderConfig {
 
 class AspenGraphSampler {
  public:
-  AspenGraphSampler(size_t max_samples, int min_interval_ms, int max_interval_ms)
+  AspenGraphSampler(
+      size_t max_samples,
+      int min_interval_ms,
+      int max_interval_ms)
       : max_samples_(max_samples),
         min_interval_ms_(min_interval_ms),
         max_interval_ms_(max_interval_ms),
@@ -83,14 +85,17 @@ class AspenGraphSampler {
     }
   }
 
-  ~AspenGraphSampler() { stop(); }
+  ~AspenGraphSampler() {
+    stop();
+  }
 
   void configure_graph(
       const std::vector<std::string>& names,
       const std::vector<int>& degrees,
       const std::vector<std::pair<int, int>>& edges) {
     if (running_.load(std::memory_order_relaxed)) {
-      throw std::runtime_error("AspenGraphSampler configure_graph while running");
+      throw std::runtime_error(
+          "AspenGraphSampler configure_graph while running");
     }
     names_ = names;
     degrees_ = degrees;
@@ -184,7 +189,8 @@ class AspenGraphSampler {
       }
       Sample sample;
       sample.timestamp =
-          std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now().time_since_epoch())
               .count();
       sample.active.resize(active_count_size_);
       for (size_t i = 0; i < active_count_size_; ++i) {
@@ -243,7 +249,7 @@ class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
             /*max_output_width=*/max_output_width),
         input1_size_(input1_size),
         input2_size_(input2_size) {
-    assert(!match_exposure);  // Let's not do this anymore
+    assert(!match_exposure); // Let's not do this anymore
     if (!Super::status().ok()) {
       std::string ss;
       throw std::runtime_error(Super::status().message());
@@ -336,7 +342,8 @@ class PyCudaStitchPano3 : public CudaStitchPano3<T, T_compute> {
 };
 
 using hm::pano::cuda::CudaStitchPanoN;
-// TODO: make templated and name CudaStitchPanoNU8 and CudaStitchPanoNF32 python classes
+// TODO: make templated and name CudaStitchPanoNU8 and CudaStitchPanoNF32 python
+// classes
 template <typename T, typename T_compute>
 class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
   using Super = CudaStitchPanoN<T, T_compute>;
@@ -353,7 +360,9 @@ class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
       : CudaStitchPanoN<T, T_compute>(
             batch_size,
             num_levels,
-            hm::pano::ControlMasksN(std::move(game_dir), static_cast<int>(input_sizes.size())),
+            hm::pano::ControlMasksN(
+                std::move(game_dir),
+                static_cast<int>(input_sizes.size())),
             match_exposure,
             minimize_blend,
             quiet),
@@ -363,7 +372,10 @@ class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
     }
   }
 
-  void process(const std::vector<void*>& d_inputs, void* d_canvas, cudaStream_t stream) {
+  void process(
+      const std::vector<void*>& d_inputs,
+      void* d_canvas,
+      cudaStream_t stream) {
     const int bs = Super::batch_size();
     if (d_inputs.size() != input_sizes_.size()) {
       throw std::runtime_error("inputs.size() must match stitcher N");
@@ -381,7 +393,8 @@ class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
     input_ptrs.reserve(d_inputs.size());
     for (size_t i = 0; i < d_inputs.size(); ++i) {
       const WHDims& sz = input_sizes_[i];
-      inputs.emplace_back(std::make_unique<hm::CudaMat<T>>(static_cast<T*>(d_inputs[i]), bs, sz.width, sz.height));
+      inputs.emplace_back(std::make_unique<hm::CudaMat<T>>(
+          static_cast<T*>(d_inputs[i]), bs, sz.width, sz.height));
       input_ptrs.emplace_back(inputs.back().get());
     }
 
@@ -418,10 +431,10 @@ at::Tensor bgr_to_i420_cuda(const at::Tensor& bgr_hwc) {
       bgr_hwc.dim() == 3 && bgr_hwc.size(2) == 3,
       "bgr_to_i420_cuda expects shape [H, W, 3]");
 
-  c10::cuda::CUDAGuard device_guard(bgr_hwc.device());
+  hm::torch_cuda_compat::DeviceGuard device_guard(bgr_hwc.device());
 
-  at::Tensor rgb_hwc = bgr_to_rgb(
-      bgr_hwc.is_contiguous() ? bgr_hwc : bgr_hwc.contiguous());
+  at::Tensor rgb_hwc =
+      bgr_to_rgb(bgr_hwc.is_contiguous() ? bgr_hwc : bgr_hwc.contiguous());
 
   const int64_t height = rgb_hwc.size(0);
   const int64_t width = rgb_hwc.size(1);
@@ -440,14 +453,17 @@ at::Tensor bgr_to_i420_cuda(const at::Tensor& bgr_hwc) {
       at::empty({height * 3 / 2, width}, rgb_contig.options().dtype(at::kByte));
 
   cudaStream_t stream =
-      c10::cuda::getCurrentCUDAStream(bgr_hwc.device().index()).stream();
+      hm::torch_cuda_compat::get_current_stream(bgr_hwc.device().index());
 
-  auto* input_ptr =
-      reinterpret_cast<uchar3*>(rgb_contig.data_ptr<uint8_t>());
+  auto* input_ptr = reinterpret_cast<uchar3*>(rgb_contig.data_ptr<uint8_t>());
   void* output_ptr = static_cast<void*>(i420.data_ptr<uint8_t>());
 
-  const cudaError_t err =
-      cudaRGBToI420(input_ptr, output_ptr, static_cast<size_t>(width), static_cast<size_t>(height), stream);
+  const cudaError_t err = cudaRGBToI420(
+      input_ptr,
+      output_ptr,
+      static_cast<size_t>(width),
+      static_cast<size_t>(height),
+      stream);
 
   TORCH_CHECK(
       err == cudaSuccess,
@@ -469,12 +485,14 @@ void show_cuda_tensor_impl(
       img_cuda.dim() == 3 && img_cuda.size(2) == 3, "Tensor must be H×W×3");
 
   // wrap your raw stream
-  std::unique_ptr<c10::cuda::CUDAStream> cuda_stream;
-  std::unique_ptr<c10::cuda::CUDAStreamGuard> stream_guard;
+  std::unique_ptr<hm::torch_cuda_compat::Stream> cuda_stream;
+  std::unique_ptr<hm::torch_cuda_compat::StreamGuard> stream_guard;
   if (stream) {
-    cuda_stream = std::make_unique<c10::cuda::CUDAStream>(
-        c10::cuda::getStreamFromExternal(stream, img_cuda.device().index()));
-    stream_guard = std::make_unique<c10::cuda::CUDAStreamGuard>(*cuda_stream);
+    cuda_stream = std::make_unique<hm::torch_cuda_compat::Stream>(
+        hm::torch_cuda_compat::get_stream_from_external(
+            stream, img_cuda.device().index()));
+    stream_guard =
+        std::make_unique<hm::torch_cuda_compat::StreamGuard>(*cuda_stream);
   }
 
   img_cuda = bgr_to_rgb(std::move(img_cuda));
@@ -1139,7 +1157,8 @@ void init_tracking(::pybind11::module_& m) {
       hm::tracker::BYTETrackerCuda,
       std::shared_ptr<hm::tracker::BYTETrackerCuda>>(m, "HmByteTrackerCuda")
       .def(
-          py::init([](hm::tracker::ByteTrackConfig config, const std::string& device) {
+          py::init([](hm::tracker::ByteTrackConfig config,
+                      const std::string& device) {
             return std::make_shared<hm::tracker::BYTETrackerCuda>(
                 std::move(config), c10::Device(device));
           }),
@@ -1154,7 +1173,8 @@ void init_tracking(::pybind11::module_& m) {
 
   py::class_<
       hm::tracker::BYTETrackerCudaStatic,
-      std::shared_ptr<hm::tracker::BYTETrackerCudaStatic>>(m, "HmByteTrackerCudaStatic")
+      std::shared_ptr<hm::tracker::BYTETrackerCudaStatic>>(
+      m, "HmByteTrackerCudaStatic")
       .def(
           py::init([](hm::tracker::ByteTrackConfig config,
                       int64_t max_detections,
@@ -1177,15 +1197,14 @@ void init_tracking(::pybind11::module_& m) {
           py::arg("data"),
           py::call_guard<py::gil_scoped_release>())
       .def_property_readonly(
-          "max_detections",
-          &hm::tracker::BYTETrackerCudaStatic::max_detections)
+          "max_detections", &hm::tracker::BYTETrackerCudaStatic::max_detections)
       .def_property_readonly(
-          "max_tracks",
-          &hm::tracker::BYTETrackerCudaStatic::max_tracks);
+          "max_tracks", &hm::tracker::BYTETrackerCudaStatic::max_tracks);
 
   py::class_<
       hm::tracker::DfTrackerCudaStatic,
-      std::shared_ptr<hm::tracker::DfTrackerCudaStatic>>(m, "HmDcfTrackerCudaStatic")
+      std::shared_ptr<hm::tracker::DfTrackerCudaStatic>>(
+      m, "HmDcfTrackerCudaStatic")
       .def(
           py::init([](hm::tracker::ByteTrackConfig config,
                       int64_t max_detections,
@@ -1229,11 +1248,9 @@ void init_tracking(::pybind11::module_& m) {
           py::arg("data"),
           py::call_guard<py::gil_scoped_release>())
       .def_property_readonly(
-          "max_detections",
-          &hm::tracker::DfTrackerCudaStatic::max_detections)
+          "max_detections", &hm::tracker::DfTrackerCudaStatic::max_detections)
       .def_property_readonly(
-          "max_tracks",
-          &hm::tracker::DfTrackerCudaStatic::max_tracks)
+          "max_tracks", &hm::tracker::DfTrackerCudaStatic::max_tracks)
       .def_property_readonly(
           "reid_feature_dim",
           &hm::tracker::DfTrackerCudaStatic::reid_feature_dim);
@@ -1398,13 +1415,15 @@ void init_living_boxes(::pybind11::module_& m) {
       .def_readonly("current_speed_h", &ResizingState::current_speed_h)
       // Resize stop-on-direction-change braking state
       .def_readonly("stop_delay_w", &ResizingState::stop_delay_w)
-      .def_readonly("stop_delay_w_counter", &ResizingState::stop_delay_w_counter)
+      .def_readonly(
+          "stop_delay_w_counter", &ResizingState::stop_delay_w_counter)
       .def_readonly("stop_decel_w", &ResizingState::stop_decel_w)
       .def_readonly("stop_trigger_dir_w", &ResizingState::stop_trigger_dir_w)
       .def_readonly("cancel_opp_w_count", &ResizingState::cancel_opp_w_count)
       .def_readonly("cooldown_w_counter", &ResizingState::cooldown_w_counter)
       .def_readonly("stop_delay_h", &ResizingState::stop_delay_h)
-      .def_readonly("stop_delay_h_counter", &ResizingState::stop_delay_h_counter)
+      .def_readonly(
+          "stop_delay_h_counter", &ResizingState::stop_delay_h_counter)
       .def_readonly("stop_decel_h", &ResizingState::stop_decel_h)
       .def_readonly("stop_trigger_dir_h", &ResizingState::stop_trigger_dir_h)
       .def_readonly("cancel_opp_h_count", &ResizingState::cancel_opp_h_count)
@@ -1880,17 +1899,24 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPanoN<uchar4, T_compute>>>(
       m, "CudaStitchPanoNU8")
       .def(
-          py::init<std::string, int, int, std::vector<WHDims>, bool, bool, bool>(),
+          py::init<
+              std::string,
+              int,
+              int,
+              std::vector<WHDims>,
+              bool,
+              bool,
+              bool>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input_sizes"),
           py::arg("match_exposure"),
           py::arg("minimize_blend"),
-          py::arg("quiet") = false
-        )
+          py::arg("quiet") = false)
       .def("canvas_width", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_width)
-      .def("canvas_height", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_height)
+      .def(
+          "canvas_height", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_height)
       .def(
           "process",
           [](std::shared_ptr<PyCudaStitchPanoN<uchar4, T_compute>> self,
@@ -1904,7 +1930,8 @@ void init_cuda_pano(::pybind11::module_& m) {
               throw std::runtime_error("All tensors must be Cuda tensors");
             }
             if (canvas.dim() != 4) {
-              throw std::runtime_error("Canvas must have four dimensions (B, H, W, C)");
+              throw std::runtime_error(
+                  "Canvas must have four dimensions (B, H, W, C)");
             }
             if (canvas.size(3) != 4) {
               throw std::runtime_error("Canvas must have four channels");
@@ -1919,7 +1946,8 @@ void init_cuda_pano(::pybind11::module_& m) {
                 throw std::runtime_error("All tensors must be Cuda tensors");
               }
               if (t.dim() != 4) {
-                throw std::runtime_error("Input tensors must have four dimensions (B, H, W, C)");
+                throw std::runtime_error(
+                    "Input tensors must have four dimensions (B, H, W, C)");
               }
               if (t.size(3) != 4) {
                 throw std::runtime_error("Tensors must have four channels");
@@ -2032,17 +2060,24 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPanoN<float4, T_compute>>>(
       m, "CudaStitchPanoNF32")
       .def(
-          py::init<std::string, int, int, std::vector<WHDims>, bool, bool, bool>(),
+          py::init<
+              std::string,
+              int,
+              int,
+              std::vector<WHDims>,
+              bool,
+              bool,
+              bool>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input_sizes"),
           py::arg("match_exposure"),
           py::arg("minimize_blend"),
-          py::arg("quiet") = false
-        )
+          py::arg("quiet") = false)
       .def("canvas_width", &PyCudaStitchPanoN<float4, T_compute>::canvas_width)
-      .def("canvas_height", &PyCudaStitchPanoN<float4, T_compute>::canvas_height)
+      .def(
+          "canvas_height", &PyCudaStitchPanoN<float4, T_compute>::canvas_height)
       .def(
           "process",
           [](std::shared_ptr<PyCudaStitchPanoN<float4, T_compute>> self,
@@ -2056,7 +2091,8 @@ void init_cuda_pano(::pybind11::module_& m) {
               throw std::runtime_error("All tensors must be Cuda tensors");
             }
             if (canvas.dim() != 4) {
-              throw std::runtime_error("Canvas must have four dimensions (B, H, W, C)");
+              throw std::runtime_error(
+                  "Canvas must have four dimensions (B, H, W, C)");
             }
             if (canvas.size(3) != 4) {
               throw std::runtime_error("Canvas must have four channels");
@@ -2071,7 +2107,8 @@ void init_cuda_pano(::pybind11::module_& m) {
                 throw std::runtime_error("All tensors must be Cuda tensors");
               }
               if (t.dim() != 4) {
-                throw std::runtime_error("Input tensors must have four dimensions (B, H, W, C)");
+                throw std::runtime_error(
+                    "Input tensors must have four dimensions (B, H, W, C)");
               }
               if (t.size(3) != 4) {
                 throw std::runtime_error("Tensors must have four channels");
@@ -2143,7 +2180,10 @@ void init_aspen_graph_sampler(::pybind11::module_& m) {
           &hm::AspenGraphSampler::exit_index,
           py::arg("index"),
           py::call_guard<py::gil_scoped_release>())
-      .def("pop_samples", &hm::AspenGraphSampler::pop_samples, py::arg("max_items") = 1);
+      .def(
+          "pop_samples",
+          &hm::AspenGraphSampler::pop_samples,
+          py::arg("max_items") = 1);
 }
 
 PYBIND11_MODULE(_hockeymom, m) {

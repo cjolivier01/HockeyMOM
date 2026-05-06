@@ -32,11 +32,9 @@ from hmlib.utils.hockeymom_compat import (
     CudaStitchPanoNU8,
     CudaStitchPanoU8,
     EnBlender,
-    HOCKEYMOM_AVAILABLE,
     ImageBlender,
     ImageBlenderMode,
     WHDims,
-    require_hockeymom,
 )
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
 from hmlib.utils.progress_bar import convert_hms_to_seconds
@@ -624,8 +622,6 @@ class SmartRemapperBlender(torch.nn.Module):
 
         if not self._use_python_blender:
             # assert False  # Not interested in this path atm
-            if ImageBlender is None:
-                require_hockeymom("native image blender")
             self._blender = ImageBlender(
                 mode=(
                     ImageBlenderMode.Laplacian
@@ -993,8 +989,6 @@ def create_stitcher(
 ):
     """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
-        if not HOCKEYMOM_AVAILABLE:
-            require_hockeymom("native panorama stitching")
         assert not auto_adjust_exposure  # messes with minimize_blend results
         assert dir_name
         if input_image_sizes_wh is None:

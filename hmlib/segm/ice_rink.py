@@ -7,7 +7,7 @@ import gc
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import mmcv
@@ -15,10 +15,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from matplotlib.patches import Polygon
-from mmdet.apis import inference_detector, init_detector
-from mmdet.models.detectors.base import BaseDetector
-from mmdet.structures import DetDataSample
-from mmdet.structures.mask import bitmap_to_polygon
 from PIL import Image
 
 from hmlib.config import (
@@ -43,6 +39,10 @@ from hmlib.utils.image import (
 )
 
 DEFAULT_SCORE_THRESH = 0.3
+
+if TYPE_CHECKING:
+    from mmdet.models.detectors.base import BaseDetector
+    from mmdet.structures import DetDataSample
 
 
 def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
@@ -162,7 +162,7 @@ def enclosing_bbox(bboxes: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
 
 
 def result_to_polygons(
-    inference_result: DetDataSample,
+    inference_result: "DetDataSample",
     category_id: int = 1,
     score_thr: float = 0,
     show: bool = False,
@@ -201,6 +201,8 @@ def result_to_polygons(
     combined_mask = None
 
     combined_bbox = enclosing_bbox(bboxes)
+
+    from mmdet.structures.mask import bitmap_to_polygon
 
     for _, mask in enumerate(masks):
         contours, _ = bitmap_to_polygon(mask.cpu().numpy())
@@ -282,16 +284,18 @@ def _rescale_rink_results(
 
 def detect_ice_rink_mask(
     image: Union[torch.Tensor, np.ndarray],
-    model: BaseDetector,
+    model: "BaseDetector",
     show: bool = False,
 ) -> Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]:
+    from mmdet.apis import inference_detector
+
     if isinstance(image, torch.Tensor):
         if image.ndim == 4:
             assert image.shape[0] == 1
             image = image.squeeze(0)
         image = image.cpu().numpy()
     image = make_channels_last(image)
-    result: DetDataSample = inference_detector(model, image)
+    result: "DetDataSample" = inference_detector(model, image)
 
     if show:
         show_image = image.cpu().unsqueeze(0).numpy() if isinstance(image, torch.Tensor) else image
@@ -309,6 +313,8 @@ def find_ice_rink_masks(
     show: bool = False,
     inference_scale: Optional[float] = None,
 ) -> List[Dict[str, Union[List[List[Tuple[int, int]]], List[Polygon], List[np.ndarray]]]]:
+    from mmdet.apis import init_detector
+
     if device is None:
         # device = torch.device("cuda:0")
         device = torch.device("cpu")

@@ -679,9 +679,12 @@ class hm_opts(object):
         cam_ctrl.add_argument(
             "--camera-controller",
             type=str,
-            choices=["rule", "transformer", "gpt"],
+            choices=["rule", "transformer", "gpt", "drivegpt"],
             default="rule",
-            help="Select camera controller: rule-based PlayTracker, transformer, or GPT model",
+            help=(
+                "Select camera controller: rule-based PlayTracker, transformer, GPT, "
+                "or DriveGPT/OpenDriveLab-initialized GPT model"
+            ),
         )
         cam_ctrl.add_argument(
             "--camera-model",

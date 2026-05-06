@@ -1,7 +1,7 @@
 #include "hockeymom/csrc/pytorch/bytetrack_cuda_ops.h"
 
-#include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
+#include <algorithm>
 
 namespace hm {
 namespace ops {
@@ -20,12 +20,12 @@ void launch_hungarian_cuda(
     at::Tensor& row_solution,
     at::Tensor& col_solution);
 
-at::Tensor bbox_iou_cuda(
-    const at::Tensor& boxes1,
-    const at::Tensor& boxes2) {
+at::Tensor bbox_iou_cuda(const at::Tensor& boxes1, const at::Tensor& boxes2) {
   TORCH_CHECK(boxes1.device().is_cuda(), "boxes1 must be CUDA tensor");
   TORCH_CHECK(boxes2.device().is_cuda(), "boxes2 must be CUDA tensor");
-  TORCH_CHECK(boxes1.size(-1) == 4 && boxes2.size(-1) == 4, "boxes must have shape (N, 4)");
+  TORCH_CHECK(
+      boxes1.size(-1) == 4 && boxes2.size(-1) == 4,
+      "boxes must have shape (N, 4)");
   auto n = boxes1.size(0);
   auto m = boxes2.size(0);
   auto options = boxes1.options();
@@ -57,17 +57,14 @@ std::pair<at::Tensor, at::Tensor> hungarian_assign_cuda(
 
   // Build padded square matrix
   const double limit = cost_limit;
-  auto fill_value =
-      (limit < 1e30) ? static_cast<float>(limit * 0.5) : 1e6f;
+  auto fill_value = (limit < 1e30) ? static_cast<float>(limit * 0.5) : 1e6f;
   auto cost_square = at::full({padded, padded}, fill_value, cost.options());
   cost_square.slice(/*dim=*/0, 0, num_rows)
       .slice(/*dim=*/1, 0, num_cols)
       .copy_(cost);
   // When both row/col padded portions overlap, set to zero like CPU version.
   if (padded > num_rows && padded > num_cols) {
-    cost_square.slice(0, num_rows, padded)
-        .slice(1, num_cols, padded)
-        .zero_();
+    cost_square.slice(0, num_rows, padded).slice(1, num_cols, padded).zero_();
   }
 
   auto row_solution_int = at::full({num_rows}, -1, options_int32);
@@ -87,8 +84,7 @@ std::pair<at::Tensor, at::Tensor> hungarian_assign_cuda(
     auto valid_rows = (row_solution >= 0).nonzero().squeeze(-1);
     if (valid_rows.numel() > 0) {
       auto det_cols = row_solution.index_select(0, valid_rows);
-      auto gathered =
-          cost.index({valid_rows, det_cols}).reshape({-1});
+      auto gathered = cost.index({valid_rows, det_cols}).reshape({-1});
       auto invalid = (gathered > cost_limit).nonzero().squeeze(-1);
       if (invalid.numel() > 0) {
         auto bad_rows = valid_rows.index_select(0, invalid);

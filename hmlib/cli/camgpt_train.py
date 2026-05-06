@@ -10,7 +10,15 @@ import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
 
-from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT, pack_gpt_checkpoint
+from hmlib.camera.camera_gpt import (
+    OPENDRIVE_UNIAD_MODEL_ID,
+    OPENDRIVE_UNIAD_PLANNING_FILE,
+    CameraGPTConfig,
+    CameraPanZoomGPT,
+    init_from_opendrive_uniad_planning,
+    pack_gpt_checkpoint,
+    resolve_opendrive_checkpoint,
+)
 from hmlib.camera.camera_gpt_dataset import (
     CameraPanZoomGPTIterableDataset,
     GameCsvPaths,
@@ -53,6 +61,93 @@ def _mean_iou_tlwh(a_tlwh: torch.Tensor, b_tlwh: torch.Tensor) -> torch.Tensor:
     return iou.mean()
 
 
+def _runtime_aspect_slow_tlwh(tlwh: torch.Tensor, aspect_norm: float) -> torch.Tensor:
+    """Mirror Aspen's slow-box postprocess: keep center/height, derive width from aspect."""
+    x = tlwh[..., 0]
+    y = tlwh[..., 1]
+    src_w = torch.clamp(tlwh[..., 2], min=1e-6)
+    src_h = torch.clamp(tlwh[..., 3], min=1e-6)
+    aspect = max(1e-6, float(aspect_norm))
+    max_h = min(1.0, 1.0 / aspect)
+    h = torch.clamp(src_h, min=1e-6, max=max_h)
+    out_w = torch.clamp(h * aspect, min=1e-6, max=1.0)
+    cx = torch.clamp(x + src_w * 0.5, out_w * 0.5, 1.0 - out_w * 0.5)
+    cy = torch.clamp(y + src_h * 0.5, h * 0.5, 1.0 - h * 0.5)
+    left = cx - out_w * 0.5
+    top = cy - h * 0.5
+    return torch.stack([left, top, out_w, h], dim=-1)
+
+
+def _center_h_to_runtime_tlwh(center_h: torch.Tensor, aspect_norm: float) -> torch.Tensor:
+    aspect = max(1e-6, float(aspect_norm))
+    max_h = min(1.0, 1.0 / aspect)
+    h = torch.clamp(center_h[..., 2], min=1e-6, max=max_h)
+    w = torch.clamp(h * aspect, min=1e-6, max=1.0)
+    cx = torch.clamp(center_h[..., 0], min=w * 0.5, max=1.0 - w * 0.5)
+    cy = torch.clamp(center_h[..., 1], min=h * 0.5, max=1.0 - h * 0.5)
+    left = cx - w * 0.5
+    top = cy - h * 0.5
+    return torch.stack([left, top, w, h], dim=-1)
+
+
+def _clamp_unit_tlwh(tlwh: torch.Tensor) -> torch.Tensor:
+    x1 = torch.clamp(tlwh[..., 0], min=0.0, max=1.0)
+    y1 = torch.clamp(tlwh[..., 1], min=0.0, max=1.0)
+    x2 = torch.clamp(tlwh[..., 0] + tlwh[..., 2], min=0.0, max=1.0)
+    y2 = torch.clamp(tlwh[..., 1] + tlwh[..., 3], min=0.0, max=1.0)
+    return torch.stack([x1, y1, x2 - x1, y2 - y1], dim=-1)
+
+
+def _runtime_feedback_target(
+    pred: torch.Tensor, runtime_slow_aspect_norm: Optional[float]
+) -> torch.Tensor:
+    if runtime_slow_aspect_norm is None:
+        return pred
+    d_out = int(pred.shape[-1])
+    if d_out == 3:
+        tlwh = _center_h_to_runtime_tlwh(pred, runtime_slow_aspect_norm)
+        return torch.stack(
+            [
+                tlwh[..., 0] + tlwh[..., 2] * 0.5,
+                tlwh[..., 1] + tlwh[..., 3] * 0.5,
+                tlwh[..., 3],
+            ],
+            dim=-1,
+        )
+    if d_out == 4:
+        return _runtime_aspect_slow_tlwh(pred, runtime_slow_aspect_norm)
+    if d_out == 8:
+        slow = _runtime_aspect_slow_tlwh(pred[..., :4], runtime_slow_aspect_norm)
+        fast = _clamp_unit_tlwh(pred[..., 4:8])
+        return torch.cat([slow, fast], dim=-1)
+    return pred
+
+
+def _legacy_prev_slow_feedback_target(
+    pred: torch.Tensor, runtime_slow_aspect_norm: Optional[float]
+) -> torch.Tensor:
+    """Return normalized [cx, cy, h] feedback for legacy_prev_slow inputs."""
+    d_out = int(pred.shape[-1])
+    if d_out == 3:
+        return _runtime_feedback_target(pred, runtime_slow_aspect_norm)
+    if d_out == 4:
+        slow = pred
+    elif d_out == 8:
+        slow = pred[..., :4]
+    else:
+        raise ValueError(f"legacy_prev_slow free-run feedback does not support d_out={d_out}")
+
+    slow = (
+        _runtime_aspect_slow_tlwh(slow, runtime_slow_aspect_norm)
+        if runtime_slow_aspect_norm is not None
+        else _clamp_unit_tlwh(slow)
+    )
+    cx = torch.clamp(slow[..., 0] + slow[..., 2] * 0.5, 0.0, 1.0)
+    cy = torch.clamp(slow[..., 1] + slow[..., 3] * 0.5, 0.0, 1.0)
+    h = torch.clamp(slow[..., 3], 0.0, 1.0)
+    return torch.stack([cx, cy, h], dim=-1)
+
+
 def _diff1(x: torch.Tensor) -> torch.Tensor:
     # [B,T,D] -> [B,T-1,D]
     return x[:, 1:, :] - x[:, :-1, :]
@@ -72,6 +167,7 @@ def _compute_losses(
     w_vel: float,
     w_acc: float,
     fast_mult: float,
+    runtime_slow_aspect_norm: Optional[float] = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     metrics: dict[str, float] = {}
     d_out = int(y.shape[-1])
@@ -81,26 +177,33 @@ def _compute_losses(
         y_slow = y[..., :4]
         pred_fast = pred[..., 4:8]
         y_fast = y[..., 4:8]
+        pred_slow_loss = (
+            _runtime_aspect_slow_tlwh(pred_slow, runtime_slow_aspect_norm)
+            if runtime_slow_aspect_norm is not None
+            else pred_slow
+        )
+        pred_fast_loss = _clamp_unit_tlwh(pred_fast)
+        y_fast_loss = _clamp_unit_tlwh(y_fast)
 
-        l1_slow = nn.functional.l1_loss(pred_slow, y_slow)
-        l1_fast = nn.functional.l1_loss(pred_fast, y_fast)
+        l1_slow = nn.functional.l1_loss(pred_slow_loss, y_slow)
+        l1_fast = nn.functional.l1_loss(pred_fast_loss, y_fast_loss)
         l1 = l1_slow + float(fast_mult) * l1_fast
         metrics["l1_slow"] = float(l1_slow.detach().item())
         metrics["l1_fast"] = float(l1_fast.detach().item())
 
-        iou_slow = _mean_iou_tlwh(pred_slow, y_slow)
-        iou_fast = _mean_iou_tlwh(pred_fast, y_fast)
+        iou_slow = _mean_iou_tlwh(pred_slow_loss, y_slow)
+        iou_fast = _mean_iou_tlwh(pred_fast_loss, y_fast_loss)
         iou_loss = (1.0 - iou_slow) + float(fast_mult) * (1.0 - iou_fast)
         metrics["iou_slow"] = float(iou_slow.detach().item())
         metrics["iou_fast"] = float(iou_fast.detach().item())
 
         vel_slow = (
-            nn.functional.l1_loss(_diff1(pred_slow), _diff1(y_slow))
+            nn.functional.l1_loss(_diff1(pred_slow_loss), _diff1(y_slow))
             if pred.size(1) > 1
             else pred.new_zeros(())
         )
         vel_fast = (
-            nn.functional.l1_loss(_diff1(pred_fast), _diff1(y_fast))
+            nn.functional.l1_loss(_diff1(pred_fast_loss), _diff1(y_fast_loss))
             if pred.size(1) > 1
             else pred.new_zeros(())
         )
@@ -109,12 +212,12 @@ def _compute_losses(
         metrics["vel_fast"] = float(vel_fast.detach().item()) if pred.size(1) > 1 else 0.0
 
         acc_slow = (
-            nn.functional.l1_loss(_diff2(pred_slow), _diff2(y_slow))
+            nn.functional.l1_loss(_diff2(pred_slow_loss), _diff2(y_slow))
             if pred.size(1) > 2
             else pred.new_zeros(())
         )
         acc_fast = (
-            nn.functional.l1_loss(_diff2(pred_fast), _diff2(y_fast))
+            nn.functional.l1_loss(_diff2(pred_fast_loss), _diff2(y_fast_loss))
             if pred.size(1) > 2
             else pred.new_zeros(())
         )
@@ -123,20 +226,34 @@ def _compute_losses(
         metrics["acc_fast"] = float(acc_fast.detach().item()) if pred.size(1) > 2 else 0.0
 
     else:
-        l1 = nn.functional.l1_loss(pred, y)
+        pred_loss = pred
+        y_loss = y
+        if runtime_slow_aspect_norm is not None:
+            if d_out == 3:
+                pred_loss = _runtime_feedback_target(pred, runtime_slow_aspect_norm)
+                y_loss = _runtime_feedback_target(y, runtime_slow_aspect_norm)
+            elif d_out == 4:
+                pred_loss = _runtime_aspect_slow_tlwh(pred, runtime_slow_aspect_norm)
+        l1 = nn.functional.l1_loss(pred_loss, y_loss)
         metrics["l1"] = float(l1.detach().item())
         iou_loss = pred.new_zeros(())
         if d_out == 4:
-            iou = _mean_iou_tlwh(pred, y)
+            iou = _mean_iou_tlwh(pred_loss, y)
+            iou_loss = 1.0 - iou
+            metrics["iou"] = float(iou.detach().item())
+        elif d_out == 3 and runtime_slow_aspect_norm is not None:
+            pred_tlwh = _center_h_to_runtime_tlwh(pred_loss, runtime_slow_aspect_norm)
+            y_tlwh = _center_h_to_runtime_tlwh(y_loss, runtime_slow_aspect_norm)
+            iou = _mean_iou_tlwh(pred_tlwh, y_tlwh)
             iou_loss = 1.0 - iou
             metrics["iou"] = float(iou.detach().item())
         vel = (
-            nn.functional.l1_loss(_diff1(pred), _diff1(y))
+            nn.functional.l1_loss(_diff1(pred_loss), _diff1(y_loss))
             if pred.size(1) > 1
             else pred.new_zeros(())
         )
         acc = (
-            nn.functional.l1_loss(_diff2(pred), _diff2(y))
+            nn.functional.l1_loss(_diff2(pred_loss), _diff2(y_loss))
             if pred.size(1) > 2
             else pred.new_zeros(())
         )
@@ -178,10 +295,7 @@ def _load_game_ids(args: argparse.Namespace) -> List[str]:
 
 
 def _arg_in_argv(flag: str) -> bool:
-    try:
-        return flag in sys.argv
-    except Exception:
-        return False
+    return any(arg == flag or arg.startswith(f"{flag}=") for arg in sys.argv)
 
 
 def _load_game_dirs_from_list(list_path: str) -> List[Path]:
@@ -208,6 +322,35 @@ def _load_game_dirs_from_list(list_path: str) -> List[Path]:
         seen.add(key)
         dedup.append(d)
     return dedup
+
+
+def _scan_games_max_xy(game_csvs: List[GameCsvPaths]) -> Tuple[float, float]:
+    max_x = 0.0
+    max_y = 0.0
+    for p in game_csvs:
+        mx, my = scan_game_max_xy(p.tracking_csv, p.camera_csv, p.camera_fast_csv)
+        max_x = max(max_x, float(mx))
+        max_y = max(max_y, float(my))
+    return max_x, max_y
+
+
+def _validate_validation_scale(val_games: List[GameCsvPaths], norm: CameraNorm) -> None:
+    """Reject validation splits that would be clipped by train-only normalization."""
+    if not val_games:
+        return
+    val_max_x, val_max_y = _scan_games_max_xy(val_games)
+    tol_x = max(1.0, float(norm.scale_x)) * 1e-6
+    tol_y = max(1.0, float(norm.scale_y)) * 1e-6
+    over_x = float(val_max_x) > float(norm.scale_x) + tol_x
+    over_y = float(val_max_y) > float(norm.scale_y) + tol_y
+    if over_x or over_y:
+        raise SystemExit(
+            "Validation extents exceed train-only normalization scale: "
+            f"val_max=({val_max_x:.3f}, {val_max_y:.3f}) "
+            f"train_scale=({float(norm.scale_x):.3f}, {float(norm.scale_y):.3f}). "
+            "This would clip validation labels/features and invalidate IoU/target-iou. "
+            "Use a split whose training games cover the validation resolution/extents."
+        )
 
 
 def _parse_checkpoint_naming(out: str) -> Tuple[Path, str, str]:
@@ -247,17 +390,38 @@ def _list_numbered_checkpoints(best_path: Path, prefix: str, ext: str) -> List[t
     return out
 
 
-def _checkpoint_compatible(ckpt: dict, cfg: CameraGPTConfig) -> bool:
+def _checkpoint_compatible(ckpt: dict, cfg: CameraGPTConfig, norm: CameraNorm) -> bool:
     try:
         m = ckpt.get("model") or {}
+        n = ckpt.get("norm") or {}
         return (
             int(m.get("d_in")) == int(cfg.d_in)
             and int(m.get("d_out")) == int(cfg.d_out)
+            and str(m.get("model_kind", "gpt")) == str(cfg.model_kind)
             and str(m.get("feature_mode")) == str(cfg.feature_mode)
             and bool(m.get("include_pose")) == bool(cfg.include_pose)
+            and bool(m.get("include_rink", False)) == bool(cfg.include_rink)
+            and bool(m.get("residual_prev_y", False)) == bool(cfg.residual_prev_y)
+            and float(m.get("residual_scale", 0.1)) == float(cfg.residual_scale)
             and int(m.get("d_model")) == int(cfg.d_model)
             and int(m.get("nhead")) == int(cfg.nhead)
             and int(m.get("nlayers")) == int(cfg.nlayers)
+            and int(m.get("dim_feedforward", CameraGPTConfig().dim_feedforward))
+            == int(cfg.dim_feedforward)
+            and float(m.get("dropout", CameraGPTConfig().dropout)) == float(cfg.dropout)
+            and math.isclose(
+                float(n.get("scale_x", -1.0)),
+                float(norm.scale_x),
+                rel_tol=1e-6,
+                abs_tol=1e-6,
+            )
+            and math.isclose(
+                float(n.get("scale_y", -1.0)),
+                float(norm.scale_y),
+                rel_tol=1e-6,
+                abs_tol=1e-6,
+            )
+            and int(n.get("max_players", -1)) == int(norm.max_players)
         )
     except Exception:
         return False
@@ -273,6 +437,7 @@ def _maybe_resume(
     model: nn.Module,
     opt: optim.Optimizer,
     cfg: CameraGPTConfig,
+    norm: CameraNorm,
 ) -> int:
     if resume_mode == "none":
         return 1
@@ -286,7 +451,7 @@ def _maybe_resume(
         return 1
 
     ckpt = torch.load(str(latest), map_location="cpu")
-    if not _checkpoint_compatible(ckpt, cfg):
+    if not _checkpoint_compatible(ckpt, cfg, norm):
         msg = f"Checkpoint incompatible with current model cfg: {latest}"
         if resume_mode == "force":
             raise SystemExit(msg)
@@ -317,19 +482,72 @@ def _save_training_checkpoint(
     game_csvs: List[GameCsvPaths],
     target_mode: str,
     include_pose: bool,
+    source_init_report: Optional[dict] = None,
 ) -> None:
     ckpt = pack_gpt_checkpoint(model, norm=train_ds.norm, window=int(train_ds._seq_len), cfg=cfg)
     ckpt["step"] = int(step_num)
     ckpt["games"] = [p.game_id for p in game_csvs]
     ckpt["target_mode"] = str(target_mode)
     ckpt["include_pose"] = bool(include_pose)
+    if source_init_report is not None:
+        ckpt["source_init_report"] = dict(source_init_report)
     ckpt["optimizer"] = opt.state_dict()
     os.makedirs(str(path.parent), exist_ok=True)
     torch.save(ckpt, str(path))
 
 
+def _predict_batch(
+    model: nn.Module,
+    batch: dict[str, torch.Tensor],
+    device: torch.device,
+    *,
+    free_run: bool,
+    runtime_slow_aspect_norm: Optional[float],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    y = batch["y"].to(device)
+    if "x" in batch:
+        x_full = batch["x"].to(device)
+        if not free_run:
+            return model(x_full), y
+        if int(x_full.shape[-1]) < 11:
+            raise ValueError(
+                "legacy_prev_slow free-run expects previous [cx,cy,h] at feature indices 8:11"
+            )
+        prev = x_full[:, 0, 8:11]
+        preds = []
+        prefix = []
+        for t in range(int(x_full.shape[1])):
+            x_t = x_full[:, t, :].clone()
+            x_t[:, 8:11] = prev
+            prefix.append(x_t)
+            x = torch.stack(prefix, dim=1)
+            pred_t = model(x)[:, -1, :]
+            preds.append(pred_t)
+            prev = _legacy_prev_slow_feedback_target(pred_t, runtime_slow_aspect_norm).detach()
+        return torch.stack(preds, dim=1), y
+
+    base = batch["base"].to(device)
+    prev0 = batch["prev0"].to(device)
+    if not free_run:
+        prev_y = torch.cat([prev0.unsqueeze(1), y[:, :-1, :]], dim=1)
+        x = torch.cat([base, prev_y], dim=-1)
+        return model(x), y
+
+    prev = prev0
+    preds = []
+    prefix = []
+    for t in range(int(base.shape[1])):
+        x_t = torch.cat([base[:, t, :], prev], dim=-1)
+        prefix.append(x_t)
+        x = torch.stack(prefix, dim=1)
+        pred_t = model(x)[:, -1, :]
+        preds.append(pred_t)
+        prev = _runtime_feedback_target(pred_t, runtime_slow_aspect_norm).detach()
+    return torch.stack(preds, dim=1), y
+
+
 @torch.no_grad()
-def _eval_loss(
+def _eval_metrics(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
@@ -340,23 +558,24 @@ def _eval_loss(
     w_vel: float,
     w_acc: float,
     fast_mult: float,
-) -> float:
+    free_run: bool,
+    runtime_slow_aspect_norm: Optional[float],
+) -> dict[str, float]:
     model.eval()
     total = 0
     loss_sum = 0.0
+    metric_sums: dict[str, float] = {}
     it = iter(loader)
     for _ in range(int(steps)):
         batch = next(it)
-        y = batch["y"].to(device)
-        if "x" in batch:
-            x = batch["x"].to(device)
-        else:
-            base = batch["base"].to(device)
-            prev0 = batch["prev0"].to(device)
-            prev_y = torch.cat([prev0.unsqueeze(1), y[:, :-1, :]], dim=1)
-            x = torch.cat([base, prev_y], dim=-1)
-        pred = model(x)
-        loss, _ = _compute_losses(
+        pred, y = _predict_batch(
+            model,
+            batch,
+            device,
+            free_run=free_run,
+            runtime_slow_aspect_norm=runtime_slow_aspect_norm,
+        )
+        loss, metrics = _compute_losses(
             pred,
             y,
             w_l1=w_l1,
@@ -364,10 +583,16 @@ def _eval_loss(
             w_vel=w_vel,
             w_acc=w_acc,
             fast_mult=fast_mult,
+            runtime_slow_aspect_norm=runtime_slow_aspect_norm,
         )
-        loss_sum += float(loss.item()) * int(x.size(0))
-        total += int(x.size(0))
-    return loss_sum / max(1, total)
+        batch_size = int(y.size(0))
+        loss_sum += float(loss.item()) * batch_size
+        for key, value in metrics.items():
+            metric_sums[key] = metric_sums.get(key, 0.0) + float(value) * batch_size
+        total += batch_size
+    out = {key: value / max(1, total) for key, value in metric_sums.items()}
+    out["loss"] = loss_sum / max(1, total)
+    return out
 
 
 def main():
@@ -416,18 +641,22 @@ def main():
         "--feature-mode",
         type=str,
         default="base_prev_y",
-        choices=["legacy_prev_slow", "base_prev_y"],
+        choices=["legacy_prev_slow", "base_prev_y", "players_prev_y"],
         help=(
-            "Input feature schema. 'base_prev_y' feeds previous camera target/prediction as input "
-            "(enables scheduled sampling and improves fast-box dynamics)."
+            "Input feature schema. 'base_prev_y' feeds previous camera target/prediction as input; "
+            "'players_prev_y' also includes sorted padded player boxes."
         ),
     )
     ap.add_argument(
-        "--no-pose",
+        "--pose",
+        "--include-pose",
         dest="include_pose",
-        action="store_false",
-        default=True,
-        help="Disable pose.csv feature aggregation even if pose.csv exists.",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Enable pose.csv feature aggregation. Defaults off for DriveGPT to keep default "
+            "checkpoints runnable in the non-pose tracking graph; use --pose for pose-enriched runs."
+        ),
     )
     ap.add_argument(
         "--include-rink",
@@ -440,8 +669,12 @@ def main():
     )
     ap.add_argument(
         "--scheduled-sampling",
-        action="store_true",
-        help="Enable scheduled sampling (only when --feature-mode=base_prev_y).",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Enable scheduled sampling (only with previous-target feature modes). "
+            "Defaults on for DriveGPT previous-target modes."
+        ),
     )
     ap.add_argument(
         "--ss-prob-start", type=float, default=0.0, help="Scheduled-sampling prob at step 0."
@@ -492,10 +725,72 @@ def main():
         ),
     )
     ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument(
+        "--model-kind",
+        type=str,
+        default="gpt",
+        choices=["gpt", "drivegpt"],
+        help=(
+            "Model family to train. 'drivegpt' initializes compatible causal blocks from "
+            "OpenDriveLab UniAD planning weights before fine-tuning on camera trajectories."
+        ),
+    )
     ap.add_argument("--d-model", type=int, default=512)
     ap.add_argument("--nhead", type=int, default=8)
     ap.add_argument("--nlayers", type=int, default=8)
+    ap.add_argument(
+        "--dim-feedforward",
+        type=int,
+        default=None,
+        help=(
+            "Transformer feed-forward dimension. Defaults to the legacy CameraGPT setting, "
+            "or 512 for --model-kind=drivegpt to match OpenDriveLab UniAD planning weights."
+        ),
+    )
     ap.add_argument("--dropout", type=float, default=0.1)
+    ap.add_argument(
+        "--drivegpt-init",
+        type=str,
+        default="auto",
+        choices=["auto", "require", "none"],
+        help=(
+            "OpenDriveLab initialization policy for --model-kind=drivegpt. 'auto' warns and "
+            "continues if unavailable; 'require' fails; 'none' trains from scratch."
+        ),
+    )
+    ap.add_argument(
+        "--drivegpt-source-model",
+        type=str,
+        default=OPENDRIVE_UNIAD_MODEL_ID,
+        help="Hugging Face model id for OpenDriveLab source weights.",
+    )
+    ap.add_argument(
+        "--drivegpt-source-file",
+        type=str,
+        default=OPENDRIVE_UNIAD_PLANNING_FILE,
+        help="Checkpoint filename inside --drivegpt-source-model.",
+    )
+    ap.add_argument(
+        "--drivegpt-source-checkpoint",
+        type=str,
+        default=None,
+        help="Local OpenDriveLab checkpoint path; skips Hugging Face download when set.",
+    )
+    ap.add_argument(
+        "--residual-prev-y",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Predict bounded deltas from the previous camera target instead of absolute boxes. "
+            "Defaults on for --model-kind=drivegpt previous-target feature modes."
+        ),
+    )
+    ap.add_argument(
+        "--residual-scale",
+        type=float,
+        default=0.1,
+        help="Maximum normalized residual delta per output dimension when --residual-prev-y is enabled.",
+    )
     ap.add_argument("--loss-l1-weight", type=float, default=1.0, help="Weight for L1 loss.")
     ap.add_argument(
         "--loss-iou-weight",
@@ -524,6 +819,33 @@ def main():
     ap.add_argument("--max-players", type=int, default=22)
     ap.add_argument("--val-split", type=float, default=0.1)
     ap.add_argument("--val-steps", type=int, default=50)
+    ap.add_argument(
+        "--target-iou",
+        type=float,
+        default=0.0,
+        help=(
+            "Early-stop target validation IoU. For slow_fast_tlwh, both slow and fast "
+            "mean IoU must meet this threshold. 0 disables early stopping."
+        ),
+    )
+    ap.add_argument(
+        "--eval-free-run",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Run validation autoregressively by feeding model predictions back as previous camera "
+            "targets. Slower, but matches runtime behavior for previous-target feature modes."
+        ),
+    )
+    ap.add_argument(
+        "--runtime-slow-iou",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Compute slow-box IoU/feedback after applying Aspen runtime aspect-ratio "
+            "postprocessing. Defaults on for DriveGPT camera targets."
+        ),
+    )
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--eval-every", type=int, default=200)
     ap.add_argument(
@@ -580,6 +902,55 @@ def main():
         help="Optional cap on number of games loaded from --file-list or ids (0=no cap).",
     )
     args = ap.parse_args()
+
+    drivegpt_prev_mode = str(args.model_kind) == "drivegpt" and str(args.feature_mode) in {
+        "base_prev_y",
+        "players_prev_y",
+    }
+    if args.include_pose is None:
+        args.include_pose = str(args.model_kind) != "drivegpt"
+    if args.scheduled_sampling is None:
+        args.scheduled_sampling = drivegpt_prev_mode
+
+    if str(args.model_kind) == "drivegpt":
+        if not _arg_in_argv("--d-model"):
+            args.d_model = 256
+        if not _arg_in_argv("--nhead"):
+            args.nhead = 8
+        if not _arg_in_argv("--nlayers"):
+            args.nlayers = 3
+        if args.dim_feedforward is None:
+            args.dim_feedforward = 512
+        if not _arg_in_argv("--out"):
+            args.out = "drivegpt_best.pt"
+    elif args.dim_feedforward is None:
+        args.dim_feedforward = int(CameraGPTConfig().dim_feedforward)
+    if args.residual_prev_y is None:
+        args.residual_prev_y = drivegpt_prev_mode
+    elif bool(args.residual_prev_y) and str(args.feature_mode) not in {
+        "base_prev_y",
+        "players_prev_y",
+    }:
+        raise SystemExit(
+            "--residual-prev-y requires --feature-mode=base_prev_y or "
+            "--feature-mode=players_prev_y"
+        )
+    if args.eval_free_run is None:
+        args.eval_free_run = drivegpt_prev_mode
+    if args.runtime_slow_iou is None:
+        args.runtime_slow_iou = str(args.model_kind) == "drivegpt" and str(args.target_mode) in {
+            "slow_center_h",
+            "slow_tlwh",
+            "slow_fast_tlwh",
+        }
+    if (
+        float(args.target_iou) > 0.0
+        and str(args.target_mode) == "slow_center_h"
+        and not bool(args.runtime_slow_iou)
+    ):
+        raise SystemExit(
+            "--target-iou with --target-mode=slow_center_h requires --runtime-slow-iou"
+        )
 
     # --max-iters is an alias for --steps. If both are provided explicitly, require they match.
     if args.max_iters is not None:
@@ -681,15 +1052,6 @@ def main():
             "No usable games found (need tracking.csv + camera.csv [+ camera_fast.csv])."
         )
 
-    # Use one normalization scale across all games for consistent training.
-    max_x = 0.0
-    max_y = 0.0
-    for p in game_csvs:
-        mx, my = scan_game_max_xy(p.tracking_csv, p.camera_csv, p.camera_fast_csv)
-        max_x = max(max_x, float(mx))
-        max_y = max(max_y, float(my))
-    norm = CameraNorm(scale_x=max_x, scale_y=max_y, max_players=int(args.max_players))
-
     rng = random.Random(int(args.seed))
     rng.shuffle(game_csvs)
     n_val = int(round(len(game_csvs) * float(args.val_split)))
@@ -698,6 +1060,11 @@ def main():
     if not train_games:
         train_games = game_csvs
         val_games = []
+
+    # Use a train-only normalization scale for train/val consistency without validation leakage.
+    max_x, max_y = _scan_games_max_xy(train_games)
+    norm = CameraNorm(scale_x=max_x, scale_y=max_y, max_players=int(args.max_players))
+    _validate_validation_scale(val_games, norm)
 
     train_ds = CameraPanZoomGPTIterableDataset(
         games=train_games,
@@ -744,6 +1111,13 @@ def main():
             pin_memory=bool(args.pin_memory),
             persistent_workers=int(args.data_workers) > 0,
         )
+    if float(args.target_iou) > 0.0 and (
+        val_loader is None or int(args.eval_every) <= 0 or int(args.val_steps) <= 0
+    ):
+        raise SystemExit(
+            "--target-iou requires validation to be enabled: use --val-split > 0, "
+            "--val-steps > 0, and --eval-every > 0."
+        )
 
     device = (
         torch.device(args.device)
@@ -753,24 +1127,106 @@ def main():
     cfg = CameraGPTConfig(
         d_in=int(train_ds.feature_dim),
         d_out=int(train_ds.target_dim),
+        model_kind=str(args.model_kind),
         feature_mode=str(args.feature_mode),
         include_pose=bool(args.include_pose),
         include_rink=bool(args.include_rink),
+        source_model_id=(
+            str(args.drivegpt_source_model) if str(args.model_kind) == "drivegpt" else ""
+        ),
+        source_checkpoint="",
+        source_init="",
+        residual_prev_y=bool(args.residual_prev_y),
+        residual_scale=float(args.residual_scale),
         d_model=int(args.d_model),
         nhead=int(args.nhead),
         nlayers=int(args.nlayers),
+        dim_feedforward=int(args.dim_feedforward),
         dropout=float(args.dropout),
     )
-    model = CameraPanZoomGPT(cfg).to(device)
+
+    source_init_report: Optional[dict] = None
+    if str(args.model_kind) == "drivegpt" and str(args.drivegpt_init) != "none":
+        try:
+            source_checkpoint = resolve_opendrive_checkpoint(
+                model_id=str(args.drivegpt_source_model),
+                filename=str(args.drivegpt_source_file),
+                checkpoint_path=args.drivegpt_source_checkpoint,
+            )
+            cfg = CameraGPTConfig(
+                d_in=int(cfg.d_in),
+                d_out=int(cfg.d_out),
+                model_kind=str(cfg.model_kind),
+                feature_mode=str(cfg.feature_mode),
+                include_pose=bool(cfg.include_pose),
+                include_rink=bool(cfg.include_rink),
+                source_model_id=str(args.drivegpt_source_model),
+                source_checkpoint=str(source_checkpoint),
+                source_init="opendrive-uniad-planning",
+                residual_prev_y=bool(cfg.residual_prev_y),
+                residual_scale=float(cfg.residual_scale),
+                d_model=int(cfg.d_model),
+                nhead=int(cfg.nhead),
+                nlayers=int(cfg.nlayers),
+                dim_feedforward=int(cfg.dim_feedforward),
+                dropout=float(cfg.dropout),
+            )
+        except Exception as ex:
+            if str(args.drivegpt_init) == "require":
+                raise
+            logger.warning("OpenDriveLab DriveGPT initialization unavailable: %s", ex)
+
+    model = CameraPanZoomGPT(cfg)
+    if str(getattr(cfg, "source_init", "")) == "opendrive-uniad-planning":
+        try:
+            source_init_report = init_from_opendrive_uniad_planning(
+                model, str(cfg.source_checkpoint)
+            )
+            logger.info(
+                "Initialized DriveGPT from %s: copied=%d layers=%d",
+                cfg.source_checkpoint,
+                int(source_init_report["copied_tensors"]),
+                int(source_init_report["initialized_layers"]),
+            )
+        except Exception as ex:
+            if str(args.drivegpt_init) == "require":
+                raise
+            logger.warning("OpenDriveLab DriveGPT initialization failed: %s", ex)
+            cfg = CameraGPTConfig(
+                d_in=int(cfg.d_in),
+                d_out=int(cfg.d_out),
+                model_kind=str(cfg.model_kind),
+                feature_mode=str(cfg.feature_mode),
+                include_pose=bool(cfg.include_pose),
+                include_rink=bool(cfg.include_rink),
+                source_model_id=str(cfg.source_model_id),
+                source_checkpoint=str(cfg.source_checkpoint),
+                source_init="",
+                residual_prev_y=bool(cfg.residual_prev_y),
+                residual_scale=float(cfg.residual_scale),
+                d_model=int(cfg.d_model),
+                nhead=int(cfg.nhead),
+                nlayers=int(cfg.nlayers),
+                dim_feedforward=int(cfg.dim_feedforward),
+                dropout=float(cfg.dropout),
+            )
+
+    model = model.to(device)
     n_params = sum(p.numel() for p in model.parameters())
     logger.info("Model params: %.2fM", float(n_params) / 1e6)
     opt = optim.AdamW(model.parameters(), lr=float(args.lr))
+    runtime_slow_aspect_norm = (
+        (16.0 / 9.0) * float(norm.scale_y) / max(1e-6, float(norm.scale_x))
+        if bool(args.runtime_slow_iou)
+        else None
+    )
 
     steps = int(args.steps)
     if int(args.frames) > 0:
         steps = int(math.ceil(float(args.frames) / float(args.batch_size * args.seq_len)))
     logger.info(
-        "Training camGPT: games=%d train=%d val=%d seq_len=%d steps=%d bs=%d device=%s",
+        "Training %s: games=%d train=%d val=%d seq_len=%d steps=%d bs=%d device=%s",
+        str(args.model_kind),
         len(game_csvs),
         len(train_games),
         len(val_games),
@@ -792,6 +1248,7 @@ def main():
         model=model,
         opt=opt,
         cfg=cfg,
+        norm=norm,
     )
 
     for step in range(start_step, steps + 1):
@@ -804,9 +1261,10 @@ def main():
         else:
             base = batch["base"].to(device)
             prev0 = batch["prev0"].to(device)
-            if str(args.feature_mode) != "base_prev_y":
+            if str(args.feature_mode) not in {"base_prev_y", "players_prev_y"}:
                 raise RuntimeError(
-                    "Dataset emitted base/prev0 but feature-mode is not base_prev_y; this is a bug."
+                    "Dataset emitted base/prev0 but feature-mode does not use previous targets; "
+                    "this is a bug."
                 )
 
             # Scheduled sampling: sometimes feed the model's previous prediction as the next-step input.
@@ -830,7 +1288,10 @@ def main():
                     preds.append(pred_t)
                     if t + 1 < int(tlen):
                         use_pred = torch.rand((bsz,), device=device) < float(p)
-                        prev = torch.where(use_pred[:, None], pred_t.detach(), y[:, t, :])
+                        feedback_t = _runtime_feedback_target(
+                            pred_t, runtime_slow_aspect_norm
+                        ).detach()
+                        prev = torch.where(use_pred[:, None], feedback_t, y[:, t, :])
                 pred = torch.stack(preds, dim=1)
                 x = x_prefix
             else:
@@ -845,6 +1306,7 @@ def main():
             w_vel=float(args.loss_vel_weight),
             w_acc=float(args.loss_acc_weight),
             fast_mult=float(args.fast_loss_mult),
+            runtime_slow_aspect_norm=runtime_slow_aspect_norm,
         )
 
         opt.zero_grad(set_to_none=True)
@@ -863,6 +1325,7 @@ def main():
                 game_csvs=game_csvs,
                 target_mode=str(args.target_mode),
                 include_pose=bool(args.include_pose),
+                source_init_report=source_init_report,
             )
             logger.info("Saved checkpoint to %s", ckpt_path)
             max_keep = int(args.max_checkpoints)
@@ -892,7 +1355,7 @@ def main():
             and (step % int(args.eval_every) == 0 or step == steps)
         )
         if do_eval:
-            val = _eval_loss(
+            val_metrics = _eval_metrics(
                 model,
                 val_loader,
                 device,
@@ -902,8 +1365,20 @@ def main():
                 w_vel=float(args.loss_vel_weight),
                 w_acc=float(args.loss_acc_weight),
                 fast_mult=float(args.fast_loss_mult),
+                free_run=bool(args.eval_free_run),
+                runtime_slow_aspect_norm=runtime_slow_aspect_norm,
             )
-            logger.info("step %d/%d: val_loss=%.5f", step, steps, float(val))
+            val = float(val_metrics["loss"])
+            val_msg = f"step {step}/{steps}: val_loss={val:.5f}"
+            if "iou_slow" in val_metrics:
+                val_msg += (
+                    f" iou_slow={val_metrics['iou_slow']:.4f}"
+                    f" iou_fast={val_metrics['iou_fast']:.4f}"
+                )
+            elif "iou" in val_metrics:
+                val_msg += f" iou={val_metrics['iou']:.4f}"
+            logger.info(val_msg)
+            saved_best = False
             if val < best_val:
                 best_val = float(val)
                 _save_training_checkpoint(
@@ -916,8 +1391,38 @@ def main():
                     game_csvs=game_csvs,
                     target_mode=str(args.target_mode),
                     include_pose=bool(args.include_pose),
+                    source_init_report=source_init_report,
                 )
                 logger.info("Saved best checkpoint to %s", best_path)
+                saved_best = True
+            target_iou = float(args.target_iou)
+            if target_iou > 0.0:
+                if "iou_slow" in val_metrics and "iou_fast" in val_metrics:
+                    target_met = (
+                        float(val_metrics["iou_slow"]) >= target_iou
+                        and float(val_metrics["iou_fast"]) >= target_iou
+                    )
+                elif "iou" in val_metrics:
+                    target_met = float(val_metrics["iou"]) >= target_iou
+                else:
+                    target_met = False
+                if target_met:
+                    if not saved_best:
+                        _save_training_checkpoint(
+                            path=best_path,
+                            step_num=step,
+                            model=model,
+                            opt=opt,
+                            train_ds=train_ds,
+                            cfg=cfg,
+                            game_csvs=game_csvs,
+                            target_mode=str(args.target_mode),
+                            include_pose=bool(args.include_pose),
+                            source_init_report=source_init_report,
+                        )
+                        logger.info("Saved target-met checkpoint to %s", best_path)
+                    logger.info("Reached target validation IoU %.4f at step %d", target_iou, step)
+                    break
 
     if val_loader is None:
         _save_training_checkpoint(
@@ -930,6 +1435,7 @@ def main():
             game_csvs=game_csvs,
             target_mode=str(args.target_mode),
             include_pose=bool(args.include_pose),
+            source_init_report=source_init_report,
         )
         logger.info("Saved checkpoint to %s", best_path)
 

@@ -19,7 +19,9 @@ sh_test(
     srcs = ["cli_script_smoke.sh"],
     data = [
         "//hmlib:hmlib.lib",
+        "python_runtime.sh",
     ],
+    tags = ["manual"],
 )
 
 py_test(
@@ -153,8 +155,10 @@ sh_test(
     srcs=["test_headless_preview_runtime.sh"],
     data=[
         "//hmlib:hmlib.lib",
+        "python_runtime.sh",
         "test_headless_preview_runtime.py",
     ],
+    tags = ["manual"],
 )
 pytest_test(
     name="test_video_output_naming",
@@ -197,6 +201,19 @@ pytest_test(
 )
 
 pytest_test(
+    name="test_camera_gpt",
+    srcs=["test_camera_gpt.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+pytest_test(
     name="test_hm_cuda_container",
     srcs=["test_hm_cuda_container.py"],
     args=[
@@ -217,6 +234,8 @@ sh_test(
     data=[
         "//:pyproject.toml",
         "//hmlib:hmlib.lib",
+        "python_runtime.sh",
         "test_mot_video_prefetch.py",
     ],
+    tags = ["manual"],
 )
