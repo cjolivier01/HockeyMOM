@@ -1367,7 +1367,32 @@ def _main(args, num_gpu):
         if is_single_lowmem_gpu:
             print("Adjusting configuration for a single low-memory GPU environment...")
             args.cache_size = 0
-            # args.batch_size = 1
+            explicit_arg_names = set(getattr(args, "explicit_arg_names", []) or [])
+            if "fp16_stitch" not in explicit_arg_names:
+                args.fp16_stitch = True
+                set_nested_value(game_config, "stitching.dtype", "float16")
+                set_nested_value(game_config, "aspen.plugins.stitching.params.dtype", "float16")
+            if "max_blend_levels" not in explicit_arg_names:
+                args.max_blend_levels = 5
+                set_nested_value(game_config, "stitching.max_blend_levels", 5)
+                set_nested_value(game_config, "aspen.plugins.stitching.params.max_blend_levels", 5)
+            if (
+                "minimize_blend" not in explicit_arg_names
+                and "no_minimize_blend" not in explicit_arg_names
+            ):
+                args.minimize_blend = 1
+                set_nested_value(game_config, "stitching.minimize_blend", True)
+                set_nested_value(game_config, "aspen.plugins.stitching.params.minimize_blend", True)
+            if "output_width" not in explicit_arg_names:
+                args.output_width = 3200
+                set_nested_value(game_config, "video_out.output_width", 3200)
+                set_nested_value(game_config, "stitching.max_output_width", 3200)
+                set_nested_value(
+                    game_config, "aspen.plugins.stitching.params.max_output_width", 3200
+                )
+                set_nested_value(
+                    game_config, "aspen.plugins.video_out_prep.params.output_width", 3200
+                )
 
         # This would be way too slow on CPU
         assert torch.cuda.is_available()
@@ -1840,8 +1865,13 @@ def _main(args, num_gpu):
                     stitch_cfg = get_nested_value(args.game_config, "stitching", {}) or {}
                     left_stitch_pipeline_cfg = stitch_cfg.get("left_stitch_pipeline")
                     right_stitch_pipeline_cfg = stitch_cfg.get("right_stitch_pipeline")
-                    stitch_dtype_cfg = str(stitch_cfg.get("dtype") or "float32").lower()
+                    stitch_dtype_cfg = str(
+                        stitch_cfg.get("dtype") or ("float16" if args.fp16_stitch else "float32")
+                    ).lower()
                     stitch_dtype = torch.half if "16" in stitch_dtype_cfg else torch.float
+                    stitch_max_blend_levels = stitch_cfg.get(
+                        "max_blend_levels", args.max_blend_levels
+                    )
                     stitched_dataset = StitchDataset(
                         videos=stitch_videos,
                         pto_project_file=pto_project_file,
@@ -1859,7 +1889,12 @@ def _main(args, num_gpu):
                             stitch_cfg.get("auto_adjust_exposure", args.stitch_auto_adjust_exposure)
                         ),
                         python_blender=bool(stitch_cfg.get("python_blender", args.python_blender)),
-                        minimize_blend=bool(stitch_cfg.get("minimize_blend", True)),
+                        minimize_blend=bool(
+                            stitch_cfg.get(
+                                "minimize_blend",
+                                True if args.minimize_blend is None else bool(args.minimize_blend),
+                            )
+                        ),
                         no_cuda_streams=bool(
                             stitch_cfg.get("no_cuda_streams", args.no_cuda_streams)
                         ),
@@ -1871,6 +1906,7 @@ def _main(args, num_gpu):
                         config_ref=args.game_config,
                         left_color_pipeline=left_stitch_pipeline_cfg,
                         right_color_pipeline=right_stitch_pipeline_cfg,
+                        max_blend_levels=stitch_max_blend_levels,
                         capture_rgb_stats=bool(
                             stitch_cfg.get(
                                 "capture_rgb_stats", getattr(args, "checkerboard_input", False)
@@ -2052,6 +2088,12 @@ def _main(args, num_gpu):
 
         args.mux_audio_file = mux_audio_file
         args.output_video_path = output_video_path
+        if args.no_save_video:
+            args.skip_final_video_save = True
+            try:
+                set_nested_value(game_config, "video_out.skip_final_save", True)
+            except Exception:
+                pass
         if output_video_path:
             try:
                 set_nested_value(game_config, "video_out.output_video_path", output_video_path)

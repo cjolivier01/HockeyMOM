@@ -19,9 +19,8 @@ from hmlib.utils.image import (
     resize_image,
     to_uint8_image,
 )
-from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
-from .video_out import _FP_TYPES, get_best_codec, is_number
+from .video_out import _FP_TYPES, clamp_auto_output_size_for_encoder, get_best_codec, is_number
 
 
 class VideoOutputPreparer(torch.nn.Module):
@@ -159,10 +158,7 @@ class VideoOutputPreparer(torch.nn.Module):
 
         resize_w = int(width)
         resize_h = int(height)
-        if resize_w > MAX_NEVC_VIDEO_WIDTH:
-            scale = float(MAX_NEVC_VIDEO_WIDTH) / float(resize_w)
-            resize_w = MAX_NEVC_VIDEO_WIDTH
-            resize_h = int(float(resize_h) * scale)
+        resize_w, resize_h = clamp_auto_output_size_for_encoder(resize_w, resize_h)
 
         resize_w = self._coerce_even_down(resize_w, "width")
         resize_h = self._coerce_even_down(resize_h, "height")

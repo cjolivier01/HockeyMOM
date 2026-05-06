@@ -442,7 +442,12 @@ class StitchingPlugin(Plugin):
 
         x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         b, c, h, w = x.shape
-        x_work = x.to(dtype=torch.float32, non_blocking=True)
+        work_dtype = (
+            torch.float16
+            if device.type != "cpu" and orig_dtype == torch.uint8
+            else torch.float32
+        )
+        x_work = x.to(dtype=work_dtype, non_blocking=True)
 
         cache_key = (int(h), int(w), device)
         cache = self._rotate_cache.get(cache_key)
@@ -486,12 +491,13 @@ class StitchingPlugin(Plugin):
             ]
         )
         a = cache["s_inv"] @ m_inv @ cache["s"]
-        theta = a[:2, :].unsqueeze(0).repeat(b, 1, 1)
+        theta = a[:2, :].to(dtype=work_dtype).unsqueeze(0).repeat(b, 1, 1)
         grid = F.affine_grid(theta, size=(b, c, h, w), align_corners=True)
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
+        del x_work, grid, theta, a, m_inv
 
         if orig_dtype == torch.uint8:
-            y = y.clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
+            y = y.clamp_(min=0.0, max=255.0).to(dtype=torch.uint8)
         else:
             y = y.to(dtype=orig_dtype)
         if was_channels_last:
@@ -651,6 +657,8 @@ class StitchingPlugin(Plugin):
         else:
             blended = self._stitcher.forward(inputs=imgs)
 
+        blended = self._prepare_frame_for_video(blended, image_roi=None)
+
         rotate_degrees = self._resolve_rotation_degrees(context)
         if rotate_degrees is not None and abs(rotate_degrees) > 1e-6:
             blended = self._rotate_tensor_keep_size(blended, rotate_degrees)
@@ -666,9 +674,6 @@ class StitchingPlugin(Plugin):
                 rgb_stats["left"] = pre_stats_list[0]
             if pre_stats_list is not None and len(pre_stats_list) >= 2:
                 rgb_stats["right"] = pre_stats_list[1]
-
-        blended = self._prepare_frame_for_video(blended, image_roi=None)
-
         stitched_for_output = self._maybe_resize_output(blended)
 
         if self._width_t is None or self._height_t is None:

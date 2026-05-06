@@ -9,11 +9,26 @@ from mmcv.transforms import Compose
 
 from hmlib.aspen.plugins.base import Plugin
 from hmlib.camera.end_zones import EndZones, load_lines_from_config
+from hmlib.config import get_nested_value
 from hmlib.log import logger
 from hmlib.tracking_utils.boundaries import adjust_point_for_clip_box
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.image import image_height, image_width, make_channels_last
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
+
+
+def _parse_requested_output_dim(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in ("", "auto", "same"):
+            return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 class ApplyCameraPlugin(Plugin):
@@ -104,6 +119,28 @@ class ApplyCameraPlugin(Plugin):
 
         final_w = int(final_w)
         final_h = int(final_h)
+
+        requested_w = _parse_requested_output_dim(
+            get_nested_value(self._game_config, "video_out.output_width", None)
+        )
+        requested_h = _parse_requested_output_dim(
+            get_nested_value(self._game_config, "video_out.output_height", None)
+        )
+        if requested_w is not None or requested_h is not None:
+            scale_w = (
+                float(requested_w) / float(final_w)
+                if requested_w is not None and final_w > requested_w
+                else 1.0
+            )
+            scale_h = (
+                float(requested_h) / float(final_h)
+                if requested_h is not None and final_h > requested_h
+                else 1.0
+            )
+            scale = min(scale_w, scale_h, 1.0)
+            if scale < 1.0:
+                final_w = max(2, int(final_w * scale))
+                final_h = max(2, int(final_h * scale))
 
         # Width and height should be even numbers
         if final_w % 2 != 0:
