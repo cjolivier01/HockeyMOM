@@ -443,9 +443,7 @@ class StitchingPlugin(Plugin):
         x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         b, c, h, w = x.shape
         work_dtype = (
-            torch.float16
-            if device.type != "cpu" and orig_dtype == torch.uint8
-            else torch.float32
+            torch.float16 if device.type != "cpu" and orig_dtype == torch.uint8 else torch.float32
         )
         x_work = x.to(dtype=work_dtype, non_blocking=True)
 
