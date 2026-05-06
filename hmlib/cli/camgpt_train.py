@@ -65,19 +65,24 @@ def _runtime_aspect_slow_tlwh(tlwh: torch.Tensor, aspect_norm: float) -> torch.T
     """Mirror Aspen's slow-box postprocess: keep center/height, derive width from aspect."""
     x = tlwh[..., 0]
     y = tlwh[..., 1]
-    w = torch.clamp(tlwh[..., 2], min=1e-6)
-    h = torch.clamp(tlwh[..., 3], min=1e-6, max=1.0)
-    out_w = torch.clamp(h * float(aspect_norm), min=1e-6, max=1.0)
-    cx = torch.clamp(x + w * 0.5, out_w * 0.5, 1.0 - out_w * 0.5)
-    cy = torch.clamp(y + h * 0.5, h * 0.5, 1.0 - h * 0.5)
+    src_w = torch.clamp(tlwh[..., 2], min=1e-6)
+    src_h = torch.clamp(tlwh[..., 3], min=1e-6)
+    aspect = max(1e-6, float(aspect_norm))
+    max_h = min(1.0, 1.0 / aspect)
+    h = torch.clamp(src_h, min=1e-6, max=max_h)
+    out_w = torch.clamp(h * aspect, min=1e-6, max=1.0)
+    cx = torch.clamp(x + src_w * 0.5, out_w * 0.5, 1.0 - out_w * 0.5)
+    cy = torch.clamp(y + src_h * 0.5, h * 0.5, 1.0 - h * 0.5)
     left = cx - out_w * 0.5
     top = cy - h * 0.5
     return torch.stack([left, top, out_w, h], dim=-1)
 
 
 def _center_h_to_runtime_tlwh(center_h: torch.Tensor, aspect_norm: float) -> torch.Tensor:
-    h = torch.clamp(center_h[..., 2], min=1e-6, max=1.0)
-    w = torch.clamp(h * float(aspect_norm), min=1e-6, max=1.0)
+    aspect = max(1e-6, float(aspect_norm))
+    max_h = min(1.0, 1.0 / aspect)
+    h = torch.clamp(center_h[..., 2], min=1e-6, max=max_h)
+    w = torch.clamp(h * aspect, min=1e-6, max=1.0)
     cx = torch.clamp(center_h[..., 0], min=w * 0.5, max=1.0 - w * 0.5)
     cy = torch.clamp(center_h[..., 1], min=h * 0.5, max=1.0 - h * 0.5)
     left = cx - w * 0.5
@@ -177,15 +182,17 @@ def _compute_losses(
             if runtime_slow_aspect_norm is not None
             else pred_slow
         )
+        pred_fast_loss = _clamp_unit_tlwh(pred_fast)
+        y_fast_loss = _clamp_unit_tlwh(y_fast)
 
         l1_slow = nn.functional.l1_loss(pred_slow_loss, y_slow)
-        l1_fast = nn.functional.l1_loss(pred_fast, y_fast)
+        l1_fast = nn.functional.l1_loss(pred_fast_loss, y_fast_loss)
         l1 = l1_slow + float(fast_mult) * l1_fast
         metrics["l1_slow"] = float(l1_slow.detach().item())
         metrics["l1_fast"] = float(l1_fast.detach().item())
 
         iou_slow = _mean_iou_tlwh(pred_slow_loss, y_slow)
-        iou_fast = _mean_iou_tlwh(pred_fast, y_fast)
+        iou_fast = _mean_iou_tlwh(pred_fast_loss, y_fast_loss)
         iou_loss = (1.0 - iou_slow) + float(fast_mult) * (1.0 - iou_fast)
         metrics["iou_slow"] = float(iou_slow.detach().item())
         metrics["iou_fast"] = float(iou_fast.detach().item())
@@ -196,7 +203,7 @@ def _compute_losses(
             else pred.new_zeros(())
         )
         vel_fast = (
-            nn.functional.l1_loss(_diff1(pred_fast), _diff1(y_fast))
+            nn.functional.l1_loss(_diff1(pred_fast_loss), _diff1(y_fast_loss))
             if pred.size(1) > 1
             else pred.new_zeros(())
         )
@@ -210,7 +217,7 @@ def _compute_losses(
             else pred.new_zeros(())
         )
         acc_fast = (
-            nn.functional.l1_loss(_diff2(pred_fast), _diff2(y_fast))
+            nn.functional.l1_loss(_diff2(pred_fast_loss), _diff2(y_fast_loss))
             if pred.size(1) > 2
             else pred.new_zeros(())
         )
@@ -1104,6 +1111,13 @@ def main():
             pin_memory=bool(args.pin_memory),
             persistent_workers=int(args.data_workers) > 0,
         )
+    if float(args.target_iou) > 0.0 and (
+        val_loader is None or int(args.eval_every) <= 0 or int(args.val_steps) <= 0
+    ):
+        raise SystemExit(
+            "--target-iou requires validation to be enabled: use --val-split > 0, "
+            "--val-steps > 0, and --eval-every > 0."
+        )
 
     device = (
         torch.device(args.device)
@@ -1364,6 +1378,7 @@ def main():
             elif "iou" in val_metrics:
                 val_msg += f" iou={val_metrics['iou']:.4f}"
             logger.info(val_msg)
+            saved_best = False
             if val < best_val:
                 best_val = float(val)
                 _save_training_checkpoint(
@@ -1379,6 +1394,7 @@ def main():
                     source_init_report=source_init_report,
                 )
                 logger.info("Saved best checkpoint to %s", best_path)
+                saved_best = True
             target_iou = float(args.target_iou)
             if target_iou > 0.0:
                 if "iou_slow" in val_metrics and "iou_fast" in val_metrics:
@@ -1391,6 +1407,20 @@ def main():
                 else:
                     target_met = False
                 if target_met:
+                    if not saved_best:
+                        _save_training_checkpoint(
+                            path=best_path,
+                            step_num=step,
+                            model=model,
+                            opt=opt,
+                            train_ds=train_ds,
+                            cfg=cfg,
+                            game_csvs=game_csvs,
+                            target_mode=str(args.target_mode),
+                            include_pose=bool(args.include_pose),
+                            source_init_report=source_init_report,
+                        )
+                        logger.info("Saved target-met checkpoint to %s", best_path)
                     logger.info("Reached target validation IoU %.4f at step %d", target_iou, step)
                     break
 

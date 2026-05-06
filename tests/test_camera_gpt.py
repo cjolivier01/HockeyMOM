@@ -8,13 +8,13 @@ def _torch():
     return pytest.importorskip("torch")
 
 
-def should_sample_gpt_dataset_and_run_model_forward():
+def should_sample_gpt_dataset_and_run_model_forward(monkeypatch):
     torch = _torch()
 
     from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT
     from hmlib.camera.camera_gpt_dataset import CameraPanZoomGPTIterableDataset, GameCsvPaths
     from hmlib.camera.camera_transformer import CameraNorm
-    from hmlib.cli.camgpt_train import _validate_validation_scale
+    from hmlib.cli.camgpt_train import _validate_validation_scale, main
 
     with tempfile.TemporaryDirectory(prefix="hm_camgpt_") as td:
         td_path = Path(td)
@@ -136,11 +136,34 @@ def should_sample_gpt_dataset_and_run_model_forward():
                 CameraNorm(scale_x=50.0, scale_y=25.0, max_players=22),
             )
 
+        game_list = td_path / "games.lst"
+        game_list.write_text(f"{td_path}\n")
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "camgpt_train",
+                "--model-kind=gpt",
+                f"--file-list={game_list}",
+                "--seq-len=8",
+                "--target-mode=slow_fast_tlwh",
+                "--val-split=0",
+                "--target-iou=0.9",
+                "--steps=1",
+            ],
+        )
+        with pytest.raises(SystemExit, match="--target-iou requires validation"):
+            main()
+
 
 def should_free_run_legacy_prev_slow_by_feeding_predictions():
     torch = _torch()
 
-    from hmlib.cli.camgpt_train import _compute_losses, _predict_batch
+    from hmlib.cli.camgpt_train import (
+        _compute_losses,
+        _predict_batch,
+        _runtime_aspect_slow_tlwh,
+        _runtime_feedback_target,
+    )
 
     class AddToPrev(torch.nn.Module):
         def forward(self, x):
@@ -173,6 +196,17 @@ def should_free_run_legacy_prev_slow_by_feeding_predictions():
     assert torch.allclose(teacher_pred[0, :, 0], torch.tensor([0.3, 0.9, 0.9]))
     assert torch.allclose(free_pred[0, :, 0], torch.tensor([0.3, 0.4, 0.5]))
 
+    fitted = _runtime_aspect_slow_tlwh(
+        torch.tensor([[[0.0, 0.0, 0.2, 1.0]]], dtype=torch.float32),
+        aspect_norm=2.0,
+    )
+    assert torch.allclose(fitted[0, 0], torch.tensor([0.0, 0.25, 1.0, 0.5]))
+    feedback = _runtime_feedback_target(
+        torch.tensor([[[0.5, 0.5, 1.0]]], dtype=torch.float32),
+        runtime_slow_aspect_norm=2.0,
+    )
+    assert torch.allclose(feedback[0, 0], torch.tensor([0.5, 0.5, 0.5]))
+
     _, metrics = _compute_losses(
         pred=torch.tensor([[[0.5, 0.5, 0.5]]], dtype=torch.float32),
         y=torch.tensor([[[0.5, 0.5, 0.5]]], dtype=torch.float32),
@@ -184,6 +218,24 @@ def should_free_run_legacy_prev_slow_by_feeding_predictions():
         runtime_slow_aspect_norm=0.5,
     )
     assert metrics["iou"] == pytest.approx(1.0)
+
+    _, fast_metrics = _compute_losses(
+        pred=torch.tensor(
+            [[[0.0, 0.0, 1.0, 1.0, 0.9, 0.9, 0.5, 0.5]]],
+            dtype=torch.float32,
+        ),
+        y=torch.tensor(
+            [[[0.0, 0.0, 1.0, 1.0, 0.9, 0.9, 0.1, 0.1]]],
+            dtype=torch.float32,
+        ),
+        w_l1=1.0,
+        w_iou=1.0,
+        w_vel=0.0,
+        w_acc=0.0,
+        fast_mult=1.0,
+        runtime_slow_aspect_norm=None,
+    )
+    assert fast_metrics["iou_fast"] == pytest.approx(1.0)
 
 
 def should_pack_drivegpt_metadata_and_init_from_opendrive_planning():
