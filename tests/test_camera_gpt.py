@@ -361,18 +361,31 @@ def should_load_drivegpt_controller_as_gpt_backend(monkeypatch):
     import sys
     import types
 
+    class FakeClusterMan:
+        def __init__(self, *args, **kwargs):
+            pass
+
     fake_clusters = types.ModuleType("hmlib.camera.clusters")
-    fake_clusters.ClusterMan = object
+    fake_clusters.ClusterMan = FakeClusterMan
     monkeypatch.setitem(sys.modules, "hmlib.camera.clusters", fake_clusters)
 
     from hmlib.aspen.plugins.camera_controller_plugin import CameraControllerPlugin
     from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT, pack_gpt_checkpoint
     from hmlib.camera.camera_transformer import CameraNorm
+    from hmlib.utils.gpu import unwrap_tensor
 
-    cfg = CameraGPTConfig(d_in=4, d_out=4, model_kind="drivegpt", d_model=32, nhead=4, nlayers=1)
+    cfg = CameraGPTConfig(
+        d_in=4,
+        d_out=4,
+        model_kind="drivegpt",
+        feature_mode="base_prev_y",
+        d_model=32,
+        nhead=4,
+        nlayers=1,
+    )
     model = CameraPanZoomGPT(cfg)
     ckpt = pack_gpt_checkpoint(
-        model, norm=CameraNorm(scale_x=100.0, scale_y=50.0, max_players=22), window=8, cfg=cfg
+        model, norm=CameraNorm(scale_x=400.0, scale_y=400.0, max_players=22), window=8, cfg=cfg
     )
 
     monkeypatch.setattr(torch, "load", lambda path, map_location=None: ckpt)
@@ -399,6 +412,32 @@ def should_load_drivegpt_controller_as_gpt_backend(monkeypatch):
     )
     assert pose_feat.shape == (8,)
     assert torch.count_nonzero(pose_feat).item() > 0
+    default_h = 400.0 * 0.8
+    default_w = default_h * (16.0 / 9.0)
+    fitted = plugin._fit_box_inside_bounds(
+        torch.tensor([200.0 - default_w * 0.5, 40.0, 200.0 + default_w * 0.5, 360.0]),
+        torch.tensor([100.0, 100.0, 300.0, 300.0]),
+    )
+    assert torch.allclose(fitted, torch.tensor([100.0, 143.75, 300.0, 256.25]), atol=1e-3)
+
+    class Sample:
+        metainfo = {"ori_shape": (400, 400)}
+
+    out = plugin.forward(
+        {
+            "data_samples": [[Sample()]],
+            "arena": torch.tensor([100.0, 100.0, 300.0, 300.0]),
+            "shared": {"device": torch.device("cpu")},
+        }
+    )
+    emitted = unwrap_tensor(out["camera_boxes"])[0]
+    assert torch.allclose(emitted, fitted, atol=1e-3)
+    assert plugin._prev_y is not None
+    assert torch.allclose(
+        plugin._prev_y,
+        torch.tensor([0.25, 0.3592, 0.5, 0.2817]),
+        atol=1e-3,
+    )
 
     legacy_cfg = CameraGPTConfig(d_in=4, d_out=4, model_kind="gpt", d_model=32, nhead=4, nlayers=1)
     legacy_model = CameraPanZoomGPT(legacy_cfg)

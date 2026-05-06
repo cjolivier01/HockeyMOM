@@ -145,6 +145,57 @@ class CameraControllerPlugin(Plugin):
             max(1.0, float(self._norm.scale_y)),
         )
 
+    @staticmethod
+    def _fit_box_inside_bounds(box: torch.Tensor, bounds: torch.Tensor) -> torch.Tensor:
+        box = box.to(dtype=torch.float32, device=bounds.device)
+        bounds = bounds.to(dtype=torch.float32, device=box.device)
+        w = torch.clamp(box[2] - box[0], min=1.0)
+        h = torch.clamp(box[3] - box[1], min=1.0)
+        bw = torch.clamp(bounds[2] - bounds[0], min=1.0)
+        bh = torch.clamp(bounds[3] - bounds[1], min=1.0)
+        scale = torch.minimum(box.new_tensor(1.0), torch.minimum(bw / w, bh / h))
+        w2 = w * scale
+        h2 = h * scale
+        half_w = w2 * 0.5
+        half_h = h2 * 0.5
+        cx = (box[0] + box[2]) * 0.5
+        cy = (box[1] + box[3]) * 0.5
+        cx = torch.clamp(cx, min=bounds[0] + half_w, max=bounds[2] - half_w)
+        cy = torch.clamp(cy, min=bounds[1] + half_h, max=bounds[3] - half_h)
+        return torch.stack([cx - half_w, cy - half_h, cx + half_w, cy + half_h])
+
+    @staticmethod
+    def _play_bounds(
+        context: Dict[str, Any],
+        frame_index: int,
+        frame_w: int,
+        frame_h: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        frame_bounds = torch.tensor([0, 0, frame_w, frame_h], device=device, dtype=dtype)
+        arena = context.get("arena")
+        if arena is None:
+            return frame_bounds
+        arena_t = arena if isinstance(arena, torch.Tensor) else torch.as_tensor(arena)
+        if arena_t.ndim == 0:
+            raise RuntimeError("camera_controller arena must be a TLBR box, got scalar")
+        if arena_t.ndim > 1:
+            if arena_t.shape[0] == 1:
+                arena_t = arena_t[0]
+            elif frame_index < int(arena_t.shape[0]):
+                arena_t = arena_t[frame_index]
+            else:
+                raise RuntimeError(
+                    "camera_controller arena batch is shorter than the tracking batch"
+                )
+        arena_t = arena_t.reshape(-1)
+        if int(arena_t.numel()) < 4:
+            raise RuntimeError(
+                f"camera_controller arena must contain at least 4 values, got {arena_t.numel()}"
+            )
+        return clamp_box(arena_t[:4].to(device=device, dtype=dtype), frame_bounds)
+
     def _box_to_prev_y(
         self,
         box: torch.Tensor,
@@ -444,6 +495,7 @@ class CameraControllerPlugin(Plugin):
             ori_shape = img_data_sample.metainfo.get("ori_shape")
             H = int(ori_shape[0]) if isinstance(ori_shape, (list, tuple)) else int(1080)
             W = int(ori_shape[1]) if isinstance(ori_shape, (list, tuple)) else int(1920)
+            play_bounds = self._play_bounds(context, frame_index, W, H, device, dtype=torch.float32)
             if inst is None or not hasattr(inst, "bboxes"):
                 # Default to centered wide shot
                 h_px = H * 0.8
@@ -454,6 +506,7 @@ class CameraControllerPlugin(Plugin):
                     dtype=torch.float32,
                     device=device,
                 )
+                box = self._fit_box_inside_bounds(box, play_bounds)
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 if (
@@ -522,6 +575,7 @@ class CameraControllerPlugin(Plugin):
             if not isinstance(det_tlbr, torch.Tensor):
                 det_tlbr = torch.as_tensor(det_tlbr, device=device, dtype=torch.float32)
             device = det_tlbr.device
+            play_bounds = play_bounds.to(device=device, dtype=torch.float32)
             if self._feat_device is None:
                 self._feat_device = device
             elif self._feat_device != device:
@@ -542,6 +596,7 @@ class CameraControllerPlugin(Plugin):
                     dtype=torch.float32,
                     device=device,
                 )
+                box = self._fit_box_inside_bounds(box, play_bounds)
                 cam_boxes.append(box)
                 setattr(img_data_sample, "pred_cam_box", box)
                 if (
@@ -855,6 +910,10 @@ class CameraControllerPlugin(Plugin):
                     )
                 box_out = clamp_box(box_out, self._wh_box)
 
+            box_out = self._fit_box_inside_bounds(box_out, play_bounds)
+            if box_fast_out is not None:
+                box_fast_out = self._fit_box_inside_bounds(box_fast_out, play_bounds)
+
             # For base_prev_y checkpoints, feed back the *actual* box used after clamping/aspect enforcement.
             if (
                 self._controller == "gpt"
@@ -895,6 +954,7 @@ class CameraControllerPlugin(Plugin):
             "original_images",
             "shared",
             "rink_profile",
+            "arena",
         }
 
     def output_keys(self):
