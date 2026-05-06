@@ -19,6 +19,7 @@ import torch
 from hmlib.hm_opts import hm_opts
 from hmlib.ui.headless_preview import FFmpegLivePublisher, mask_stream_url
 from hmlib.ui.shower import Shower
+from hmlib.utils.torch_backend import is_rocm_backend
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -389,16 +390,20 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
             def write(self, frame: torch.Tensor) -> None:
                 self.written_shapes.append(tuple(int(dim) for dim in frame.shape))
                 handler = self.kwargs["bitstream_handler"]
-                handler(b"fake-nvenc-packet")
+                handler(b"fake-gpu-packet")
 
             def close(self) -> None:
                 self.closed = True
 
+        encoder_module = (
+            "hmlib.video.py_amd_codec" if is_rocm_backend() else "hmlib.video.py_nv_encoder"
+        )
+        encoder_name = "PyAmdVideoEncoder" if is_rocm_backend() else "PyNvVideoEncoder"
         with (
             mock.patch("hmlib.ui.headless_preview._BitstreamLiveMuxer", _FakeMuxer),
             mock.patch.dict(
                 sys.modules,
-                {"hmlib.video.py_nv_encoder": types.SimpleNamespace(PyNvVideoEncoder=_FakeEncoder)},
+                {encoder_module: types.SimpleNamespace(**{encoder_name: _FakeEncoder})},
             ),
         ):
             publisher = FFmpegLivePublisher(
@@ -411,7 +416,7 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
             publisher.write_frame(frame, show_scaled=0.5)
             publisher.close()
 
-        self.assertEqual(packets, [b"fake-nvenc-packet"])
+        self.assertEqual(packets, [b"fake-gpu-packet"])
         self.assertEqual(len(encoder_instances), 1)
         self.assertTrue(encoder_instances[0].opened)
         self.assertTrue(encoder_instances[0].closed)
@@ -449,11 +454,15 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
             def close(self) -> None:
                 return None
 
+        encoder_module = (
+            "hmlib.video.py_amd_codec" if is_rocm_backend() else "hmlib.video.py_nv_encoder"
+        )
+        encoder_name = "PyAmdVideoEncoder" if is_rocm_backend() else "PyNvVideoEncoder"
         with (
             mock.patch("hmlib.ui.headless_preview._BitstreamLiveMuxer", _FakeMuxer),
             mock.patch.dict(
                 sys.modules,
-                {"hmlib.video.py_nv_encoder": types.SimpleNamespace(PyNvVideoEncoder=_FakeEncoder)},
+                {encoder_module: types.SimpleNamespace(**{encoder_name: _FakeEncoder})},
             ),
         ):
             publisher = FFmpegLivePublisher(

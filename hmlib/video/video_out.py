@@ -12,7 +12,7 @@ import contextlib
 import math
 import os
 from collections import OrderedDict
-from typing import Any, Dict, Literal, Optional, Set, Tuple, Union
+from typing import Any, Dict, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -24,6 +24,7 @@ from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
 from hmlib.utils.gpu import get_gpu_capabilities, unwrap_tensor, wrap_tensor
+from hmlib.utils.torch_backend import is_rocm_backend
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -34,10 +35,9 @@ from hmlib.utils.image import (
 )
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
-from hmlib.utils.torch_backend import is_rocm_backend
-from hmlib.video.py_amd_codec import PyAmdVideoCodec
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
+from .py_amd_codec import PyAmdVideoCodec
 from .video_stream import VideoStreamWriterInterface, create_output_video_stream
 
 standard_8k_width: int = 7680
@@ -70,7 +70,12 @@ def is_number(value: Any) -> bool:
 
 def get_best_codec(
     gpu_number: int, width: int, height: int, allow_scaling: bool = False
-) -> Tuple[Literal["hevc_nvenc"] | Literal[True]] | Tuple[Literal["XVID"] | Literal[False]]:
+) -> Tuple[str, bool]:
+    if is_rocm_backend():
+        try:
+            return PyAmdVideoCodec.preferred_output_codec(), True
+        except RuntimeError:
+            return "XVID", False
     caps = get_gpu_capabilities()
     compute = float(caps[gpu_number]["compute_capability"])
     if compute >= 7 and (width <= MAX_NEVC_VIDEO_WIDTH or allow_scaling):
@@ -141,30 +146,6 @@ def is_nearly_8k(width, height, size_tolerance=0.10, aspect_ratio_tolerance=0.01
             )
 
         return False, " and ".join(details)
-
-
-def clamp_auto_output_size_for_encoder(width: int, height: int) -> Tuple[int, int]:
-    resize_w = int(width)
-    resize_h = int(height)
-    if resize_w > MAX_NEVC_VIDEO_WIDTH:
-        scale = float(MAX_NEVC_VIDEO_WIDTH) / float(resize_w)
-        resize_w = MAX_NEVC_VIDEO_WIDTH
-        resize_h = int(float(resize_h) * scale)
-
-    if is_rocm_backend():
-        try:
-            preferred_codec = PyAmdVideoCodec.preferred_output_codec()
-        except RuntimeError:
-            preferred_codec = None
-        if preferred_codec and preferred_codec.endswith("_vaapi"):
-            max_w = MAX_NEVC_VIDEO_WIDTH
-            max_h = standard_8k_height
-            scale = min(1.0, float(max_w) / float(resize_w), float(max_h) / float(resize_h))
-            if scale < 1.0:
-                resize_w = int(float(resize_w) * scale)
-                resize_h = int(float(resize_h) * scale)
-
-    return resize_w, resize_h
 
 
 _FP_TYPES: Set[torch.dtype] = {
@@ -469,7 +450,10 @@ class VideoOutput(torch.nn.ModuleDict):
 
         resize_w = int(width)
         resize_h = int(height)
-        resize_w, resize_h = clamp_auto_output_size_for_encoder(resize_w, resize_h)
+        if resize_w > MAX_NEVC_VIDEO_WIDTH:
+            scale = float(MAX_NEVC_VIDEO_WIDTH) / float(resize_w)
+            resize_w = MAX_NEVC_VIDEO_WIDTH
+            resize_h = int(float(resize_h) * scale)
 
         resize_w = self._coerce_even_down(resize_w, "width")
         resize_h = self._coerce_even_down(resize_h, "height")

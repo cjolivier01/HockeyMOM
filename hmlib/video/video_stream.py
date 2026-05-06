@@ -11,13 +11,11 @@ import os
 import platform
 import sys
 from fractions import Fraction
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
-from torchaudio.io import StreamReader as StreamingMediaDecoder
-from torchaudio.io import StreamWriter as StreamingMediaEncoder
 from typeguard import typechecked
 
 from hmlib.log import logger
@@ -26,7 +24,7 @@ from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensorBase, wrap_tensor
 from hmlib.utils.image import make_channels_first, make_channels_last, resize_image
 from hmlib.video.ffmpeg import BasicVideoInfo, get_ffmpeg_decoder_process
-from hmlib.video.py_nv_encoder import PyNvVideoEncoder
+from hmlib.video.py_amd_codec import PyAmdVideoCodec, PyAmdVideoDecoder, PyAmdVideoEncoder
 
 JETSON_UTILS_PY_PATH = "/mnt/monster-data/colivier/src/jetson-utils/python/python"
 
@@ -53,6 +51,19 @@ _FOURCC_TO_CODEC = {
 
 MAX_VIDEO_WIDTH = 8000  # 8K is 7680 x 4320
 MAX_NEVC_VIDEO_WIDTH: int = 8192
+
+if TYPE_CHECKING:
+    from torchaudio.io import StreamReader as StreamingMediaDecoder
+
+
+def _load_torchaudio_io():
+    try:
+        import torchaudio
+    except ModuleNotFoundError as exc:
+        raise ImportError(
+            "Torchaudio backend requires the torchaudio package, but it is not installed."
+        ) from exc
+    return torchaudio.io.StreamReader, torchaudio.io.StreamWriter, torchaudio.io.CodecConfig
 
 
 def _normalize_decoder_name(decoder_name: str) -> str:
@@ -300,9 +311,9 @@ class VideoStreamWriter(VideoStreamWriterInterface):
         self._batch_items = []
         self._in_flush = False
         self._bit_rate = bit_rate
-        import torchaudio
-
-        self._codec_config = torchaudio.io.CodecConfig(
+        _, stream_writer_cls, codec_config_cls = _load_torchaudio_io()
+        self._streaming_media_encoder_cls = stream_writer_cls
+        self._codec_config = codec_config_cls(
             bit_rate=bit_rate,
         )
         self._frame_counter = 0
@@ -446,7 +457,9 @@ class VideoStreamWriter(VideoStreamWriterInterface):
             ext = _EXTENSION_MAPPING.get(self._container_type, self._container_type)
             if not self._filename.endswith("." + ext):
                 self._filename += "." + ext
-        self._video_out = StreamingMediaEncoder(dst=self._filename, format=self._container_type)
+        self._video_out = self._streaming_media_encoder_cls(
+            dst=self._filename, format=self._container_type
+        )
         self._add_stream()
         self._video_f = self._video_out.open()
 
@@ -580,6 +593,24 @@ class PyNvVideoCodecIterator:
         return self
 
 
+class PyAmdVideoCodecIterator:
+    def __init__(self, decoder: PyAmdVideoDecoder, batch_size: int = 1):
+        self._decoder = decoder
+        self._batch_size = batch_size
+        self.frames_delivered_count: int = 0
+
+    def __next__(self):
+        batch = self._decoder.read_batch(self._batch_size)
+        if batch is None:
+            raise StopIteration()
+        batch_ref = batch.ref() if isinstance(batch, StreamTensorBase) else batch
+        self.frames_delivered_count += int(batch_ref.shape[0])
+        return batch
+
+    def __iter__(self):
+        return self
+
+
 class CVVideoCaptureIterator:
     def __init__(self, cap: cv2.VideoCapture, batch_size: int = 1):
         self._cap = cap
@@ -609,7 +640,7 @@ class CVVideoCaptureIterator:
 
 
 class TAStreamReaderIterator:
-    def __init__(self, sr: StreamingMediaDecoder, batch_size: int = 1):
+    def __init__(self, sr: "StreamingMediaDecoder", batch_size: int = 1):
         self._iter = sr.stream()
         self._batch_size = batch_size
         self._device = None
@@ -773,6 +804,8 @@ class VideoStreamReader:
                 cuda_stream=self._cuda_stream,
                 batch_size=self._batch_size,
             )
+        elif self._type == "pyamdcodec":
+            return PyAmdVideoCodecIterator(self._video_in, batch_size=self._batch_size)
         elif self._type == "ffmpeg":
             return FFmpegVideoReaderIterator(
                 filename=self._filename,
@@ -844,6 +877,11 @@ class VideoStreamReader:
                     torch.cuda.synchronize()
                     self._video_in = nvc.ThreadedDecoder(**new_args)
                     torch.cuda.synchronize()
+        elif self._type == "pyamdcodec":
+            if timestamp is not None and frame_number is None:
+                frame_number = int(self._video_in.get_index_from_time_in_seconds(timestamp))
+            assert frame_number is not None
+            self._video_in.seek_to_index(int(frame_number))
         else:
             assert False
 
@@ -860,7 +898,7 @@ class VideoStreamReader:
     def open(self):
         assert self._video_in is None
         self._video_info = BasicVideoInfo(self._filename)
-        if self._codec is None and self._type not in ("ffmpeg", "pynvcodec"):
+        if self._codec is None and self._type not in ("ffmpeg", "pynvcodec", "pyamdcodec"):
             self._codec = _FOURCC_TO_CODEC.get(self._video_info.codec.upper(), None)
             if self._codec is None and self._type != "cv2":
                 print(
@@ -869,7 +907,8 @@ class VideoStreamReader:
                 )
                 self._type = "cv2"
         if self._type == "torchaudio":
-            self._video_in = StreamingMediaDecoder(src=self._filename)
+            stream_reader_cls, _, _ = _load_torchaudio_io()
+            self._video_in = stream_reader_cls(src=self._filename)
             self._torchaudio_stream = True
             self._add_stream()
         elif self._type == "cv2":
@@ -941,6 +980,12 @@ class VideoStreamReader:
                     cuda_stream=self._cuda_stream.cuda_stream,
                 )
                 self._video_in = nvc.ThreadedDecoder(**self._video_in_args)
+        elif self._type == "pyamdcodec":
+            self._video_in = PyAmdVideoDecoder(
+                self._filename,
+                device=self._device,
+                batch_size=self._batch_size,
+            )
         elif self._type == "ffmpeg":
             self._video_in = FFMpegVideoReader()
         else:
@@ -957,6 +1002,8 @@ class VideoStreamReader:
             elif self._type == "pynvcodec":
                 if hasattr(self._video_in, "end"):
                     self._video_in.end()
+            elif self._type == "pyamdcodec":
+                self._video_in.end()
             elif isinstance(self._video_in, FFMpegVideoReader):
                 pass
             else:
@@ -1002,6 +1049,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
     ):
         if device is None or device.type != "cuda":
             raise AssertionError("PyNvVideoEncoderWriter requires a CUDA device.")
+        from hmlib.video.py_nv_encoder import PyNvVideoEncoder
 
         self._filename = filename
         self._fps = float(fps)
@@ -1073,6 +1121,93 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
 
     def flush(self):
         # Flushing is handled in close() via encoder.EndEncode()/ffmpeg drain.
+        pass
+
+    def close(self):
+        if getattr(self._encoder, "_opened", False):
+            self._encoder.close()
+
+
+class PyAmdVideoEncoderWriter(VideoStreamWriterInterface):
+    """VideoStreamWriterInterface adapter around PyAmdVideoEncoder."""
+
+    def __init__(
+        self,
+        filename: str,
+        fps: Fraction,
+        width: int,
+        height: int,
+        codec: Optional[str],
+        device: torch.device,
+        bit_rate: int = int(55e6),
+        batch_size: Optional[int] = 1,
+        profiler: Any = None,
+        mux_audio_file: Optional[str] = None,
+        mux_audio_stream: int = 0,
+        mux_audio_offset_seconds: float = 0.0,
+        mux_audio_aac_bitrate: str = "192k",
+    ):
+        self._filename = filename
+        self._fps = float(fps)
+        self._width = int(width)
+        self._height = int(height)
+        self._bit_rate = int(bit_rate)
+        self._device = device if isinstance(device, torch.device) else torch.device(device or "cpu")
+        self._batch_size = batch_size or 1
+        self._profiler = profiler
+
+        codec_lower = (codec or PyAmdVideoCodec.preferred_output_codec()).lower()
+        encoder_codec = "h264"
+        if "hevc" in codec_lower or "h265" in codec_lower:
+            encoder_codec = "hevc"
+        elif "av1" in codec_lower:
+            encoder_codec = "av1"
+
+        backend = (
+            "vaapi"
+            if codec_lower.endswith("_vaapi")
+            else "amf" if codec_lower.endswith("_amf") else "auto"
+        )
+        self._encoder = PyAmdVideoEncoder(
+            output_path=self._filename,
+            width=self._width,
+            height=self._height,
+            fps=self._fps,
+            codec=encoder_codec,
+            device=self._device,
+            backend=backend,
+            bitrate=self._bit_rate,
+            mux_audio_file=mux_audio_file,
+            mux_audio_stream=mux_audio_stream,
+            mux_audio_offset_seconds=mux_audio_offset_seconds,
+            mux_audio_aac_bitrate=mux_audio_aac_bitrate,
+            profiler=self._profiler,
+        )
+        self._frame_counter = 0
+
+    def isOpened(self) -> bool:
+        return getattr(self._encoder, "_opened", False)
+
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    def open(self):
+        self._encoder.open()
+
+    def append(self, images: Union[torch.Tensor, StreamTensorBase], **kwargs):
+        assert not isinstance(images, torch.Tensor) or images.device == self._device
+        self._encoder.write(images, **kwargs)
+        img_ref = images.ref() if isinstance(images, StreamTensorBase) else images
+        if img_ref.ndim == 4:
+            self._frame_counter += int(img_ref.shape[0])
+        else:
+            self._frame_counter += 1
+
+    def write(self, images: Union[torch.Tensor, StreamTensorBase], **kwargs):
+        return self.append(images, **kwargs)
+
+    def flush(self):
         pass
 
     def close(self):
@@ -1173,9 +1308,27 @@ def create_output_video_stream(
     # Normalize fps to a plain float so downstream writers and backends
     # never see Fraction instances.
     fps_val = float(fps)
+    codec_lower = (codec or "").lower()
     # use_pynvcodec_env = os.environ.get("HM_VIDEO_ENCODER", "").lower() == "pynvcodec"
     use_pynvcodec_env = True
-    if ("_nvenc" in (codec or "")) and use_pynvcodec_env:
+    if codec_lower.endswith("_vaapi") or codec_lower.endswith("_amf"):
+        output_video = PyAmdVideoEncoderWriter(
+            filename=filename,
+            fps=fps,
+            height=int(height),
+            width=int(width),
+            codec=codec,
+            bit_rate=bit_rate,
+            device=device,
+            batch_size=batch_size,
+            profiler=profiler,
+            mux_audio_file=mux_audio_file,
+            mux_audio_stream=mux_audio_stream,
+            mux_audio_offset_seconds=mux_audio_offset_seconds,
+            mux_audio_aac_bitrate=mux_audio_aac_bitrate,
+        )
+        output_video.open()
+    elif ("_nvenc" in codec_lower) and use_pynvcodec_env:
         output_video = PyNvVideoEncoderWriter(
             filename=filename,
             fps=fps,
@@ -1192,7 +1345,7 @@ def create_output_video_stream(
             mux_audio_aac_bitrate=mux_audio_aac_bitrate,
         )
         output_video.open()
-    elif "_nvenc" in (codec or "") or filename.startswith("rtmp://"):
+    elif "_nvenc" in codec_lower or filename.startswith("rtmp://"):
         output_video = VideoStreamWriter(
             filename=filename,
             fps=fps_val,

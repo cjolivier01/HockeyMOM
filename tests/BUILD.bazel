@@ -99,6 +99,19 @@ py_test(
     ],
 )
 
+pytest_test(
+    name="test_pyamdcodec",
+    srcs=["test_pyamdcodec.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
 py_test(
     name="test_jersey_tracker",
     srcs=["test_jersey_tracker.py"],
@@ -132,15 +145,6 @@ py_test(
     deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
-    ],
-)
-
-sh_test(
-    name = "test_rocm_runtime_fallbacks",
-    srcs = ["test_rocm_runtime_fallbacks.sh"],
-    data = [
-        "//hmlib:hmlib.lib",
-        "test_rocm_runtime_fallbacks.py",
     ],
 )
 

@@ -28,6 +28,7 @@ import torch
 from hmlib.log import get_root_logger
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor
 from hmlib.utils.image import make_visible_image
+from hmlib.utils.torch_backend import is_rocm_backend
 from hmlib.video.ffmpeg_mux_cmd import (
     build_ffmpeg_live_bitstream_publish_cmd,
     build_ffmpeg_live_hls_bitstream_publish_cmd,
@@ -320,6 +321,15 @@ class BrowserPreviewServer:
         frame = unwrap_tensor(img)
         if isinstance(frame, torch.Tensor) and frame.device.type == "cuda":
             try:
+                if is_rocm_backend():
+                    return _AmdHlsPreviewPublisher(
+                        output_dir=self._output_dir,
+                        manifest_name=self._manifest_name,
+                        segment_pattern=self._segment_pattern,
+                        label=self.label,
+                        logger=self._logger,
+                        profiler=self._profiler,
+                    )
                 return _NvencHlsPreviewPublisher(
                     output_dir=self._output_dir,
                     manifest_name=self._manifest_name,
@@ -649,6 +659,88 @@ class _NvencHlsPreviewPublisher:
         self._ensure_open(frame)
         assert self._encoder is not None
         with _prof_ctx(self._profiler, "headless_preview.nvenc_encode"):
+            self._encoder.write(frame)
+
+    def close(self) -> None:
+        encoder = self._encoder
+        self._encoder = None
+        if encoder is not None:
+            encoder.close()
+        self._muxer.close()
+
+
+class _AmdHlsPreviewPublisher:
+    """Encode ROCm preview frames and hand encoded bytes to HLS muxing."""
+
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        manifest_name: str,
+        segment_pattern: str,
+        label: str,
+        fps: float = 30.0,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.label = str(label or "Preview")
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._encoder = None
+        self._muxer = _HlsBitstreamMuxer(
+            output_dir=output_dir,
+            manifest_name=manifest_name,
+            segment_pattern=segment_pattern,
+            fps=self.fps,
+            label=self.label,
+            logger=self._logger,
+            profiler=self._profiler,
+        )
+
+    def _ensure_open(self, frame: torch.Tensor) -> None:
+        if self._encoder is not None:
+            return
+        from hmlib.video.py_amd_codec import PyAmdVideoEncoder
+
+        if frame.device.type != "cuda":
+            raise ValueError("AMD browser preview requires ROCm/CUDA frames")
+        with _prof_ctx(self._profiler, "headless_preview.start_amd"):
+            self._encoder = PyAmdVideoEncoder(
+                output_path=None,
+                width=int(frame.shape[1]),
+                height=int(frame.shape[0]),
+                fps=self.fps,
+                codec="h264",
+                device=frame.device,
+                bitstream_handler=self._muxer.write_packet,
+                profiler=self._profiler,
+            )
+            self._encoder.open()
+
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        frame = unwrap_tensor(img)
+        if not isinstance(frame, torch.Tensor) or frame.device.type != "cuda":
+            raise ValueError("AMD browser preview requires ROCm/CUDA tensor frames")
+        if frame.ndim != 3:
+            raise ValueError(
+                f"Expected single frame tensor with shape (H, W, C), got {frame.shape}"
+            )
+        with _prof_ctx(self._profiler, "headless_preview.prepare_amd_frame"):
+            frame = make_visible_image(frame, enable_resizing=show_scaled, force_numpy=False)
+            if not isinstance(frame, torch.Tensor):
+                raise TypeError(
+                    "Expected make_visible_image to return a ROCm tensor for AMD encode"
+                )
+            frame = _ensure_even_video_frame(frame)
+        self._ensure_open(frame)
+        assert self._encoder is not None
+        with _prof_ctx(self._profiler, "headless_preview.amd_encode"):
             self._encoder.write(frame)
 
     def close(self) -> None:
@@ -1209,12 +1301,90 @@ class _NvencLivePublisher:
         self._muxer.close()
 
 
+class _AmdLivePublisher:
+    """Encode ROCm frames with the AMD encoder and publish packets live through ffmpeg."""
+
+    def __init__(
+        self,
+        output_url: str,
+        *,
+        label: str,
+        fps: float,
+        logger: Any = None,
+        profiler: Any = None,
+    ) -> None:
+        self.output_url = str(output_url)
+        self.label = str(label or "Live Preview")
+        self.fps = float(fps) if fps and fps > 0 else 30.0
+        self._logger = logger if logger is not None else get_root_logger()
+        self._profiler = profiler
+        self._encoder = None
+        self._muxer = _BitstreamLiveMuxer(
+            output_url=self.output_url,
+            fps=self.fps,
+            label=self.label,
+            logger=self._logger,
+            profiler=self._profiler,
+        )
+
+    def _ensure_open(self, frame: torch.Tensor) -> None:
+        if self._encoder is not None:
+            return
+        from hmlib.video.py_amd_codec import PyAmdVideoEncoder
+
+        if frame.device.type != "cuda":
+            raise ValueError("AMD live publisher requires ROCm/CUDA frames")
+        with _prof_ctx(self._profiler, "live_publish.start_amd"):
+            self._encoder = PyAmdVideoEncoder(
+                output_path=None,
+                width=int(frame.shape[1]),
+                height=int(frame.shape[0]),
+                fps=self.fps,
+                codec="h264",
+                device=frame.device,
+                bitstream_handler=self._muxer.write_packet,
+                profiler=self._profiler,
+            )
+            self._encoder.open()
+
+    def write_frame(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        *,
+        show_scaled: Optional[float] = None,
+    ) -> None:
+        frame = unwrap_tensor(img)
+        if not isinstance(frame, torch.Tensor) or frame.device.type != "cuda":
+            raise ValueError("AMD live publisher requires ROCm/CUDA tensor frames")
+        if frame.ndim != 3:
+            raise ValueError(
+                f"Expected single frame tensor with shape (H, W, C), got {frame.shape}"
+            )
+        with _prof_ctx(self._profiler, "live_publish.prepare_amd_frame"):
+            frame = make_visible_image(frame, enable_resizing=show_scaled, force_numpy=False)
+            if not isinstance(frame, torch.Tensor):
+                raise TypeError(
+                    "Expected make_visible_image to return a ROCm tensor for AMD encode"
+                )
+            frame = _ensure_even_video_frame(frame)
+        self._ensure_open(frame)
+        assert self._encoder is not None
+        with _prof_ctx(self._profiler, "live_publish.amd_encode"):
+            self._encoder.write(frame)
+
+    def close(self) -> None:
+        encoder = self._encoder
+        self._encoder = None
+        if encoder is not None:
+            encoder.close()
+        self._muxer.close()
+
+
 class FFmpegLivePublisher:
     """Live RTMP(S) publisher.
 
-    Uses NVENC via :class:`PyNvVideoEncoder` when CUDA frames are available and
-    falls back to the rawvideo->ffmpeg path for CPU frames or unsupported
-    environments.
+    Uses a GPU encoder when CUDA/ROCm frames are available and falls back to
+    the rawvideo->ffmpeg path for CPU frames or unsupported environments.
     """
 
     def __init__(
@@ -1237,6 +1407,14 @@ class FFmpegLivePublisher:
         frame = unwrap_tensor(img)
         if isinstance(frame, torch.Tensor) and frame.device.type == "cuda":
             try:
+                if is_rocm_backend():
+                    return _AmdLivePublisher(
+                        output_url=self.output_url,
+                        label=self.label,
+                        fps=self.fps,
+                        logger=self._logger,
+                        profiler=self._profiler,
+                    )
                 return _NvencLivePublisher(
                     output_url=self.output_url,
                     label=self.label,

@@ -58,6 +58,7 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         image_channel_adders: Optional[Tuple[float, float, float]] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
+        decoder_type: Optional[str] = None,
         device_for_original_image: torch.device = None,
         log_messages: bool = False,
         dtype: torch.dtype = None,
@@ -91,6 +92,11 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         # The delivery device of the letterbox image
         self._device = device
         self._decoder_device = decoder_device
+        if decoder_type is not None:
+            decoder_type = str(decoder_type).strip().lower()
+            if decoder_type in ("", "auto"):
+                decoder_type = None
+        self._requested_decoder_type = decoder_type
         self._preproc = preproc
         self._logger = get_root_logger()
         self._dtype = dtype
@@ -368,10 +374,19 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
     def _open_video(self):
         self.load_video_info()
         if self._embedded_data_loader is None:
-            self._decoder_type = "cv2"
-            if self._decoder_device is not None and self._decoder_device.type == "cuda":
-                # self._decoder_type = "torchaudio"
-                self._decoder_type = "pynvcodec"
+            if self._requested_decoder_type is not None:
+                self._decoder_type = self._requested_decoder_type
+            else:
+                self._decoder_type = "cv2"
+                if self._decoder_device is not None and self._decoder_device.type == "cuda":
+                    # Preserve the old NVIDIA path, but prefer the AMD FFmpeg/VAAPI
+                    # backend when running on ROCm.
+                    try:
+                        from hmlib.utils.torch_backend import is_rocm_backend
+
+                        self._decoder_type = "pyamdcodec" if is_rocm_backend() else "pynvcodec"
+                    except Exception:
+                        self._decoder_type = "pynvcodec"
             file_path = str(self._path_list[self._current_path_index])
             if not os.path.isfile(file_path):
                 raise RuntimeError(f"Video file {file_path} does not exist")

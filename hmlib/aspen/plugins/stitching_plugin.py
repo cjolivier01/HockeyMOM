@@ -25,7 +25,6 @@ from hmlib.utils.hockeymom_compat import (
     CudaStitchPanoNF32,
     CudaStitchPanoNU8,
     CudaStitchPanoU8,
-    HOCKEYMOM_AVAILABLE,
 )
 from hmlib.utils.image import (
     image_height,
@@ -375,11 +374,6 @@ class StitchingPlugin(Plugin):
         input_image_sizes_wh = [(image_width(img), image_height(img)) for img in imgs]
         left_size_wh = input_image_sizes_wh[0]
         right_size_wh = input_image_sizes_wh[1]
-        if not self._python_blender and not HOCKEYMOM_AVAILABLE:
-            logger.warning(
-                "Native hockeymom stitcher is unavailable; falling back to python_blender."
-            )
-            self._python_blender = True
         dtype = self._dtype if self._python_blender else torch.uint8
         self._stitcher = create_stitcher(
             dir_name=str(dir_name),
@@ -439,17 +433,20 @@ class StitchingPlugin(Plugin):
         was_channels_last = tensor.shape[-1] in (1, 3, 4)
         orig_dtype = tensor.dtype
         device = tensor.device
+        work_dtype = (
+            torch.float16
+            if self._dtype in (torch.float16, torch.half, torch.bfloat16)
+            else torch.float32
+        )
 
         x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         b, c, h, w = x.shape
-        x_work = x.to(dtype=torch.float32, non_blocking=True)
+        x_work = x.to(dtype=work_dtype, non_blocking=True)
 
-        cache_key = (int(h), int(w), device)
+        cache_key = (int(h), int(w), device, work_dtype)
         cache = self._rotate_cache.get(cache_key)
         if cache is None:
-            center = torch.tensor(
-                [(w - 1) / 2.0, (h - 1) / 2.0], device=device, dtype=torch.float32
-            )
+            center = torch.tensor([(w - 1) / 2.0, (h - 1) / 2.0], device=device, dtype=work_dtype)
             s = torch.tensor(
                 [
                     [(w - 1) / 2.0, 0.0, (w - 1) / 2.0],
@@ -457,7 +454,7 @@ class StitchingPlugin(Plugin):
                     [0.0, 0.0, 1.0],
                 ],
                 device=device,
-                dtype=torch.float32,
+                dtype=work_dtype,
             )
             s_inv = torch.tensor(
                 [
@@ -466,13 +463,13 @@ class StitchingPlugin(Plugin):
                     [0.0, 0.0, 1.0],
                 ],
                 device=device,
-                dtype=torch.float32,
+                dtype=work_dtype,
             )
-            s_001 = torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32)
+            s_001 = torch.tensor([0.0, 0.0, 1.0], device=device, dtype=work_dtype)
             cache = {"center": center, "s": s, "s_inv": s_inv, "s_001": s_001}
             self._rotate_cache[cache_key] = cache
 
-        angle = torch.zeros((), device=device, dtype=torch.float32) + (-degrees * math.pi / 180.0)
+        angle = torch.zeros((), device=device, dtype=work_dtype) + (-degrees * math.pi / 180.0)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
         cx, cy = cache["center"][0], cache["center"][1]
@@ -669,6 +666,7 @@ class StitchingPlugin(Plugin):
                 rgb_stats["left"] = pre_stats_list[0]
             if pre_stats_list is not None and len(pre_stats_list) >= 2:
                 rgb_stats["right"] = pre_stats_list[1]
+
         stitched_for_output = self._maybe_resize_output(blended)
 
         if self._width_t is None or self._height_t is None:

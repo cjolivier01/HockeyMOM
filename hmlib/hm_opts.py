@@ -1238,7 +1238,7 @@ class hm_opts(object):
             type=str,
             help=(
                 "Video stream decode method [auto, cv2, ffmpeg, torchaudio, "
-                "gstreamer, pynvcodec]"
+                "gstreamer, pynvcodec, pyamdcodec]"
             ),
         )
         parser.add_argument(
@@ -1736,7 +1736,6 @@ class hm_opts(object):
             ("stitch_frame_time", "stitching.stitch_frame_time"),
             ("fp16_stitch", "stitching.dtype"),
             ("stitch_pto_project_file", "stitching.pto_project_file"),
-            ("no_save_video", "video_out.skip_final_save"),
             ("skip_final_video_save", "video_out.skip_final_save"),
             ("video_encoder_backend", "video_out.encoder_backend"),
             ("output_file", "video_out.output_video_path"),
@@ -1792,7 +1791,6 @@ class hm_opts(object):
         "minimize_blend": bool,
         "no_cuda_streams": bool,
         "fp16_stitch": {True: "float16"},
-        "no_save_video": {True: True},
         "skip_final_video_save": {True: True},
         "checkerboard_input": {True: True},
         "crop_play_box": bool,
@@ -2245,10 +2243,18 @@ class hm_opts(object):
                     cuda_ok = False
                 if cuda_ok:
                     try:
-                        import importlib.util
+                        from hmlib.utils.torch_backend import is_rocm_backend
 
-                        if importlib.util.find_spec("PyNvVideoCodec") is not None:
-                            chosen = "pynvcodec"
+                        if is_rocm_backend():
+                            from hmlib.video.py_amd_codec import PyAmdVideoCodec
+
+                            if PyAmdVideoCodec.is_decoder_available():
+                                chosen = "pyamdcodec"
+                        else:
+                            import importlib.util
+
+                            if importlib.util.find_spec("PyNvVideoCodec") is not None:
+                                chosen = "pynvcodec"
                     except Exception:
                         chosen = "cv2"
                 opt.video_stream_decode_method = chosen

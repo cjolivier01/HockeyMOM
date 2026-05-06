@@ -30,7 +30,7 @@ from hmlib.config import (
     resolve_global_refs,
     set_nested_value,
 )
-from hmlib.hm_opts import copy_opts, hm_opts
+from hmlib.hm_opts import _get_baseline_runtime_config, copy_opts, hm_opts
 
 from hmlib.log import get_root_logger, logger
 from hmlib.utils.path import (
@@ -39,7 +39,6 @@ from hmlib.utils.path import (
     add_suffix_to_filename,
 )
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
-from hmlib.utils.torch_backend import is_rocm_backend
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -364,48 +363,120 @@ def _arg_was_explicit(args: argparse.Namespace, name: str) -> bool:
     return name in set(explicit)
 
 
-def _apply_rocm_runtime_defaults(
-    args: argparse.Namespace,
-    game_config: Optional[Dict[str, Any]],
+_CONFIG_MISSING = object()
+
+
+def _config_value(config: Dict[str, Any], path: str) -> Any:
+    return get_nested_value(config, path, _CONFIG_MISSING)
+
+
+def _config_value_is_default_or_missing(
+    config: Dict[str, Any], baseline_config: Dict[str, Any], path: str
+) -> bool:
+    current = _config_value(config, path)
+    if current is _CONFIG_MISSING:
+        return True
+    baseline = _config_value(baseline_config, path)
+    return baseline is not _CONFIG_MISSING and current == baseline
+
+
+def _plugin_value_follows_source_or_missing(
+    config: Dict[str, Any], plugin_path: str, source_path: str
+) -> bool:
+    plugin_value = _config_value(config, plugin_path)
+    if plugin_value is _CONFIG_MISSING:
+        return True
+    source_value = _config_value(config, source_path)
+    return source_value is not _CONFIG_MISSING and plugin_value == source_value
+
+
+def _apply_single_lowmem_gpu_overrides(
+    args: argparse.Namespace, game_config: Optional[Dict[str, Any]]
 ) -> None:
-    if not is_rocm_backend():
-        return
-
-    if getattr(args, "tracker_backend", None) is None:
-        args.tracker_backend = "static_bytetrack"
-
-    if not _arg_was_explicit(args, "python_blender"):
-        args.python_blender = True
-
+    print("Adjusting configuration for a single low-memory GPU environment...")
+    args.cache_size = 0
     if not isinstance(game_config, dict):
         return
 
-    set_nested_value(game_config, "stitching.python_blender", True)
-    aspen_cfg = game_config.get("aspen")
-    plugins_cfg = aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
-    if isinstance(plugins_cfg, dict):
-        stitching_plugin = plugins_cfg.get("stitching")
-        if isinstance(stitching_plugin, dict):
-            stitching_params = stitching_plugin.get("params")
-            if not isinstance(stitching_params, dict):
-                stitching_params = {}
-                stitching_plugin["params"] = stitching_params
-            stitching_params["python_blender"] = True
-    for plugin_name in (
-        "camera_controller",
-        "play_tracker",
-        "save_camera",
-        "rgb_stats_check",
-    ):
-        if not isinstance(plugins_cfg, dict):
-            break
-        plugin_cfg = plugins_cfg.get(plugin_name)
-        if isinstance(plugin_cfg, dict):
-            plugin_cfg["enabled"] = False
+    baseline_config = _get_baseline_runtime_config()
+    explicit_arg_names = set(getattr(args, "explicit_arg_names", []) or [])
+    lowmem_max_output_width = 1920
 
-    logger.warning(
-        "ROCm backend detected; using Python stitching/ByteTrack fallbacks and disabling the C++ play-tracker branch."
-    )
+    if "fp16_stitch" not in explicit_arg_names:
+        can_override_dtype = _config_value_is_default_or_missing(
+            game_config, baseline_config, "stitching.dtype"
+        ) and _plugin_value_follows_source_or_missing(
+            game_config,
+            "aspen.plugins.stitching.params.dtype",
+            "stitching.dtype",
+        )
+        if can_override_dtype:
+            args.fp16_stitch = True
+            set_nested_value(game_config, "stitching.dtype", "float16")
+            set_nested_value(game_config, "aspen.plugins.stitching.params.dtype", "float16")
+
+    if "max_blend_levels" not in explicit_arg_names:
+        can_override_max_blend_levels = _config_value_is_default_or_missing(
+            game_config, baseline_config, "stitching.max_blend_levels"
+        ) and _plugin_value_follows_source_or_missing(
+            game_config,
+            "aspen.plugins.stitching.params.max_blend_levels",
+            "stitching.max_blend_levels",
+        )
+        if can_override_max_blend_levels:
+            args.max_blend_levels = 5
+            set_nested_value(game_config, "stitching.max_blend_levels", 5)
+            set_nested_value(game_config, "aspen.plugins.stitching.params.max_blend_levels", 5)
+
+    if "minimize_blend" not in explicit_arg_names and "no_minimize_blend" not in explicit_arg_names:
+        can_override_minimize_blend = _config_value_is_default_or_missing(
+            game_config, baseline_config, "stitching.minimize_blend"
+        ) and _plugin_value_follows_source_or_missing(
+            game_config,
+            "aspen.plugins.stitching.params.minimize_blend",
+            "stitching.minimize_blend",
+        )
+        if can_override_minimize_blend:
+            args.minimize_blend = 1
+            set_nested_value(game_config, "stitching.minimize_blend", True)
+            set_nested_value(game_config, "aspen.plugins.stitching.params.minimize_blend", True)
+
+    if "output_width" not in explicit_arg_names and "output_height" not in explicit_arg_names:
+        can_override_output_width = (
+            _config_value_is_default_or_missing(
+                game_config, baseline_config, "video_out.output_width"
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "video_out.output_height"
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "stitching.max_output_width"
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.stitching.params.max_output_width",
+                "stitching.max_output_width",
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.video_out_prep.params.output_width",
+                "video_out.output_width",
+            )
+        )
+        if can_override_output_width:
+            args.output_width = lowmem_max_output_width
+            set_nested_value(game_config, "video_out.output_width", lowmem_max_output_width)
+            set_nested_value(game_config, "stitching.max_output_width", lowmem_max_output_width)
+            set_nested_value(
+                game_config,
+                "aspen.plugins.stitching.params.max_output_width",
+                lowmem_max_output_width,
+            )
+            set_nested_value(
+                game_config,
+                "aspen.plugins.video_out_prep.params.output_width",
+                lowmem_max_output_width,
+            )
 
 
 def _slugify_label(value: str) -> str:
@@ -1365,34 +1436,7 @@ def _main(args, num_gpu):
         args.camera_device = gpus.get("camera")
         args.encoder_device = gpus.get("encoder")
         if is_single_lowmem_gpu:
-            print("Adjusting configuration for a single low-memory GPU environment...")
-            args.cache_size = 0
-            explicit_arg_names = set(getattr(args, "explicit_arg_names", []) or [])
-            if "fp16_stitch" not in explicit_arg_names:
-                args.fp16_stitch = True
-                set_nested_value(game_config, "stitching.dtype", "float16")
-                set_nested_value(game_config, "aspen.plugins.stitching.params.dtype", "float16")
-            if "max_blend_levels" not in explicit_arg_names:
-                args.max_blend_levels = 5
-                set_nested_value(game_config, "stitching.max_blend_levels", 5)
-                set_nested_value(game_config, "aspen.plugins.stitching.params.max_blend_levels", 5)
-            if (
-                "minimize_blend" not in explicit_arg_names
-                and "no_minimize_blend" not in explicit_arg_names
-            ):
-                args.minimize_blend = 1
-                set_nested_value(game_config, "stitching.minimize_blend", True)
-                set_nested_value(game_config, "aspen.plugins.stitching.params.minimize_blend", True)
-            if "output_width" not in explicit_arg_names:
-                args.output_width = 3200
-                set_nested_value(game_config, "video_out.output_width", 3200)
-                set_nested_value(game_config, "stitching.max_output_width", 3200)
-                set_nested_value(
-                    game_config, "aspen.plugins.stitching.params.max_output_width", 3200
-                )
-                set_nested_value(
-                    game_config, "aspen.plugins.video_out_prep.params.output_width", 3200
-                )
+            _apply_single_lowmem_gpu_overrides(args, game_config)
 
         # This would be way too slow on CPU
         assert torch.cuda.is_available()
@@ -1824,6 +1868,7 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
+                        decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_left,
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
@@ -1842,6 +1887,7 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
+                        decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_right,
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
@@ -1865,13 +1911,8 @@ def _main(args, num_gpu):
                     stitch_cfg = get_nested_value(args.game_config, "stitching", {}) or {}
                     left_stitch_pipeline_cfg = stitch_cfg.get("left_stitch_pipeline")
                     right_stitch_pipeline_cfg = stitch_cfg.get("right_stitch_pipeline")
-                    stitch_dtype_cfg = str(
-                        stitch_cfg.get("dtype") or ("float16" if args.fp16_stitch else "float32")
-                    ).lower()
+                    stitch_dtype_cfg = str(stitch_cfg.get("dtype") or "float32").lower()
                     stitch_dtype = torch.half if "16" in stitch_dtype_cfg else torch.float
-                    stitch_max_blend_levels = stitch_cfg.get(
-                        "max_blend_levels", args.max_blend_levels
-                    )
                     stitched_dataset = StitchDataset(
                         videos=stitch_videos,
                         pto_project_file=pto_project_file,
@@ -1883,18 +1924,14 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
+                        decoder_type=args.video_stream_decode_method,
                         blend_mode=str(stitch_cfg.get("blend_mode") or opts.blend_mode),
                         dtype=stitch_dtype,
                         auto_adjust_exposure=bool(
                             stitch_cfg.get("auto_adjust_exposure", args.stitch_auto_adjust_exposure)
                         ),
                         python_blender=bool(stitch_cfg.get("python_blender", args.python_blender)),
-                        minimize_blend=bool(
-                            stitch_cfg.get(
-                                "minimize_blend",
-                                True if args.minimize_blend is None else bool(args.minimize_blend),
-                            )
-                        ),
+                        minimize_blend=bool(stitch_cfg.get("minimize_blend", True)),
                         no_cuda_streams=bool(
                             stitch_cfg.get("no_cuda_streams", args.no_cuda_streams)
                         ),
@@ -1906,7 +1943,6 @@ def _main(args, num_gpu):
                         config_ref=args.game_config,
                         left_color_pipeline=left_stitch_pipeline_cfg,
                         right_color_pipeline=right_stitch_pipeline_cfg,
-                        max_blend_levels=stitch_max_blend_levels,
                         capture_rgb_stats=bool(
                             stitch_cfg.get(
                                 "capture_rgb_stats", getattr(args, "checkerboard_input", False)
@@ -1975,6 +2011,7 @@ def _main(args, num_gpu):
                     decoder_device=(
                         torch.device(args.decoder_device) if args.decoder_device else None
                     ),
+                    decoder_type=args.video_stream_decode_method,
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     # When a data_pipeline is provided, we must deliver both
@@ -2008,6 +2045,7 @@ def _main(args, num_gpu):
                             batch_size=args.batch_size,
                             dtype=torch.float if not args.fp16 else torch.half,
                             device=gpus["encoder"],
+                            decoder_type=args.video_stream_decode_method,
                             original_image_only=True,
                             no_cuda_streams=args.no_cuda_streams,
                             async_mode=args.no_async_dataset,
@@ -2088,12 +2126,6 @@ def _main(args, num_gpu):
 
         args.mux_audio_file = mux_audio_file
         args.output_video_path = output_video_path
-        if args.no_save_video:
-            args.skip_final_video_save = True
-            try:
-                set_nested_value(game_config, "video_out.skip_final_save", True)
-            except Exception:
-                pass
         if output_video_path:
             try:
                 set_nested_value(game_config, "video_out.output_video_path", output_video_path)
@@ -2358,7 +2390,6 @@ def main():
         config=args.game_config,
         explicit_arg_names=getattr(args, "explicit_arg_names", None),
     )
-    _apply_rocm_runtime_defaults(args, args.game_config)
     game_config = resolve_global_refs(args.game_config)
     args.game_config = game_config
 
