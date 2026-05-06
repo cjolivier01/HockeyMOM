@@ -9,6 +9,7 @@ from collections import deque
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
+from urllib.parse import urlparse
 
 import torch
 from typeguard import typechecked
@@ -20,14 +21,31 @@ from hmlib.video.ffmpeg import BasicVideoInfo, preexec_fn
 logger = get_logger(__name__)
 
 
-def _ffmpeg_path() -> str:
-    return shutil.which("ffmpeg") or "ffmpeg"
+def _ffmpeg_path() -> Optional[str]:
+    return shutil.which("ffmpeg")
+
+
+def _require_ffmpeg_path() -> str:
+    ffmpeg_path = _ffmpeg_path()
+    if ffmpeg_path is None:
+        raise RuntimeError(
+            "FFmpeg is required for the AMD video backend, but it was not found on PATH."
+        )
+    return ffmpeg_path
+
+
+def _is_stream_output(target: str) -> bool:
+    parsed = urlparse(target)
+    return bool(parsed.scheme and "://" in target)
 
 
 def _read_ffmpeg_listing(*args: str) -> set[str]:
+    ffmpeg_path = _ffmpeg_path()
+    if ffmpeg_path is None:
+        return set()
     try:
         raw = subprocess.check_output(
-            [_ffmpeg_path(), "-hide_banner", *args],
+            [ffmpeg_path, "-hide_banner", *args],
             stderr=subprocess.STDOUT,
             text=True,
         )
@@ -136,9 +154,13 @@ class PyAmdVideoCodec:
     def is_decoder_available(cls, backend: str = "auto") -> bool:
         chosen = cls.default_decoder_backend() if backend == "auto" else str(backend).lower()
         if chosen == "vaapi":
-            return "vaapi" in _get_ffmpeg_hwaccels() and _best_vaapi_device() is not None
+            return (
+                _ffmpeg_path() is not None
+                and "vaapi" in _get_ffmpeg_hwaccels()
+                and _best_vaapi_device() is not None
+            )
         if chosen == "software":
-            return bool(_ffmpeg_path())
+            return _ffmpeg_path() is not None
         raise RuntimeError(f"Unsupported AMD decoder backend {backend!r}.")
 
     @classmethod
@@ -218,6 +240,7 @@ class PyAmdVideoDecoder:
             PyAmdVideoCodec.default_vaapi_device() if self.backend == "vaapi" else None
         )
         self.loglevel = str(loglevel or "warning")
+        self._ffmpeg_path = _require_ffmpeg_path()
         self.video_info = BasicVideoInfo(self.input_path)
         self.width = int(self.video_info.width)
         self.height = int(self.video_info.height)
@@ -247,7 +270,7 @@ class PyAmdVideoDecoder:
 
     def _build_cmd(self) -> list[str]:
         cmd = [
-            _ffmpeg_path(),
+            self._ffmpeg_path,
             "-hide_banner",
             "-loglevel",
             self.loglevel,
@@ -263,9 +286,10 @@ class PyAmdVideoDecoder:
                 "-hwaccel_output_format",
                 "vaapi",
             ]
-        if self._start_time > 0:
-            cmd += ["-ss", f"{self._start_time:.6f}"]
         cmd += ["-i", self.input_path]
+        if self._start_time > 0:
+            # Output-side -ss keeps seeking frame-accurate for exact frame-number requests.
+            cmd += ["-ss", f"{self._start_time:.6f}"]
         if self.backend == "vaapi":
             cmd += ["-vf", "hwdownload,format=bgr24"]
         cmd += [
@@ -367,7 +391,8 @@ class PyAmdVideoEncoder:
         bitstream_handler: Optional[Callable[[bytes], None]] = None,
         profiler: Optional[Any] = None,
     ) -> None:
-        self.output_path = Path(output_path) if output_path is not None else None
+        self.output_path = str(output_path) if output_path is not None else None
+        self._output_is_stream = bool(self.output_path and _is_stream_output(self.output_path))
         self.width = int(width)
         self.height = int(height)
         self.fps = float(fps)
@@ -396,6 +421,7 @@ class PyAmdVideoEncoder:
         self._vaapi_device = (
             PyAmdVideoCodec.default_vaapi_device() if self.backend == "vaapi" else None
         )
+        self._ffmpeg_path = _require_ffmpeg_path()
         if self.width % 2 or self.height % 2:
             raise ValueError("Width and height must be even for AMD YUV420 encoders.")
         if self.output_path is None and self._bitstream_handler is None:
@@ -436,7 +462,7 @@ class PyAmdVideoEncoder:
             else str(fps_frac.numerator)
         )
         cmd = [
-            _ffmpeg_path(),
+            self._ffmpeg_path,
             "-y",
             "-hide_banner",
             "-loglevel",
@@ -494,13 +520,16 @@ class PyAmdVideoEncoder:
                     "48000",
                     "-shortest",
                 ]
-            if self.output_path.suffix.lower() in {".mp4", ".m4v", ".mov"}:
+            output_suffix = (
+                Path(self.output_path).suffix.lower() if not self._output_is_stream else ""
+            )
+            if output_suffix in {".mp4", ".m4v", ".mov"}:
                 cmd += ["-movflags", "+faststart"]
                 if self.codec_family == "hevc":
                     cmd += ["-tag:v", "hvc1"]
                 elif self.codec_family == "av1":
                     cmd += ["-tag:v", "av01"]
-            cmd.append(str(self.output_path))
+            cmd.append(self.output_path)
         return cmd
 
     def _normalize_frames(self, frames: Union[torch.Tensor, StreamTensorBase]) -> torch.Tensor:
