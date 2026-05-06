@@ -104,6 +104,31 @@ def _runtime_feedback_target(
     return pred
 
 
+def _legacy_prev_slow_feedback_target(
+    pred: torch.Tensor, runtime_slow_aspect_norm: Optional[float]
+) -> torch.Tensor:
+    """Return normalized [cx, cy, h] feedback for legacy_prev_slow inputs."""
+    d_out = int(pred.shape[-1])
+    if d_out == 3:
+        return _runtime_feedback_target(pred, runtime_slow_aspect_norm)
+    if d_out == 4:
+        slow = pred
+    elif d_out == 8:
+        slow = pred[..., :4]
+    else:
+        raise ValueError(f"legacy_prev_slow free-run feedback does not support d_out={d_out}")
+
+    slow = (
+        _runtime_aspect_slow_tlwh(slow, runtime_slow_aspect_norm)
+        if runtime_slow_aspect_norm is not None
+        else _clamp_unit_tlwh(slow)
+    )
+    cx = torch.clamp(slow[..., 0] + slow[..., 2] * 0.5, 0.0, 1.0)
+    cy = torch.clamp(slow[..., 1] + slow[..., 3] * 0.5, 0.0, 1.0)
+    h = torch.clamp(slow[..., 3], 0.0, 1.0)
+    return torch.stack([cx, cy, h], dim=-1)
+
+
 def _diff1(x: torch.Tensor) -> torch.Tensor:
     # [B,T,D] -> [B,T-1,D]
     return x[:, 1:, :] - x[:, :-1, :]
@@ -269,6 +294,35 @@ def _load_game_dirs_from_list(list_path: str) -> List[Path]:
     return dedup
 
 
+def _scan_games_max_xy(game_csvs: List[GameCsvPaths]) -> Tuple[float, float]:
+    max_x = 0.0
+    max_y = 0.0
+    for p in game_csvs:
+        mx, my = scan_game_max_xy(p.tracking_csv, p.camera_csv, p.camera_fast_csv)
+        max_x = max(max_x, float(mx))
+        max_y = max(max_y, float(my))
+    return max_x, max_y
+
+
+def _validate_validation_scale(val_games: List[GameCsvPaths], norm: CameraNorm) -> None:
+    """Reject validation splits that would be clipped by train-only normalization."""
+    if not val_games:
+        return
+    val_max_x, val_max_y = _scan_games_max_xy(val_games)
+    tol_x = max(1.0, float(norm.scale_x)) * 1e-6
+    tol_y = max(1.0, float(norm.scale_y)) * 1e-6
+    over_x = float(val_max_x) > float(norm.scale_x) + tol_x
+    over_y = float(val_max_y) > float(norm.scale_y) + tol_y
+    if over_x or over_y:
+        raise SystemExit(
+            "Validation extents exceed train-only normalization scale: "
+            f"val_max=({val_max_x:.3f}, {val_max_y:.3f}) "
+            f"train_scale=({float(norm.scale_x):.3f}, {float(norm.scale_y):.3f}). "
+            "This would clip validation labels/features and invalidate IoU/target-iou. "
+            "Use a split whose training games cover the validation resolution/extents."
+        )
+
+
 def _parse_checkpoint_naming(out: str) -> Tuple[Path, str, str]:
     """Return (best_path, prefix, ext)."""
     best_path = Path(out)
@@ -422,7 +476,25 @@ def _predict_batch(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     y = batch["y"].to(device)
     if "x" in batch:
-        return model(batch["x"].to(device)), y
+        x_full = batch["x"].to(device)
+        if not free_run:
+            return model(x_full), y
+        if int(x_full.shape[-1]) < 11:
+            raise ValueError(
+                "legacy_prev_slow free-run expects previous [cx,cy,h] at feature indices 8:11"
+            )
+        prev = x_full[:, 0, 8:11]
+        preds = []
+        prefix = []
+        for t in range(int(x_full.shape[1])):
+            x_t = x_full[:, t, :].clone()
+            x_t[:, 8:11] = prev
+            prefix.append(x_t)
+            x = torch.stack(prefix, dim=1)
+            pred_t = model(x)[:, -1, :]
+            preds.append(pred_t)
+            prev = _legacy_prev_slow_feedback_target(pred_t, runtime_slow_aspect_norm).detach()
+        return torch.stack(preds, dim=1), y
 
     base = batch["base"].to(device)
     prev0 = batch["prev0"].to(device)
@@ -740,8 +812,8 @@ def main():
         default=None,
         action=argparse.BooleanOptionalAction,
         help=(
-            "Compute slow-box IoU after applying Aspen runtime aspect-ratio postprocessing. "
-            "Defaults on for DriveGPT TLWH targets."
+            "Compute slow-box IoU/feedback after applying Aspen runtime aspect-ratio "
+            "postprocessing. Defaults on for DriveGPT camera targets."
         ),
     )
     ap.add_argument("--log-every", type=int, default=50)
@@ -837,6 +909,7 @@ def main():
         args.eval_free_run = drivegpt_prev_mode
     if args.runtime_slow_iou is None:
         args.runtime_slow_iou = str(args.model_kind) == "drivegpt" and str(args.target_mode) in {
+            "slow_center_h",
             "slow_tlwh",
             "slow_fast_tlwh",
         }
@@ -951,13 +1024,9 @@ def main():
         val_games = []
 
     # Use a train-only normalization scale for train/val consistency without validation leakage.
-    max_x = 0.0
-    max_y = 0.0
-    for p in train_games:
-        mx, my = scan_game_max_xy(p.tracking_csv, p.camera_csv, p.camera_fast_csv)
-        max_x = max(max_x, float(mx))
-        max_y = max(max_y, float(my))
+    max_x, max_y = _scan_games_max_xy(train_games)
     norm = CameraNorm(scale_x=max_x, scale_y=max_y, max_players=int(args.max_players))
+    _validate_validation_scale(val_games, norm)
 
     train_ds = CameraPanZoomGPTIterableDataset(
         games=train_games,

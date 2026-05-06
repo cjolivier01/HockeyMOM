@@ -117,6 +117,8 @@ class CameraControllerPlugin(Plugin):
                         f"{model_path!r}: {ex}"
                     ) from ex
             else:
+                if self._requested_controller == "drivegpt":
+                    raise ValueError("controller='drivegpt' requires model_path")
                 self._controller = "rule"
 
     def _ensure_cluster_man(self, sizes: List[int] = [3, 2]):

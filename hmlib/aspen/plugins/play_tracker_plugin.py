@@ -7,6 +7,7 @@ import torch
 from hmlib.bbox.box_functions import center, height, make_box_at_center, width
 from hmlib.builder import HM
 from hmlib.camera.camera import HockeyMOM
+from hmlib.camera.camera_controller_modes import normalize_play_tracker_camera_controller
 from hmlib.camera.play_tracker import PlayTracker as _PlayTracker
 from hmlib.config import get_nested_value
 from hmlib.utils.image import image_height, image_width
@@ -186,11 +187,10 @@ class PlayTrackerPlugin(Plugin):
         controller = self._camera_controller or get_nested_value(
             game_cfg, "rink.camera.controller", "rule"
         )
-        if controller == "drivegpt":
-            controller = "gpt"
         cam_model = self._camera_model or get_nested_value(
             game_cfg, "rink.camera.camera_model", None
         )
+        controller = normalize_play_tracker_camera_controller(controller, cam_model)
         cam_window = (
             self._camera_window
             if self._camera_window is not None

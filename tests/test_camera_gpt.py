@@ -14,6 +14,7 @@ def should_sample_gpt_dataset_and_run_model_forward():
     from hmlib.camera.camera_gpt import CameraGPTConfig, CameraPanZoomGPT
     from hmlib.camera.camera_gpt_dataset import CameraPanZoomGPTIterableDataset, GameCsvPaths
     from hmlib.camera.camera_transformer import CameraNorm
+    from hmlib.cli.camgpt_train import _validate_validation_scale
 
     with tempfile.TemporaryDirectory(prefix="hm_camgpt_") as td:
         td_path = Path(td)
@@ -128,6 +129,49 @@ def should_sample_gpt_dataset_and_run_model_forward():
             sample_cold_start["prev0"],
             torch.tensor([0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]),
         )
+
+        with pytest.raises(SystemExit, match="Validation extents exceed"):
+            _validate_validation_scale(
+                [paths],
+                CameraNorm(scale_x=50.0, scale_y=25.0, max_players=22),
+            )
+
+
+def should_free_run_legacy_prev_slow_by_feeding_predictions():
+    torch = _torch()
+
+    from hmlib.cli.camgpt_train import _predict_batch
+
+    class AddToPrev(torch.nn.Module):
+        def forward(self, x):
+            out = x[..., 8:11].clone()
+            out[..., 0] = torch.clamp(out[..., 0] + 0.1, 0.0, 1.0)
+            return out
+
+    model = AddToPrev()
+    x = torch.zeros((1, 3, 11), dtype=torch.float32)
+    x[:, :, 8:11] = torch.tensor([0.2, 0.3, 0.4])
+    # Ground-truth previous state for later frames differs from the model feedback.
+    x[:, 1:, 8:11] = torch.tensor([0.8, 0.8, 0.8])
+    batch = {"x": x, "y": torch.zeros((1, 3, 3), dtype=torch.float32)}
+
+    teacher_pred, _ = _predict_batch(
+        model,
+        batch,
+        torch.device("cpu"),
+        free_run=False,
+        runtime_slow_aspect_norm=None,
+    )
+    free_pred, _ = _predict_batch(
+        model,
+        batch,
+        torch.device("cpu"),
+        free_run=True,
+        runtime_slow_aspect_norm=None,
+    )
+
+    assert torch.allclose(teacher_pred[0, :, 0], torch.tensor([0.3, 0.9, 0.9]))
+    assert torch.allclose(free_pred[0, :, 0], torch.tensor([0.3, 0.4, 0.5]))
 
 
 def should_pack_drivegpt_metadata_and_init_from_opendrive_planning():
@@ -303,3 +347,13 @@ def should_load_drivegpt_controller_as_gpt_backend(monkeypatch):
     monkeypatch.setattr(torch, "load", lambda path, map_location=None: legacy_ckpt)
     with pytest.raises(RuntimeError, match="model_kind='drivegpt'"):
         CameraControllerPlugin(controller="drivegpt", model_path="/tmp/fake_legacy_gpt.pt")
+    with pytest.raises(ValueError, match="requires model_path"):
+        CameraControllerPlugin(controller="drivegpt", model_path=None)
+
+
+def should_reject_drivegpt_play_tracker_without_model():
+    from hmlib.camera.camera_controller_modes import normalize_play_tracker_camera_controller
+
+    assert normalize_play_tracker_camera_controller("drivegpt", "/tmp/model.pt") == "gpt"
+    with pytest.raises(RuntimeError, match="requires rink.camera.camera_model"):
+        normalize_play_tracker_camera_controller("drivegpt", None)
