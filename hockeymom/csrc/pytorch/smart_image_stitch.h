@@ -5,10 +5,7 @@
 #include "hockeymom/csrc/pytorch/image_stitch.h"
 
 #include <ATen/ATen.h>
-#include <c10/cuda/CUDAStream.h>
 #include <torch/torch.h>
-
-#include <cuda_runtime.h>
 
 #include <memory>
 #include <optional>

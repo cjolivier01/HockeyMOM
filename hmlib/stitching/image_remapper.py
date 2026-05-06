@@ -16,7 +16,6 @@ from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.utils.hockeymom_compat import (
     ImageRemapper as NativeImageRemapper,
     RemapImageInfo,
-    require_hockeymom,
 )
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
 
@@ -124,8 +123,6 @@ class ImageRemapper(torch.nn.Module):
         src_h = self._source_hw[0]
 
         if self._use_cpp_remap_op:
-            if NativeImageRemapper is None:
-                require_hockeymom("C++ image remapper")
             self._remap_op = NativeImageRemapper(
                 src_width=src_w,
                 src_height=src_h,

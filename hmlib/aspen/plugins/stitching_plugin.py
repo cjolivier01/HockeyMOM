@@ -25,7 +25,6 @@ from hmlib.utils.hockeymom_compat import (
     CudaStitchPanoNF32,
     CudaStitchPanoNU8,
     CudaStitchPanoU8,
-    HOCKEYMOM_AVAILABLE,
 )
 from hmlib.utils.image import (
     image_height,
@@ -375,11 +374,6 @@ class StitchingPlugin(Plugin):
         input_image_sizes_wh = [(image_width(img), image_height(img)) for img in imgs]
         left_size_wh = input_image_sizes_wh[0]
         right_size_wh = input_image_sizes_wh[1]
-        if not self._python_blender and not HOCKEYMOM_AVAILABLE:
-            logger.warning(
-                "Native hockeymom stitcher is unavailable; falling back to python_blender."
-            )
-            self._python_blender = True
         dtype = self._dtype if self._python_blender else torch.uint8
         self._stitcher = create_stitcher(
             dir_name=str(dir_name),

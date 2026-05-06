@@ -1,13 +1,19 @@
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@rules_python//python:packaging.bzl", "py_wheel")
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
-load("@rules_cuda//cuda:defs.bzl", "requires_cuda")
 load("@py_soabi//:soabi.bzl", "SOABI")  # Now this load will succeed
 
-CUDA_ONLY_COMPAT = select({
-    "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
+ROCM_COMPAT_COPTS = select({
+    "//bazel:torch_backend_rocm": [
+        "-DUSE_HIP",
+        "-DJETSON_USE_HIP",
+        "-DJUT_INCLUDE_HIP_HEADERS",
+        "-DC10_CUDA_NO_CMAKE_CONFIGURE_FILE",
+        "-isystem",
+        "external/rocm_sdk_includes/include",
+    ],
     "//conditions:default": [],
-}) + requires_cuda()
+})
 
 pybind_extension(
   name = "_hockeymom",
@@ -24,11 +30,10 @@ pybind_extension(
     "@libtorch//:libtorch_python",
     "@hm-cupano//src/pano:cuda_pano",
     "@hm-cupano//src/pano:cuda_pano_n",
-    "@jetson-utils//cuda:colorspace_cuda_lib",
+    "@jetson-utils//cuda:colorspace_lib",
   ],
   copts = [
     "-DNO_CPP_BLENDING=1",
-  ],
-  target_compatible_with = CUDA_ONLY_COMPAT,
+  ] + ROCM_COMPAT_COPTS,
   visibility = ["//visibility:public"],
 )

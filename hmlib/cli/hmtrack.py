@@ -39,7 +39,6 @@ from hmlib.utils.path import (
     add_suffix_to_filename,
 )
 from hmlib.utils.pipeline import get_pipeline_item, update_pipeline_item
-from hmlib.utils.torch_backend import is_rocm_backend
 
 ROOT_DIR = os.path.dirname(os.path.abspath(hmlib.__file__))
 
@@ -362,50 +361,6 @@ def _arg_was_explicit(args: argparse.Namespace, name: str) -> bool:
     if explicit is None:
         return False
     return name in set(explicit)
-
-
-def _apply_rocm_runtime_defaults(
-    args: argparse.Namespace,
-    game_config: Optional[Dict[str, Any]],
-) -> None:
-    if not is_rocm_backend():
-        return
-
-    if getattr(args, "tracker_backend", None) is None:
-        args.tracker_backend = "static_bytetrack"
-
-    if not _arg_was_explicit(args, "python_blender"):
-        args.python_blender = True
-
-    if not isinstance(game_config, dict):
-        return
-
-    set_nested_value(game_config, "stitching.python_blender", True)
-    aspen_cfg = game_config.get("aspen")
-    plugins_cfg = aspen_cfg.get("plugins") if isinstance(aspen_cfg, dict) else None
-    if isinstance(plugins_cfg, dict):
-        stitching_plugin = plugins_cfg.get("stitching")
-        if isinstance(stitching_plugin, dict):
-            stitching_params = stitching_plugin.get("params")
-            if not isinstance(stitching_params, dict):
-                stitching_params = {}
-                stitching_plugin["params"] = stitching_params
-            stitching_params["python_blender"] = True
-    for plugin_name in (
-        "camera_controller",
-        "play_tracker",
-        "save_camera",
-        "rgb_stats_check",
-    ):
-        if not isinstance(plugins_cfg, dict):
-            break
-        plugin_cfg = plugins_cfg.get(plugin_name)
-        if isinstance(plugin_cfg, dict):
-            plugin_cfg["enabled"] = False
-
-    logger.warning(
-        "ROCm backend detected; using Python stitching/ByteTrack fallbacks and disabling the C++ play-tracker branch."
-    )
 
 
 def _slugify_label(value: str) -> str:
@@ -1799,6 +1754,7 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
+                        decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_left,
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
@@ -1817,6 +1773,7 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
+                        decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_right,
                         no_cuda_streams=args.no_cuda_streams,
                         image_channel_adders=None,
@@ -1853,6 +1810,7 @@ def _main(args, num_gpu):
                         decoder_device=(
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
+                        decoder_type=args.video_stream_decode_method,
                         blend_mode=str(stitch_cfg.get("blend_mode") or opts.blend_mode),
                         dtype=stitch_dtype,
                         auto_adjust_exposure=bool(
@@ -1939,6 +1897,7 @@ def _main(args, num_gpu):
                     decoder_device=(
                         torch.device(args.decoder_device) if args.decoder_device else None
                     ),
+                    decoder_type=args.video_stream_decode_method,
                     data_pipeline=data_pipeline,
                     dtype=torch.float if not args.fp16 else torch.half,
                     # When a data_pipeline is provided, we must deliver both
@@ -1972,6 +1931,7 @@ def _main(args, num_gpu):
                             batch_size=args.batch_size,
                             dtype=torch.float if not args.fp16 else torch.half,
                             device=gpus["encoder"],
+                            decoder_type=args.video_stream_decode_method,
                             original_image_only=True,
                             no_cuda_streams=args.no_cuda_streams,
                             async_mode=args.no_async_dataset,
@@ -2316,7 +2276,6 @@ def main():
         config=args.game_config,
         explicit_arg_names=getattr(args, "explicit_arg_names", None),
     )
-    _apply_rocm_runtime_defaults(args, args.game_config)
     game_config = resolve_global_refs(args.game_config)
     args.game_config = game_config
 

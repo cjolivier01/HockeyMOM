@@ -61,6 +61,16 @@ load("@rules_cc//cc:repositories.bzl", "rules_cc_dependencies", "rules_cc_toolch
 rules_cc_dependencies()
 rules_cc_toolchains()
 
+http_archive(
+    name = "rules_shell",
+    sha256 = "bc61ef94facc78e20a645726f64756e5e285a045037c7a61f65af2941f4c25e1",
+    strip_prefix = "rules_shell-0.4.1",
+    url = "https://github.com/bazelbuild/rules_shell/releases/download/v0.4.1/rules_shell-v0.4.1.tar.gz",
+)
+load("@rules_shell//shell:repositories.bzl", "rules_shell_dependencies", "rules_shell_toolchains")
+rules_shell_dependencies()
+rules_shell_toolchains()
+
 
 # Fetch Python rules:
 http_archive(
@@ -208,6 +218,12 @@ git_repository(
     remote = "https://github.com/cjolivier01/hm-cupano.git",
 )
 
+load("@hm-cupano//bazel:dependencies.bzl", "local_rocm_repository")
+
+local_rocm_repository(
+    name = "local_rocm",
+)
+
 # local_repository(
 #     name = "hm-cupano",
 #     path = "../hm-cupano",
@@ -215,8 +231,14 @@ git_repository(
 
 git_repository(
      name = "jetson-utils",
-     commit = "b7996388641bee35245eed067e261489225c08a0",
+     commit = "2614024fe7ebe97629b208923fbc7959b03aca1e",
      remote = "https://github.com/cjolivier01/jetson-utils.git",
+)
+
+load("@jetson-utils//bazel:dependencies.bzl", "local_rocm_sdk_repository")
+
+local_rocm_sdk_repository(
+    name = "rocm_sdk_includes",
 )
 
 # local_repository(

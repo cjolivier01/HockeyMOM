@@ -241,18 +241,31 @@ def _get_perspective_coeffs(
     Returns:
         octuple (a, b, c, d, e, f, g, h) for transforming each pixel.
     """
-    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float, device=startpoints.device)
+    if not isinstance(startpoints, torch.Tensor):
+        startpoints = torch.tensor(startpoints, dtype=torch.float32)
+    else:
+        startpoints = startpoints.detach().to(device="cpu", dtype=torch.float32)
+
+    if not isinstance(endpoints, torch.Tensor):
+        endpoints = torch.tensor(endpoints, dtype=torch.float32)
+    else:
+        endpoints = endpoints.detach().to(device="cpu", dtype=torch.float32)
+
+    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float32, device="cpu")
 
     for i, (p1, p2) in enumerate(zip(endpoints, startpoints)):
         a_matrix[2 * i, :] = torch.tensor(
-            [p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]]
+            [p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]],
+            dtype=torch.float32,
         )
         a_matrix[2 * i + 1, :] = torch.tensor(
-            [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]]
+            [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]],
+            dtype=torch.float32,
         )
-    # b_matrix = torch.tensor(startpoints, dtype=torch.float).view(8)
+    # This is a tiny 8x8 solve whose result becomes a Python list immediately,
+    # so doing it on CPU avoids GPU linalg backend requirements like MAGMA.
     b_matrix = startpoints.view(8)
-    res = torch.linalg.lstsq(a_matrix, b_matrix, driver="gels").solution
+    res = torch.linalg.lstsq(a_matrix, b_matrix).solution
 
     output: List[float] = res.tolist()
     return output
