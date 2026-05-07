@@ -118,6 +118,7 @@ def _torch_repo_metadata(ctx, conda_root):
         fail("Could not inspect torch installation: no interpreter found for CONDA_PREFIX '%s'." % conda_root)
     result = ctx.execute([
         python_bin,
+        "-S",
         "-c",
         """
 import os
@@ -125,6 +126,13 @@ import sys
 
 cwd = os.getcwd()
 sys.path = [p for p in sys.path if p not in ("", cwd)]
+site_packages = os.path.join(
+    sys.argv[1],
+    "lib",
+    "python%s.%s" % (sys.version_info.major, sys.version_info.minor),
+    "site-packages",
+)
+sys.path.append(site_packages)
 
 import torch
 
