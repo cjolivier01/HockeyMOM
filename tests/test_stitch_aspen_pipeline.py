@@ -359,3 +359,62 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
     assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "float16"
     assert cfg["aspen"]["plugins"]["stitching"]["params"]["max_output_width"] == 1920
     assert cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"] == 1920
+
+
+def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=["stitching.dtype=float32", "video_out.output_width=auto"],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is False
+    assert cfg["stitching"]["dtype"] == "float32"
+    assert cfg["video_out"]["output_width"] == "auto"
+    assert cfg["stitching"]["max_output_width"] is None
+
+
+def should_resolve_legacy_stitch_dataset_dtype_from_config():
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "float16"})
+        == torch.float16
+    )
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float16, {"dtype": "float32"})
+        == torch.float32
+    )

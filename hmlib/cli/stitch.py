@@ -235,7 +235,7 @@ def _apply_single_lowmem_gpu_overrides(
 
     baseline_config = _get_baseline_runtime_config()
 
-    if "fp16_stitch" not in explicit:
+    if "fp16_stitch" not in explicit and not _config_override_was_explicit(args, "stitching.dtype"):
         can_override_dtype = _config_value_is_default_or_missing(
             aspen_cfg_all, baseline_config, "stitching.dtype"
         ) and _plugin_value_follows_source_or_missing(
@@ -249,7 +249,9 @@ def _apply_single_lowmem_gpu_overrides(
             set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.dtype", "float16")
             use_half_dtype = True
 
-    if "max_blend_levels" not in explicit:
+    if "max_blend_levels" not in explicit and not _config_override_was_explicit(
+        args, "stitching.max_blend_levels"
+    ):
         can_override_max_blend_levels = _config_value_is_default_or_missing(
             aspen_cfg_all, baseline_config, "stitching.max_blend_levels"
         ) and _plugin_value_follows_source_or_missing(
@@ -262,7 +264,11 @@ def _apply_single_lowmem_gpu_overrides(
             set_nested_value(aspen_cfg_all, "stitching.max_blend_levels", 5)
             set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.max_blend_levels", 5)
 
-    if "minimize_blend" not in explicit and "no_minimize_blend" not in explicit:
+    if (
+        "minimize_blend" not in explicit
+        and "no_minimize_blend" not in explicit
+        and not _config_override_was_explicit(args, "stitching.minimize_blend")
+    ):
         can_override_minimize_blend = _config_value_is_default_or_missing(
             aspen_cfg_all, baseline_config, "stitching.minimize_blend"
         ) and _plugin_value_follows_source_or_missing(
@@ -276,7 +282,16 @@ def _apply_single_lowmem_gpu_overrides(
             set_nested_value(aspen_cfg_all, "stitching.minimize_blend", True)
             set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.minimize_blend", True)
 
-    if "output_width" not in explicit and "output_height" not in explicit:
+    if (
+        "output_width" not in explicit
+        and "output_height" not in explicit
+        and not _config_override_was_explicit(
+            args,
+            "video_out.output_width",
+            "video_out.output_height",
+            "stitching.max_output_width",
+        )
+    ):
         can_override_output_width = (
             _config_value_is_default_or_missing(
                 aspen_cfg_all, baseline_config, "video_out.output_width"
@@ -308,6 +323,17 @@ def _apply_single_lowmem_gpu_overrides(
             )
 
     return use_half_dtype
+
+
+def _resolve_stitch_tensor_dtype(
+    default_dtype: torch.dtype, stitch_cfg: Dict[str, Any]
+) -> torch.dtype:
+    dtype_name = str(stitch_cfg.get("dtype") or "").strip().lower()
+    if dtype_name == "float16":
+        return torch.float16
+    if dtype_name in ("float32", "float"):
+        return torch.float32
+    return default_dtype
 
 
 def stitch_videos(
@@ -438,6 +464,7 @@ def stitch_videos(
         auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
+        dtype = _resolve_stitch_tensor_dtype(dtype, stitch_cfg)
         post_stitch_rotate_degrees = stitch_cfg.get(
             "post_stitch_rotate_degrees", post_stitch_rotate_degrees
         )
