@@ -36,6 +36,7 @@ cc_library(
 
 cuda_library(
     name = "bytetrack_cuda_kernels_cuda",
+    hdrs = ["torch_cuda_compat.h"],
     srcs = ["bytetrack_cuda_kernels.cu"],
     features = [
         "-coverage",
@@ -46,6 +47,7 @@ cuda_library(
         "//conditions:default": [],
     }) + requires_cuda(),
     deps = [
+        "@jetson-utils//cuda:cuda_compat_includes",
         "@libtorch",
     ],
 )

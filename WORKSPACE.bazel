@@ -224,10 +224,10 @@ local_rocm_repository(
     name = "local_rocm",
 )
 
-# local_repository(
-#     name = "hm-cupano",
-#     path = "../hm-cupano",
-# )
+#local_repository(
+#    name = "hm-cupano",
+#    path = "../hm-cupano",
+#)
 
 git_repository(
      name = "jetson-utils",
@@ -235,7 +235,11 @@ git_repository(
      remote = "https://github.com/cjolivier01/jetson-utils.git",
 )
 
-load("@jetson-utils//bazel:dependencies.bzl", "local_rocm_sdk_repository")
+load("@jetson-utils//bazel:dependencies.bzl", "local_cuda_sdk_repository", "local_rocm_sdk_repository")
+
+local_cuda_sdk_repository(
+    name = "cuda_sdk",
+)
 
 local_rocm_sdk_repository(
     name = "rocm_sdk_includes",
