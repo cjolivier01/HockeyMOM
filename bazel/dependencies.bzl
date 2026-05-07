@@ -147,6 +147,7 @@ print(backend)
 for name in sorted(os.listdir(os.path.join(os.path.dirname(torch.__file__), "lib"))):
     print(name)
 """,
+        conda_root,
     ], working_directory = conda_root)
     if result.return_code != 0:
         fail("Could not inspect torch installation: " + result.stderr)

@@ -114,6 +114,19 @@ pytest_test(
     ],
 )
 
+pytest_test(
+    name="test_hmtrack_lowmem_overrides",
+    srcs=["test_hmtrack_lowmem_overrides.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
 py_test(
     name="test_jersey_tracker",
     srcs=["test_jersey_tracker.py"],
