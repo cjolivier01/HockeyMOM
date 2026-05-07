@@ -246,7 +246,6 @@ def should_apply_conservative_stitch_buffering_defaults_when_not_explicit():
                 "threaded": True,
                 "graph": True,
                 "queue_size": 2,
-                "max_concurrent": 2,
             }
         }
     }
@@ -283,3 +282,80 @@ def should_preserve_explicit_stitch_buffering_settings():
     pipeline = cfg["aspen"]["pipeline"]
     assert pipeline["queue_size"] == 4
     assert pipeline["max_concurrent"] == 3
+
+
+def should_preserve_configured_stitch_buffering_settings():
+    cfg = {
+        "aspen": {
+            "pipeline": {
+                "threaded": True,
+                "graph": True,
+                "queue_size": 4,
+                "max_concurrent": 3,
+            }
+        }
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+    )
+
+    stitch_cli._apply_stitch_buffering_defaults(cfg, args)
+
+    pipeline = cfg["aspen"]["pipeline"]
+    assert pipeline["queue_size"] == 4
+    assert pipeline["max_concurrent"] == 3
+
+
+def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is True
+    assert args.explicit_arg_names == set()
+    assert args.fp16_stitch is True
+    assert cfg["stitching"]["dtype"] == "float16"
+    assert cfg["stitching"]["max_blend_levels"] == 5
+    assert cfg["stitching"]["minimize_blend"] is True
+    assert cfg["stitching"]["max_output_width"] == 1920
+    assert cfg["video_out"]["output_width"] == 1920
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "float16"
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["max_output_width"] == 1920
+    assert cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"] == 1920

@@ -13,7 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from hmlib.hm_opts import hm_opts, preferred_arg
+from hmlib.config import get_nested_value, set_nested_value
+from hmlib.hm_opts import _get_baseline_runtime_config, hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
@@ -21,6 +22,7 @@ from hmlib.utils.path import add_prefix_to_filename
 ROOT_DIR = os.getcwd()
 
 logger = get_root_logger()
+_CONFIG_MISSING = object()
 
 
 def make_parser():
@@ -155,6 +157,32 @@ def _config_override_was_explicit(args: Optional[argparse.Namespace], *config_ke
     return False
 
 
+def _config_value(config: Dict[str, Any], path: str) -> Any:
+    return get_nested_value(config, path, _CONFIG_MISSING)
+
+
+def _config_value_is_default_or_missing(
+    config: Dict[str, Any], baseline_config: Dict[str, Any], path: str
+) -> bool:
+    current = _config_value(config, path)
+    if current is _CONFIG_MISSING:
+        return True
+    baseline = _config_value(baseline_config, path)
+    return baseline is not _CONFIG_MISSING and current == baseline
+
+
+def _plugin_value_follows_source_or_missing(
+    config: Dict[str, Any], plugin_path: str, source_path: str
+) -> bool:
+    plugin_value = _config_value(config, plugin_path)
+    if plugin_value is _CONFIG_MISSING:
+        return True
+    source_value = _config_value(config, source_path)
+    return (source_value is not _CONFIG_MISSING and plugin_value == source_value) or (
+        plugin_value == f"GLOBAL.{source_path}"
+    )
+
+
 def _apply_stitch_buffering_defaults(
     aspen_cfg_all: Dict[str, Any], args: Optional[argparse.Namespace]
 ) -> None:
@@ -166,21 +194,24 @@ def _apply_stitch_buffering_defaults(
     if not isinstance(pipeline_cfg, dict):
         return
 
+    baseline_config = _get_baseline_runtime_config()
     applied: list[str] = []
 
     if not _arg_was_explicit(args, "aspen_max_concurrent") and not _config_override_was_explicit(
         args, "aspen.pipeline.max_concurrent"
     ):
-        current = pipeline_cfg.get("max_concurrent")
-        if current != 1:
+        if _config_value_is_default_or_missing(
+            aspen_cfg_all, baseline_config, "aspen.pipeline.max_concurrent"
+        ):
             pipeline_cfg["max_concurrent"] = 1
             applied.append("aspen.pipeline.max_concurrent=1")
 
     if not _arg_was_explicit(args, "aspen_thread_queue_size") and not _config_override_was_explicit(
         args, "aspen.pipeline.queue_size"
     ):
-        current = pipeline_cfg.get("queue_size")
-        if current != 1:
+        if _config_value_is_default_or_missing(
+            aspen_cfg_all, baseline_config, "aspen.pipeline.queue_size"
+        ):
             pipeline_cfg["queue_size"] = 1
             applied.append("aspen.pipeline.queue_size=1")
 
@@ -193,30 +224,90 @@ def _apply_stitch_buffering_defaults(
     )
 
 
-def _apply_single_lowmem_gpu_overrides(args: argparse.Namespace) -> None:
+def _apply_single_lowmem_gpu_overrides(
+    args: argparse.Namespace, aspen_cfg_all: Optional[Dict[str, Any]]
+) -> bool:
     print("Adjusting stitch configuration for a single low-memory GPU environment...")
     explicit = set(getattr(args, "explicit_arg_names", None) or [])
+    use_half_dtype = False
+    if not isinstance(aspen_cfg_all, dict):
+        return use_half_dtype
 
-    if not _arg_was_explicit(args, "fp16"):
-        args.fp16 = True
-        explicit.add("fp16")
+    baseline_config = _get_baseline_runtime_config()
 
-    if not _arg_was_explicit(args, "max_blend_levels"):
-        args.max_blend_levels = 5
-        explicit.add("max_blend_levels")
+    if "fp16_stitch" not in explicit:
+        can_override_dtype = _config_value_is_default_or_missing(
+            aspen_cfg_all, baseline_config, "stitching.dtype"
+        ) and _plugin_value_follows_source_or_missing(
+            aspen_cfg_all,
+            "aspen.plugins.stitching.params.dtype",
+            "stitching.dtype",
+        )
+        if can_override_dtype:
+            args.fp16_stitch = True
+            set_nested_value(aspen_cfg_all, "stitching.dtype", "float16")
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.dtype", "float16")
+            use_half_dtype = True
 
-    if not _arg_was_explicit(args, "minimize_blend") and not _arg_was_explicit(
-        args, "no_minimize_blend"
-    ):
-        args.minimize_blend = 1
-        args.no_minimize_blend = False
-        explicit.add("minimize_blend")
+    if "max_blend_levels" not in explicit:
+        can_override_max_blend_levels = _config_value_is_default_or_missing(
+            aspen_cfg_all, baseline_config, "stitching.max_blend_levels"
+        ) and _plugin_value_follows_source_or_missing(
+            aspen_cfg_all,
+            "aspen.plugins.stitching.params.max_blend_levels",
+            "stitching.max_blend_levels",
+        )
+        if can_override_max_blend_levels:
+            args.max_blend_levels = 5
+            set_nested_value(aspen_cfg_all, "stitching.max_blend_levels", 5)
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.max_blend_levels", 5)
 
-    if not _arg_was_explicit(args, "output_width") and not _arg_was_explicit(args, "output_height"):
-        args.output_width = 1920
-        explicit.add("output_width")
+    if "minimize_blend" not in explicit and "no_minimize_blend" not in explicit:
+        can_override_minimize_blend = _config_value_is_default_or_missing(
+            aspen_cfg_all, baseline_config, "stitching.minimize_blend"
+        ) and _plugin_value_follows_source_or_missing(
+            aspen_cfg_all,
+            "aspen.plugins.stitching.params.minimize_blend",
+            "stitching.minimize_blend",
+        )
+        if can_override_minimize_blend:
+            args.minimize_blend = 1
+            args.no_minimize_blend = False
+            set_nested_value(aspen_cfg_all, "stitching.minimize_blend", True)
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.minimize_blend", True)
 
-    args.explicit_arg_names = explicit
+    if "output_width" not in explicit and "output_height" not in explicit:
+        can_override_output_width = (
+            _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "video_out.output_width"
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "video_out.output_height"
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.max_output_width"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.max_output_width",
+                "stitching.max_output_width",
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.video_out_prep.params.output_width",
+                "video_out.output_width",
+            )
+        )
+        if can_override_output_width:
+            args.output_width = 1920
+            set_nested_value(aspen_cfg_all, "video_out.output_width", 1920)
+            set_nested_value(aspen_cfg_all, "stitching.max_output_width", 1920)
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.max_output_width", 1920)
+            set_nested_value(
+                aspen_cfg_all, "aspen.plugins.video_out_prep.params.output_width", 1920
+            )
+
+    return use_half_dtype
 
 
 def stitch_videos(
@@ -261,7 +352,6 @@ def stitch_videos(
 
     from hmlib.config import (
         get_config,
-        get_nested_value,
         load_yaml_files_ordered,
         normalize_runtime_config,
         resolve_global_refs,
@@ -336,6 +426,9 @@ def stitch_videos(
                 config=aspen_cfg_all,
                 explicit_arg_names=getattr(args, "explicit_arg_names", None),
             )
+            if lowmem:
+                if _apply_single_lowmem_gpu_overrides(args, aspen_cfg_all):
+                    dtype = torch.float16
         resolve_global_refs(aspen_cfg_all)
 
         stitch_cfg = get_nested_value(aspen_cfg_all, "stitching", {}) or {}
@@ -407,7 +500,7 @@ def stitch_videos(
         )
         if args is not None and getattr(args, "aspen_stitching", None) is not None:
             use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
-        if use_aspen_stitching:
+        if use_aspen_stitching and lowmem:
             _apply_stitch_buffering_defaults(aspen_cfg_all, args)
 
         if use_aspen_stitching:
@@ -840,8 +933,6 @@ def _main(args) -> None:
     setattr(args, "profiler", profiler)
 
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
-    if gpu_allocator.is_single_lowmem_gpu():
-        _apply_single_lowmem_gpu_overrides(args)
     assert not args.start_frame_offset
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if args.multi_gpu:
