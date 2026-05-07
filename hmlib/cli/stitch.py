@@ -265,9 +265,13 @@ def _apply_single_lowmem_gpu_overrides(
 
     baseline_config = _get_baseline_runtime_config()
 
-    if "fp16_stitch" not in explicit and not _config_override_was_explicit(args, "stitching.dtype"):
+    if "fp16_stitch" not in explicit and not _config_override_was_explicit(
+        args, "stitching.dtype", "aspen.plugins.stitching.params.dtype"
+    ):
         can_override_dtype = (
-            not _game_or_private_config_was_explicit(args, "stitching.dtype")
+            not _game_or_private_config_was_explicit(
+                args, "stitching.dtype", "aspen.plugins.stitching.params.dtype"
+            )
             and _config_value_is_default_or_missing(
                 aspen_cfg_all, baseline_config, "stitching.dtype"
             )
@@ -284,10 +288,16 @@ def _apply_single_lowmem_gpu_overrides(
             use_half_dtype = True
 
     if "max_blend_levels" not in explicit and not _config_override_was_explicit(
-        args, "stitching.max_blend_levels"
+        args,
+        "stitching.max_blend_levels",
+        "aspen.plugins.stitching.params.max_blend_levels",
     ):
         can_override_max_blend_levels = (
-            not _game_or_private_config_was_explicit(args, "stitching.max_blend_levels")
+            not _game_or_private_config_was_explicit(
+                args,
+                "stitching.max_blend_levels",
+                "aspen.plugins.stitching.params.max_blend_levels",
+            )
             and _config_value_is_default_or_missing(
                 aspen_cfg_all, baseline_config, "stitching.max_blend_levels"
             )
@@ -305,10 +315,18 @@ def _apply_single_lowmem_gpu_overrides(
     if (
         "minimize_blend" not in explicit
         and "no_minimize_blend" not in explicit
-        and not _config_override_was_explicit(args, "stitching.minimize_blend")
+        and not _config_override_was_explicit(
+            args,
+            "stitching.minimize_blend",
+            "aspen.plugins.stitching.params.minimize_blend",
+        )
     ):
         can_override_minimize_blend = (
-            not _game_or_private_config_was_explicit(args, "stitching.minimize_blend")
+            not _game_or_private_config_was_explicit(
+                args,
+                "stitching.minimize_blend",
+                "aspen.plugins.stitching.params.minimize_blend",
+            )
             and _config_value_is_default_or_missing(
                 aspen_cfg_all, baseline_config, "stitching.minimize_blend"
             )
@@ -332,6 +350,8 @@ def _apply_single_lowmem_gpu_overrides(
             "video_out.output_width",
             "video_out.output_height",
             "stitching.max_output_width",
+            "aspen.plugins.stitching.params.max_output_width",
+            "aspen.plugins.video_out_prep.params.output_width",
         )
     ):
         can_override_output_width = (
@@ -340,6 +360,8 @@ def _apply_single_lowmem_gpu_overrides(
                 "video_out.output_width",
                 "video_out.output_height",
                 "stitching.max_output_width",
+                "aspen.plugins.stitching.params.max_output_width",
+                "aspen.plugins.video_out_prep.params.output_width",
             )
             and _config_value_is_default_or_missing(
                 aspen_cfg_all, baseline_config, "video_out.output_width"

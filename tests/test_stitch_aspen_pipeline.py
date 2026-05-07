@@ -420,6 +420,60 @@ def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
     assert cfg["stitching"]["max_output_width"] is None
 
 
+def should_respect_plugin_config_override_opt_outs_for_lowmem_stitch_overrides():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "float32",
+                        "max_blend_levels": 11,
+                        "minimize_blend": False,
+                        "max_output_width": None,
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "auto",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[
+            "aspen.plugins.stitching.params.dtype=float32",
+            "aspen.plugins.video_out_prep.params.output_width=auto",
+        ],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is False
+    assert cfg["stitching"]["dtype"] == "float32"
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "float32"
+    assert cfg["video_out"]["output_width"] == "auto"
+    assert cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"] == "auto"
+
+
 def should_resolve_legacy_stitch_dataset_dtype_from_config():
     assert (
         stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "float16"})
@@ -480,10 +534,16 @@ def should_respect_game_or_private_config_opt_outs_for_lowmem_stitch_overrides(m
         stitch_cli,
         "load_config_file",
         lambda *args, **kwargs: {
-            "stitching": {
-                "dtype": "float32",
-                "max_blend_levels": 11,
-                "minimize_blend": False,
+            "aspen": {
+                "plugins": {
+                    "stitching": {
+                        "params": {
+                            "dtype": "float32",
+                            "max_blend_levels": 11,
+                            "minimize_blend": False,
+                        }
+                    }
+                }
             }
         },
         raising=False,
@@ -492,8 +552,14 @@ def should_respect_game_or_private_config_opt_outs_for_lowmem_stitch_overrides(m
         stitch_cli,
         "get_game_config_private",
         lambda *args, **kwargs: {
-            "video_out": {
-                "output_width": "auto",
+            "aspen": {
+                "plugins": {
+                    "video_out_prep": {
+                        "params": {
+                            "output_width": "auto",
+                        }
+                    }
+                }
             }
         },
         raising=False,
@@ -519,3 +585,8 @@ def should_respect_game_or_private_config_opt_outs_for_lowmem_stitch_overrides(m
     assert cfg["stitching"]["minimize_blend"] is False
     assert cfg["stitching"]["max_output_width"] is None
     assert cfg["video_out"]["output_width"] == "auto"
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "GLOBAL.stitching.dtype"
+    assert (
+        cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"]
+        == "GLOBAL.video_out.output_width"
+    )
