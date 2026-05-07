@@ -433,17 +433,18 @@ class StitchingPlugin(Plugin):
         was_channels_last = tensor.shape[-1] in (1, 3, 4)
         orig_dtype = tensor.dtype
         device = tensor.device
+        # Keep rotation math in float32 even on low-memory paths so Aspen and
+        # legacy stitch paths do not diverge from half-precision resampling.
+        work_dtype = torch.float32
 
         x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         b, c, h, w = x.shape
-        x_work = x.to(dtype=torch.float32, non_blocking=True)
+        x_work = x.to(dtype=work_dtype, non_blocking=True)
 
-        cache_key = (int(h), int(w), device)
+        cache_key = (int(h), int(w), device, work_dtype)
         cache = self._rotate_cache.get(cache_key)
         if cache is None:
-            center = torch.tensor(
-                [(w - 1) / 2.0, (h - 1) / 2.0], device=device, dtype=torch.float32
-            )
+            center = torch.tensor([(w - 1) / 2.0, (h - 1) / 2.0], device=device, dtype=work_dtype)
             s = torch.tensor(
                 [
                     [(w - 1) / 2.0, 0.0, (w - 1) / 2.0],
@@ -451,7 +452,7 @@ class StitchingPlugin(Plugin):
                     [0.0, 0.0, 1.0],
                 ],
                 device=device,
-                dtype=torch.float32,
+                dtype=work_dtype,
             )
             s_inv = torch.tensor(
                 [
@@ -460,13 +461,13 @@ class StitchingPlugin(Plugin):
                     [0.0, 0.0, 1.0],
                 ],
                 device=device,
-                dtype=torch.float32,
+                dtype=work_dtype,
             )
-            s_001 = torch.tensor([0.0, 0.0, 1.0], device=device, dtype=torch.float32)
+            s_001 = torch.tensor([0.0, 0.0, 1.0], device=device, dtype=work_dtype)
             cache = {"center": center, "s": s, "s_inv": s_inv, "s_001": s_001}
             self._rotate_cache[cache_key] = cache
 
-        angle = torch.zeros((), device=device, dtype=torch.float32) + (-degrees * math.pi / 180.0)
+        angle = torch.zeros((), device=device, dtype=work_dtype) + (-degrees * math.pi / 180.0)
         cos_a = torch.cos(angle)
         sin_a = torch.sin(angle)
         cx, cy = cache["center"][0], cache["center"][1]
@@ -483,9 +484,10 @@ class StitchingPlugin(Plugin):
         theta = a[:2, :].unsqueeze(0).repeat(b, 1, 1)
         grid = F.affine_grid(theta, size=(b, c, h, w), align_corners=True)
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
+        del x_work, grid, theta, a, m_inv
 
         if orig_dtype == torch.uint8:
-            y = y.clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
+            y = y.clamp_(min=0.0, max=255.0).to(dtype=torch.uint8)
         else:
             y = y.to(dtype=orig_dtype)
         if was_channels_last:
@@ -645,6 +647,8 @@ class StitchingPlugin(Plugin):
         else:
             blended = self._stitcher.forward(inputs=imgs)
 
+        blended = self._prepare_frame_for_video(blended, image_roi=None)
+
         rotate_degrees = self._resolve_rotation_degrees(context)
         if rotate_degrees is not None and abs(rotate_degrees) > 1e-6:
             blended = self._rotate_tensor_keep_size(blended, rotate_degrees)
@@ -660,8 +664,6 @@ class StitchingPlugin(Plugin):
                 rgb_stats["left"] = pre_stats_list[0]
             if pre_stats_list is not None and len(pre_stats_list) >= 2:
                 rgb_stats["right"] = pre_stats_list[1]
-
-        blended = self._prepare_frame_for_video(blended, image_roi=None)
 
         stitched_for_output = self._maybe_resize_output(blended)
 

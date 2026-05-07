@@ -13,7 +13,13 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from hmlib.hm_opts import hm_opts, preferred_arg
+from hmlib.config import (
+    get_game_config_private,
+    get_nested_value,
+    load_config_file,
+    set_nested_value,
+)
+from hmlib.hm_opts import _get_baseline_runtime_config, hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
@@ -21,6 +27,7 @@ from hmlib.utils.path import add_prefix_to_filename
 ROOT_DIR = os.getcwd()
 
 logger = get_root_logger()
+_CONFIG_MISSING = object()
 
 
 def make_parser():
@@ -139,6 +146,345 @@ def _arg_was_explicit(args: Optional[argparse.Namespace], name: str) -> bool:
     return name in set(explicit)
 
 
+def _config_override_was_explicit(args: Optional[argparse.Namespace], *config_keys: str) -> bool:
+    if args is None:
+        return False
+    overrides = getattr(args, "config_overrides", None) or []
+    wanted = {str(key).strip() for key in config_keys if key}
+    if not wanted:
+        return False
+    for override in overrides:
+        if not isinstance(override, str):
+            continue
+        key = override.split("=", 1)[0].strip()
+        if key in wanted:
+            return True
+    return False
+
+
+def _override_value_is_global_link(value: Any, source_path: str) -> bool:
+    return isinstance(value, str) and value.strip() == f"GLOBAL.{source_path}"
+
+
+def _plugin_config_override_was_explicit(
+    args: Optional[argparse.Namespace], plugin_path: str, source_path: str
+) -> bool:
+    if args is None:
+        return False
+    overrides = args.config_overrides or []
+    for override in overrides:
+        if not isinstance(override, str):
+            continue
+        key, sep, raw_value = override.partition("=")
+        if key.strip() != plugin_path:
+            continue
+        if not sep:
+            return True
+        if not _override_value_is_global_link(raw_value, source_path):
+            return True
+    return False
+
+
+def _config_value(config: Dict[str, Any], path: str) -> Any:
+    return get_nested_value(config, path, _CONFIG_MISSING)
+
+
+def _config_value_is_default_or_missing(
+    config: Dict[str, Any], baseline_config: Dict[str, Any], path: str
+) -> bool:
+    current = _config_value(config, path)
+    if current is _CONFIG_MISSING:
+        return True
+    baseline = _config_value(baseline_config, path)
+    return baseline is not _CONFIG_MISSING and current == baseline
+
+
+def _plugin_value_follows_source_or_missing(
+    config: Dict[str, Any], plugin_path: str, source_path: str
+) -> bool:
+    plugin_value = _config_value(config, plugin_path)
+    if plugin_value is _CONFIG_MISSING:
+        return True
+    source_value = _config_value(config, source_path)
+    return (source_value is not _CONFIG_MISSING and plugin_value == source_value) or (
+        plugin_value == f"GLOBAL.{source_path}"
+    )
+
+
+def _game_or_private_config_was_explicit(
+    args: Optional[argparse.Namespace], *config_keys: str
+) -> bool:
+    if args is None or args.game_id is None:
+        return False
+
+    game_config = load_config_file(config_type="games", config_name=str(args.game_id))
+    private_config = {}
+    if not bool(args.ignore_private_config):
+        private_config = get_game_config_private(game_id=str(args.game_id))
+
+    for config_key in config_keys:
+        if not config_key:
+            continue
+        if _config_value(game_config, config_key) is not _CONFIG_MISSING:
+            return True
+        if _config_value(private_config, config_key) is not _CONFIG_MISSING:
+            return True
+    return False
+
+
+def _game_or_private_plugin_config_was_explicit(
+    args: Optional[argparse.Namespace], plugin_path: str, source_path: str
+) -> bool:
+    if args is None or args.game_id is None:
+        return False
+
+    game_config = load_config_file(config_type="games", config_name=str(args.game_id))
+    private_config = {}
+    if not bool(args.ignore_private_config):
+        private_config = get_game_config_private(game_id=str(args.game_id))
+
+    for config in (game_config, private_config):
+        plugin_value = _config_value(config, plugin_path)
+        if plugin_value is _CONFIG_MISSING:
+            continue
+        if not _override_value_is_global_link(plugin_value, source_path):
+            return True
+    return False
+
+
+def _apply_stitch_buffering_defaults(
+    aspen_cfg_all: Dict[str, Any], args: Optional[argparse.Namespace]
+) -> None:
+    """Clamp stitch pipeline buffering so panoramas do not queue multiple frames by default."""
+    aspen_cfg = aspen_cfg_all.setdefault("aspen", {})
+    if not isinstance(aspen_cfg, dict):
+        return
+    pipeline_cfg = aspen_cfg.setdefault("pipeline", {})
+    if not isinstance(pipeline_cfg, dict):
+        return
+
+    baseline_config = _get_baseline_runtime_config()
+    applied: list[str] = []
+
+    if not _arg_was_explicit(args, "aspen_max_concurrent") and not _config_override_was_explicit(
+        args, "aspen.pipeline.max_concurrent"
+    ):
+        if not _game_or_private_config_was_explicit(args, "aspen.pipeline.max_concurrent") and (
+            _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "aspen.pipeline.max_concurrent"
+            )
+        ):
+            pipeline_cfg["max_concurrent"] = 1
+            applied.append("aspen.pipeline.max_concurrent=1")
+
+    if not _arg_was_explicit(args, "aspen_thread_queue_size") and not _config_override_was_explicit(
+        args, "aspen.pipeline.queue_size"
+    ):
+        if not _game_or_private_config_was_explicit(args, "aspen.pipeline.queue_size") and (
+            _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "aspen.pipeline.queue_size"
+            )
+        ):
+            pipeline_cfg["queue_size"] = 1
+            applied.append("aspen.pipeline.queue_size=1")
+
+    if not applied:
+        return
+
+    logger.info(
+        "Using conservative stitch buffering defaults to limit peak memory: %s",
+        ", ".join(applied),
+    )
+
+
+def _apply_single_lowmem_gpu_overrides(
+    args: argparse.Namespace, aspen_cfg_all: Optional[Dict[str, Any]]
+) -> bool:
+    print("Adjusting stitch configuration for a single low-memory GPU environment...")
+    explicit = set(getattr(args, "explicit_arg_names", None) or [])
+    use_half_dtype = False
+    if not isinstance(aspen_cfg_all, dict):
+        return use_half_dtype
+
+    baseline_config = _get_baseline_runtime_config()
+
+    if (
+        "fp16_stitch" not in explicit
+        and not _config_override_was_explicit(args, "stitching.dtype")
+        and not _plugin_config_override_was_explicit(
+            args, "aspen.plugins.stitching.params.dtype", "stitching.dtype"
+        )
+    ):
+        can_override_dtype = (
+            not _game_or_private_config_was_explicit(args, "stitching.dtype")
+            and not _game_or_private_plugin_config_was_explicit(
+                args, "aspen.plugins.stitching.params.dtype", "stitching.dtype"
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.dtype"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.dtype",
+                "stitching.dtype",
+            )
+        )
+        if can_override_dtype:
+            args.fp16_stitch = True
+            set_nested_value(aspen_cfg_all, "stitching.dtype", "float16")
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.dtype", "float16")
+            use_half_dtype = True
+
+    if (
+        "max_blend_levels" not in explicit
+        and not _config_override_was_explicit(args, "stitching.max_blend_levels")
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.stitching.params.max_blend_levels",
+            "stitching.max_blend_levels",
+        )
+    ):
+        can_override_max_blend_levels = (
+            not _game_or_private_config_was_explicit(args, "stitching.max_blend_levels")
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.max_blend_levels",
+                "stitching.max_blend_levels",
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.max_blend_levels"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.max_blend_levels",
+                "stitching.max_blend_levels",
+            )
+        )
+        if can_override_max_blend_levels:
+            args.max_blend_levels = 5
+            set_nested_value(aspen_cfg_all, "stitching.max_blend_levels", 5)
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.max_blend_levels", 5)
+
+    if (
+        "minimize_blend" not in explicit
+        and "no_minimize_blend" not in explicit
+        and not _config_override_was_explicit(args, "stitching.minimize_blend")
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.stitching.params.minimize_blend",
+            "stitching.minimize_blend",
+        )
+    ):
+        can_override_minimize_blend = (
+            not _game_or_private_config_was_explicit(args, "stitching.minimize_blend")
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.minimize_blend",
+                "stitching.minimize_blend",
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.minimize_blend"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.minimize_blend",
+                "stitching.minimize_blend",
+            )
+        )
+        if can_override_minimize_blend:
+            args.minimize_blend = 1
+            args.no_minimize_blend = False
+            set_nested_value(aspen_cfg_all, "stitching.minimize_blend", True)
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.minimize_blend", True)
+
+    if (
+        "output_width" not in explicit
+        and "output_height" not in explicit
+        and not _config_override_was_explicit(
+            args,
+            "video_out.output_width",
+            "video_out.output_height",
+            "stitching.max_output_width",
+        )
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.stitching.params.max_output_width",
+            "stitching.max_output_width",
+        )
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.video_out_prep.params.output_width",
+            "video_out.output_width",
+        )
+    ):
+        can_override_output_width = (
+            not _game_or_private_config_was_explicit(
+                args,
+                "video_out.output_width",
+                "video_out.output_height",
+                "stitching.max_output_width",
+            )
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.max_output_width",
+                "stitching.max_output_width",
+            )
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.video_out_prep.params.output_width",
+                "video_out.output_width",
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "video_out.output_width"
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "video_out.output_height"
+            )
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.max_output_width"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.max_output_width",
+                "stitching.max_output_width",
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.video_out_prep.params.output_width",
+                "video_out.output_width",
+            )
+        )
+        if can_override_output_width:
+            args.output_width = 1920
+            set_nested_value(aspen_cfg_all, "video_out.output_width", 1920)
+            set_nested_value(aspen_cfg_all, "stitching.max_output_width", 1920)
+            set_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params.max_output_width", 1920)
+            set_nested_value(
+                aspen_cfg_all, "aspen.plugins.video_out_prep.params.output_width", 1920
+            )
+
+    return use_half_dtype
+
+
+def _resolve_stitch_tensor_dtype(
+    default_dtype: torch.dtype, stitch_cfg: Dict[str, Any]
+) -> torch.dtype:
+    dtype_value = stitch_cfg.get("dtype")
+    if dtype_value is None:
+        return default_dtype
+    if isinstance(dtype_value, torch.dtype):
+        return dtype_value
+
+    dtype_name = str(dtype_value).strip().lower()
+    if dtype_name in ("float16", "fp16", "half"):
+        return torch.float16
+    if dtype_name in ("float32", "float", "fp32"):
+        return torch.float32
+    if dtype_name in ("uint8", "u8"):
+        return torch.uint8
+    raise ValueError(f"Unsupported stitch dtype: {dtype_value!r}")
+
+
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
@@ -171,28 +517,48 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
-    from hmlib.aspen import AspenNet
     from hmlib.config import get_clip_box
-    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
-    from hmlib.stitching.configure_stitching import configure_video_stitching
     from hmlib.tracking_utils.timer import Timer
     from hmlib.ui import Shower
     from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
     from hmlib.utils.image import image_height, image_width, resize_image
     from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
-    from hmlib.video.ffmpeg import BasicVideoInfo
     from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
-    import hmlib.hm_transforms  # noqa: F401
-    import hmlib.transforms  # noqa: F401
 
     from hmlib.config import (
         get_config,
-        get_nested_value,
         load_yaml_files_ordered,
         normalize_runtime_config,
         resolve_global_refs,
     )
+
+    AspenNet = globals().get("AspenNet")
+    if AspenNet is None:
+        from hmlib.aspen import AspenNet as ImportedAspenNet
+
+        AspenNet = ImportedAspenNet
+        import hmlib.hm_transforms  # noqa: F401
+        import hmlib.transforms  # noqa: F401
+    else:
+        try:
+            import hmlib.hm_transforms  # noqa: F401
+            import hmlib.transforms  # noqa: F401
+        except ModuleNotFoundError:
+            pass
+
+    configure_video_stitching = globals().get("configure_video_stitching")
+    if configure_video_stitching is None:
+        from hmlib.stitching.configure_stitching import (
+            configure_video_stitching as ImportedConfigureVideoStitching,
+        )
+
+        configure_video_stitching = ImportedConfigureVideoStitching
+
+    BasicVideoInfo = globals().get("BasicVideoInfo")
+    if BasicVideoInfo is None:
+        from hmlib.video.ffmpeg import BasicVideoInfo as ImportedBasicVideoInfo
+
+        BasicVideoInfo = ImportedBasicVideoInfo
 
     cuda_stream = torch.cuda.Stream(remapping_device)
     torch.cuda.synchronize()
@@ -235,6 +601,9 @@ def stitch_videos(
                 config=aspen_cfg_all,
                 explicit_arg_names=getattr(args, "explicit_arg_names", None),
             )
+            if lowmem:
+                if _apply_single_lowmem_gpu_overrides(args, aspen_cfg_all):
+                    dtype = torch.float16
         resolve_global_refs(aspen_cfg_all)
 
         stitch_cfg = get_nested_value(aspen_cfg_all, "stitching", {}) or {}
@@ -244,6 +613,7 @@ def stitch_videos(
         auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
+        dtype = _resolve_stitch_tensor_dtype(dtype, stitch_cfg)
         post_stitch_rotate_degrees = stitch_cfg.get(
             "post_stitch_rotate_degrees", post_stitch_rotate_degrees
         )
@@ -306,8 +676,26 @@ def stitch_videos(
         )
         if args is not None and getattr(args, "aspen_stitching", None) is not None:
             use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
+        if use_aspen_stitching and lowmem:
+            _apply_stitch_buffering_defaults(aspen_cfg_all, args)
 
         if use_aspen_stitching:
+            MOTLoadVideoWithOrig = globals().get("MOTLoadVideoWithOrig")
+            if MOTLoadVideoWithOrig is None:
+                from hmlib.datasets.dataset.mot_video import (
+                    MOTLoadVideoWithOrig as ImportedMOTLoadVideoWithOrig,
+                )
+
+                MOTLoadVideoWithOrig = ImportedMOTLoadVideoWithOrig
+
+            MultiDataLoaderWrapper = globals().get("MultiDataLoaderWrapper")
+            if MultiDataLoaderWrapper is None:
+                from hmlib.datasets.dataset.stitching_dataloader2 import (
+                    MultiDataLoaderWrapper as ImportedMultiDataLoaderWrapper,
+                )
+
+                MultiDataLoaderWrapper = ImportedMultiDataLoaderWrapper
+
             frame_step_left = 1
             frame_step_right = 1
             if left_vid.fps > right_vid.fps:
@@ -362,6 +750,14 @@ def stitch_videos(
                 dataloaders=[left_loader, right_loader],
             )
         else:
+            StitchDataset = globals().get("StitchDataset")
+            if StitchDataset is None:
+                from hmlib.datasets.dataset.stitching_dataloader2 import (
+                    StitchDataset as ImportedStitchDataset,
+                )
+
+                StitchDataset = ImportedStitchDataset
+
             data_loader = StitchDataset(
                 pto_project_file=pto_project_file,
                 videos=stitch_videos,

@@ -79,9 +79,9 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         return net
 
     # Patch heavy dependencies in stitch_videos.
-    monkeypatch.setattr(stitch_cli, "AspenNet", _make_dummy_aspen)
-    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo)
-    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset)
+    monkeypatch.setattr(stitch_cli, "AspenNet", _make_dummy_aspen, raising=False)
+    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo, raising=False)
+    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset, raising=False)
 
     def _fake_configure_video_stitching(
         dir_name: str,
@@ -107,15 +107,21 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         Path(pto_path).touch()
         return pto_path, 0, 0
 
-    monkeypatch.setattr(stitch_cli, "configure_video_stitching", _fake_configure_video_stitching)
+    monkeypatch.setattr(
+        stitch_cli, "configure_video_stitching", _fake_configure_video_stitching, raising=False
+    )
 
     args = types.SimpleNamespace(
         profiler=None,
         max_blend_levels=None,
         skip_final_video_save=False,
         save_frame_dir=None,
+        dataset_prefetch_batches=1,
         no_cuda_streams=True,
         no_progress_bar=True,
+        serial=False,
+        checkerboard_input=False,
+        show_youtube=False,
         ignore_private_config=False,
         config_overrides=["stitching.enabled=false"],
     )
@@ -166,9 +172,9 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
 def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_path):
     captured: Dict[str, Any] = {}
 
-    monkeypatch.setattr(stitch_cli, "AspenNet", _DummyAspenNet)
-    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo)
-    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset)
+    monkeypatch.setattr(stitch_cli, "AspenNet", _DummyAspenNet, raising=False)
+    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo, raising=False)
+    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset, raising=False)
 
     def _fake_configure_video_stitching(
         dir_name: str,
@@ -194,15 +200,21 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         Path(pto_path).touch()
         return pto_path, 0, 0
 
-    monkeypatch.setattr(stitch_cli, "configure_video_stitching", _fake_configure_video_stitching)
+    monkeypatch.setattr(
+        stitch_cli, "configure_video_stitching", _fake_configure_video_stitching, raising=False
+    )
 
     args = types.SimpleNamespace(
         profiler=None,
         max_blend_levels=None,
         skip_final_video_save=False,
         save_frame_dir=None,
+        dataset_prefetch_batches=1,
         no_cuda_streams=True,
         no_progress_bar=True,
+        serial=False,
+        checkerboard_input=False,
+        show_youtube=False,
         ignore_private_config=False,
         config_overrides=[
             "stitching.enabled=false",
@@ -225,3 +237,497 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
     assert captured.get("stitch_frame_time") == "00:00:02"
     assert captured.get("ignore_private_config") is False
     assert isinstance(captured.get("game_config"), dict)
+
+
+def should_apply_conservative_stitch_buffering_defaults_when_not_explicit():
+    cfg = {
+        "aspen": {
+            "pipeline": {
+                "threaded": True,
+                "graph": True,
+                "queue_size": 2,
+            }
+        }
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    stitch_cli._apply_stitch_buffering_defaults(cfg, args)
+
+    pipeline = cfg["aspen"]["pipeline"]
+    assert pipeline["queue_size"] == 1
+    assert pipeline["max_concurrent"] == 1
+
+
+def should_preserve_explicit_stitch_buffering_settings():
+    cfg = {
+        "aspen": {
+            "pipeline": {
+                "threaded": True,
+                "graph": True,
+                "queue_size": 4,
+                "max_concurrent": 3,
+            }
+        }
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names={"aspen_thread_queue_size"},
+        config_overrides=["aspen.pipeline.max_concurrent=3"],
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    stitch_cli._apply_stitch_buffering_defaults(cfg, args)
+
+    pipeline = cfg["aspen"]["pipeline"]
+    assert pipeline["queue_size"] == 4
+    assert pipeline["max_concurrent"] == 3
+
+
+def should_preserve_configured_stitch_buffering_settings():
+    cfg = {
+        "aspen": {
+            "pipeline": {
+                "threaded": True,
+                "graph": True,
+                "queue_size": 4,
+                "max_concurrent": 3,
+            }
+        }
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    stitch_cli._apply_stitch_buffering_defaults(cfg, args)
+
+    pipeline = cfg["aspen"]["pipeline"]
+    assert pipeline["queue_size"] == 4
+    assert pipeline["max_concurrent"] == 3
+
+
+def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is True
+    assert args.explicit_arg_names == set()
+    assert args.fp16_stitch is True
+    assert cfg["stitching"]["dtype"] == "float16"
+    assert cfg["stitching"]["max_blend_levels"] == 5
+    assert cfg["stitching"]["minimize_blend"] is True
+    assert cfg["stitching"]["max_output_width"] == 1920
+    assert cfg["video_out"]["output_width"] == 1920
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "float16"
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["max_output_width"] == 1920
+    assert cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"] == 1920
+
+
+def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=["stitching.dtype=float32", "video_out.output_width=auto"],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is False
+    assert cfg["stitching"]["dtype"] == "float32"
+    assert cfg["video_out"]["output_width"] == "auto"
+    assert cfg["stitching"]["max_output_width"] is None
+
+
+def should_respect_plugin_config_override_opt_outs_for_lowmem_stitch_overrides():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "float32",
+                        "max_blend_levels": 11,
+                        "minimize_blend": False,
+                        "max_output_width": None,
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "auto",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[
+            "aspen.plugins.stitching.params.dtype=float32",
+            "aspen.plugins.video_out_prep.params.output_width=auto",
+        ],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is False
+    assert cfg["stitching"]["dtype"] == "float32"
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "float32"
+    assert cfg["video_out"]["output_width"] == "auto"
+    assert cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"] == "auto"
+
+
+def should_ignore_global_plugin_config_overrides_when_applying_lowmem_stitch_overrides():
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[
+            "aspen.plugins.stitching.params.dtype=GLOBAL.stitching.dtype",
+            "aspen.plugins.video_out_prep.params.output_width=GLOBAL.video_out.output_width",
+        ],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is True
+    assert cfg["stitching"]["dtype"] == "float16"
+    assert cfg["stitching"]["max_output_width"] == 1920
+    assert cfg["video_out"]["output_width"] == 1920
+
+
+def should_resolve_legacy_stitch_dataset_dtype_from_config():
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "float16"})
+        == torch.float16
+    )
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float16, {"dtype": "float32"})
+        == torch.float32
+    )
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "fp16"}) == torch.float16
+    )
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float16, {"dtype": "fp32"}) == torch.float32
+    )
+    assert stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "uint8"}) == torch.uint8
+
+    try:
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "bogus"})
+    except ValueError as exc:
+        assert "Unsupported stitch dtype" in str(exc)
+    else:  # pragma: no cover - defensive failure path
+        raise AssertionError("Expected unsupported stitch dtype to raise ValueError")
+
+
+def should_respect_game_or_private_config_opt_outs_for_lowmem_stitch_overrides(monkeypatch):
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+
+    monkeypatch.setattr(
+        stitch_cli,
+        "load_config_file",
+        lambda *args, **kwargs: {
+            "aspen": {
+                "plugins": {
+                    "stitching": {
+                        "params": {
+                            "dtype": "float32",
+                            "max_blend_levels": 11,
+                            "minimize_blend": False,
+                        }
+                    }
+                }
+            }
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stitch_cli,
+        "get_game_config_private",
+        lambda *args, **kwargs: {
+            "aspen": {
+                "plugins": {
+                    "video_out_prep": {
+                        "params": {
+                            "output_width": "auto",
+                        }
+                    }
+                }
+            }
+        },
+        raising=False,
+    )
+
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id="test-game",
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is False
+    assert cfg["stitching"]["dtype"] == "float32"
+    assert cfg["stitching"]["max_blend_levels"] == 11
+    assert cfg["stitching"]["minimize_blend"] is False
+    assert cfg["stitching"]["max_output_width"] is None
+    assert cfg["video_out"]["output_width"] == "auto"
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "GLOBAL.stitching.dtype"
+    assert (
+        cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"]
+        == "GLOBAL.video_out.output_width"
+    )
+
+
+def should_ignore_global_plugin_wiring_in_game_or_private_config_when_applying_lowmem_overrides(
+    monkeypatch,
+):
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+
+    monkeypatch.setattr(
+        stitch_cli,
+        "load_config_file",
+        lambda *args, **kwargs: {
+            "aspen": {
+                "plugins": {
+                    "stitching": {
+                        "params": {
+                            "dtype": "GLOBAL.stitching.dtype",
+                            "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                            "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        }
+                    }
+                }
+            }
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stitch_cli,
+        "get_game_config_private",
+        lambda *args, **kwargs: {
+            "aspen": {
+                "plugins": {
+                    "video_out_prep": {
+                        "params": {
+                            "output_width": "GLOBAL.video_out.output_width",
+                        }
+                    }
+                }
+            }
+        },
+        raising=False,
+    )
+
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id="test-game",
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is True
+    assert cfg["stitching"]["dtype"] == "float16"
+    assert cfg["stitching"]["max_output_width"] == 1920
+    assert cfg["video_out"]["output_width"] == 1920

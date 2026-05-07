@@ -25,12 +25,14 @@ from hmlib.config import (
     get_clip_box,
     get_config,
     get_game_dir,
+    get_game_config_private,
     get_nested_value,
+    load_config_file,
     normalize_runtime_config,
     resolve_global_refs,
     set_nested_value,
 )
-from hmlib.hm_opts import copy_opts, hm_opts
+from hmlib.hm_opts import _get_baseline_runtime_config, copy_opts, hm_opts
 
 from hmlib.log import get_root_logger, logger
 from hmlib.utils.path import (
@@ -361,6 +363,279 @@ def _arg_was_explicit(args: argparse.Namespace, name: str) -> bool:
     if explicit is None:
         return False
     return name in set(explicit)
+
+
+_CONFIG_MISSING = object()
+
+
+def _config_value(config: Dict[str, Any], path: str) -> Any:
+    return get_nested_value(config, path, _CONFIG_MISSING)
+
+
+def _config_value_is_default_or_missing(
+    config: Dict[str, Any], baseline_config: Dict[str, Any], path: str
+) -> bool:
+    current = _config_value(config, path)
+    if current is _CONFIG_MISSING:
+        return True
+    baseline = _config_value(baseline_config, path)
+    return baseline is not _CONFIG_MISSING and current == baseline
+
+
+def _plugin_value_follows_source_or_missing(
+    config: Dict[str, Any], plugin_path: str, source_path: str
+) -> bool:
+    plugin_value = _config_value(config, plugin_path)
+    if plugin_value is _CONFIG_MISSING:
+        return True
+    source_value = _config_value(config, source_path)
+    return (source_value is not _CONFIG_MISSING and plugin_value == source_value) or (
+        plugin_value == f"GLOBAL.{source_path}"
+    )
+
+
+def _config_override_was_explicit(args: argparse.Namespace, *config_keys: str) -> bool:
+    overrides = args.config_overrides or []
+    wanted = {str(key).strip() for key in config_keys if key}
+    if not wanted:
+        return False
+    for override in overrides:
+        if not isinstance(override, str):
+            continue
+        key = override.split("=", 1)[0].strip()
+        if key in wanted:
+            return True
+    return False
+
+
+def _override_value_is_global_link(value: Any, source_path: str) -> bool:
+    return isinstance(value, str) and value.strip() == f"GLOBAL.{source_path}"
+
+
+def _plugin_config_override_was_explicit(
+    args: argparse.Namespace, plugin_path: str, source_path: str
+) -> bool:
+    overrides = args.config_overrides or []
+    for override in overrides:
+        if not isinstance(override, str):
+            continue
+        key, sep, raw_value = override.partition("=")
+        if key.strip() != plugin_path:
+            continue
+        if not sep:
+            return True
+        if not _override_value_is_global_link(raw_value, source_path):
+            return True
+    return False
+
+
+def _game_or_private_config_was_explicit(args: argparse.Namespace, *config_keys: str) -> bool:
+    if args.game_id is None:
+        return False
+
+    game_config = load_config_file(config_type="games", config_name=str(args.game_id))
+    private_config = {}
+    if not bool(args.ignore_private_config):
+        private_config = get_game_config_private(game_id=str(args.game_id))
+
+    for config_key in config_keys:
+        if not config_key:
+            continue
+        if _config_value(game_config, config_key) is not _CONFIG_MISSING:
+            return True
+        if _config_value(private_config, config_key) is not _CONFIG_MISSING:
+            return True
+    return False
+
+
+def _game_or_private_plugin_config_was_explicit(
+    args: argparse.Namespace, plugin_path: str, source_path: str
+) -> bool:
+    if args.game_id is None:
+        return False
+
+    game_config = load_config_file(config_type="games", config_name=str(args.game_id))
+    private_config = {}
+    if not bool(args.ignore_private_config):
+        private_config = get_game_config_private(game_id=str(args.game_id))
+
+    for config in (game_config, private_config):
+        plugin_value = _config_value(config, plugin_path)
+        if plugin_value is _CONFIG_MISSING:
+            continue
+        if not _override_value_is_global_link(plugin_value, source_path):
+            return True
+    return False
+
+
+def _apply_single_lowmem_gpu_overrides(
+    args: argparse.Namespace, game_config: Optional[Dict[str, Any]]
+) -> None:
+    print("Adjusting configuration for a single low-memory GPU environment...")
+    args.cache_size = 0
+    if not isinstance(game_config, dict):
+        return
+
+    baseline_config = _get_baseline_runtime_config()
+    explicit_arg_names = set(getattr(args, "explicit_arg_names", []) or [])
+    lowmem_max_output_width = 1920
+
+    if (
+        "fp16_stitch" not in explicit_arg_names
+        and not _config_override_was_explicit(args, "stitching.dtype")
+        and not _plugin_config_override_was_explicit(
+            args, "aspen.plugins.stitching.params.dtype", "stitching.dtype"
+        )
+    ):
+        can_override_dtype = (
+            not _game_or_private_config_was_explicit(args, "stitching.dtype")
+            and not _game_or_private_plugin_config_was_explicit(
+                args, "aspen.plugins.stitching.params.dtype", "stitching.dtype"
+            )
+            and _config_value_is_default_or_missing(game_config, baseline_config, "stitching.dtype")
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.stitching.params.dtype",
+                "stitching.dtype",
+            )
+        )
+        if can_override_dtype:
+            args.fp16_stitch = True
+            set_nested_value(game_config, "stitching.dtype", "float16")
+            set_nested_value(game_config, "aspen.plugins.stitching.params.dtype", "float16")
+
+    if (
+        "max_blend_levels" not in explicit_arg_names
+        and not _config_override_was_explicit(args, "stitching.max_blend_levels")
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.stitching.params.max_blend_levels",
+            "stitching.max_blend_levels",
+        )
+    ):
+        can_override_max_blend_levels = (
+            not _game_or_private_config_was_explicit(args, "stitching.max_blend_levels")
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.max_blend_levels",
+                "stitching.max_blend_levels",
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "stitching.max_blend_levels"
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.stitching.params.max_blend_levels",
+                "stitching.max_blend_levels",
+            )
+        )
+        if can_override_max_blend_levels:
+            args.max_blend_levels = 5
+            set_nested_value(game_config, "stitching.max_blend_levels", 5)
+            set_nested_value(game_config, "aspen.plugins.stitching.params.max_blend_levels", 5)
+
+    if (
+        "minimize_blend" not in explicit_arg_names
+        and "no_minimize_blend" not in explicit_arg_names
+        and not _config_override_was_explicit(args, "stitching.minimize_blend")
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.stitching.params.minimize_blend",
+            "stitching.minimize_blend",
+        )
+    ):
+        can_override_minimize_blend = (
+            not _game_or_private_config_was_explicit(args, "stitching.minimize_blend")
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.minimize_blend",
+                "stitching.minimize_blend",
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "stitching.minimize_blend"
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.stitching.params.minimize_blend",
+                "stitching.minimize_blend",
+            )
+        )
+        if can_override_minimize_blend:
+            args.minimize_blend = 1
+            set_nested_value(game_config, "stitching.minimize_blend", True)
+            set_nested_value(game_config, "aspen.plugins.stitching.params.minimize_blend", True)
+
+    if (
+        "output_width" not in explicit_arg_names
+        and "output_height" not in explicit_arg_names
+        and not _config_override_was_explicit(
+            args,
+            "video_out.output_width",
+            "video_out.output_height",
+            "stitching.max_output_width",
+        )
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.stitching.params.max_output_width",
+            "stitching.max_output_width",
+        )
+        and not _plugin_config_override_was_explicit(
+            args,
+            "aspen.plugins.video_out_prep.params.output_width",
+            "video_out.output_width",
+        )
+    ):
+        can_override_output_width = (
+            not _game_or_private_config_was_explicit(
+                args,
+                "video_out.output_width",
+                "video_out.output_height",
+                "stitching.max_output_width",
+            )
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.max_output_width",
+                "stitching.max_output_width",
+            )
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.video_out_prep.params.output_width",
+                "video_out.output_width",
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "video_out.output_width"
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "video_out.output_height"
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "stitching.max_output_width"
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.stitching.params.max_output_width",
+                "stitching.max_output_width",
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.video_out_prep.params.output_width",
+                "video_out.output_width",
+            )
+        )
+        if can_override_output_width:
+            args.output_width = lowmem_max_output_width
+            set_nested_value(game_config, "video_out.output_width", lowmem_max_output_width)
+            set_nested_value(game_config, "stitching.max_output_width", lowmem_max_output_width)
+            set_nested_value(
+                game_config,
+                "aspen.plugins.stitching.params.max_output_width",
+                lowmem_max_output_width,
+            )
+            set_nested_value(
+                game_config,
+                "aspen.plugins.video_out_prep.params.output_width",
+                lowmem_max_output_width,
+            )
 
 
 def _slugify_label(value: str) -> str:
@@ -1320,9 +1595,7 @@ def _main(args, num_gpu):
         args.camera_device = gpus.get("camera")
         args.encoder_device = gpus.get("encoder")
         if is_single_lowmem_gpu:
-            print("Adjusting configuration for a single low-memory GPU environment...")
-            args.cache_size = 0
-            # args.batch_size = 1
+            _apply_single_lowmem_gpu_overrides(args, game_config)
 
         # This would be way too slow on CPU
         assert torch.cuda.is_available()
