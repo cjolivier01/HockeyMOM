@@ -252,6 +252,8 @@ def should_apply_conservative_stitch_buffering_defaults_when_not_explicit():
     args = types.SimpleNamespace(
         explicit_arg_names=set(),
         config_overrides=[],
+        game_id=None,
+        ignore_private_config=False,
     )
 
     stitch_cli._apply_stitch_buffering_defaults(cfg, args)
@@ -275,6 +277,8 @@ def should_preserve_explicit_stitch_buffering_settings():
     args = types.SimpleNamespace(
         explicit_arg_names={"aspen_thread_queue_size"},
         config_overrides=["aspen.pipeline.max_concurrent=3"],
+        game_id=None,
+        ignore_private_config=False,
     )
 
     stitch_cli._apply_stitch_buffering_defaults(cfg, args)
@@ -298,6 +302,8 @@ def should_preserve_configured_stitch_buffering_settings():
     args = types.SimpleNamespace(
         explicit_arg_names=set(),
         config_overrides=[],
+        game_id=None,
+        ignore_private_config=False,
     )
 
     stitch_cli._apply_stitch_buffering_defaults(cfg, args)
@@ -339,11 +345,14 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
     }
     args = types.SimpleNamespace(
         explicit_arg_names=set(),
+        config_overrides=[],
         fp16_stitch=False,
         output_width=None,
         max_blend_levels=11,
         minimize_blend=0,
         no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
     )
 
     use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
@@ -399,6 +408,8 @@ def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
         max_blend_levels=11,
         minimize_blend=0,
         no_minimize_blend=False,
+        game_id=None,
+        ignore_private_config=False,
     )
 
     use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
@@ -418,3 +429,93 @@ def should_resolve_legacy_stitch_dataset_dtype_from_config():
         stitch_cli._resolve_stitch_tensor_dtype(torch.float16, {"dtype": "float32"})
         == torch.float32
     )
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "fp16"}) == torch.float16
+    )
+    assert (
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float16, {"dtype": "fp32"}) == torch.float32
+    )
+    assert stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "uint8"}) == torch.uint8
+
+    try:
+        stitch_cli._resolve_stitch_tensor_dtype(torch.float32, {"dtype": "bogus"})
+    except ValueError as exc:
+        assert "Unsupported stitch dtype" in str(exc)
+    else:  # pragma: no cover - defensive failure path
+        raise AssertionError("Expected unsupported stitch dtype to raise ValueError")
+
+
+def should_respect_game_or_private_config_opt_outs_for_lowmem_stitch_overrides(monkeypatch):
+    cfg = {
+        "stitching": {
+            "dtype": "float32",
+            "max_blend_levels": 11,
+            "minimize_blend": False,
+            "max_output_width": None,
+        },
+        "video_out": {
+            "output_width": "auto",
+            "output_height": None,
+        },
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "dtype": "GLOBAL.stitching.dtype",
+                        "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                        "minimize_blend": "GLOBAL.stitching.minimize_blend",
+                        "max_output_width": "GLOBAL.stitching.max_output_width",
+                    }
+                },
+                "video_out_prep": {
+                    "params": {
+                        "output_width": "GLOBAL.video_out.output_width",
+                    }
+                },
+            }
+        },
+    }
+
+    monkeypatch.setattr(
+        stitch_cli,
+        "load_config_file",
+        lambda *args, **kwargs: {
+            "stitching": {
+                "dtype": "float32",
+                "max_blend_levels": 11,
+                "minimize_blend": False,
+            }
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        stitch_cli,
+        "get_game_config_private",
+        lambda *args, **kwargs: {
+            "video_out": {
+                "output_width": "auto",
+            }
+        },
+        raising=False,
+    )
+
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+        fp16_stitch=False,
+        output_width=None,
+        max_blend_levels=11,
+        minimize_blend=0,
+        no_minimize_blend=False,
+        game_id="test-game",
+        ignore_private_config=False,
+    )
+
+    use_half_dtype = stitch_cli._apply_single_lowmem_gpu_overrides(args, cfg)
+
+    assert use_half_dtype is False
+    assert cfg["stitching"]["dtype"] == "float32"
+    assert cfg["stitching"]["max_blend_levels"] == 11
+    assert cfg["stitching"]["minimize_blend"] is False
+    assert cfg["stitching"]["max_output_width"] is None
+    assert cfg["video_out"]["output_width"] == "auto"

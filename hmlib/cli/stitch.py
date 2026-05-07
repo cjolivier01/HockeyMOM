@@ -13,7 +13,12 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
-from hmlib.config import get_nested_value, set_nested_value
+from hmlib.config import (
+    get_game_config_private,
+    get_nested_value,
+    load_config_file,
+    set_nested_value,
+)
 from hmlib.hm_opts import _get_baseline_runtime_config, hm_opts, preferred_arg
 from hmlib.log import get_root_logger
 from hmlib.utils.iterators import CachedIterator
@@ -183,6 +188,27 @@ def _plugin_value_follows_source_or_missing(
     )
 
 
+def _game_or_private_config_was_explicit(
+    args: Optional[argparse.Namespace], *config_keys: str
+) -> bool:
+    if args is None or args.game_id is None:
+        return False
+
+    game_config = load_config_file(config_type="games", config_name=str(args.game_id))
+    private_config = {}
+    if not bool(args.ignore_private_config):
+        private_config = get_game_config_private(game_id=str(args.game_id))
+
+    for config_key in config_keys:
+        if not config_key:
+            continue
+        if _config_value(game_config, config_key) is not _CONFIG_MISSING:
+            return True
+        if _config_value(private_config, config_key) is not _CONFIG_MISSING:
+            return True
+    return False
+
+
 def _apply_stitch_buffering_defaults(
     aspen_cfg_all: Dict[str, Any], args: Optional[argparse.Namespace]
 ) -> None:
@@ -200,8 +226,10 @@ def _apply_stitch_buffering_defaults(
     if not _arg_was_explicit(args, "aspen_max_concurrent") and not _config_override_was_explicit(
         args, "aspen.pipeline.max_concurrent"
     ):
-        if _config_value_is_default_or_missing(
-            aspen_cfg_all, baseline_config, "aspen.pipeline.max_concurrent"
+        if not _game_or_private_config_was_explicit(args, "aspen.pipeline.max_concurrent") and (
+            _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "aspen.pipeline.max_concurrent"
+            )
         ):
             pipeline_cfg["max_concurrent"] = 1
             applied.append("aspen.pipeline.max_concurrent=1")
@@ -209,8 +237,10 @@ def _apply_stitch_buffering_defaults(
     if not _arg_was_explicit(args, "aspen_thread_queue_size") and not _config_override_was_explicit(
         args, "aspen.pipeline.queue_size"
     ):
-        if _config_value_is_default_or_missing(
-            aspen_cfg_all, baseline_config, "aspen.pipeline.queue_size"
+        if not _game_or_private_config_was_explicit(args, "aspen.pipeline.queue_size") and (
+            _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "aspen.pipeline.queue_size"
+            )
         ):
             pipeline_cfg["queue_size"] = 1
             applied.append("aspen.pipeline.queue_size=1")
@@ -236,12 +266,16 @@ def _apply_single_lowmem_gpu_overrides(
     baseline_config = _get_baseline_runtime_config()
 
     if "fp16_stitch" not in explicit and not _config_override_was_explicit(args, "stitching.dtype"):
-        can_override_dtype = _config_value_is_default_or_missing(
-            aspen_cfg_all, baseline_config, "stitching.dtype"
-        ) and _plugin_value_follows_source_or_missing(
-            aspen_cfg_all,
-            "aspen.plugins.stitching.params.dtype",
-            "stitching.dtype",
+        can_override_dtype = (
+            not _game_or_private_config_was_explicit(args, "stitching.dtype")
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.dtype"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.dtype",
+                "stitching.dtype",
+            )
         )
         if can_override_dtype:
             args.fp16_stitch = True
@@ -252,12 +286,16 @@ def _apply_single_lowmem_gpu_overrides(
     if "max_blend_levels" not in explicit and not _config_override_was_explicit(
         args, "stitching.max_blend_levels"
     ):
-        can_override_max_blend_levels = _config_value_is_default_or_missing(
-            aspen_cfg_all, baseline_config, "stitching.max_blend_levels"
-        ) and _plugin_value_follows_source_or_missing(
-            aspen_cfg_all,
-            "aspen.plugins.stitching.params.max_blend_levels",
-            "stitching.max_blend_levels",
+        can_override_max_blend_levels = (
+            not _game_or_private_config_was_explicit(args, "stitching.max_blend_levels")
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.max_blend_levels"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.max_blend_levels",
+                "stitching.max_blend_levels",
+            )
         )
         if can_override_max_blend_levels:
             args.max_blend_levels = 5
@@ -269,12 +307,16 @@ def _apply_single_lowmem_gpu_overrides(
         and "no_minimize_blend" not in explicit
         and not _config_override_was_explicit(args, "stitching.minimize_blend")
     ):
-        can_override_minimize_blend = _config_value_is_default_or_missing(
-            aspen_cfg_all, baseline_config, "stitching.minimize_blend"
-        ) and _plugin_value_follows_source_or_missing(
-            aspen_cfg_all,
-            "aspen.plugins.stitching.params.minimize_blend",
-            "stitching.minimize_blend",
+        can_override_minimize_blend = (
+            not _game_or_private_config_was_explicit(args, "stitching.minimize_blend")
+            and _config_value_is_default_or_missing(
+                aspen_cfg_all, baseline_config, "stitching.minimize_blend"
+            )
+            and _plugin_value_follows_source_or_missing(
+                aspen_cfg_all,
+                "aspen.plugins.stitching.params.minimize_blend",
+                "stitching.minimize_blend",
+            )
         )
         if can_override_minimize_blend:
             args.minimize_blend = 1
@@ -293,7 +335,13 @@ def _apply_single_lowmem_gpu_overrides(
         )
     ):
         can_override_output_width = (
-            _config_value_is_default_or_missing(
+            not _game_or_private_config_was_explicit(
+                args,
+                "video_out.output_width",
+                "video_out.output_height",
+                "stitching.max_output_width",
+            )
+            and _config_value_is_default_or_missing(
                 aspen_cfg_all, baseline_config, "video_out.output_width"
             )
             and _config_value_is_default_or_missing(
@@ -328,12 +376,20 @@ def _apply_single_lowmem_gpu_overrides(
 def _resolve_stitch_tensor_dtype(
     default_dtype: torch.dtype, stitch_cfg: Dict[str, Any]
 ) -> torch.dtype:
-    dtype_name = str(stitch_cfg.get("dtype") or "").strip().lower()
-    if dtype_name == "float16":
+    dtype_value = stitch_cfg.get("dtype")
+    if dtype_value is None:
+        return default_dtype
+    if isinstance(dtype_value, torch.dtype):
+        return dtype_value
+
+    dtype_name = str(dtype_value).strip().lower()
+    if dtype_name in ("float16", "fp16", "half"):
         return torch.float16
-    if dtype_name in ("float32", "float"):
+    if dtype_name in ("float32", "float", "fp32"):
         return torch.float32
-    return default_dtype
+    if dtype_name in ("uint8", "u8"):
+        return torch.uint8
+    raise ValueError(f"Unsupported stitch dtype: {dtype_value!r}")
 
 
 def stitch_videos(

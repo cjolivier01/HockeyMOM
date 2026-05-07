@@ -433,11 +433,9 @@ class StitchingPlugin(Plugin):
         was_channels_last = tensor.shape[-1] in (1, 3, 4)
         orig_dtype = tensor.dtype
         device = tensor.device
-        work_dtype = (
-            torch.float16
-            if self._dtype in (torch.float16, torch.half, torch.bfloat16)
-            else torch.float32
-        )
+        # Keep rotation math in float32 even on low-memory paths so Aspen and
+        # legacy stitch paths do not diverge from half-precision resampling.
+        work_dtype = torch.float32
 
         x = tensor.permute(0, 3, 1, 2) if was_channels_last else tensor
         b, c, h, w = x.shape
