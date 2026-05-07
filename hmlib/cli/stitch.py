@@ -139,6 +139,86 @@ def _arg_was_explicit(args: Optional[argparse.Namespace], name: str) -> bool:
     return name in set(explicit)
 
 
+def _config_override_was_explicit(args: Optional[argparse.Namespace], *config_keys: str) -> bool:
+    if args is None:
+        return False
+    overrides = getattr(args, "config_overrides", None) or []
+    wanted = {str(key).strip() for key in config_keys if key}
+    if not wanted:
+        return False
+    for override in overrides:
+        if not isinstance(override, str):
+            continue
+        key = override.split("=", 1)[0].strip()
+        if key in wanted:
+            return True
+    return False
+
+
+def _apply_stitch_buffering_defaults(
+    aspen_cfg_all: Dict[str, Any], args: Optional[argparse.Namespace]
+) -> None:
+    """Clamp stitch pipeline buffering so panoramas do not queue multiple frames by default."""
+    aspen_cfg = aspen_cfg_all.setdefault("aspen", {})
+    if not isinstance(aspen_cfg, dict):
+        return
+    pipeline_cfg = aspen_cfg.setdefault("pipeline", {})
+    if not isinstance(pipeline_cfg, dict):
+        return
+
+    applied: list[str] = []
+
+    if not _arg_was_explicit(args, "aspen_max_concurrent") and not _config_override_was_explicit(
+        args, "aspen.pipeline.max_concurrent"
+    ):
+        current = pipeline_cfg.get("max_concurrent")
+        if current != 1:
+            pipeline_cfg["max_concurrent"] = 1
+            applied.append("aspen.pipeline.max_concurrent=1")
+
+    if not _arg_was_explicit(args, "aspen_thread_queue_size") and not _config_override_was_explicit(
+        args, "aspen.pipeline.queue_size"
+    ):
+        current = pipeline_cfg.get("queue_size")
+        if current != 1:
+            pipeline_cfg["queue_size"] = 1
+            applied.append("aspen.pipeline.queue_size=1")
+
+    if not applied:
+        return
+
+    logger.info(
+        "Using conservative stitch buffering defaults to limit peak memory: %s",
+        ", ".join(applied),
+    )
+
+
+def _apply_single_lowmem_gpu_overrides(args: argparse.Namespace) -> None:
+    print("Adjusting stitch configuration for a single low-memory GPU environment...")
+    explicit = set(getattr(args, "explicit_arg_names", None) or [])
+
+    if not _arg_was_explicit(args, "fp16"):
+        args.fp16 = True
+        explicit.add("fp16")
+
+    if not _arg_was_explicit(args, "max_blend_levels"):
+        args.max_blend_levels = 5
+        explicit.add("max_blend_levels")
+
+    if not _arg_was_explicit(args, "minimize_blend") and not _arg_was_explicit(
+        args, "no_minimize_blend"
+    ):
+        args.minimize_blend = 1
+        args.no_minimize_blend = False
+        explicit.add("minimize_blend")
+
+    if not _arg_was_explicit(args, "output_width") and not _arg_was_explicit(args, "output_height"):
+        args.output_width = 1920
+        explicit.add("output_width")
+
+    args.explicit_arg_names = explicit
+
+
 def stitch_videos(
     dir_name: str,
     videos: Dict[str, List[Path]],
@@ -171,20 +251,13 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
-    from hmlib.aspen import AspenNet
     from hmlib.config import get_clip_box
-    from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
-    from hmlib.datasets.dataset.stitching_dataloader2 import MultiDataLoaderWrapper, StitchDataset
-    from hmlib.stitching.configure_stitching import configure_video_stitching
     from hmlib.tracking_utils.timer import Timer
     from hmlib.ui import Shower
     from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
     from hmlib.utils.image import image_height, image_width, resize_image
     from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
-    from hmlib.video.ffmpeg import BasicVideoInfo
     from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
-    import hmlib.hm_transforms  # noqa: F401
-    import hmlib.transforms  # noqa: F401
 
     from hmlib.config import (
         get_config,
@@ -193,6 +266,34 @@ def stitch_videos(
         normalize_runtime_config,
         resolve_global_refs,
     )
+
+    AspenNet = globals().get("AspenNet")
+    if AspenNet is None:
+        from hmlib.aspen import AspenNet as ImportedAspenNet
+
+        AspenNet = ImportedAspenNet
+        import hmlib.hm_transforms  # noqa: F401
+        import hmlib.transforms  # noqa: F401
+    else:
+        try:
+            import hmlib.hm_transforms  # noqa: F401
+            import hmlib.transforms  # noqa: F401
+        except ModuleNotFoundError:
+            pass
+
+    configure_video_stitching = globals().get("configure_video_stitching")
+    if configure_video_stitching is None:
+        from hmlib.stitching.configure_stitching import (
+            configure_video_stitching as ImportedConfigureVideoStitching,
+        )
+
+        configure_video_stitching = ImportedConfigureVideoStitching
+
+    BasicVideoInfo = globals().get("BasicVideoInfo")
+    if BasicVideoInfo is None:
+        from hmlib.video.ffmpeg import BasicVideoInfo as ImportedBasicVideoInfo
+
+        BasicVideoInfo = ImportedBasicVideoInfo
 
     cuda_stream = torch.cuda.Stream(remapping_device)
     torch.cuda.synchronize()
@@ -306,8 +407,26 @@ def stitch_videos(
         )
         if args is not None and getattr(args, "aspen_stitching", None) is not None:
             use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
+        if use_aspen_stitching:
+            _apply_stitch_buffering_defaults(aspen_cfg_all, args)
 
         if use_aspen_stitching:
+            MOTLoadVideoWithOrig = globals().get("MOTLoadVideoWithOrig")
+            if MOTLoadVideoWithOrig is None:
+                from hmlib.datasets.dataset.mot_video import (
+                    MOTLoadVideoWithOrig as ImportedMOTLoadVideoWithOrig,
+                )
+
+                MOTLoadVideoWithOrig = ImportedMOTLoadVideoWithOrig
+
+            MultiDataLoaderWrapper = globals().get("MultiDataLoaderWrapper")
+            if MultiDataLoaderWrapper is None:
+                from hmlib.datasets.dataset.stitching_dataloader2 import (
+                    MultiDataLoaderWrapper as ImportedMultiDataLoaderWrapper,
+                )
+
+                MultiDataLoaderWrapper = ImportedMultiDataLoaderWrapper
+
             frame_step_left = 1
             frame_step_right = 1
             if left_vid.fps > right_vid.fps:
@@ -362,6 +481,14 @@ def stitch_videos(
                 dataloaders=[left_loader, right_loader],
             )
         else:
+            StitchDataset = globals().get("StitchDataset")
+            if StitchDataset is None:
+                from hmlib.datasets.dataset.stitching_dataloader2 import (
+                    StitchDataset as ImportedStitchDataset,
+                )
+
+                StitchDataset = ImportedStitchDataset
+
             data_loader = StitchDataset(
                 pto_project_file=pto_project_file,
                 videos=stitch_videos,
@@ -713,6 +840,8 @@ def _main(args) -> None:
     setattr(args, "profiler", profiler)
 
     gpu_allocator = GpuAllocator(gpus=args.gpus.split(","))
+    if gpu_allocator.is_single_lowmem_gpu():
+        _apply_single_lowmem_gpu_overrides(args)
     assert not args.start_frame_offset
     remapping_device = torch.device("cuda", gpu_allocator.allocate_fast())
     if args.multi_gpu:

@@ -79,9 +79,9 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         return net
 
     # Patch heavy dependencies in stitch_videos.
-    monkeypatch.setattr(stitch_cli, "AspenNet", _make_dummy_aspen)
-    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo)
-    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset)
+    monkeypatch.setattr(stitch_cli, "AspenNet", _make_dummy_aspen, raising=False)
+    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo, raising=False)
+    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset, raising=False)
 
     def _fake_configure_video_stitching(
         dir_name: str,
@@ -107,15 +107,21 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         Path(pto_path).touch()
         return pto_path, 0, 0
 
-    monkeypatch.setattr(stitch_cli, "configure_video_stitching", _fake_configure_video_stitching)
+    monkeypatch.setattr(
+        stitch_cli, "configure_video_stitching", _fake_configure_video_stitching, raising=False
+    )
 
     args = types.SimpleNamespace(
         profiler=None,
         max_blend_levels=None,
         skip_final_video_save=False,
         save_frame_dir=None,
+        dataset_prefetch_batches=1,
         no_cuda_streams=True,
         no_progress_bar=True,
+        serial=False,
+        checkerboard_input=False,
+        show_youtube=False,
         ignore_private_config=False,
         config_overrides=["stitching.enabled=false"],
     )
@@ -166,9 +172,9 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
 def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_path):
     captured: Dict[str, Any] = {}
 
-    monkeypatch.setattr(stitch_cli, "AspenNet", _DummyAspenNet)
-    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo)
-    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset)
+    monkeypatch.setattr(stitch_cli, "AspenNet", _DummyAspenNet, raising=False)
+    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo, raising=False)
+    monkeypatch.setattr(stitch_cli, "StitchDataset", _DummyStitchDataset, raising=False)
 
     def _fake_configure_video_stitching(
         dir_name: str,
@@ -194,15 +200,21 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         Path(pto_path).touch()
         return pto_path, 0, 0
 
-    monkeypatch.setattr(stitch_cli, "configure_video_stitching", _fake_configure_video_stitching)
+    monkeypatch.setattr(
+        stitch_cli, "configure_video_stitching", _fake_configure_video_stitching, raising=False
+    )
 
     args = types.SimpleNamespace(
         profiler=None,
         max_blend_levels=None,
         skip_final_video_save=False,
         save_frame_dir=None,
+        dataset_prefetch_batches=1,
         no_cuda_streams=True,
         no_progress_bar=True,
+        serial=False,
+        checkerboard_input=False,
+        show_youtube=False,
         ignore_private_config=False,
         config_overrides=[
             "stitching.enabled=false",
@@ -225,3 +237,49 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
     assert captured.get("stitch_frame_time") == "00:00:02"
     assert captured.get("ignore_private_config") is False
     assert isinstance(captured.get("game_config"), dict)
+
+
+def should_apply_conservative_stitch_buffering_defaults_when_not_explicit():
+    cfg = {
+        "aspen": {
+            "pipeline": {
+                "threaded": True,
+                "graph": True,
+                "queue_size": 2,
+                "max_concurrent": 2,
+            }
+        }
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names=set(),
+        config_overrides=[],
+    )
+
+    stitch_cli._apply_stitch_buffering_defaults(cfg, args)
+
+    pipeline = cfg["aspen"]["pipeline"]
+    assert pipeline["queue_size"] == 1
+    assert pipeline["max_concurrent"] == 1
+
+
+def should_preserve_explicit_stitch_buffering_settings():
+    cfg = {
+        "aspen": {
+            "pipeline": {
+                "threaded": True,
+                "graph": True,
+                "queue_size": 4,
+                "max_concurrent": 3,
+            }
+        }
+    }
+    args = types.SimpleNamespace(
+        explicit_arg_names={"aspen_thread_queue_size"},
+        config_overrides=["aspen.pipeline.max_concurrent=3"],
+    )
+
+    stitch_cli._apply_stitch_buffering_defaults(cfg, args)
+
+    pipeline = cfg["aspen"]["pipeline"]
+    assert pipeline["queue_size"] == 4
+    assert pipeline["max_concurrent"] == 3
