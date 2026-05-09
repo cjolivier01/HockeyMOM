@@ -126,7 +126,7 @@ class Scoreboard(torch.nn.Module):
             self._dest_w = int(src_width)
             self._dest_h = int(src_height)
 
-        dst_pts = np.array(
+        dst_pts = torch.tensor(
             [
                 # TL
                 [0, 0],
@@ -137,7 +137,8 @@ class Scoreboard(torch.nn.Module):
                 # BL
                 [0, self._dest_height - 1],
             ],
-            dtype=np.float32,
+            dtype=torch.float32,
+            device=self._src_pts.device,
         )
         # print(src_pts)
         # print(dst_pts)
@@ -226,7 +227,7 @@ def int_bbox(bbox: torch.Tensor):
 def _get_perspective_coeffs(
     startpoints: Union[torch.Tensor, List[List[int]]],
     endpoints: Union[torch.Tensor, List[List[int]]],
-) -> List[float]:
+) -> torch.Tensor:
     """Helper function to get the coefficients (a, b, c, d, e, f, g, h) for the perspective transforms.
 
     In Perspective Transform each pixel (x, y) in the original image gets transformed as,
@@ -239,40 +240,47 @@ def _get_perspective_coeffs(
             ``[top-left, top-right, bottom-right, bottom-left]`` of the transformed image.
 
     Returns:
-        octuple (a, b, c, d, e, f, g, h) for transforming each pixel.
+        Tensor containing (a, b, c, d, e, f, g, h) for transforming each pixel.
     """
     if not isinstance(startpoints, torch.Tensor):
         startpoints = torch.tensor(startpoints, dtype=torch.float32)
     else:
-        startpoints = startpoints.detach().to(device="cpu", dtype=torch.float32)
+        startpoints = startpoints.detach().to(dtype=torch.float32)
+
+    device = startpoints.device
 
     if not isinstance(endpoints, torch.Tensor):
-        endpoints = torch.tensor(endpoints, dtype=torch.float32)
+        endpoints = torch.tensor(endpoints, dtype=torch.float32, device=device)
     else:
-        endpoints = endpoints.detach().to(device="cpu", dtype=torch.float32)
+        endpoints = endpoints.detach().to(device=device, dtype=torch.float32)
 
-    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float32, device="cpu")
+    a_matrix = torch.zeros(2 * len(startpoints), 8, dtype=torch.float32, device=device)
 
     for i, (p1, p2) in enumerate(zip(endpoints, startpoints)):
-        a_matrix[2 * i, :] = torch.tensor(
-            [p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]],
-            dtype=torch.float32,
-        )
-        a_matrix[2 * i + 1, :] = torch.tensor(
-            [0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]],
-            dtype=torch.float32,
-        )
-    # This is a tiny 8x8 solve whose result becomes a Python list immediately,
-    # so doing it on CPU avoids GPU linalg backend requirements like MAGMA.
-    b_matrix = startpoints.view(8)
-    res = torch.linalg.lstsq(a_matrix, b_matrix).solution
+        a_matrix[2 * i, 0] = p1[0]
+        a_matrix[2 * i, 1] = p1[1]
+        a_matrix[2 * i, 2] = 1.0
+        a_matrix[2 * i, 6] = -p2[0] * p1[0]
+        a_matrix[2 * i, 7] = -p2[0] * p1[1]
+        a_matrix[2 * i + 1, 3] = p1[0]
+        a_matrix[2 * i + 1, 4] = p1[1]
+        a_matrix[2 * i + 1, 5] = 1.0
+        a_matrix[2 * i + 1, 6] = -p2[1] * p1[0]
+        a_matrix[2 * i + 1, 7] = -p2[1] * p1[1]
 
-    output: List[float] = res.tolist()
-    return output
+    b_matrix = startpoints.view(8)
+    if device.type == "cpu":
+        raise RuntimeError("Scoreboard perspective coefficients must be computed on a GPU tensor")
+
+    return torch.linalg.solve(a_matrix, b_matrix)
 
 
 def _perspective_grid(
-    coeffs: List[float], ow: int, oh: int, dtype: torch.dtype, device: torch.device
+    coeffs: Union[torch.Tensor, List[float]],
+    ow: int,
+    oh: int,
+    dtype: torch.dtype,
+    device: torch.device,
 ) -> torch.Tensor:
     # https://github.com/python-pillow/Pillow/blob/4634eafe3c695a014267eefdce830b4a825beed7/
     # src/libImaging/Geometry.c#L394
@@ -281,16 +289,13 @@ def _perspective_grid(
     # x_out = (coeffs[0] * x + coeffs[1] * y + coeffs[2]) / (coeffs[6] * x + coeffs[7] * y + 1)
     # y_out = (coeffs[3] * x + coeffs[4] * y + coeffs[5]) / (coeffs[6] * x + coeffs[7] * y + 1)
     #
-    theta1 = torch.tensor(
-        [[[coeffs[0], coeffs[1], coeffs[2]], [coeffs[3], coeffs[4], coeffs[5]]]],
-        dtype=dtype,
-        device=device,
-    )
-    theta2 = torch.tensor(
-        [[[coeffs[6], coeffs[7], 1.0], [coeffs[6], coeffs[7], 1.0]]],
-        dtype=dtype,
-        device=device,
-    )
+    if not isinstance(coeffs, torch.Tensor):
+        coeffs = torch.tensor(coeffs, dtype=dtype, device=device)
+    else:
+        coeffs = coeffs.to(dtype=dtype, device=device)
+    theta1 = torch.stack((coeffs[:3], coeffs[3:6])).unsqueeze(0)
+    row2 = torch.stack((coeffs[6], coeffs[7], coeffs.new_tensor(1.0)))
+    theta2 = torch.stack((row2, row2)).unsqueeze(0)
 
     d = 0.5
     base_grid = torch.empty(1, oh, ow, 3, dtype=dtype, device=device)

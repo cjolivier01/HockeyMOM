@@ -1,13 +1,18 @@
 import torch
+import pytest
 
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.transforms.perspective_rotation import HmPerspectiveRotation
 from hmlib.transforms.scoreboard_transforms import HmCaptureScoreboard, HmRenderScoreboard
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 def should_scoreboard_output_fixed_shape_for_nchw_and_nhwc():
+    device = torch.device("cuda", 0)
     src_pts = torch.tensor(
-        [[10.0, 20.0], [110.0, 20.0], [110.0, 70.0], [10.0, 70.0]], dtype=torch.float32
+        [[10.0, 20.0], [110.0, 20.0], [110.0, 70.0], [10.0, 70.0]],
+        dtype=torch.float32,
+        device=device,
     )
 
     dest_height = 32
@@ -17,10 +22,10 @@ def should_scoreboard_output_fixed_shape_for_nchw_and_nhwc():
         dest_height=dest_height,
         dest_width=dest_width,
         dtype=torch.float32,
-        device=torch.device("cpu"),
+        device=device,
     )
 
-    img_nchw = torch.rand(1, 3, 128, 256, dtype=torch.float32)
+    img_nchw = torch.rand(1, 3, 128, 256, dtype=torch.float32, device=device)
     img_nhwc = img_nchw.permute(0, 2, 3, 1).contiguous()
 
     out_nchw = scoreboard(img_nchw)
@@ -37,7 +42,9 @@ def should_scoreboard_output_fixed_shape_for_nchw_and_nhwc():
     assert scoreboard._grid.shape[-1] == 2
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 def should_capture_and_render_scoreboard_with_fixed_shape():
+    device = torch.device("cuda", 0)
     src_pts = [[10.0, 20.0], [110.0, 20.0], [110.0, 70.0], [10.0, 70.0]]
     dest_height = 32
     dest_width = 64
@@ -45,7 +52,7 @@ def should_capture_and_render_scoreboard_with_fixed_shape():
     capture = HmCaptureScoreboard()
     render = HmRenderScoreboard(image_labels=["img"])
 
-    img = torch.rand(1, 120, 200, 3, dtype=torch.float32)
+    img = torch.rand(1, 120, 200, 3, dtype=torch.float32, device=device)
     results = {
         "img": img.clone(),
         "scoreboard_cfg": {
@@ -66,7 +73,7 @@ def should_capture_and_render_scoreboard_with_fixed_shape():
     assert rendered_img.shape == img.shape
     assert torch.allclose(rendered_img[:, :dest_height, :dest_width, :], scoreboard_img)
 
-    img2 = torch.rand(1, 120, 200, 3, dtype=torch.float32)
+    img2 = torch.rand(1, 120, 200, 3, dtype=torch.float32, device=device)
     results2 = {
         "img": img2.clone(),
         "scoreboard_cfg": {"scoreboard_points": src_pts},
