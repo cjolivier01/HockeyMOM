@@ -97,7 +97,7 @@ class SaveDetectionsPlugin(SavePluginBase):
         enabled: bool = True,
         work_dir_key: str = "work_dir",
         output_filename: str = "detections.csv",
-        write_interval: int = 100,
+        write_interval: int = 1000,
     ):
         super().__init__(enabled=enabled)
         self._work_dir_key = work_dir_key
@@ -202,7 +202,7 @@ class SaveTrackingPlugin(SavePluginBase):
         enabled: bool = True,
         work_dir_key: str = "work_dir",
         output_filename: str = "tracking.csv",
-        write_interval: int = 100,
+        write_interval: int = 1000,
     ):
         super().__init__(enabled=enabled)
         self._work_dir_key = work_dir_key
@@ -334,7 +334,7 @@ class SavePosePlugin(SavePluginBase):
         enabled: bool = True,
         work_dir_key: str = "work_dir",
         output_filename: str = "pose.csv",
-        write_interval: int = 100,
+        write_interval: int = 1000,
     ):
         super().__init__(enabled=enabled)
         self._work_dir_key = work_dir_key
@@ -456,7 +456,7 @@ class SaveActionsPlugin(SavePluginBase):
         enabled: bool = True,
         work_dir_key: str = "work_dir",
         output_filename: str = "actions.csv",
-        write_interval: int = 100,
+        write_interval: int = 1000,
     ):
         super().__init__(enabled=enabled)
         self._work_dir_key = work_dir_key
@@ -561,7 +561,7 @@ class SaveCameraPlugin(SavePluginBase):
         output_filename: str = "camera.csv",
         fast_output_filename: str = "camera_fast.csv",
         save_fast: bool = True,
-        write_interval: int = 100,
+        write_interval: int = 1000,
     ):
         super().__init__(enabled=enabled)
         self._work_dir_key = work_dir_key

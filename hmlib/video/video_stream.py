@@ -1046,6 +1046,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         mux_audio_stream: int = 0,
         mux_audio_offset_seconds: float = 0.0,
         mux_audio_aac_bitrate: str = "192k",
+        encoder_backend: Optional[str] = None,
     ):
         if device is None or device.type != "cuda":
             raise AssertionError("PyNvVideoEncoderWriter requires a CUDA device.")
@@ -1067,6 +1068,20 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
         elif "av1" in codec_lower:
             encoder_codec = "av1"
 
+        use_pyav: Optional[bool]
+        backend = (encoder_backend or "").lower()
+        if backend in {"", "auto"}:
+            use_pyav = None
+        elif backend == "pyav":
+            use_pyav = True
+        elif backend in {"raw", "ffmpeg"}:
+            use_pyav = False
+        else:
+            raise ValueError(
+                f"Unsupported NVENC encoder backend {encoder_backend!r}; "
+                "supported backends are: auto, raw, ffmpeg, pyav."
+            )
+
         self._encoder = PyNvVideoEncoder(
             output_path=self._filename,
             width=self._width,
@@ -1086,6 +1101,7 @@ class PyNvVideoEncoderWriter(VideoStreamWriterInterface):
             mux_audio_stream=mux_audio_stream,
             mux_audio_offset_seconds=mux_audio_offset_seconds,
             mux_audio_aac_bitrate=mux_audio_aac_bitrate,
+            use_pyav=use_pyav,
             profiler=self._profiler,
         )
         self._frame_counter = 0
@@ -1304,6 +1320,7 @@ def create_output_video_stream(
     mux_audio_stream: int = 0,
     mux_audio_offset_seconds: float = 0.0,
     mux_audio_aac_bitrate: str = "192k",
+    encoder_backend: Optional[str] = None,
 ) -> VideoStreamWriterInterface:
     # Normalize fps to a plain float so downstream writers and backends
     # never see Fraction instances.
@@ -1343,6 +1360,7 @@ def create_output_video_stream(
             mux_audio_stream=mux_audio_stream,
             mux_audio_offset_seconds=mux_audio_offset_seconds,
             mux_audio_aac_bitrate=mux_audio_aac_bitrate,
+            encoder_backend=encoder_backend,
         )
         output_video.open()
     elif "_nvenc" in codec_lower or filename.startswith("rtmp://"):
