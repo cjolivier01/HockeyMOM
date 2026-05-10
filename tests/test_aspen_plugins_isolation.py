@@ -916,6 +916,25 @@ def _case_stitching(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = Fals
         plugin({"stitch_inputs": [{"img": torch.zeros((1, 4, 4, 3), dtype=torch.float32)}]})
 
 
+@requires_torch
+def should_cache_stitch_rotation_grid_without_changing_pixels() -> None:
+    from hmlib.aspen.plugins.stitching_plugin import StitchingPlugin
+
+    plugin = StitchingPlugin()
+    image = torch.arange(1 * 8 * 10 * 3, dtype=torch.uint8).reshape(1, 8, 10, 3)
+    out_first = plugin._rotate_tensor_keep_size(image, 9.0)
+
+    assert len(plugin._rotate_grid_cache) == 1
+    grid = next(iter(plugin._rotate_grid_cache.values()))
+    grid_ptr = grid.data_ptr()
+
+    out_cached = plugin._rotate_tensor_keep_size(image.clone(), 9.0)
+
+    assert torch.equal(out_first, out_cached)
+    assert len(plugin._rotate_grid_cache) == 1
+    assert next(iter(plugin._rotate_grid_cache.values())).data_ptr() == grid_ptr
+
+
 def _case_tracker(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
     from hmlib.aspen.plugins.tracker_plugin import TrackerPlugin
 

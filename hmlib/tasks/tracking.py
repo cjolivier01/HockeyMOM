@@ -92,6 +92,33 @@ def run_mmtrack(
             plugin_names: List[str] = []
             plugin_display_names: List[str] = []
 
+            def _format_top_timing_summary(
+                timing: Optional[Dict[str, Any]],
+                dataloader_time: Optional[float],
+                limit: int = 8,
+            ) -> Optional[str]:
+                if not timing:
+                    return None
+                plugin_times = timing.get("plugins", {})
+                if not isinstance(plugin_times, dict) or not plugin_times:
+                    return None
+                total_time = float(timing.get("total", 0.0) or 0.0)
+                if dataloader_time is not None:
+                    total_time += float(dataloader_time)
+                if total_time <= 0.0:
+                    return None
+                entries: List[Tuple[str, float]] = []
+                if dataloader_time is not None and dataloader_time > 0.0:
+                    entries.append(("dataloader", float(dataloader_time)))
+                entries.extend((str(name), float(value)) for name, value in plugin_times.items())
+                entries.sort(key=lambda item: item[1], reverse=True)
+                parts = [
+                    f"{name}={100.0 * value / total_time:.1f}%"
+                    for name, value in entries[:limit]
+                    if value > 0.0
+                ]
+                return ", ".join(parts) if parts else None
+
             if progress_bar is not None:
                 dataloader_iterator = progress_bar.set_iterator(dataloader_iterator)
 
@@ -474,7 +501,7 @@ def run_mmtrack(
                             detect_timer=detect_timer,
                             mean_tracker=mean_tracker,
                         )
-                        if display_plugin_profile and progress_bar is not None:
+                        if display_plugin_profile:
                             iter_context["_aspen_timing_enabled"] = True
                         if stitch_inputs is not None:
                             iter_context.update(
@@ -578,6 +605,16 @@ def run_mmtrack(
                         wraparound_timer = Timer()
                     else:
                         wraparound_timer.toc()
+                    if display_plugin_profile and cur_iter % 200 == 0:
+                        timing_summary = _format_top_timing_summary(
+                            last_aspen_timing, last_dataloader_time
+                        )
+                        if timing_summary:
+                            logger.info(
+                                "Aspen timing breakdown, frame %s: %s",
+                                frame_id,
+                                timing_summary,
+                            )
 
                     number_of_batches_processed += 1
                     cur_iter += 1

@@ -51,6 +51,7 @@ aspen:
     threaded: true
     graph: true
     queue_size: 2
+    max_concurrent: 3
     cuda_streams: true
 
 #

@@ -295,7 +295,7 @@ def should_preserve_configured_stitch_buffering_settings():
                 "threaded": True,
                 "graph": True,
                 "queue_size": 4,
-                "max_concurrent": 3,
+                "max_concurrent": 4,
             }
         }
     }
@@ -310,7 +310,7 @@ def should_preserve_configured_stitch_buffering_settings():
 
     pipeline = cfg["aspen"]["pipeline"]
     assert pipeline["queue_size"] == 4
-    assert pipeline["max_concurrent"] == 3
+    assert pipeline["max_concurrent"] == 4
 
 
 def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit():
