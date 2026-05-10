@@ -83,10 +83,10 @@ class DetectorFactoryPlugin(Plugin):
         static_detections: Optional[Dict[str, Any]] = None,
         # Optional NMS configuration applied across backends (PyTorch, ONNX, TRT).
         # When not provided, defaults mirror the CLI flags in hm_opts (--detector-nms-backend
-        # and --detector-trt-nms-plugin), with TensorRT batched NMS as the default.
+        # and --detector-trt-nms-plugin), with TensorRT EfficientNMS as the default.
         nms_backend: str = "trt",
         nms_test: bool = False,
-        nms_plugin: str = "batched",
+        nms_plugin: str = "efficient",
         cuda_graph: bool = True,
     ):
         super().__init__(enabled=enabled)
@@ -112,7 +112,7 @@ class DetectorFactoryPlugin(Plugin):
         # Unified NMS configuration shared across all detector backends.
         self._nms_backend: str = str(nms_backend or "trt").lower()
         self._nms_test: bool = bool(nms_test)
-        self._nms_plugin: str = str(nms_plugin or "batched")
+        self._nms_plugin: str = str(nms_plugin or "efficient")
         self._cuda_graph_enabled: bool = bool(cuda_graph)
         # Optional cached wrapper for pure-PyTorch YOLOX detectors so we don't
         # rebuild the wrapper on every forward().
@@ -226,7 +226,10 @@ class DetectorFactoryPlugin(Plugin):
                     try:
                         self._trt_wrapper = _TrtDetectorWrapper(
                             model=self._model,
-                            engine_path=str(self._trt_cfg.get("engine", "detector.engine")),
+                            engine_path=str(
+                                self._trt_cfg.get("engine")
+                                or Path(str(context.get("work_dir") or ".")) / "detector.engine"
+                            ),
                             force_build=bool(self._trt_cfg.get("force_build", False)),
                             fp16=bool(self._trt_cfg.get("fp16", True)),
                             int8=bool(self._trt_cfg.get("int8", False)),
@@ -306,7 +309,7 @@ class DetectorFactoryPlugin(Plugin):
         return {"detector_model": self._runtime_detector}
 
     def input_keys(self):
-        return {"device", "using_precalculated_detection", "game_id"}
+        return {"device", "using_precalculated_detection", "game_id", "work_dir"}
 
     def output_keys(self):
         return {"detector_model"}
@@ -375,7 +378,7 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         profiler: Optional[Any] = None,
         nms_backend: str = "trt",
         nms_test: bool = False,
-        nms_plugin: str = "batched",
+        nms_plugin: str = "efficient",
     ):
         super().__init__(profiler=profiler, label="onnx_predictor")
         self.model = model
@@ -390,7 +393,7 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         # NMS configuration and dispatcher (mirrors TensorRT wrapper).
         self._nms_backend: str = str(nms_backend or "trt").lower()
         self._nms_test: bool = bool(nms_test)
-        self._nms_plugin: str = str(nms_plugin or "batched")
+        self._nms_plugin: str = str(nms_plugin or "efficient")
         compare_backends: List[str] = []
         if self._nms_test and self._nms_backend == "trt":
             compare_backends.append("torchvision")
@@ -694,7 +697,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         profiler: Optional[Any] = None,
         nms_backend: str = "trt",
         nms_test: bool = False,
-        nms_plugin: str = "batched",
+        nms_plugin: str = "efficient",
     ):
         super().__init__(profiler=profiler, label="trt_predictor")
         self.model = model
@@ -710,9 +713,10 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._swap_rgb = False
         self._calib_dataset = None
         self._pass: int = 0
+        self._trt_disabled_reason: Optional[str] = None
         self._nms_backend: str = str(nms_backend or "trt")
         self._nms_test: bool = bool(nms_test)
-        self._nms_plugin: str = str(nms_plugin or "batched")
+        self._nms_plugin: str = str(nms_plugin or "efficient")
         compare_backends: List[str] = []
         if self._nms_test and self._nms_backend.lower() == "trt":
             compare_backends.append("torchvision")
@@ -884,9 +888,17 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                         if len(self._calib_dataset) < max(0, self.calib_frames):
                             self._calib_dataset.insert([x.detach()])
                         if len(self._calib_dataset) >= max(0, self.calib_frames):
-                            self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
+                            if self._trt_disabled_reason is None:
+                                try:
+                                    self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
+                                except Exception as ex:
+                                    self._disable_trt(ex)
                 with self._profile_scope("engine"):
-                    self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
+                    if self._trt_disabled_reason is None:
+                        try:
+                            self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
+                        except Exception as ex:
+                            self._disable_trt(ex)
                     if self._trt_module is not None:
                         feats = self._trt_module(x)
                     else:
@@ -945,6 +957,25 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             self._pass += 1
             return results
 
+    def _disable_trt(self, exc: Exception) -> None:
+        self._trt_disabled_reason = str(exc)
+        if self._nms_backend.lower() == "trt":
+            self._nms_backend = "torchvision"
+            self._nms = DetectorNMS(
+                bbox_head=getattr(self.model, "bbox_head", self.model),
+                backend=self._nms_backend,
+                compare_backends=[],
+                trt_plugin=self._nms_plugin,
+            )
+        from hmlib.log import get_logger
+
+        get_logger(__name__).warning(
+            "Disabling TensorRT detector path and falling back to PyTorch backbone/neck "
+            "with %s NMS: %s",
+            self._nms_backend,
+            exc,
+        )
+
 
 class _TorchDetectorWrapper(_ProfilerMixin):
     """Pure-PyTorch detector wrapper that mirrors the YOLOX + DetectorNMS flow.
@@ -961,14 +992,14 @@ class _TorchDetectorWrapper(_ProfilerMixin):
         profiler: Optional[Any] = None,
         nms_backend: str = "trt",
         nms_test: bool = False,
-        nms_plugin: str = "batched",
+        nms_plugin: str = "efficient",
         cuda_graph: bool = True,
     ):
         super().__init__(profiler=profiler, label="torch_predictor")
         self.model = model
         self._nms_backend: str = str(nms_backend or "trt").lower()
         self._nms_test: bool = bool(nms_test)
-        self._nms_plugin: str = str(nms_plugin or "batched")
+        self._nms_plugin: str = str(nms_plugin or "efficient")
         self._cuda_graph_enabled: bool = bool(cuda_graph)
         self._cg: Optional[CudaGraphCallable] = None
         self._cg_device: Optional[torch.device] = None

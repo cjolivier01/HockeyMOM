@@ -111,6 +111,19 @@ aspen:
           type: TrackDataPreprocessor
           pad_size_divisor: 32
           use_det_processor: true
+        trt:
+          enable: true
+          fp16: true
+          int8: false
+          force_build: false
+          nms_backend: trt
+          nms_test: false
+          nms_plugin: efficient
+        static_detections:
+          enable: true
+          max_detections: 800
+        nms_backend: trt
+        nms_plugin: efficient
 
     detector_join:
       class: hmlib.aspen.plugins.join_plugin.JoinPlugin

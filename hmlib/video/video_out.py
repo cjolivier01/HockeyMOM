@@ -289,7 +289,6 @@ class VideoOutput(torch.nn.ModuleDict):
         self._mux_audio_stream = int(mux_audio_stream or 0)
         self._mux_audio_offset_seconds = float(mux_audio_offset_seconds or 0.0)
         self._mux_audio_aac_bitrate = str(mux_audio_aac_bitrate or "192k")
-        # TODO(colivier) not yet implemented (is it worth it?)
         self._encoder_backend = (
             None if (not encoder_backend or encoder_backend == "auto") else encoder_backend
         )
@@ -754,6 +753,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     mux_audio_stream=self._mux_audio_stream,
                     mux_audio_offset_seconds=self._mux_audio_offset_seconds,
                     mux_audio_aac_bitrate=self._mux_audio_aac_bitrate,
+                    encoder_backend=self._encoder_backend,
                 )
                 assert self._output_videos[self.VIDEO_DEFAULT].isOpened()
 
@@ -768,6 +768,7 @@ class VideoOutput(torch.nn.ModuleDict):
                     device=self._device,
                     batch_size=1,
                     profiler=self._prof,
+                    encoder_backend=self._encoder_backend,
                 )
                 assert self._output_videos[self.VIDEO_END_ZONES].isOpened()
 
