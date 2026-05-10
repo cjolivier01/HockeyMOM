@@ -34,6 +34,9 @@ from hmlib.video.ffmpeg_mux_cmd import (
     build_ffmpeg_live_hls_bitstream_publish_cmd,
 )
 
+DEFAULT_BROWSER_PREVIEW_MAX_WIDTH = 1920
+DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT = 1080
+
 
 def has_local_display() -> bool:
     """Return True when an interactive display is available."""
@@ -78,6 +81,43 @@ def _normalize_preview_frame(
     return np.ascontiguousarray(visible)
 
 
+def _infer_frame_height_width(
+    img: torch.Tensor | np.ndarray | StreamTensorBase,
+) -> Optional[tuple[int, int]]:
+    frame = unwrap_tensor(img)
+    shape = getattr(frame, "shape", None)
+    if shape is None:
+        return None
+    dims = tuple(int(dim) for dim in shape)
+    if len(dims) < 2:
+        return None
+    if len(dims) == 2:
+        height, width = dims
+        return (height, width) if height > 0 and width > 0 else None
+    if dims[-1] in {1, 3, 4}:
+        height, width = dims[-3], dims[-2]
+    elif dims[-3] in {1, 3, 4}:
+        height, width = dims[-2], dims[-1]
+    else:
+        return None
+    return (height, width) if height > 0 and width > 0 else None
+
+
+def _browser_preview_auto_scale(
+    img: torch.Tensor | np.ndarray | StreamTensorBase,
+    *,
+    max_width: int = DEFAULT_BROWSER_PREVIEW_MAX_WIDTH,
+    max_height: int = DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT,
+) -> Optional[float]:
+    shape = _infer_frame_height_width(img)
+    if shape is None:
+        return None
+    height, width = shape
+    if width <= max_width and height <= max_height:
+        return None
+    return min(float(max_width) / float(width), float(max_height) / float(height), 1.0)
+
+
 def _ensure_even_video_frame(frame: torch.Tensor) -> torch.Tensor:
     """Crop preview frames to even dimensions for YUV420/NVENC compatibility."""
     if frame.ndim != 3:
@@ -115,15 +155,18 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:  # noqa: N802
-        preview = self.server.preview
-        preview._note_client_activity()
-        path = urlsplit(self.path).path or "/"
-        if path in ("", "/"):
-            self._serve_index()
+        try:
+            preview = self.server.preview
+            preview._note_client_activity()
+            path = urlsplit(self.path).path or "/"
+            if path in ("", "/"):
+                self._serve_index()
+                return
+            if self._serve_output_file(path.lstrip("/")):
+                return
+            self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+        except (BrokenPipeError, ConnectionResetError):
             return
-        if self._serve_output_file(path.lstrip("/")):
-            return
-        self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
     def _serve_index(self) -> None:
         title = html.escape(self.server.preview.label)
@@ -151,24 +194,50 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
             f"const manifestUrl={manifest_path!r};"
             "const video=document.getElementById('preview');"
             "const status=document.getElementById('status');"
+            "let hls=null;"
+            "function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}"
+            "async function manifestReady(){try{"
+            "const response=await fetch(manifestUrl,{cache:'no-store'});"
+            "if(!response.ok){return false;}"
+            "const text=await response.text();"
+            "return text.includes('#EXTM3U');"
+            "}catch(_){return false;}}"
+            "async function waitForManifest(){status.textContent='Waiting for preview stream...';"
+            "while(!(await manifestReady())){await sleep(1000);}}"
             "function attachNative(){video.src=manifestUrl;video.play().catch(()=>{});"
             "status.textContent='Loading live preview...';}"
-            "if(video.canPlayType('application/vnd.apple.mpegurl')){attachNative();}else{"
+            "function loadHlsScript(){if(window.Hls){return Promise.resolve();}"
+            "return new Promise((resolve,reject)=>{"
             "const script=document.createElement('script');"
             "script.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';"
-            "script.onload=()=>{if(window.Hls&&window.Hls.isSupported()){"
-            "const hls=new window.Hls({liveDurationInfinity:true,backBufferLength:0});"
+            "script.onload=resolve;script.onerror=reject;document.head.appendChild(script);"
+            "});}"
+            "async function attachHls(){try{await loadHlsScript();}catch(_){"
+            "return false;}"
+            "if(!(window.Hls&&window.Hls.isSupported())){"
+            "return false;}"
+            "hls=new window.Hls({liveDurationInfinity:true,backBufferLength:0});"
             "hls.loadSource(manifestUrl);hls.attachMedia(video);"
             "hls.on(window.Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(()=>{});});"
+            "hls.on(window.Hls.Events.ERROR,(_,data)=>{if(data&&data.fatal){"
+            "status.textContent='Preview interrupted; reconnecting...';"
+            "try{hls.destroy();}catch(_){};setTimeout(startPreview,1000);"
+            "}});"
             "status.textContent='Loading live preview...';"
-            "}else{status.innerHTML='Open <a href=\"'+manifestUrl+'\">the HLS manifest</a> in an HLS-capable player.';}};"
-            "script.onerror=()=>{status.innerHTML='Native HLS unsupported and hls.js failed to load. Open <a href=\"'+manifestUrl+'\">the HLS manifest</a> in an HLS-capable player.';};"
-            "document.head.appendChild(script);}"
+            "return true;"
+            "}"
+            "async function startPreview(){await waitForManifest();"
+            "if(await attachHls()){return;}"
+            "if(video.canPlayType('application/vnd.apple.mpegurl')){attachNative();}"
+            "else{status.innerHTML='Browser HLS playback is unavailable. Open <a href=\"'+manifestUrl+'\">the HLS manifest</a> in an HLS-capable player.';}}"
+            "startPreview();"
             "</script>"
             "</body></html>"
         ).encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, private")
+        self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -231,6 +300,7 @@ class BrowserPreviewServer:
         self._manifest_name = "stream.m3u8"
         self._segment_pattern = "preview-%06d.ts"
         self._announced = False
+        self._auto_scale_announced = False
 
     @property
     def closed(self) -> bool:
@@ -354,6 +424,34 @@ class BrowserPreviewServer:
             profiler=self._profiler,
         )
 
+    def _effective_show_scale(
+        self,
+        img: torch.Tensor | np.ndarray | StreamTensorBase,
+        show_scaled: Optional[float],
+    ) -> Optional[float]:
+        if show_scaled is not None:
+            return show_scaled
+        scale = _browser_preview_auto_scale(img)
+        if scale is None:
+            return None
+        if not self._auto_scale_announced:
+            shape = _infer_frame_height_width(img)
+            if shape is not None:
+                height, width = shape
+                self._logger.info(
+                    "Downscaling headless browser preview for %s from %dx%d to fit "
+                    "%dx%d (scale %.3f). Saved video output is unchanged; pass "
+                    "--show-scaled to override the preview scale.",
+                    self.label,
+                    width,
+                    height,
+                    DEFAULT_BROWSER_PREVIEW_MAX_WIDTH,
+                    DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT,
+                    scale,
+                )
+            self._auto_scale_announced = True
+        return scale
+
     def publish(
         self,
         img: torch.Tensor | np.ndarray | StreamTensorBase,
@@ -367,8 +465,9 @@ class BrowserPreviewServer:
             return False
         if self._publisher is None:
             self._publisher = self._select_publisher(img)
+        effective_show_scaled = self._effective_show_scale(img, show_scaled)
         with _prof_ctx(self._profiler, "headless_preview.publish"):
-            self._publisher.write_frame(img, show_scaled=show_scaled)
+            self._publisher.write_frame(img, show_scaled=effective_show_scaled)
         return True
 
     def resolve_output_path(self, relative_name: str) -> Optional[Path]:
