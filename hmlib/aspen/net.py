@@ -1276,6 +1276,37 @@ class AspenNet(torch.nn.Module):
             except (queue.Full, ValueError):
                 continue
 
+    def _wait_threaded_graph_idle(self, timeout: float = 60.0) -> None:
+        deadline = time.monotonic() + float(timeout)
+        while True:
+            self._maybe_reraise_thread_error()
+            with self._graph_lock:
+                pending_contexts = len(getattr(self, "_graph_contexts", {}))
+                pending_concurrent = int(self.num_concurrent)
+            if pending_contexts == 0 and pending_concurrent == 0:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    "Timed out waiting for Aspen threaded graph to drain before stop: "
+                    f"contexts={pending_contexts}, concurrent={pending_concurrent}"
+                )
+            time.sleep(0.01)
+
+    def _join_threads(self, timeout: Optional[float] = None) -> List[str]:
+        deadline = None if timeout is None else time.monotonic() + float(timeout)
+        alive: List[str] = []
+        for thread in self.threads:
+            if not thread.is_alive():
+                continue
+            if deadline is None:
+                thread.join()
+            else:
+                remaining = max(0.0, deadline - time.monotonic())
+                thread.join(timeout=remaining)
+            if thread.is_alive():
+                alive.append(str(getattr(thread, "name", thread)))
+        return alive
+
     def _graph_worker(self, index: int, node: _Node) -> None:
         in_queue = self.graph_queues[index]
         stop_token = self._stop_token
@@ -1471,14 +1502,31 @@ class AspenNet(torch.nn.Module):
             if not hasattr(self, "graph_queues"):
                 self.stop_progress_graph()
                 return
+            wait_error = None
+            if wait:
+                try:
+                    self._wait_threaded_graph_idle()
+                except BaseException as exc:
+                    wait_error = exc
             self._graph_request_stop()
-            for thread in self.threads:
-                if wait and thread.is_alive():
-                    thread.join()
+            alive_threads: List[str] = []
+            if wait:
+                join_timeout = 5.0 if wait_error is not None else 60.0
+                alive_threads = self._join_threads(timeout=join_timeout)
             for q in self.graph_queues:
                 q.close()
             del self.graph_queues
             self.stop_progress_graph()
+            if alive_threads:
+                join_error = RuntimeError(
+                    "Timed out joining Aspen threaded graph workers after stop: "
+                    + ", ".join(alive_threads)
+                )
+                if wait_error is not None:
+                    raise join_error from wait_error
+                raise join_error
+            if wait_error is not None:
+                raise wait_error
             return
         if not hasattr(self, "queues"):
             self.stop_progress_graph()

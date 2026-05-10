@@ -75,7 +75,9 @@ def _apply_track_mask(inst, tids, tlbr, scores, labels):
 class SavePluginBase(Plugin):
     """Base class for save plugins with common utilities."""
 
-    disable_in_cuda_graph_pipeline = True
+    # Save plugins must run at their topological position because downstream
+    # stages can mutate the shared data sample objects they persist.
+    disable_in_cuda_graph_pipeline = False
 
     def is_output(self) -> bool:
         """If enabled, this node is an output."""

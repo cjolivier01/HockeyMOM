@@ -637,6 +637,49 @@ def _apply_single_lowmem_gpu_overrides(
                 lowmem_max_output_width,
             )
 
+    if "aspen_max_concurrent" not in explicit_arg_names and not _config_override_was_explicit(
+        args, "aspen.pipeline.max_concurrent"
+    ):
+        can_override_max_concurrent = not _game_or_private_config_was_explicit(
+            args, "aspen.pipeline.max_concurrent"
+        ) and _config_value_is_default_or_missing(
+            game_config, baseline_config, "aspen.pipeline.max_concurrent"
+        )
+        if can_override_max_concurrent:
+            args.aspen_max_concurrent = 1
+            set_nested_value(game_config, "aspen.pipeline.max_concurrent", 1)
+
+    if not _config_override_was_explicit(
+        args, "stitching.cache_rotation_grid"
+    ) and not _plugin_config_override_was_explicit(
+        args,
+        "aspen.plugins.stitching.params.cache_rotation_grid",
+        "stitching.cache_rotation_grid",
+    ):
+        can_override_rotation_grid_cache = (
+            not _game_or_private_config_was_explicit(args, "stitching.cache_rotation_grid")
+            and not _game_or_private_plugin_config_was_explicit(
+                args,
+                "aspen.plugins.stitching.params.cache_rotation_grid",
+                "stitching.cache_rotation_grid",
+            )
+            and _config_value_is_default_or_missing(
+                game_config, baseline_config, "stitching.cache_rotation_grid"
+            )
+            and _plugin_value_follows_source_or_missing(
+                game_config,
+                "aspen.plugins.stitching.params.cache_rotation_grid",
+                "stitching.cache_rotation_grid",
+            )
+        )
+        if can_override_rotation_grid_cache:
+            set_nested_value(game_config, "stitching.cache_rotation_grid", False)
+            set_nested_value(
+                game_config,
+                "aspen.plugins.stitching.params.cache_rotation_grid",
+                False,
+            )
+
 
 def _slugify_label(value: str) -> str:
     if value is None:

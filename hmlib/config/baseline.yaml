@@ -115,6 +115,7 @@ stitching:
   post_stitch_rotate_degrees: null
   capture_rgb_stats: false
   max_output_width: null
+  cache_rotation_grid: true
   left_stitch_pipeline:
     - type: HmImageColorAdjust
       keys: [img]

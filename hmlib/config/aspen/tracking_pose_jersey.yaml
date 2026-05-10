@@ -90,6 +90,7 @@ aspen:
         right_color_pipeline: GLOBAL.stitching.right_stitch_pipeline
         capture_rgb_stats: GLOBAL.stitching.capture_rgb_stats
         max_output_width: GLOBAL.stitching.max_output_width
+        cache_rotation_grid: GLOBAL.stitching.cache_rotation_grid
 
     image_prep:
       class: hmlib.aspen.plugins.image_prep_plugin.ImagePrepPlugin
@@ -146,7 +147,7 @@ aspen:
 
     ice_config:
       class: hmlib.aspen.plugins.ice_rink_boundaries_plugins.IceRinkSegmConfigPlugin
-      depends: [image_prep]
+      depends: [save_detections]
       params: {}
 
     ice_boundaries:

@@ -12,12 +12,16 @@ def _make_cfg():
             "max_blend_levels": 11,
             "minimize_blend": False,
             "max_output_width": None,
+            "cache_rotation_grid": True,
         },
         "video_out": {
             "output_width": "auto",
             "output_height": None,
         },
         "aspen": {
+            "pipeline": {
+                "max_concurrent": 3,
+            },
             "plugins": {
                 "stitching": {
                     "params": {
@@ -25,6 +29,7 @@ def _make_cfg():
                         "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
                         "minimize_blend": "GLOBAL.stitching.minimize_blend",
                         "max_output_width": "GLOBAL.stitching.max_output_width",
+                        "cache_rotation_grid": "GLOBAL.stitching.cache_rotation_grid",
                     }
                 },
                 "video_out_prep": {
@@ -32,7 +37,7 @@ def _make_cfg():
                         "output_width": "GLOBAL.video_out.output_width",
                     }
                 },
-            }
+            },
         },
     }
 
@@ -47,6 +52,7 @@ def _make_args(**overrides):
         minimize_blend=0,
         no_minimize_blend=False,
         cache_size=4,
+        aspen_max_concurrent=None,
         game_id=None,
         ignore_private_config=False,
     )
@@ -68,12 +74,21 @@ def should_apply_lowmem_hmtrack_runtime_overrides_without_marking_args_explicit(
     assert cfg["stitching"]["max_blend_levels"] == 5
     assert cfg["stitching"]["minimize_blend"] is True
     assert cfg["stitching"]["max_output_width"] == 1920
+    assert cfg["stitching"]["cache_rotation_grid"] is False
     assert cfg["video_out"]["output_width"] == 1920
+    assert cfg["aspen"]["pipeline"]["max_concurrent"] == 1
 
 
 def should_respect_source_config_override_opt_outs_for_lowmem_hmtrack_overrides():
     cfg = _make_cfg()
-    args = _make_args(config_overrides=["stitching.dtype=float32", "video_out.output_width=auto"])
+    args = _make_args(
+        config_overrides=[
+            "stitching.dtype=float32",
+            "video_out.output_width=auto",
+            "stitching.cache_rotation_grid=true",
+            "aspen.pipeline.max_concurrent=3",
+        ]
+    )
 
     hmtrack_cli._apply_single_lowmem_gpu_overrides(args, cfg)
 
@@ -81,6 +96,8 @@ def should_respect_source_config_override_opt_outs_for_lowmem_hmtrack_overrides(
     assert cfg["stitching"]["dtype"] == "float32"
     assert cfg["video_out"]["output_width"] == "auto"
     assert cfg["stitching"]["max_output_width"] is None
+    assert cfg["stitching"]["cache_rotation_grid"] is True
+    assert cfg["aspen"]["pipeline"]["max_concurrent"] == 3
 
 
 def should_respect_plugin_config_override_opt_outs_for_lowmem_hmtrack_overrides():

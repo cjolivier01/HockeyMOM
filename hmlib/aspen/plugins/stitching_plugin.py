@@ -103,6 +103,7 @@ class StitchingPlugin(Plugin):
         right_color_pipeline: Optional[List[Dict[str, Any]]] = None,
         capture_rgb_stats: bool = False,
         max_output_width: Optional[int] = None,
+        cache_rotation_grid: bool = True,
     ) -> None:
         super().__init__(enabled=enabled)
         self._pto_project_file = pto_project_file
@@ -125,6 +126,7 @@ class StitchingPlugin(Plugin):
         self._right_color_pipeline_cfg = right_color_pipeline
         self._capture_rgb_stats = bool(capture_rgb_stats)
         self._max_output_width = int(max_output_width) if max_output_width else None
+        self._cache_rotation_grid = bool(cache_rotation_grid)
 
         self._left_color_pipeline: Optional[Compose] = None
         self._right_color_pipeline: Optional[Compose] = None
@@ -443,7 +445,7 @@ class StitchingPlugin(Plugin):
         x_work = x.to(dtype=work_dtype, non_blocking=True)
 
         grid_cache_key = (int(b), int(c), int(h), int(w), float(degrees), device, work_dtype)
-        grid = self._rotate_grid_cache.get(grid_cache_key)
+        grid = self._rotate_grid_cache.get(grid_cache_key) if self._cache_rotation_grid else None
         cache_key = (int(h), int(w), device, work_dtype)
         cache = self._rotate_cache.get(cache_key)
         if cache is None:
@@ -487,9 +489,10 @@ class StitchingPlugin(Plugin):
             a = cache["s_inv"] @ m_inv @ cache["s"]
             theta = a[:2, :].unsqueeze(0).repeat(b, 1, 1)
             grid = F.affine_grid(theta, size=(b, c, h, w), align_corners=True)
-            # The full panorama grid is large; keep only the active shape/angle.
-            self._rotate_grid_cache.clear()
-            self._rotate_grid_cache[grid_cache_key] = grid
+            if self._cache_rotation_grid:
+                # The full panorama grid is large; keep only the active shape/angle.
+                self._rotate_grid_cache.clear()
+                self._rotate_grid_cache[grid_cache_key] = grid
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
 
         if orig_dtype == torch.uint8:
