@@ -1,6 +1,7 @@
 import argparse
 import os
 import queue
+import re
 import socket
 import subprocess
 import sys
@@ -17,7 +18,14 @@ from unittest import mock
 import torch
 
 from hmlib.hm_opts import hm_opts
-from hmlib.ui.headless_preview import FFmpegLivePublisher, mask_stream_url
+from hmlib.ui.headless_preview import (
+    DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT,
+    DEFAULT_BROWSER_PREVIEW_MAX_WIDTH,
+    BrowserPreviewServer,
+    FFmpegLivePublisher,
+    HLS_JS_INTEGRITY,
+    mask_stream_url,
+)
 from hmlib.ui.shower import Shower
 from hmlib.utils.torch_backend import is_rocm_backend
 
@@ -134,6 +142,88 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                 self.assertGreater(len(payload), 0)
             finally:
                 shower.close()
+
+    def test_headless_preview_page_waits_for_manifest_before_attaching_player(self):
+        with mock.patch.dict(
+            os.environ,
+            {"HM_FORCE_HEADLESS_PREVIEW": "1"},
+            clear=False,
+        ):
+            shower = Shower(
+                "headless-preview-page-test",
+                show_scaled=0.5,
+                max_size=1,
+                headless_preview_host="127.0.0.1",
+                headless_preview_port=0,
+            )
+            try:
+                shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
+                time.sleep(0.2)
+                port = shower._headless_preview.port
+                html = (
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5)
+                    .read()
+                    .decode("utf-8")
+                )
+                self.assertIn("Waiting for preview stream", html)
+                self.assertIn("fetch(manifestUrl", html)
+                self.assertIn(HLS_JS_INTEGRITY, html)
+                self.assertIn("script.crossOrigin='anonymous'", html)
+                self.assertRegex(
+                    html,
+                    re.compile(
+                        r"async function startPreview\(\)\{"
+                        r"\s*await waitForManifest\(\);"
+                        r"\s*if\(await attachHls\(\)\)",
+                        re.DOTALL,
+                    ),
+                )
+                self.assertIn("video.canPlayType('application/vnd.apple.mpegurl')", html)
+            finally:
+                shower.close()
+
+    def test_headless_preview_auto_scales_large_browser_streams(self):
+        with mock.patch(
+            "hmlib.ui.headless_preview._RawHlsPreviewPublisher", autospec=True
+        ) as pub_cls:
+            preview = BrowserPreviewServer(
+                "large-browser-preview-test",
+                host="127.0.0.1",
+                port=0,
+            )
+            try:
+                frame = torch.zeros((2160, 3840, 3), dtype=torch.uint8)
+                expected_scale = min(
+                    DEFAULT_BROWSER_PREVIEW_MAX_WIDTH / frame.shape[1],
+                    DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT / frame.shape[0],
+                    1.0,
+                )
+                self.assertTrue(preview.publish(frame, require_clients=False))
+                self.assertAlmostEqual(
+                    pub_cls.return_value.write_frame.call_args.kwargs["show_scaled"],
+                    expected_scale,
+                )
+            finally:
+                preview.close()
+
+    def test_headless_preview_preserves_explicit_stream_scale(self):
+        with mock.patch(
+            "hmlib.ui.headless_preview._RawHlsPreviewPublisher", autospec=True
+        ) as pub_cls:
+            preview = BrowserPreviewServer(
+                "explicit-browser-preview-scale-test",
+                host="127.0.0.1",
+                port=0,
+            )
+            try:
+                frame = torch.zeros((2160, 3840, 3), dtype=torch.uint8)
+                self.assertTrue(preview.publish(frame, show_scaled=0.1, require_clients=False))
+                self.assertEqual(
+                    pub_cls.return_value.write_frame.call_args.kwargs["show_scaled"],
+                    0.1,
+                )
+            finally:
+                preview.close()
 
     def test_shower_headless_preview_waits_for_client_by_default(self):
         with (
