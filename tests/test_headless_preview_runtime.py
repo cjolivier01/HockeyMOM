@@ -1,6 +1,7 @@
 import argparse
 import os
 import queue
+import re
 import socket
 import subprocess
 import sys
@@ -17,7 +18,14 @@ from unittest import mock
 import torch
 
 from hmlib.hm_opts import hm_opts
-from hmlib.ui.headless_preview import BrowserPreviewServer, FFmpegLivePublisher, mask_stream_url
+from hmlib.ui.headless_preview import (
+    DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT,
+    DEFAULT_BROWSER_PREVIEW_MAX_WIDTH,
+    BrowserPreviewServer,
+    FFmpegLivePublisher,
+    HLS_JS_INTEGRITY,
+    mask_stream_url,
+)
 from hmlib.ui.shower import Shower
 from hmlib.utils.torch_backend import is_rocm_backend
 
@@ -152,11 +160,25 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
                 shower.show(torch.full((32, 48, 3), 127, dtype=torch.uint8))
                 time.sleep(0.2)
                 port = shower._headless_preview.port
-                html = urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5).read()
-                self.assertIn(b"Waiting for preview stream", html)
-                self.assertIn(b"fetch(manifestUrl", html)
-                self.assertLess(html.index(b"waitForManifest"), html.index(b"attachHls"))
-                self.assertLess(html.index(b"attachHls()){return"), html.index(b"canPlayType"))
+                html = (
+                    urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5)
+                    .read()
+                    .decode("utf-8")
+                )
+                self.assertIn("Waiting for preview stream", html)
+                self.assertIn("fetch(manifestUrl", html)
+                self.assertIn(HLS_JS_INTEGRITY, html)
+                self.assertIn("script.crossOrigin='anonymous'", html)
+                self.assertRegex(
+                    html,
+                    re.compile(
+                        r"async function startPreview\(\)\{"
+                        r"\s*await waitForManifest\(\);"
+                        r"\s*if\(await attachHls\(\)\)",
+                        re.DOTALL,
+                    ),
+                )
+                self.assertIn("video.canPlayType('application/vnd.apple.mpegurl')", html)
             finally:
                 shower.close()
 
@@ -171,10 +193,15 @@ class HeadlessPreviewRuntimeTest(unittest.TestCase):
             )
             try:
                 frame = torch.zeros((2160, 3840, 3), dtype=torch.uint8)
+                expected_scale = min(
+                    DEFAULT_BROWSER_PREVIEW_MAX_WIDTH / frame.shape[1],
+                    DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT / frame.shape[0],
+                    1.0,
+                )
                 self.assertTrue(preview.publish(frame, require_clients=False))
                 self.assertAlmostEqual(
                     pub_cls.return_value.write_frame.call_args.kwargs["show_scaled"],
-                    0.5,
+                    expected_scale,
                 )
             finally:
                 preview.close()

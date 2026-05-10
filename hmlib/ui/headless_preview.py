@@ -36,6 +36,8 @@ from hmlib.video.ffmpeg_mux_cmd import (
 
 DEFAULT_BROWSER_PREVIEW_MAX_WIDTH = 1920
 DEFAULT_BROWSER_PREVIEW_MAX_HEIGHT = 1080
+HLS_JS_URL = "https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"
+HLS_JS_INTEGRITY = "sha384-9v3HcdYrO3D+OPDTjZ40RXocgE4GtXVCd3/mCS62JsM93JXgI1afJVuwjFvsu6ni"
 
 
 def has_local_display() -> bool:
@@ -192,6 +194,8 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
             "</div></main>"
             "<script>"
             f"const manifestUrl={manifest_path!r};"
+            f"const hlsScriptUrl={HLS_JS_URL!r};"
+            f"const hlsScriptIntegrity={HLS_JS_INTEGRITY!r};"
             "const video=document.getElementById('preview');"
             "const status=document.getElementById('status');"
             "let hls=null;"
@@ -209,7 +213,8 @@ class _PreviewRequestHandler(BaseHTTPRequestHandler):
             "function loadHlsScript(){if(window.Hls){return Promise.resolve();}"
             "return new Promise((resolve,reject)=>{"
             "const script=document.createElement('script');"
-            "script.src='https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';"
+            "script.src=hlsScriptUrl;script.integrity=hlsScriptIntegrity;"
+            "script.crossOrigin='anonymous';"
             "script.onload=resolve;script.onerror=reject;document.head.appendChild(script);"
             "});}"
             "async function attachHls(){try{await loadHlsScript();}catch(_){"
