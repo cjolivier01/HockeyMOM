@@ -103,6 +103,7 @@ class StitchingPlugin(Plugin):
         right_color_pipeline: Optional[List[Dict[str, Any]]] = None,
         capture_rgb_stats: bool = False,
         max_output_width: Optional[int] = None,
+        cache_rotation_grid: bool = True,
     ) -> None:
         super().__init__(enabled=enabled)
         self._pto_project_file = pto_project_file
@@ -125,13 +126,15 @@ class StitchingPlugin(Plugin):
         self._right_color_pipeline_cfg = right_color_pipeline
         self._capture_rgb_stats = bool(capture_rgb_stats)
         self._max_output_width = int(max_output_width) if max_output_width else None
+        self._cache_rotation_grid = bool(cache_rotation_grid)
 
         self._left_color_pipeline: Optional[Compose] = None
         self._right_color_pipeline: Optional[Compose] = None
         self._config_ref: Optional[Dict[str, Any]] = None
         self._initialized: bool = False
         self._stitcher = None
-        self._rotate_cache: Dict[Tuple[int, int, torch.device], Dict[str, torch.Tensor]] = {}
+        self._rotate_cache: Dict[Tuple[Any, ...], Dict[str, torch.Tensor]] = {}
+        self._rotate_grid_cache: Dict[Tuple[Any, ...], torch.Tensor] = {}
         self._width_t: Optional[torch.Tensor] = None
         self._height_t: Optional[torch.Tensor] = None
         self._channel_add_left: Optional[List[float]] = None
@@ -441,6 +444,8 @@ class StitchingPlugin(Plugin):
         b, c, h, w = x.shape
         x_work = x.to(dtype=work_dtype, non_blocking=True)
 
+        grid_cache_key = (int(b), int(c), int(h), int(w), float(degrees), device, work_dtype)
+        grid = self._rotate_grid_cache.get(grid_cache_key) if self._cache_rotation_grid else None
         cache_key = (int(h), int(w), device, work_dtype)
         cache = self._rotate_cache.get(cache_key)
         if cache is None:
@@ -467,24 +472,28 @@ class StitchingPlugin(Plugin):
             cache = {"center": center, "s": s, "s_inv": s_inv, "s_001": s_001}
             self._rotate_cache[cache_key] = cache
 
-        angle = torch.zeros((), device=device, dtype=work_dtype) + (-degrees * math.pi / 180.0)
-        cos_a = torch.cos(angle)
-        sin_a = torch.sin(angle)
-        cx, cy = cache["center"][0], cache["center"][1]
-        tx = (1.0 - cos_a) * cx - sin_a * cy
-        ty = sin_a * cx + (1.0 - cos_a) * cy
-        m_inv = torch.stack(
-            [
-                torch.stack([cos_a, sin_a, tx]),
-                torch.stack([-sin_a, cos_a, ty]),
-                cache["s_001"],
-            ]
-        )
-        a = cache["s_inv"] @ m_inv @ cache["s"]
-        theta = a[:2, :].unsqueeze(0).repeat(b, 1, 1)
-        grid = F.affine_grid(theta, size=(b, c, h, w), align_corners=True)
+        if grid is None:
+            angle = torch.zeros((), device=device, dtype=work_dtype) + (-degrees * math.pi / 180.0)
+            cos_a = torch.cos(angle)
+            sin_a = torch.sin(angle)
+            cx, cy = cache["center"][0], cache["center"][1]
+            tx = (1.0 - cos_a) * cx - sin_a * cy
+            ty = sin_a * cx + (1.0 - cos_a) * cy
+            m_inv = torch.stack(
+                [
+                    torch.stack([cos_a, sin_a, tx]),
+                    torch.stack([-sin_a, cos_a, ty]),
+                    cache["s_001"],
+                ]
+            )
+            a = cache["s_inv"] @ m_inv @ cache["s"]
+            theta = a[:2, :].unsqueeze(0).repeat(b, 1, 1)
+            grid = F.affine_grid(theta, size=(b, c, h, w), align_corners=True)
+            if self._cache_rotation_grid:
+                # The full panorama grid is large; keep only the active shape/angle.
+                self._rotate_grid_cache.clear()
+                self._rotate_grid_cache[grid_cache_key] = grid
         y = F.grid_sample(x_work, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
-        del x_work, grid, theta, a, m_inv
 
         if orig_dtype == torch.uint8:
             y = y.clamp_(min=0.0, max=255.0).to(dtype=torch.uint8)

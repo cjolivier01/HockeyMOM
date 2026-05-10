@@ -295,7 +295,7 @@ def should_preserve_configured_stitch_buffering_settings():
                 "threaded": True,
                 "graph": True,
                 "queue_size": 4,
-                "max_concurrent": 3,
+                "max_concurrent": 4,
             }
         }
     }
@@ -310,7 +310,7 @@ def should_preserve_configured_stitch_buffering_settings():
 
     pipeline = cfg["aspen"]["pipeline"]
     assert pipeline["queue_size"] == 4
-    assert pipeline["max_concurrent"] == 3
+    assert pipeline["max_concurrent"] == 4
 
 
 def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit():
@@ -320,12 +320,16 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
             "max_blend_levels": 11,
             "minimize_blend": False,
             "max_output_width": None,
+            "cache_rotation_grid": True,
         },
         "video_out": {
             "output_width": "auto",
             "output_height": None,
         },
         "aspen": {
+            "pipeline": {
+                "max_concurrent": 3,
+            },
             "plugins": {
                 "stitching": {
                     "params": {
@@ -333,6 +337,7 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
                         "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
                         "minimize_blend": "GLOBAL.stitching.minimize_blend",
                         "max_output_width": "GLOBAL.stitching.max_output_width",
+                        "cache_rotation_grid": "GLOBAL.stitching.cache_rotation_grid",
                     }
                 },
                 "video_out_prep": {
@@ -340,7 +345,7 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
                         "output_width": "GLOBAL.video_out.output_width",
                     }
                 },
-            }
+            },
         },
     }
     args = types.SimpleNamespace(
@@ -351,6 +356,7 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
         max_blend_levels=11,
         minimize_blend=0,
         no_minimize_blend=False,
+        aspen_max_concurrent=None,
         game_id=None,
         ignore_private_config=False,
     )
@@ -364,9 +370,12 @@ def should_apply_lowmem_stitch_runtime_overrides_without_marking_args_explicit()
     assert cfg["stitching"]["max_blend_levels"] == 5
     assert cfg["stitching"]["minimize_blend"] is True
     assert cfg["stitching"]["max_output_width"] == 1920
+    assert cfg["stitching"]["cache_rotation_grid"] is False
     assert cfg["video_out"]["output_width"] == 1920
+    assert cfg["aspen"]["pipeline"]["max_concurrent"] == 1
     assert cfg["aspen"]["plugins"]["stitching"]["params"]["dtype"] == "float16"
     assert cfg["aspen"]["plugins"]["stitching"]["params"]["max_output_width"] == 1920
+    assert cfg["aspen"]["plugins"]["stitching"]["params"]["cache_rotation_grid"] is False
     assert cfg["aspen"]["plugins"]["video_out_prep"]["params"]["output_width"] == 1920
 
 
@@ -377,12 +386,16 @@ def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
             "max_blend_levels": 11,
             "minimize_blend": False,
             "max_output_width": None,
+            "cache_rotation_grid": True,
         },
         "video_out": {
             "output_width": "auto",
             "output_height": None,
         },
         "aspen": {
+            "pipeline": {
+                "max_concurrent": 3,
+            },
             "plugins": {
                 "stitching": {
                     "params": {
@@ -390,6 +403,7 @@ def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
                         "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
                         "minimize_blend": "GLOBAL.stitching.minimize_blend",
                         "max_output_width": "GLOBAL.stitching.max_output_width",
+                        "cache_rotation_grid": "GLOBAL.stitching.cache_rotation_grid",
                     }
                 },
                 "video_out_prep": {
@@ -397,17 +411,23 @@ def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
                         "output_width": "GLOBAL.video_out.output_width",
                     }
                 },
-            }
+            },
         },
     }
     args = types.SimpleNamespace(
         explicit_arg_names=set(),
-        config_overrides=["stitching.dtype=float32", "video_out.output_width=auto"],
+        config_overrides=[
+            "stitching.dtype=float32",
+            "video_out.output_width=auto",
+            "stitching.cache_rotation_grid=true",
+            "aspen.pipeline.max_concurrent=3",
+        ],
         fp16_stitch=False,
         output_width=None,
         max_blend_levels=11,
         minimize_blend=0,
         no_minimize_blend=False,
+        aspen_max_concurrent=None,
         game_id=None,
         ignore_private_config=False,
     )
@@ -418,6 +438,8 @@ def should_respect_config_override_opt_outs_for_lowmem_stitch_overrides():
     assert cfg["stitching"]["dtype"] == "float32"
     assert cfg["video_out"]["output_width"] == "auto"
     assert cfg["stitching"]["max_output_width"] is None
+    assert cfg["stitching"]["cache_rotation_grid"] is True
+    assert cfg["aspen"]["pipeline"]["max_concurrent"] == 3
 
 
 def should_respect_plugin_config_override_opt_outs_for_lowmem_stitch_overrides():

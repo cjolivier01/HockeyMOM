@@ -114,6 +114,17 @@ class StaticContextSourcePlugin(Plugin):  # type: ignore[misc]
         }
 
 
+class MutateDetectionsPlugin(Plugin):  # type: ignore[misc]
+    def input_keys(self):
+        return {"data_samples"}
+
+    def forward(self, context: dict[str, Any]):  # type: ignore[override]
+        track_data_sample = context["data_samples"]
+        frame = track_data_sample[0]
+        frame.pred_instances = frame.pred_instances[:1]
+        return {}
+
+
 class YOLOXHead(_TORCH_MODULE_BASE):
     def __init__(self):
         super().__init__()
@@ -619,7 +630,6 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
     assert net.node_map["video_out"].module.enabled is True
     assert net.shared["aspen_cuda_graph_disabled_plugins"] == []
     assert set(net.shared["aspen_cuda_graph_deferred_plugins"]) == {
-        "save_detections",
         "video_out",
         "video_preview",
     }
@@ -650,4 +660,50 @@ def should_defer_sink_plugins_and_run_them_after_cuda_graph_compute(monkeypatch,
     assert (tmp_path / "detections.csv").exists()
     assert len(fake_preparers[0].prepare_calls) == 2
     assert len(fake_video_outputs[0].calls) == 2
-    assert len(FakeShower.instances[0].calls) == 2
+    assert sum(len(inst.calls) for inst in FakeShower.instances) == 2
+
+
+@requires_torch
+def should_save_detections_before_later_cuda_graph_pipeline_mutations(tmp_path):
+    det_inst = make_instance_data(
+        bboxes=torch.tensor(
+            [[1.0, 2.0, 5.0, 6.0], [2.0, 3.0, 6.0, 7.0], [3.0, 4.0, 7.0, 8.0]],
+            dtype=torch.float32,
+        ),
+        scores=torch.tensor([0.9, 0.8, 0.7], dtype=torch.float32),
+        labels=torch.tensor([1, 1, 1], dtype=torch.long),
+    )
+    track_data_sample = make_track_data_sample(num_frames=1, pred_instances=[det_inst])
+    graph_cfg = {
+        "pipeline": {"cuda_graph": True},
+        "plugins": {
+            "source": {
+                "class": f"{__name__}.StaticContextSourcePlugin",
+                "params": {
+                    "x": torch.zeros(1),
+                    "img": torch.zeros((1, 3, 4, 4), dtype=torch.float32),
+                    "data_samples": track_data_sample,
+                    "work_dir": str(tmp_path),
+                    "frame_id": 1,
+                },
+            },
+            "save_detections": {
+                "class": "hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin",
+                "depends": ["source"],
+                "params": {},
+            },
+            "mutate": {
+                "class": f"{__name__}.MutateDetectionsPlugin",
+                "depends": ["source"],
+                "params": {},
+            },
+        },
+    }
+
+    net = AspenNet("cuda_graph_save_order", graph_cfg, shared={"game_config": {}})
+    assert "save_detections" not in net.shared["aspen_cuda_graph_deferred_plugins"]
+
+    net({})
+    net.finalize()
+
+    assert len((tmp_path / "detections.csv").read_text().splitlines()) == 3
