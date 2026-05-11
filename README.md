@@ -20,8 +20,8 @@ For a fresh Ubuntu/Debian machine you should run, from the repo root:
   - Enblend/Enfuse and image/codec libraries (tiff, jpeg, png, OpenEXR, FFTW, wxWidgets, etc.).
   - These are required so the Bazel/CMake builds in `external/hugin` and `external/enblend-enfuse` succeed and the CLI binaries can run.
 - `build_deps.sh` runs the Hugin Bazel build:
-  - Changes into `external/hugin` and runs `bazelisk build //:install_tree`.
-  - This drives CMake to build (and stage an install tree for) the Hugin command-line tools.
+  - Changes into `external/hugin` and runs `bazelisk run //:install_tree -- --prefix="$CONDA_PREFIX"`.
+  - This drives CMake to build and install the Hugin command-line tools into the active conda environment.
   - Those tools are then available to `hmcreate_control_points` and `hmstitch` for pano generation.
 
 If you are on a different distro, use `env/install_deps.sh` as a reference list of required packages and install the equivalents manually, then run `./build_deps.sh`.
