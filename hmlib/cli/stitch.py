@@ -21,6 +21,8 @@ from hmlib.config import (
 )
 from hmlib.hm_opts import _get_baseline_runtime_config, hm_opts, preferred_arg
 from hmlib.log import get_root_logger
+from hmlib.orientation import configure_game_videos
+from hmlib.stitching.configure_stitching import clean_stitch_game_artifacts
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
 
@@ -764,7 +766,6 @@ def stitch_videos(
                 decoder_type=decoder_type,
                 frame_step=frame_step_left,
                 no_cuda_streams=args.no_cuda_streams,
-                image_channel_adders=None,
                 checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
                 prefetch_batches=args.dataset_prefetch_batches,
@@ -782,7 +783,6 @@ def stitch_videos(
                 decoder_type=decoder_type,
                 frame_step=frame_step_right,
                 no_cuda_streams=args.no_cuda_streams,
-                image_channel_adders=None,
                 checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
                 prefetch_batches=args.dataset_prefetch_batches,
@@ -1076,9 +1076,7 @@ def stitch_videos(
 
 
 def _main(args) -> None:
-    from hmlib.orientation import configure_game_videos
     from hmlib.segm.ice_rink import main as ice_rink_main
-    from hmlib.stitching.configure_stitching import clean_stitch_game_artifacts
     from hmlib.utils.gpu import GpuAllocator
     from hmlib.utils.progress_bar import convert_hms_to_seconds
     from hmlib.video.ffmpeg import BasicVideoInfo

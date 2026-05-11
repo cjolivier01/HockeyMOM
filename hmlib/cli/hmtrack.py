@@ -2073,7 +2073,6 @@ def _main(args, num_gpu):
                         decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_left,
                         no_cuda_streams=args.no_cuda_streams,
-                        image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
                         prefetch_batches=args.dataset_prefetch_batches,
                     )
@@ -2092,7 +2091,6 @@ def _main(args, num_gpu):
                         decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_right,
                         no_cuda_streams=args.no_cuda_streams,
-                        image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
                         prefetch_batches=args.dataset_prefetch_batches,
                     )

@@ -371,10 +371,7 @@ _LEGACY_STITCHING_KEY_MAP: Tuple[Tuple[str, str], ...] = (
     ("stitch-rotate-degrees", "post_stitch_rotate_degrees"),
 )
 
-_LEGACY_GAME_STITCHING_KEY_MAP: Tuple[Tuple[str, str], ...] = (
-    ("rgb_add", "rgb_add"),
-    ("color_add", "color_add"),
-)
+_LEGACY_GAME_STITCHING_KEY_MAP: Tuple[Tuple[str, str], ...] = ()
 
 
 def _merge_missing_nested_values(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:

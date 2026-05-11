@@ -135,8 +135,6 @@ class StitchingPlugin(Plugin):
         self._rotate_grid_cache: Dict[Tuple[Any, ...], torch.Tensor] = {}
         self._width_t: Optional[torch.Tensor] = None
         self._height_t: Optional[torch.Tensor] = None
-        self._channel_add_left: Optional[List[float]] = None
-        self._channel_add_right: Optional[List[float]] = None
         self._iter_num: int = 0
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
@@ -154,7 +152,6 @@ class StitchingPlugin(Plugin):
         if isinstance(cfg, dict):
             self._config_ref = cfg
         self._build_color_pipelines()
-        self._resolve_channel_adders()
         self._initialized = True
 
     def _build_color_pipelines(self) -> None:
@@ -177,87 +174,6 @@ class StitchingPlugin(Plugin):
 
         self._left_color_pipeline = _make_pipeline(self._left_color_pipeline_cfg)
         self._right_color_pipeline = _make_pipeline(self._right_color_pipeline_cfg)
-
-    def _resolve_channel_adders(self) -> None:
-        cfg = self._config_ref
-        if not isinstance(cfg, dict):
-            return
-
-        def _get_adders(side: str) -> Optional[List[float]]:
-            node = get_nested_value(cfg, f"stitching.color_adjustment.{side}")
-            if isinstance(node, dict):
-                try:
-                    return [float(node.get("r")), float(node.get("g")), float(node.get("b"))]
-                except Exception:
-                    pass
-            candidate_keys = [
-                f"stitching.rgb_add.{side}",
-                f"stitching.channel_add.{side}",
-                f"stitching.image_channel_add.{side}",
-                f"stitching.image_channel_adders.{side}",
-                f"stitching.color_add.{side}",
-            ]
-            for key in candidate_keys:
-                val = get_nested_value(cfg, key)
-                if isinstance(val, (list, tuple)) and len(val) >= 3:
-                    try:
-                        return [float(val[0]), float(val[1]), float(val[2])]
-                    except Exception:
-                        pass
-            for key in [
-                "stitching.rgb_add",
-                "stitching.channel_add",
-                "stitching.image_channel_add",
-                "stitching.image_channel_adders",
-                "stitching.color_add",
-            ]:
-                val = get_nested_value(cfg, key)
-                if isinstance(val, (list, tuple)) and len(val) >= 3:
-                    try:
-                        return [float(val[0]), float(val[1]), float(val[2])]
-                    except Exception:
-                        pass
-            return None
-
-        def _to_bgr(adders: Optional[List[float]]) -> Optional[List[float]]:
-            if not adders:
-                return None
-            return [adders[2], adders[1], adders[0]]
-
-        self._channel_add_left = _to_bgr(_get_adders("left"))
-        self._channel_add_right = _to_bgr(_get_adders("right"))
-
-    def _apply_channel_adders(
-        self, img: torch.Tensor, adders: Optional[List[float]]
-    ) -> torch.Tensor:
-        if not adders:
-            return img
-        was_channels_last = img.ndim in (3, 4) and img.shape[-1] in (1, 3, 4)
-        t = make_channels_first(img)
-        orig_dtype = t.dtype
-        if not torch.is_floating_point(t):
-            t = t.to(torch.float16, non_blocking=True)
-        add = torch.tensor(adders, dtype=t.dtype, device=t.device)
-        if t.ndim == 4:
-            add = add.view(1, 3, 1, 1)
-        else:
-            add = add.view(3, 1, 1)
-        if t.ndim == 4:
-            t[:, 0:3, :, :] += add
-        else:
-            t[0:3, :, :] += add
-        t.clamp_(0.0, 255.0)
-        if orig_dtype in (
-            torch.uint8,
-            torch.int8,
-            torch.int16,
-            torch.int32,
-            torch.int64,
-        ):
-            t = t.to(dtype=orig_dtype)
-        if was_channels_last:
-            return make_channels_last(t)
-        return t
 
     def _resolve_dir_name(self, context: Dict[str, Any]) -> Path:
         if self._dir_name is not None:
@@ -580,9 +496,6 @@ class StitchingPlugin(Plugin):
             ids = ids.detach().cpu()
         if ids is None:
             raise RuntimeError("StitchingPlugin could not resolve frame ids")
-
-        imgs[0] = self._apply_channel_adders(imgs[0], self._channel_add_left)
-        imgs[1] = self._apply_channel_adders(imgs[1], self._channel_add_right)
 
         pre_stats_list: Optional[List[Optional[Dict[str, Tuple[float, float, float]]]]] = None
         if self._capture_rgb_stats:

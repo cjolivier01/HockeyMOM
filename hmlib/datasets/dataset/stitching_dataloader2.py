@@ -19,7 +19,6 @@ import torch
 import torch.nn.functional as F
 from mmcv.transforms import Compose
 
-from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
 from hmlib.stitching.configure_stitching import configure_video_stitching
@@ -224,10 +223,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
 
         self._prepare_next_frame_timer = Timer()
 
-        # Optional per-camera channel adders (R,G,B) loaded from game config
-        self._channel_add_left: Optional[List[float]] = None
-        self._channel_add_right: Optional[List[float]] = None
-
         self._video_left_info = BasicVideoInfo(",".join(videos["left"]["files"]))
         self._video_right_info = BasicVideoInfo(",".join(videos["right"]["files"]))
         # Prefer the project directory for all stitching artifacts (mappings, masks)
@@ -254,64 +249,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._stitcher = None
         self._video_output = None
         self._mean_tracker: Optional[MeanTracker] = None
-
-        # Load per-side RGB adders from config (if present)
-        try:
-            game_id = os.path.basename(str(self._dir_name))
-            cfg = get_game_config(game_id=game_id)
-
-            def _get_adders(side: str) -> Optional[List[float]]:
-                # Preferred structure:
-                # stitching.color_adjustment.left: {r: 45, g: 35, b: 56}
-                node = get_nested_value(cfg, f"stitching.color_adjustment.{side}")
-                if isinstance(node, dict):
-                    try:
-                        r = float(node.get("r"))
-                        g = float(node.get("g"))
-                        b = float(node.get("b"))
-                        return [r, g, b]
-                    except Exception:
-                        pass
-                # Legacy fallbacks (arrays or other key names)
-                candidate_keys = [
-                    f"stitching.rgb_add.{side}",
-                    f"stitching.channel_add.{side}",
-                    f"stitching.image_channel_add.{side}",
-                    f"stitching.image_channel_adders.{side}",
-                    f"stitching.color_add.{side}",
-                ]
-                for k in candidate_keys:
-                    v = get_nested_value(cfg, k)
-                    if v is not None:
-                        try:
-                            if isinstance(v, (list, tuple)) and len(v) >= 3:
-                                return [float(v[0]), float(v[1]), float(v[2])]
-                        except Exception:
-                            pass
-                # Global fallback without side (applies to both)
-                for k in [
-                    "stitching.rgb_add",
-                    "stitching.channel_add",
-                    "stitching.image_channel_add",
-                    "stitching.image_channel_adders",
-                    "stitching.color_add",
-                ]:
-                    v = get_nested_value(cfg, k)
-                    if v is not None:
-                        try:
-                            if isinstance(v, (list, tuple)) and len(v) >= 3:
-                                return [float(v[0]), float(v[1]), float(v[2])]
-                        except Exception:
-                            pass
-                return None
-
-            self._channel_add_left = _get_adders("left")
-            self._channel_add_right = _get_adders("right")
-            pass
-        except Exception:
-            # Non-fatal if config missing/malformed
-            self._channel_add_left = None
-            self._channel_add_right = None
 
         # Optional per-camera color adjustment pipelines (left/right) applied
         # before stitching. These mirror the standard inference/video_out
@@ -409,7 +346,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 decoder_type=self._decoder_type,
                 frame_step=frame_step_1,
                 no_cuda_streams=self._no_cuda_streams,
-                image_channel_adders=self._channel_add_left,
                 checkerboard_input=self._checkerboard_input,
                 async_mode=True,
                 prefetch_batches=self._prefetch_batches,
@@ -429,7 +365,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
                 decoder_type=self._decoder_type,
                 frame_step=frame_step_2,
                 no_cuda_streams=self._no_cuda_streams,
-                image_channel_adders=self._channel_add_right,
                 checkerboard_input=self._checkerboard_input,
                 async_mode=True,
                 prefetch_batches=self._prefetch_batches,

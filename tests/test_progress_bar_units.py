@@ -187,7 +187,6 @@ def should_normalize_legacy_game_stitching_keys_to_root_level():
                 "stitch-rotate-degrees": 5.0,
                 "frame_offsets": {"left": 1.0, "right": 2.0},
             },
-            "rgb_add": {"left": [1.0, 2.0, 3.0]},
         },
     }
 
@@ -196,9 +195,7 @@ def should_normalize_legacy_game_stitching_keys_to_root_level():
     assert cfg["stitching"]["stitch_frame_time"] == "00:00:07"
     assert cfg["stitching"]["post_stitch_rotate_degrees"] == 5.0
     assert cfg["stitching"]["frame_offsets"] == {"left": 1.0, "right": 2.0}
-    assert cfg["stitching"]["rgb_add"] == {"left": [1.0, 2.0, 3.0]}
     assert "stitching" not in cfg.get("game", {})
-    assert "rgb_add" not in cfg.get("game", {})
 
 
 def should_sync_stitch_frame_time_state_clean_and_persist_when_it_changes(monkeypatch, tmp_path):
