@@ -151,7 +151,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         decoder_type: Optional[str] = None,
         dtype: torch.dtype = torch.float,
         verbose: bool = False,
-        auto_adjust_exposure: bool = False,
         on_first_stitched_image_callback: Optional[Callable] = None,
         minimize_blend: bool = True,
         python_blender: bool = True,
@@ -185,8 +184,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._videos = videos
         self._pto_project_file = pto_project_file
         self._blend_mode = blend_mode
-        self._auto_adjust_exposure = auto_adjust_exposure
-        self._exposure_adjustment: List[float] = None
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._current_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -718,7 +715,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             minimize_blend=self._minimize_blend,
             blend_mode=self._blend_mode,
             levels=levels_arg,
-            auto_adjust_exposure=self._auto_adjust_exposure,
         )
 
     @staticmethod

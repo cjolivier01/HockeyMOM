@@ -1,5 +1,4 @@
 #!/bin/bash
-# STITCH_AUTO_ADJUST="--stitch-auto-adjust-exposure=1"
 
 REPO_PYTHONPATH="$(pwd)"
 if [ -d "$(pwd)/src" ]; then
@@ -12,4 +11,4 @@ OMP_NUM_THREADS=24 \
   LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH}" \
   PYTHONNOUSERSITE=1 \
   PYTHONPATH="${OPENMM_PYTHONPATH}:${REPO_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}" \
-  python -m hmlib.cli.stitch $STITCH_AUTO_ADJUST --game-id=${GAME_ID} ${OFFSETS} $@
+  python -m hmlib.cli.stitch --game-id=${GAME_ID} ${OFFSETS} $@

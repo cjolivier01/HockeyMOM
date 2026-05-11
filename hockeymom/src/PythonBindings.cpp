@@ -236,20 +236,17 @@ class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
       int num_levels,
       WHDims input1_size,
       WHDims input2_size,
-      bool match_exposure,
       bool minimize_blend,
       int max_output_width)
       : CudaStitchPano<T, T_compute>(
             batch_size,
             num_levels,
             hm::pano::ControlMasks(std::move(game_dir)),
-            match_exposure,
             /*quiet=*/false,
             /*minimize_blend=*/minimize_blend,
             /*max_output_width=*/max_output_width),
         input1_size_(input1_size),
         input2_size_(input2_size) {
-    assert(!match_exposure); // Let's not do this anymore
     if (!Super::status().ok()) {
       std::string ss;
       throw std::runtime_error(Super::status().message());
@@ -293,13 +290,11 @@ class PyCudaStitchPano3 : public CudaStitchPano3<T, T_compute> {
       std::string game_dir,
       int batch_size,
       int num_levels,
-      std::vector<WHDims> input_sizes,
-      bool match_exposure)
+      std::vector<WHDims> input_sizes)
       : CudaStitchPano3<T, T_compute>(
             batch_size,
             num_levels,
-            hm::pano::ControlMasks3(std::move(game_dir)),
-            match_exposure),
+            hm::pano::ControlMasks3(std::move(game_dir))),
         input_sizes_(std::move(input_sizes)) {
     if (!Super::status().ok()) {
       std::string ss;
@@ -354,7 +349,6 @@ class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
       int batch_size,
       int num_levels,
       std::vector<WHDims> input_sizes,
-      bool match_exposure,
       bool minimize_blend,
       bool quiet)
       : CudaStitchPanoN<T, T_compute>(
@@ -363,7 +357,6 @@ class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
             hm::pano::ControlMasksN(
                 std::move(game_dir),
                 static_cast<int>(input_sizes.size())),
-            match_exposure,
             minimize_blend,
             quiet),
         input_sizes_(std::move(input_sizes)) {
@@ -1800,13 +1793,12 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPano<uchar4, T_compute>>>(
       m, "CudaStitchPanoU8")
       .def(
-          py::init<std::string, int, int, WHDims, WHDims, bool, bool, int>(),
+          py::init<std::string, int, int, WHDims, WHDims, bool, int>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input1"),
           py::arg("input2"),
-          py::arg("match_exposure"),
           py::arg("minimize_blend"),
           py::arg("max_output_width") = 0)
       .def("canvas_width", &PyCudaStitchPano<uchar4, T_compute>::canvas_width)
@@ -1848,7 +1840,7 @@ void init_cuda_pano(::pybind11::module_& m) {
       PyCudaStitchPano3<uchar4, T_compute>,
       std::shared_ptr<PyCudaStitchPano3<uchar4, T_compute>>>(
       m, "CudaStitchPano3U8")
-      .def(py::init<std::string, int, int, std::vector<WHDims>, bool>())
+      .def(py::init<std::string, int, int, std::vector<WHDims>>())
       .def("canvas_width", &PyCudaStitchPano3<uchar4, T_compute>::canvas_width)
       .def(
           "canvas_height", &PyCudaStitchPano3<uchar4, T_compute>::canvas_height)
@@ -1899,19 +1891,11 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPanoN<uchar4, T_compute>>>(
       m, "CudaStitchPanoNU8")
       .def(
-          py::init<
-              std::string,
-              int,
-              int,
-              std::vector<WHDims>,
-              bool,
-              bool,
-              bool>(),
+          py::init<std::string, int, int, std::vector<WHDims>, bool, bool>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input_sizes"),
-          py::arg("match_exposure"),
           py::arg("minimize_blend"),
           py::arg("quiet") = false)
       .def("canvas_width", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_width)
@@ -1961,13 +1945,12 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPano<float4, T_compute>>>(
       m, "CudaStitchPanoF32")
       .def(
-          py::init<std::string, int, int, WHDims, WHDims, bool, bool, int>(),
+          py::init<std::string, int, int, WHDims, WHDims, bool, int>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input1"),
           py::arg("input2"),
-          py::arg("match_exposure"),
           py::arg("minimize_blend"),
           py::arg("max_output_width") = 0)
       .def("canvas_width", &PyCudaStitchPano<float4, T_compute>::canvas_width)
@@ -2009,7 +1992,7 @@ void init_cuda_pano(::pybind11::module_& m) {
       PyCudaStitchPano3<float4, T_compute>,
       std::shared_ptr<PyCudaStitchPano3<float4, T_compute>>>(
       m, "CudaStitchPano3F32")
-      .def(py::init<std::string, int, int, std::vector<WHDims>, bool>())
+      .def(py::init<std::string, int, int, std::vector<WHDims>>())
       .def("canvas_width", &PyCudaStitchPano3<float4, T_compute>::canvas_width)
       .def(
           "canvas_height", &PyCudaStitchPano3<float4, T_compute>::canvas_height)
@@ -2060,19 +2043,11 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPanoN<float4, T_compute>>>(
       m, "CudaStitchPanoNF32")
       .def(
-          py::init<
-              std::string,
-              int,
-              int,
-              std::vector<WHDims>,
-              bool,
-              bool,
-              bool>(),
+          py::init<std::string, int, int, std::vector<WHDims>, bool, bool>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input_sizes"),
-          py::arg("match_exposure"),
           py::arg("minimize_blend"),
           py::arg("quiet") = false)
       .def("canvas_width", &PyCudaStitchPanoN<float4, T_compute>::canvas_width)

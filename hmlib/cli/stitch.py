@@ -552,7 +552,6 @@ def stitch_videos(
     start_frame_time: Optional[str] = None,
     stitch_frame_time: Optional[str] = None,
     force: Optional[bool] = False,
-    auto_adjust_exposure: Optional[bool] = False,
     minimize_blend: bool = True,
     python_blender: bool = False,
     configure_only: bool = False,
@@ -653,7 +652,6 @@ def stitch_videos(
         config_stitch_frame_time = stitch_cfg.get("stitch_frame_time")
         stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
         blend_mode = str(stitch_cfg.get("blend_mode") or blend_mode)
-        auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
         dtype = _resolve_stitch_tensor_dtype(dtype, stitch_cfg)
@@ -817,7 +815,6 @@ def stitch_videos(
                 blend_mode=blend_mode,
                 remapping_device=remapping_device,
                 dtype=dtype,
-                auto_adjust_exposure=auto_adjust_exposure,
                 minimize_blend=preferred_arg(getattr(args, "minimize_blend", None), minimize_blend),
                 python_blender=python_blender,
                 post_stitch_rotate_degrees=post_stitch_rotate_degrees,
@@ -1188,7 +1185,6 @@ def _main(args) -> None:
             encoder_device=encoder_device,
             dtype=HalfFloatType if args.fp16 else torch.float,
             force=args.force,
-            auto_adjust_exposure=args.stitch_auto_adjust_exposure,
             minimize_blend=not args.no_minimize_blend,
             python_blender=args.python_blender,
             max_control_points=args.max_control_points,

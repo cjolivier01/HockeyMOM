@@ -91,7 +91,6 @@ class StitchingPlugin(Plugin):
         pto_project_file: Optional[str] = None,
         dir_name: Optional[str] = None,
         blend_mode: str = "laplacian",
-        auto_adjust_exposure: bool = False,
         python_blender: bool = False,
         use_cuda_pano_n: bool = False,
         minimize_blend: bool = True,
@@ -114,7 +113,6 @@ class StitchingPlugin(Plugin):
             except Exception:
                 self._dir_name = None
         self._blend_mode = str(blend_mode)
-        self._auto_adjust_exposure = bool(auto_adjust_exposure)
         self._python_blender = bool(python_blender)
         self._use_cuda_pano_n = bool(use_cuda_pano_n)
         self._minimize_blend = bool(minimize_blend)
@@ -393,7 +391,6 @@ class StitchingPlugin(Plugin):
             max_output_width=self._max_output_width,
             blend_mode=self._blend_mode,
             levels=levels_arg,
-            auto_adjust_exposure=self._auto_adjust_exposure,
         )
 
     def _resolve_rotation_degrees(self, context: Dict[str, Any]) -> Optional[float]:

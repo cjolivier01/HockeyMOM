@@ -118,10 +118,9 @@ def should_not_apply_parser_defaults_as_config_overrides() -> None:
     parser = hm_opts.parser(argparse.ArgumentParser())
     args = parser.parse_args([])
 
-    game_config = {"stitching": {"auto_adjust_exposure": True, "blend_mode": "multiblend"}}
+    game_config = {"stitching": {"blend_mode": "multiblend"}}
     hm_opts.apply_arg_config_overrides(game_config, args, parser=parser)
 
-    assert game_config["stitching"]["auto_adjust_exposure"] is True
     assert game_config["stitching"]["blend_mode"] == "multiblend"
 
 

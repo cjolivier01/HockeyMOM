@@ -15,7 +15,6 @@
 # Legacy hmtrack flags for saving detections/tracks were removed, so only use the
 # still-supported camera CSV option here to avoid CLI errors.
 SAVE_DATA_ARGS="--save-camera-data"
-# EXPOSURE="--stitch-auto-adjust-exposure=1"
 
 echo "Experiment name: ${EXP_NAME}"
 
@@ -36,6 +35,5 @@ OMP_NUM_THREADS=16 \
   PYTHONPATH="${OPENMM_PYTHONPATH}:${REPO_PYTHONPATH}${PYTHONPATH:+:${PYTHONPATH}}" \
   ${WRAPPER_CMD} python -m hmlib.cli.hmtrack \
   ${SAVE_DATA_ARGS} \
-  ${EXPOSURE} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@
