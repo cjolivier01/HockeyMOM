@@ -696,24 +696,14 @@ def build_stitching_project(
             use_hugin=use_hugin,
         )
         try:
-            if run_remap_pipeline():
-                return True
-            logger.warning(
-                "LightGlue control points produced low-quality seam masks; retrying with cpfind"
-            )
+            remap_ok = run_remap_pipeline()
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            logger.warning(
-                "LightGlue control points did not produce remappable Hugin outputs; "
-                "retrying with cpfind: %s",
-                exc,
-            )
-
-        generate_pto()
-        cmd = ["cpfind", "--linearmatch", hm_project, "-o", hm_project]
-        _run_stitching_command(cmd)
-        if not any(line.startswith("c ") for line in Path(hm_project).read_text().splitlines()):
-            raise RuntimeError("cpfind did not generate any Hugin control points")
-        return run_remap_pipeline()
+            raise RuntimeError(
+                "LightGlue control points did not produce remappable Hugin outputs"
+            ) from exc
+        if not remap_ok:
+            raise RuntimeError("LightGlue control points produced low-quality seam masks")
+        return True
 
     finally:
         os.chdir(curr_dir)
