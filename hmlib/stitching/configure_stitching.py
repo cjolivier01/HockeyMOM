@@ -9,6 +9,7 @@ estimation and per-game synchronization into reusable functions.
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -50,82 +51,6 @@ def _resolve_local_binary(executable: str) -> Optional[str]:
     return None
 
 
-def _get_color_adjustment_adders(
-    game_id: str,
-) -> Tuple[Optional[List[float]], Optional[List[float]]]:
-    """Return per-side RGB adders from game config, if present.
-
-    Expected config structure in private game config (e.g. $HOME/Videos/<game_id>/config.yaml):
-
-    stitching:
-      color_adjustment:
-        left:
-          r: 45
-          g: 35
-          b: 56
-        right:
-          r: 48
-          g: 35
-          b: 49
-    """
-    cfg = get_game_config_private(game_id=game_id) or {}
-    normalize_runtime_config(cfg)
-    node = get_nested_value(cfg, "stitching.color_adjustment")
-    if not isinstance(node, dict):
-        return None, None
-
-    def _side(name: str) -> Optional[List[float]]:
-        side = node.get(name)
-        if not isinstance(side, dict):
-            return None
-        try:
-            r = float(side.get("r"))
-            g = float(side.get("g"))
-            b = float(side.get("b"))
-            return [r, g, b]
-        except Exception:
-            return None
-
-    return _side("left"), _side("right")
-
-
-def _apply_color_adders_to_image_file(image_path: str, adders: Optional[List[float]]) -> None:
-    """Apply per-channel RGB adders to a PNG file in-place.
-
-    - Operates on uint8 images, clamping to [0, 255].
-    - No-op if adders is None or the file is missing.
-    """
-    if not adders:
-        return
-    if not os.path.exists(image_path):
-        return
-    try:
-        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            return
-        # Ensure we have at least 3 channels; treat input as BGR
-        if img.ndim == 2:
-            # Grayscale; treat all channels the same by broadcasting R/G/B adders
-            arr = img.astype(np.float32)
-            arr = np.stack([arr, arr, arr], axis=-1)
-        else:
-            arr = img.astype(np.float32)
-            # Convert BGR -> RGB for intuitive R/G/B indexing
-            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-
-        # Apply adders to RGB channels
-        arr[..., 0] = np.clip(arr[..., 0] + adders[0], 0.0, 255.0)
-        arr[..., 1] = np.clip(arr[..., 1] + adders[1], 0.0, 255.0)
-        arr[..., 2] = np.clip(arr[..., 2] + adders[2], 0.0, 255.0)
-
-        # Convert back to BGR before saving so downstream OpenCV users see expected ordering
-        arr_bgr = cv2.cvtColor(arr.astype(np.uint8), cv2.COLOR_RGB2BGR)
-        cv2.imwrite(image_path, arr_bgr)
-    except Exception:
-        # Do not fail stitching configuration if adjustment fails
-        pass
-
-
 def _save_stitched_reference_frame(dir_name: Union[str, Path]) -> None:
     """Refresh ``s.png`` from the stitched reference panorama, when available."""
     panorama_file = Path(dir_name) / "panorama.tif"
@@ -164,6 +89,12 @@ def get_enblend_bin() -> str:
     if resolved is not None:
         return resolved
     return "enblend"
+
+
+def _run_stitching_command(cmd: Sequence[str]) -> None:
+    """Run an external stitching command and fail if it does not complete."""
+    logger.info("Running stitching command: %s", " ".join(cmd))
+    subprocess.run(cmd, check=True)
 
 
 def get_tiff_tag_value(tiff_tag):
@@ -272,6 +203,53 @@ def _delete_globs(game_dir: Path, patterns: Sequence[str]) -> int:
             if _unlink_best_effort(match):
                 removed += 1
     return removed
+
+
+def _set_hugin_optimization_variables(
+    project_file_path: Union[str, Path], variables: Sequence[str]
+) -> None:
+    """Restrict Hugin optimization to geometry variables used by LightGlue setup."""
+    path = Path(project_file_path)
+    lines = path.read_text().splitlines()
+    updated: List[str] = []
+    in_variables = False
+    replaced = False
+
+    def write_variable_block() -> None:
+        updated.extend(f"v {variable}" for variable in variables)
+        updated.append("v")
+
+    for line in lines:
+        if line.startswith("# specify variables"):
+            updated.append(line)
+            write_variable_block()
+            in_variables = True
+            replaced = True
+            continue
+        if in_variables:
+            if line.startswith("v"):
+                continue
+            if not line.strip():
+                in_variables = False
+                updated.append(line)
+                continue
+            in_variables = False
+        updated.append(line)
+
+    if not replaced:
+        insertion = next(
+            (index for index, line in enumerate(updated) if line.startswith("# control points")),
+            len(updated),
+        )
+        block = [
+            "# specify variables",
+            *[f"v {variable}" for variable in variables],
+            "v",
+            "",
+        ]
+        updated[insertion:insertion] = block
+
+    path.write_text("\n".join(updated) + "\n")
 
 
 def _delete_extracted_frames(game_dir: Path) -> int:
@@ -559,8 +537,8 @@ def build_stitching_project(
     curr_dir = os.getcwd()
     os.chdir(dir_name)
     try:
-        use_hugin = False
-        if not os.path.exists(hm_project) or force:
+
+        def generate_pto() -> None:
             cmd = [
                 "pto_gen",
                 "-p",
@@ -572,97 +550,136 @@ def build_stitching_project(
                 left_image_file,
                 right_image_file,
             ]
-            cmd_str = " ".join(cmd)
-            os.system(cmd_str)
-        else:
-            use_hugin = True
-        if True:
-            configure_control_points(
-                output_directory=str(dir_name),
-                project_file_path=hm_project,
-                image0=left_image_file,
-                image1=right_image_file,
-                max_control_points=max_control_points,
-                force=True,
-                use_hugin=use_hugin,
+            _run_stitching_command(cmd)
+
+        def remove_remap_outputs() -> None:
+            _delete_globs(
+                Path(dir_name),
+                patterns=[
+                    "autooptimiser_out.pto",
+                    "mapping_*.tif",
+                    "mapping_*.tiff",
+                    "panorama.tif",
+                    "seam_file.png",
+                ],
             )
-        else:
-            cmd = ["cpfind", "--linearmatch", hm_project, "-o", project_file_path]
-            os.system(" ".join(cmd))
 
-        # autooptimiser (RANSAC?)
-        cmd = [
-            "autooptimiser",
-            "-a",
-            "-l",
-            "-m",
-            "-s",
-            "-o",
-            autooptimiser_out,
-            hm_project,
-        ]
-        if scale and scale != 1.0:
-            cmd += [
-                "-x",
-                str(scale),
-            ]
-        os.system(" ".join(cmd))
-
-        # Output mapping files
-        cmd = [
-            "nona",
-            "-m",
-            "TIFF_m",
-            "-z",
-            "NONE",
-            "--bigtiff",
-            "-c",
-            "-o",
-            "mapping_",
-            autooptimiser_out,
-        ]
-        os.system(" ".join(cmd))
-        seam_file: str = os.path.join(dir_name, "seam_file.png")
-        cmd = [
-            get_enblend_bin(),
-            f"--save-masks={seam_file}",
-            "-o",
-            os.path.join(dir_name, "panorama.tif"),
-            os.path.join(dir_name, "mapping_????.tif"),
-        ]
-        os.system(" ".join(cmd))
-        # See if it came out with a reasonable seam file
-        distribution: Dict[int, float] = get_pixel_value_percentages(seam_file)
-        # Really, it should be way above this number for a good seam, but so far
-        # the "broken case" is much below this number (like 0.5%).
-        kMinAllowableSeamPercent: float = 10.0
-        if not distribution or any(pct < kMinAllowableSeamPercent for pct in distribution.values()):
-            print(f"Warning: seam file {seam_file} has low seam values, indicating a bad seam.")
-            for val, pct in sorted(distribution.items()):
-                print(f"Seam value {val:3d}: {pct:5.2f}%")
-            # Delete the seam file so that it doesn't get used accidentally
-            if os.path.exists(seam_file):
-                os.remove(seam_file)
-            # If the seam is bad, try using multiblend instead
+        def run_remap_pipeline() -> bool:
+            remove_remap_outputs()
             cmd = [
-                get_multiblend_bin(),
-                f"--save-seams={seam_file}",
+                "autooptimiser",
+                "-n",
+                "-l",
+                "-s",
+                "-q",
+                "-o",
+                autooptimiser_out,
+                hm_project,
+            ]
+            if scale and scale != 1.0:
+                cmd += [
+                    "-x",
+                    str(scale),
+                ]
+            _run_stitching_command(cmd)
+            _set_hugin_optimization_variables(autooptimiser_out, ("r1", "p1", "y1"))
+
+            cmd = [
+                "nona",
+                "-m",
+                "TIFF_m",
+                "-z",
+                "NONE",
+                "--bigtiff",
+                "-c",
+                "-o",
+                "mapping_",
+                autooptimiser_out,
+            ]
+            _run_stitching_command(cmd)
+            mapping_files = sorted(str(path) for path in Path(dir_name).glob("mapping_????.tif"))
+            if not mapping_files:
+                raise FileNotFoundError(f"No Hugin mapping TIFFs were generated in {dir_name}")
+
+            seam_file: str = os.path.join(dir_name, "seam_file.png")
+            cmd = [
+                get_enblend_bin(),
+                f"--save-masks={seam_file}",
                 "-o",
                 os.path.join(dir_name, "panorama.tif"),
-                os.path.join(dir_name, "mapping_????.tif"),
+                *mapping_files,
             ]
-            os.system(" ".join(cmd))
-            # Check again (should be ok now unless the stitch is really bad)
+            try:
+                _run_stitching_command(cmd)
+            except subprocess.CalledProcessError as exc:
+                logger.warning(
+                    "enblend failed with exit code %s; trying multiblend",
+                    exc.returncode,
+                )
+            # See if it came out with a reasonable seam file
             distribution: Dict[int, float] = get_pixel_value_percentages(seam_file)
-            if any(pct < kMinAllowableSeamPercent for pct in distribution.values()):
+            # Really, it should be way above this number for a good seam, but so far
+            # the "broken case" is much below this number (like 0.5%).
+            kMinAllowableSeamPercent: float = 10.0
+            if not distribution or any(
+                pct < kMinAllowableSeamPercent for pct in distribution.values()
+            ):
                 print(f"Warning: seam file {seam_file} has low seam values, indicating a bad seam.")
                 for val, pct in sorted(distribution.items()):
                     print(f"Seam value {val:3d}: {pct:5.2f}%")
-                return False
+                # Delete the seam file so that it doesn't get used accidentally
+                if os.path.exists(seam_file):
+                    os.remove(seam_file)
+                # If the seam is bad, try using multiblend instead
+                cmd = [
+                    get_multiblend_bin(),
+                    f"--save-seams={seam_file}",
+                    "-o",
+                    os.path.join(dir_name, "panorama.tif"),
+                    *mapping_files,
+                ]
+                _run_stitching_command(cmd)
+                # Check again (should be ok now unless the stitch is really bad)
+                distribution = get_pixel_value_percentages(seam_file)
+                if not distribution or any(
+                    pct < kMinAllowableSeamPercent for pct in distribution.values()
+                ):
+                    print(
+                        f"Warning: seam file {seam_file} has low seam values, indicating a bad seam."
+                    )
+                    for val, pct in sorted(distribution.items()):
+                        print(f"Seam value {val:3d}: {pct:5.2f}%")
+                    return False
+            return True
+
+        use_hugin = False
+        if not os.path.exists(hm_project) or force:
+            generate_pto()
+        else:
+            use_hugin = True
+
+        configure_control_points(
+            output_directory=str(dir_name),
+            project_file_path=hm_project,
+            image0=left_image_file,
+            image1=right_image_file,
+            max_control_points=max_control_points,
+            force=True,
+            use_hugin=use_hugin,
+        )
+        _set_hugin_optimization_variables(hm_project, ("r1", "p1", "y1"))
+        try:
+            remap_ok = run_remap_pipeline()
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            raise RuntimeError(
+                "LightGlue control points did not produce remappable Hugin outputs"
+            ) from exc
+        if not remap_ok:
+            raise RuntimeError("LightGlue control points produced low-quality seam masks")
+        return True
 
     finally:
         os.chdir(curr_dir)
-    return True
 
 
 def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
@@ -806,20 +823,15 @@ def configure_video_stitching(
             force=True,
         )
 
-        # Apply optional per-side color adjustments to extracted PNGs
-        # before they are used by Hugin / PTO configuration.
-        game_id = dir_name.split("/")[-1]
-        left_adders, right_adders = _get_color_adjustment_adders(game_id=game_id)
-        _apply_color_adders_to_image_file(left_image_file, left_adders)
-        _apply_color_adders_to_image_file(right_image_file, right_adders)
-
-        build_stitching_project(
+        project_built = build_stitching_project(
             project_file_path=pto_project_file,
             image_files=[left_image_file, right_image_file],
             max_control_points=max_control_points,
             force=force,
             skip_if_exists=not force,
         )
+        if not project_built:
+            raise RuntimeError("Failed to build stitching project")
 
     _save_stitched_reference_frame(dir_name)
 

@@ -63,7 +63,6 @@ class CudaStitchPanoU8:
         num_levels: int,
         input1: WHDims,
         input2: WHDims,
-        match_exposure: bool = True,
         minimize_blend: bool = True,
         max_output_width: int = 0,
     ): ...
@@ -80,7 +79,6 @@ class CudaStitchPano3U8:
         batch_size: int,
         num_levels: int,
         inputs: Sequence[WHDims],
-        match_exposure: bool = True,
     ): ...
     def process(self, d_inputs: Sequence[int], d_canvas: int, stream: Optional[int]) -> None: ...
 
@@ -93,7 +91,8 @@ class CudaStitchPanoNU8:
         batch_size: int,
         num_levels: int,
         input_sizes: Sequence[WHDims],
-        match_exposure: bool = True,
+        minimize_blend: bool,
+        quiet: bool = False,
     ): ...
     def process(self, d_inputs: Sequence[int], d_canvas: int, stream: Optional[int]) -> None: ...
 

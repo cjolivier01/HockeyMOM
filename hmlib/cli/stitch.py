@@ -21,6 +21,8 @@ from hmlib.config import (
 )
 from hmlib.hm_opts import _get_baseline_runtime_config, hm_opts, preferred_arg
 from hmlib.log import get_root_logger
+from hmlib.orientation import configure_game_videos
+from hmlib.stitching.configure_stitching import clean_stitch_game_artifacts
 from hmlib.utils.iterators import CachedIterator
 from hmlib.utils.path import add_prefix_to_filename
 
@@ -552,7 +554,6 @@ def stitch_videos(
     start_frame_time: Optional[str] = None,
     stitch_frame_time: Optional[str] = None,
     force: Optional[bool] = False,
-    auto_adjust_exposure: Optional[bool] = False,
     minimize_blend: bool = True,
     python_blender: bool = False,
     configure_only: bool = False,
@@ -653,7 +654,6 @@ def stitch_videos(
         config_stitch_frame_time = stitch_cfg.get("stitch_frame_time")
         stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
         blend_mode = str(stitch_cfg.get("blend_mode") or blend_mode)
-        auto_adjust_exposure = bool(stitch_cfg.get("auto_adjust_exposure", auto_adjust_exposure))
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
         dtype = _resolve_stitch_tensor_dtype(dtype, stitch_cfg)
@@ -766,7 +766,6 @@ def stitch_videos(
                 decoder_type=decoder_type,
                 frame_step=frame_step_left,
                 no_cuda_streams=args.no_cuda_streams,
-                image_channel_adders=None,
                 checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
                 prefetch_batches=args.dataset_prefetch_batches,
@@ -784,7 +783,6 @@ def stitch_videos(
                 decoder_type=decoder_type,
                 frame_step=frame_step_right,
                 no_cuda_streams=args.no_cuda_streams,
-                image_channel_adders=None,
                 checkerboard_input=args.checkerboard_input,
                 async_mode=not args.serial,
                 prefetch_batches=args.dataset_prefetch_batches,
@@ -817,7 +815,6 @@ def stitch_videos(
                 blend_mode=blend_mode,
                 remapping_device=remapping_device,
                 dtype=dtype,
-                auto_adjust_exposure=auto_adjust_exposure,
                 minimize_blend=preferred_arg(getattr(args, "minimize_blend", None), minimize_blend),
                 python_blender=python_blender,
                 post_stitch_rotate_degrees=post_stitch_rotate_degrees,
@@ -1079,9 +1076,7 @@ def stitch_videos(
 
 
 def _main(args) -> None:
-    from hmlib.orientation import configure_game_videos
     from hmlib.segm.ice_rink import main as ice_rink_main
-    from hmlib.stitching.configure_stitching import clean_stitch_game_artifacts
     from hmlib.utils.gpu import GpuAllocator
     from hmlib.utils.progress_bar import convert_hms_to_seconds
     from hmlib.video.ffmpeg import BasicVideoInfo
@@ -1188,7 +1183,6 @@ def _main(args) -> None:
             encoder_device=encoder_device,
             dtype=HalfFloatType if args.fp16 else torch.float,
             force=args.force,
-            auto_adjust_exposure=args.stitch_auto_adjust_exposure,
             minimize_blend=not args.no_minimize_blend,
             python_blender=args.python_blender,
             max_control_points=args.max_control_points,

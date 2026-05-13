@@ -79,7 +79,6 @@ aspen:
         dir_name: GLOBAL.stitching.dir_name
         blend_mode: GLOBAL.stitching.blend_mode
         max_blend_levels: GLOBAL.stitching.max_blend_levels
-        auto_adjust_exposure: GLOBAL.stitching.auto_adjust_exposure
         python_blender: GLOBAL.stitching.python_blender
         use_cuda_pano_n: GLOBAL.stitching.use_cuda_pano_n
         minimize_blend: GLOBAL.stitching.minimize_blend

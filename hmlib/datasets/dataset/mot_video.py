@@ -55,7 +55,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         multi_width_img_info: bool = True,
         embedded_data_loader=None,
         original_image_only: bool = False,
-        image_channel_adders: Optional[Tuple[float, float, float]] = None,
         device: torch.device = torch.device("cpu"),
         decoder_device: torch.device = torch.device("cpu"),
         decoder_type: Optional[str] = None,
@@ -115,17 +114,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         self.width_t = None
         self.height_t = None
         self._scale_color_tensor = None
-        # Optional per-channel adders (R, G, B) applied to the original image
-        # but the image is actually BGR when it gets here, so swap B & R
-        self._image_channel_adders: Optional[Tuple[float, float, float]] = (
-            [
-                image_channel_adders[2],
-                image_channel_adders[1],
-                image_channel_adders[0],
-            ]
-            if image_channel_adders
-            else None
-        )
         self._count = torch.tensor([0], dtype=torch.int64)
         self._next_frame_id = torch.tensor([start_frame_number], dtype=torch.int32)
         if self._next_frame_id == 0:
@@ -167,72 +155,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
         )
 
         self.load_video_info()
-
-    def _apply_channel_adders(self, img: torch.Tensor) -> torch.Tensor:
-        """Apply per-channel additive offsets (R, G, B) to an image tensor.
-
-        - Supports 3 or 4 channel images.
-        - Works for NCHW or NHWC (and CHW/HWC) by converting to channels-first internally.
-        - Preserves dtype by clamping to [0, 255] for integer-like tensors.
-        """
-        if not self._image_channel_adders:
-            return img
-        # StreamTensorBase should be unpacked before this function is called
-        assert isinstance(img, torch.Tensor)
-
-        # Determine if channels-last to restore layout later
-        was_channels_last = False
-        if img.ndim == 4:
-            was_channels_last = img.shape[-1] in (3, 4)
-        elif img.ndim == 3:
-            was_channels_last = img.shape[-1] in (3, 4)
-
-        t = make_channels_first(img)
-        orig_dtype = t.dtype
-        if not torch.is_floating_point(t):
-            t = t.to(torch.float16, non_blocking=True)
-
-        if True:
-            if not hasattr(self, "_image_channel_adders_tensor"):
-                self._image_channel_adders_tensor = torch.tensor(
-                    self._image_channel_adders, dtype=t.dtype
-                ).to(device=t.device, non_blocking=True)
-                if t.ndim == 4:
-                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(
-                        1, 3, 1, 1
-                    )
-                else:
-                    self._image_channel_adders_tensor = self._image_channel_adders_tensor.view(
-                        3, 1, 1
-                    )
-            # Build adder tensor and apply to first 3 channels only
-            # Only add to RGB channels; preserve alpha if present
-            # t[:, 0:3, :, :] = t[:, 0:3, :, :] + self._image_channel_adders_tensor
-            t[:, 0:3, :, :] += self._image_channel_adders_tensor
-        else:
-            add = torch.tensor(self._image_channel_adders, dtype=t.dtype, device=t.device)
-            if t.ndim == 4:
-                add = add.view(1, 3, 1, 1)
-            else:
-                add = add.view(3, 1, 1)
-            # Only add to RGB channels; preserve alpha if present
-            # t[:, 0:3, :, :] = t[:, 0:3, :, :] + add
-            t[:, 0:3, :, :] += add
-
-        t.clamp_(0.0, 255.0)
-
-        # Clamp and restore dtype
-        if orig_dtype in (
-            torch.uint8,
-            torch.int8,
-            torch.int16,
-            torch.int32,
-            torch.int64,
-        ):
-            t = t.to(dtype=orig_dtype)
-
-        out = make_channels_last(t) if was_channels_last else t
-        return out
 
     # ------------------------------------------------------------------
     # Debug helpers: RGB stats and checkerboard generation
@@ -691,10 +613,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             if self._data_pipeline is not None:
                 img0 = unwrap_tensor(img0)
 
-                # Optional per-channel additive offsets for input images
-                if self._image_channel_adders is not None:
-                    img0 = self._apply_channel_adders(img0)
-
                 original_img0 = img0
 
                 if torch.is_floating_point(img0) and img0.dtype != self._dtype:
@@ -725,10 +643,6 @@ class MOTLoadVideoWithOrig(Dataset):  # for inference
             else:
                 if isinstance(img0, StreamTensorBase):
                     img0 = img0.wait()
-                # Optional per-channel additive offsets for input images
-                if self._image_channel_adders is not None:
-                    img0 = self._apply_channel_adders(img0)
-
                 # Synchronizing here makes it a lot faster for some reason
                 # cuda_stream.synchronize()
 

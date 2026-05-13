@@ -2073,7 +2073,6 @@ def _main(args, num_gpu):
                         decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_left,
                         no_cuda_streams=args.no_cuda_streams,
-                        image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
                         prefetch_batches=args.dataset_prefetch_batches,
                     )
@@ -2092,7 +2091,6 @@ def _main(args, num_gpu):
                         decoder_type=args.video_stream_decode_method,
                         frame_step=frame_step_right,
                         no_cuda_streams=args.no_cuda_streams,
-                        image_channel_adders=None,
                         checkerboard_input=args.checkerboard_input,
                         prefetch_batches=args.dataset_prefetch_batches,
                     )
@@ -2129,9 +2127,6 @@ def _main(args, num_gpu):
                         decoder_type=args.video_stream_decode_method,
                         blend_mode=str(stitch_cfg.get("blend_mode") or opts.blend_mode),
                         dtype=stitch_dtype,
-                        auto_adjust_exposure=bool(
-                            stitch_cfg.get("auto_adjust_exposure", args.stitch_auto_adjust_exposure)
-                        ),
                         python_blender=bool(stitch_cfg.get("python_blender", args.python_blender)),
                         minimize_blend=bool(stitch_cfg.get("minimize_blend", True)),
                         no_cuda_streams=bool(

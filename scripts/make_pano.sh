@@ -9,17 +9,15 @@ PROJECT_FILE="hm_project.pto"
 #pto_gen -p 0 -o my_project.pto -f 108 left.png right.png
 #pto_gen -p 1 -o my_project.pto -f 108 left.png right.png
 
-# find control points
-#cpfind --linearmatch my_project.pto -o my_project.pto
-#cpfind --linearmatch --celeste my_project.pto -o my_project.pto
+# add control points with the LightGlue-based tooling before optimizing
 
 # Optimize the project
 
 # auto-level, auto-size
 if [ "$(uname -p)" == "aarch64" ]; then
-  autooptimiser -x 0.75 -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+  autooptimiser -x 0.75 -a -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
 else
-  autooptimiser -a -m -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
+  autooptimiser -a -l -s -o autooptimiser_out.pto "${PROJECT_FILE}"
 fi
 
 echo "Making mapping files..."

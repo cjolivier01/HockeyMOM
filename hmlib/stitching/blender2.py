@@ -985,11 +985,9 @@ def create_stitcher(
     draw: bool = False,
     use_cuda_pano: bool = True,
     use_cuda_pano_n: bool = False,
-    auto_adjust_exposure: bool = False,
 ):
     """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
     if use_cuda_pano:
-        assert not auto_adjust_exposure  # messes with minimize_blend results
         assert dir_name
         if input_image_sizes_wh is None:
             input_image_sizes_wh = [left_image_size_wh, right_image_size_wh]
@@ -1010,7 +1008,6 @@ def create_stitcher(
                     levels,
                     size1,
                     size2,
-                    match_exposure=auto_adjust_exposure,
                     minimize_blend=minimize_blend,
                     max_output_width=max_output_width_i,
                 )
@@ -1021,7 +1018,6 @@ def create_stitcher(
                     levels,
                     size1,
                     size2,
-                    match_exposure=auto_adjust_exposure,
                     minimize_blend=minimize_blend,
                     max_output_width=max_output_width_i,
                 )
@@ -1038,7 +1034,6 @@ def create_stitcher(
                 batch_size,
                 levels,
                 input_sizes,
-                match_exposure=auto_adjust_exposure,
                 minimize_blend=minimize_blend,
                 quiet=False,
             )
@@ -1048,7 +1043,6 @@ def create_stitcher(
                 batch_size,
                 levels,
                 input_sizes,
-                match_exposure=auto_adjust_exposure,
                 minimize_blend=minimize_blend,
                 quiet=False,
             )
@@ -1207,7 +1201,6 @@ def blend_video(
     if use_cuda_pano:
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
-        adjust_exposure: bool = True
         if blend_mode == "laplacian":
             num_levels: int = (
                 int(max_blend_levels)
@@ -1218,7 +1211,7 @@ def blend_video(
             # Hard-seam or other non-laplacian GPU modes: force single level.
             num_levels = 0
         stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(
-            dir_name, batch_size, num_levels, size1, size2, adjust_exposure, minimize_blend
+            dir_name, batch_size, num_levels, size1, size2, minimize_blend
         )
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()

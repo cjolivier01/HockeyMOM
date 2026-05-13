@@ -140,6 +140,7 @@ class DetectorFactoryPlugin(Plugin):
             return {}
         if self._model is None:
             from mmengine.config import ConfigDict
+            from mmengine.registry import DefaultScope
             from mmyolo.registry import MODELS
 
             if MODELS is None:
@@ -174,7 +175,14 @@ class DetectorFactoryPlugin(Plugin):
                         "mmyolo is required for YOLOv8 models but is not installed."
                     ) from ex
 
-            model = MODELS.build(model_cfg)
+            model_type = str(model_cfg.get("type", "")).lower()
+            model_scope = (
+                DefaultScope.overwrite_default_scope("mmyolo")
+                if "mmyolo" in model_type
+                else nullcontext()
+            )
+            with model_scope:
+                model = MODELS.build(model_cfg)
 
             if hasattr(model, "init_weights"):
                 with numpy2_pickle_compat():

@@ -525,7 +525,6 @@ def configure_stitching(
         cmd = [
             "autooptimiser",
             "-a",
-            "-m",
             "-l",
             "-s",
             "-o",

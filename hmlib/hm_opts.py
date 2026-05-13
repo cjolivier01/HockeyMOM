@@ -1427,12 +1427,6 @@ class hm_opts(object):
             help="Don't save the output video",
         )
         parser.add_argument(
-            "--stitch-auto-adjust-exposure",
-            type=Optional[int],
-            default=None,
-            help="Auto-adjust exposure when stitching",
-        )
-        parser.add_argument(
             "--no-minimize-blend",
             action="store_true",
             help="Don't minimize blending to the overlapped portions",
@@ -1730,7 +1724,6 @@ class hm_opts(object):
             ("aspen_stitching", "stitching.enabled"),
             ("blend_mode", "stitching.blend_mode"),
             ("max_blend_levels", "stitching.max_blend_levels"),
-            ("stitch_auto_adjust_exposure", "stitching.auto_adjust_exposure"),
             ("python_blender", "stitching.python_blender"),
             ("no_minimize_blend", "stitching.minimize_blend"),
             ("minimize_blend", "stitching.minimize_blend"),
@@ -1788,7 +1781,6 @@ class hm_opts(object):
         "display_plugin_profile": bool,
         "display_aspen_graph": bool,
         "aspen_stitching": bool,
-        "stitch_auto_adjust_exposure": bool,
         "python_blender": bool,
         "no_minimize_blend": {True: False},
         "minimize_blend": bool,
