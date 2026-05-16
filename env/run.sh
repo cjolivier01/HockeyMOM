@@ -6,12 +6,14 @@ source ${SCRIPT_DIR}/tools.sh
 
 DOCKER_OPTS=""
 
-DOCKER_TAG=$(get_tag)
-if [ ! -z "${DOCKER_TAG}" ]; then
-  DOCKER_OPTS="${DOCKER_TAG}"
-  echo "DOCKER_TAG=${DOCKER_TAG}"
+if [ -z "${DOCKER_TAG}" ]; then
+  DOCKER_TAG=$(get_tag)
+  if [ ! -z "${DOCKER_TAG}" ]; then
+    DOCKER_OPTS="${DOCKER_TAG}"
+    echo "DOCKER_TAG=${DOCKER_TAG}"
+  fi
 fi
-
+set -x
 docker run --gpus all --privileged --user=$(id -u):$(id -g) -it \
   --memory 32g \
   -p 22298:22298 \
