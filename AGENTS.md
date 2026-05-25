@@ -42,6 +42,9 @@
 ## Commit & Pull Request Guidelines
 - Commits: concise, imperative subject (e.g., `fix(hmlib): handle empty frames`). Prefix with scope when helpful (`hmlib/`, `tools/`, `build/`).
 - PRs: include a clear description, linked issues, what/why, and test evidence (logs, sample outputs). Update docs when behavior changes.
+- Create regular PRs, not draft PRs, unless the user explicitly asks for a draft.
+- Use task-focused branch names without AI/tooling prefixes such as `codex/`.
+- Do not mention AI agents or coding tools in PR titles or descriptions; PR comments may mention them when useful.
 - Assets: do not commit large datasets or model weights; use `datasets/` and `pretrained/` symlinks.
 
 ## Security & Configuration Tips

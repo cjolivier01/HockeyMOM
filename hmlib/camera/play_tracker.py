@@ -53,6 +53,7 @@ from .camera_transformer import (
     build_frame_features,
     unpack_checkpoint,
 )
+from .camera_ui import CameraControlDialog
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
 _CPP_BOXES: bool = True
@@ -300,6 +301,7 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_right_inited = False
         # Per-window slider defaults: {window_name: {slider_name: default_value}}
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
+        self._ui_dialogs: Dict[str, CameraControlDialog] = {}
         self._ui_controls_dirty = True
         self._stitch_rotation_controller = stitch_rotation_controller
         self._force_stitching: bool = bool(force_stitching)
@@ -1540,9 +1542,43 @@ class PlayTracker(torch.nn.Module):
         ev_x10 = pos + _EXPOSURE_EV_X10_MIN
         return float(ev_x10) / 10.0
 
-    def _on_trackbar(self, _value: Any):
+    def _on_ui_control_changed(self, _value: Any):
         # Mark that UI controls changed so we can skip the heavy read when idle.
         self._ui_controls_dirty = True
+
+    def _create_ui_dialog(
+        self,
+        window_name: str,
+        *,
+        initial_size: Tuple[int, int],
+        position: Optional[Tuple[int, int]] = None,
+    ) -> CameraControlDialog:
+        dialog = CameraControlDialog(
+            window_name,
+            on_change=self._on_ui_control_changed,
+            initial_size=initial_size,
+            position=position,
+        )
+        dialog.open()
+        self._ui_dialogs[window_name] = dialog
+        return dialog
+
+    def _add_ui_slider(
+        self, window_name: str, name: str, max_value: int, initial_value: int
+    ) -> None:
+        self._ui_dialogs[window_name].add_slider(name, max_value, initial_value)
+
+    def _ui_slider_value(self, window_name: str, name: str) -> int:
+        return self._ui_dialogs[window_name].get_value(name)
+
+    def _set_ui_slider_value(
+        self, window_name: str, name: str, value: int, *, notify: bool = True
+    ) -> None:
+        self._ui_dialogs[window_name].set_value(name, value, notify=notify)
+
+    def _render_ui_dialogs(self) -> None:
+        for dialog in self._ui_dialogs.values():
+            dialog.show()
 
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""
@@ -1599,10 +1635,10 @@ class PlayTracker(torch.nn.Module):
         win = self._ui_window_name
         desired_degrees = max(-90.0, min(90.0, float(desired_degrees)))
         try:
-            cv2.setTrackbarPos(slider_name, win, self._stitch_deg_to_slider(desired_degrees))
-        except Exception:
-            pass
-        self._on_trackbar(None)
+            self._set_ui_slider_value(win, slider_name, self._stitch_deg_to_slider(desired_degrees))
+        except KeyError:
+            logger.warning("Failed to configure missing camera UI slider: %s", slider_name)
+        self._on_ui_control_changed(None)
 
     def _base_color_slider_defaults(self, color_cfg: Dict[str, Any]) -> Dict[str, int]:
         defaults: Dict[str, int] = {
@@ -1701,15 +1737,15 @@ class PlayTracker(torch.nn.Module):
         """Read color sliders from a window and update config under given prefixes."""
         try:
             color_win = window_name
-            wbk_enable = cv2.getTrackbarPos("White_Balance_Kelvin_Enable", color_win)
-            kelvin = cv2.getTrackbarPos("White_Balance_Kelvin_Temperature", color_win)
-            r100 = cv2.getTrackbarPos("White_Balance_Red_Gain_x100", color_win)
-            g100 = cv2.getTrackbarPos("White_Balance_Green_Gain_x100", color_win)
-            b100 = cv2.getTrackbarPos("White_Balance_Blue_Gain_x100", color_win)
-            br100 = cv2.getTrackbarPos("Brightness_Multiplier_x100", color_win)
-            ev_x10 = cv2.getTrackbarPos("Exposure_EV_x10", color_win)
-            ct100 = cv2.getTrackbarPos("Contrast_Multiplier_x100", color_win)
-            gm100 = cv2.getTrackbarPos("Gamma_Multiplier_x100", color_win)
+            wbk_enable = self._ui_slider_value(color_win, "White_Balance_Kelvin_Enable")
+            kelvin = self._ui_slider_value(color_win, "White_Balance_Kelvin_Temperature")
+            r100 = self._ui_slider_value(color_win, "White_Balance_Red_Gain_x100")
+            g100 = self._ui_slider_value(color_win, "White_Balance_Green_Gain_x100")
+            b100 = self._ui_slider_value(color_win, "White_Balance_Blue_Gain_x100")
+            br100 = self._ui_slider_value(color_win, "Brightness_Multiplier_x100")
+            ev_x10 = self._ui_slider_value(color_win, "Exposure_EV_x10")
+            ct100 = self._ui_slider_value(color_win, "Contrast_Multiplier_x100")
+            gm100 = self._ui_slider_value(color_win, "Gamma_Multiplier_x100")
 
             if int(wbk_enable) > 0:
                 kelvin_val = f"{int(max(1000, min(40000, kelvin)))}k"
@@ -1729,18 +1765,20 @@ class PlayTracker(torch.nn.Module):
             )
             self._set_ui_color_value_at_prefixes(prefixes, "contrast", max(1, ct100) / 100.0)
             self._set_ui_color_value_at_prefixes(prefixes, "gamma", max(1, gm100) / 100.0)
-        except Exception:
-            pass
+        except KeyError as ex:
+            logger.warning("Failed to apply camera color UI controls for %s: %s", window_name, ex)
 
     def _init_ui_controls(self):
         try:
-            cv2.namedWindow(self._ui_window_name, cv2.WINDOW_NORMAL)
+            self._ui_dialogs.clear()
+            self._create_ui_dialog(
+                self._ui_window_name,
+                initial_size=(900, 760),
+                position=(40, 50),
+            )
 
-            # Trackbar ranges
             def tb(name, maxv, init):
-                cv2.createTrackbar(
-                    name, self._ui_window_name, int(init), int(maxv), self._on_trackbar
-                )
+                self._add_ui_slider(self._ui_window_name, name, int(maxv), int(init))
 
             stop_dir_delay = int(self._initial_camera_value("stop_on_dir_change_delay"))
             cancel_stop = (
@@ -1779,7 +1817,8 @@ class PlayTracker(torch.nn.Module):
                     slider_pos = self._stitch_deg_to_slider(rot_cfg)
                     tb("Stitch_Rotate_Degrees", 180, slider_pos)
                     self._configure_stitch_slider(rot_cfg)
-                except Exception:
+                except Exception as ex:
+                    logger.warning("Failed to initialize stitch rotation camera UI control: %s", ex)
                     self._stitch_slider_enabled = False
             # Speeds/accels (scale sliders by x10 to allow decimals)
             camera_cfg = self._camera_cfg()
@@ -1811,27 +1850,21 @@ class PlayTracker(torch.nn.Module):
             if self._stitch_slider_enabled:
                 try:
                     self._ui_defaults[self._ui_window_name]["Stitch_Rotate_Degrees"] = (
-                        cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
-                        if cv2.getWindowProperty(self._ui_window_name, 0) is not None
-                        else self._stitch_deg_to_slider(
-                            self._current_stitch_rotation_degrees() or 0.0
-                        )
+                        self._ui_slider_value(self._ui_window_name, "Stitch_Rotate_Degrees")
                     )
-                except Exception:
-                    pass
+                except KeyError as ex:
+                    logger.warning("Failed to store stitch camera UI default: %s", ex)
             self._ui_inited = True
             # ---- Color controls window (stitched panorama) ----
             try:
-                cv2.namedWindow(self._ui_color_window_name, cv2.WINDOW_NORMAL)
-                try:
-                    cv2.moveWindow(self._ui_color_window_name, 520, 50)
-                except Exception:
-                    pass
+                self._create_ui_dialog(
+                    self._ui_color_window_name,
+                    initial_size=(860, 540),
+                    position=(960, 50),
+                )
 
                 def tb2(name, maxv, init):
-                    cv2.createTrackbar(
-                        name, self._ui_color_window_name, int(init), int(maxv), self._on_trackbar
-                    )
+                    self._add_ui_slider(self._ui_color_window_name, name, int(maxv), int(init))
 
                 tb2("White_Balance_Kelvin_Enable", 1, 0)
                 tb2("White_Balance_Kelvin_Temperature", 15000, 6500)
@@ -1846,15 +1879,15 @@ class PlayTracker(torch.nn.Module):
                 color_defaults = self._color_slider_defaults()
                 for name, val in color_defaults.items():
                     try:
-                        cv2.setTrackbarPos(name, self._ui_color_window_name, int(val))
-                    except Exception:
-                        pass
-                try:
-                    self._ui_defaults[self._ui_color_window_name] = dict(color_defaults)
-                except Exception:
-                    pass
+                        self._set_ui_slider_value(
+                            self._ui_color_window_name, name, int(val), notify=False
+                        )
+                    except KeyError as ex:
+                        logger.warning("Failed to set camera color UI default: %s", ex)
+                self._ui_defaults[self._ui_color_window_name] = dict(color_defaults)
                 self._ui_color_inited = True
-            except Exception:
+            except Exception as ex:
+                logger.warning("Failed to initialize camera color UI controls: %s", ex)
                 self._ui_color_inited = False
 
             # ---- Left/right stitching color controls (optional) ----
@@ -1862,19 +1895,18 @@ class PlayTracker(torch.nn.Module):
             if enable_stitch_side_ui:
                 # Left stitching color window
                 try:
-                    cv2.namedWindow(self._ui_color_left_window_name, cv2.WINDOW_NORMAL)
-                    try:
-                        cv2.moveWindow(self._ui_color_left_window_name, 520, 300)
-                    except Exception:
-                        pass
+                    self._create_ui_dialog(
+                        self._ui_color_left_window_name,
+                        initial_size=(820, 420),
+                        position=(40, 540),
+                    )
 
                     def tb_left(name, maxv, init):
-                        cv2.createTrackbar(
-                            name,
+                        self._add_ui_slider(
                             self._ui_color_left_window_name,
-                            int(init),
+                            name,
                             int(maxv),
-                            self._on_trackbar,
+                            int(init),
                         )
 
                     for name, maxv in (
@@ -1900,29 +1932,31 @@ class PlayTracker(torch.nn.Module):
                     left_defaults = self._stitch_side_color_defaults("left")
                     for name, val in left_defaults.items():
                         try:
-                            cv2.setTrackbarPos(name, self._ui_color_left_window_name, int(val))
-                        except Exception:
-                            pass
+                            self._set_ui_slider_value(
+                                self._ui_color_left_window_name, name, int(val), notify=False
+                            )
+                        except KeyError as ex:
+                            logger.warning("Failed to set left color UI default: %s", ex)
                     self._ui_defaults[self._ui_color_left_window_name] = dict(left_defaults)
                     self._ui_color_left_inited = True
-                except Exception:
+                except Exception as ex:
+                    logger.warning("Failed to initialize left camera color UI controls: %s", ex)
                     self._ui_color_left_inited = False
 
                 # Right stitching color window
                 try:
-                    cv2.namedWindow(self._ui_color_right_window_name, cv2.WINDOW_NORMAL)
-                    try:
-                        cv2.moveWindow(self._ui_color_right_window_name, 520, 550)
-                    except Exception:
-                        pass
+                    self._create_ui_dialog(
+                        self._ui_color_right_window_name,
+                        initial_size=(820, 420),
+                        position=(900, 540),
+                    )
 
                     def tb_right(name, maxv, init):
-                        cv2.createTrackbar(
-                            name,
+                        self._add_ui_slider(
                             self._ui_color_right_window_name,
-                            int(init),
+                            name,
                             int(maxv),
-                            self._on_trackbar,
+                            int(init),
                         )
 
                     for name, maxv in (
@@ -1948,12 +1982,15 @@ class PlayTracker(torch.nn.Module):
                     right_defaults = self._stitch_side_color_defaults("right")
                     for name, val in right_defaults.items():
                         try:
-                            cv2.setTrackbarPos(name, self._ui_color_right_window_name, int(val))
-                        except Exception:
-                            pass
+                            self._set_ui_slider_value(
+                                self._ui_color_right_window_name, name, int(val), notify=False
+                            )
+                        except KeyError as ex:
+                            logger.warning("Failed to set right color UI default: %s", ex)
                     self._ui_defaults[self._ui_color_right_window_name] = dict(right_defaults)
                     self._ui_color_right_inited = True
-                except Exception:
+                except Exception as ex:
+                    logger.warning("Failed to initialize right camera color UI controls: %s", ex)
                     self._ui_color_right_inited = False
         except Exception:
             import traceback
@@ -1966,6 +2003,12 @@ class PlayTracker(torch.nn.Module):
         if not self._camera_ui_enabled or not self._ui_inited:
             return
         try:
+            self._render_ui_dialogs()
+        except Exception as ex:
+            logger.warning("Failed to render camera UI controls: %s", ex)
+            self._camera_ui_enabled = False
+            return
+        try:
             # Still poll keyboard every frame for responsiveness
             self._handle_ui_keyboard()
         except Exception:
@@ -1974,19 +2017,29 @@ class PlayTracker(torch.nn.Module):
             return
         try:
             self._ui_controls_dirty = False
-            # Read trackbars
+            # Read scalable camera controls.
             dir_delay = int(
-                cv2.getTrackbarPos("Stop_Direction_Change_Delay_Frames", self._ui_window_name)
+                self._ui_slider_value(self._ui_window_name, "Stop_Direction_Change_Delay_Frames")
             )
             cancel_opp = bool(
-                cv2.getTrackbarPos("Cancel_Stop_On_Opposite_Direction", self._ui_window_name)
+                self._ui_slider_value(self._ui_window_name, "Cancel_Stop_On_Opposite_Direction")
             )
-            hyst = int(cv2.getTrackbarPos("Stop_Cancel_Hysteresis_Frames", self._ui_window_name))
-            cooldown = int(cv2.getTrackbarPos("Stop_Delay_Cooldown_Frames", self._ui_window_name))
-            ov_delay = int(cv2.getTrackbarPos("Overshoot_Stop_Delay_Frames", self._ui_window_name))
-            postns = int(cv2.getTrackbarPos("Post_Nonstop_Stop_Delay_Frames", self._ui_window_name))
-            ov_scal = cv2.getTrackbarPos("Overshoot_Speed_Ratio_x100", self._ui_window_name) / 100.0
-            ttg = int(cv2.getTrackbarPos("Time_To_Dest_Speed_Limit_Frames", self._ui_window_name))
+            hyst = int(self._ui_slider_value(self._ui_window_name, "Stop_Cancel_Hysteresis_Frames"))
+            cooldown = int(
+                self._ui_slider_value(self._ui_window_name, "Stop_Delay_Cooldown_Frames")
+            )
+            ov_delay = int(
+                self._ui_slider_value(self._ui_window_name, "Overshoot_Stop_Delay_Frames")
+            )
+            postns = int(
+                self._ui_slider_value(self._ui_window_name, "Post_Nonstop_Stop_Delay_Frames")
+            )
+            ov_scal = (
+                self._ui_slider_value(self._ui_window_name, "Overshoot_Speed_Ratio_x100") / 100.0
+            )
+            ttg = int(
+                self._ui_slider_value(self._ui_window_name, "Time_To_Dest_Speed_Limit_Frames")
+            )
 
             # Apply runtime scaling so frame-count settings are stable across FPS.
             dir_delay_scaled = self._scale_frames_for_fps(dir_delay)
@@ -2028,11 +2081,13 @@ class PlayTracker(torch.nn.Module):
             # Stitch rotation degrees
             if self._stitch_slider_enabled:
                 try:
-                    rot_slider = cv2.getTrackbarPos("Stitch_Rotate_Degrees", self._ui_window_name)
+                    rot_slider = self._ui_slider_value(
+                        self._ui_window_name, "Stitch_Rotate_Degrees"
+                    )
                     rot_deg = self._slider_to_stitch_deg(rot_slider)
                     self._set_stitch_rotation_degrees(float(rot_deg))
-                except Exception:
-                    pass
+                except KeyError as ex:
+                    logger.warning("Failed to read stitch camera UI slider: %s", ex)
             # --- Color controls (stitched + left/right stitching) ---
             if self._ui_color_inited:
                 # Global stitched color adjustments
@@ -2053,12 +2108,14 @@ class PlayTracker(torch.nn.Module):
                     prefixes=[("stitching", "right", "color")],
                 )
             # Read selection + constraints
-            apply_fast = bool(cv2.getTrackbarPos("Apply_To_Fast_Box", self._ui_window_name))
-            apply_follower = bool(cv2.getTrackbarPos("Apply_To_Follower_Box", self._ui_window_name))
-            msx = cv2.getTrackbarPos("Max_Speed_X_x10", self._ui_window_name) / 10.0
-            msy = cv2.getTrackbarPos("Max_Speed_Y_x10", self._ui_window_name) / 10.0
-            maxx = cv2.getTrackbarPos("Max_Accel_X_x10", self._ui_window_name) / 10.0
-            maxy = cv2.getTrackbarPos("Max_Accel_Y_x10", self._ui_window_name) / 10.0
+            apply_fast = bool(self._ui_slider_value(self._ui_window_name, "Apply_To_Fast_Box"))
+            apply_follower = bool(
+                self._ui_slider_value(self._ui_window_name, "Apply_To_Follower_Box")
+            )
+            msx = self._ui_slider_value(self._ui_window_name, "Max_Speed_X_x10") / 10.0
+            msy = self._ui_slider_value(self._ui_window_name, "Max_Speed_Y_x10") / 10.0
+            maxx = self._ui_slider_value(self._ui_window_name, "Max_Accel_X_x10") / 10.0
+            maxy = self._ui_slider_value(self._ui_window_name, "Max_Accel_Y_x10") / 10.0
             if self._camera_base_speed_x > 0:
                 self._set_ui_config_value(
                     ("rink", "camera", "max_speed_ratio_x"),
@@ -2135,10 +2192,10 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             # For Python-only breakaway values, we read from self._game_config in calculate_breakaway
-        except Exception:
+        except Exception as ex:
             # If we failed to read UI, try again next frame
             self._ui_controls_dirty = True
-            pass
+            logger.warning("Failed to read/apply camera UI controls: %s", ex)
 
     def _draw_ui_overlay(self, img):
         if not self._camera_ui_enabled or not self._ui_inited:
@@ -2205,13 +2262,12 @@ class PlayTracker(torch.nn.Module):
             for win, sliders in self._ui_defaults.items():
                 for name, val in sliders.items():
                     try:
-                        cv2.setTrackbarPos(name, win, int(val))
-                    except Exception:
-                        # Ignore missing windows/trackbars
-                        pass
+                        self._set_ui_slider_value(win, name, int(val))
+                    except KeyError as ex:
+                        logger.warning("Failed to reset camera UI slider %s.%s: %s", win, name, ex)
             self._ui_controls_dirty = True
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.warning("Failed to reset camera UI controls: %s", ex)
 
     def _values_equal(self, a, b) -> bool:
         if a is _MISSING or b is _MISSING:
