@@ -585,7 +585,7 @@ def run_mmtrack(
                     if detect_timer is not None and cur_iter % 50 == 0:
                         # print(
                         logger.info(
-                            "AspenNet iteration, frame {} ({:.2f} fps)".format(
+                            "Detector time, frame {} ({:.2f} fps)".format(
                                 frame_id,
                                 batch_size * 1.0 / max(1e-5, detect_timer.average_time),
                             )

@@ -11,6 +11,13 @@ from .base import Plugin
 from .detector_factory_plugin import _strip_static_padding
 
 
+def _snapshot_tensor(value):
+    tensor = unwrap_tensor(value)
+    if torch.is_tensor(tensor):
+        return tensor.clone()
+    return tensor
+
+
 class DetectorInferencePlugin(Plugin):
     """
     Runs a pure detection model per-frame and attaches `pred_instances`.
@@ -124,13 +131,13 @@ class DetectorInferencePlugin(Plugin):
                     det_sample.pred_instances, strip=False
                 )
                 img_data_sample.pred_instances.bboxes = wrap_tensor(
-                    img_data_sample.pred_instances.bboxes
+                    _snapshot_tensor(img_data_sample.pred_instances.bboxes)
                 )
                 img_data_sample.pred_instances.labels = wrap_tensor(
-                    img_data_sample.pred_instances.labels
+                    _snapshot_tensor(img_data_sample.pred_instances.labels)
                 )
                 img_data_sample.pred_instances.scores = wrap_tensor(
-                    img_data_sample.pred_instances.scores
+                    _snapshot_tensor(img_data_sample.pred_instances.scores)
                 )
         if detect_timer is not None:
             detect_timer.toc()

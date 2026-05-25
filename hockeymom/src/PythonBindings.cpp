@@ -477,15 +477,23 @@ void show_cuda_tensor_impl(
   TORCH_CHECK(
       img_cuda.dim() == 3 && img_cuda.size(2) == 3, "Tensor must be H×W×3");
 
-  // wrap your raw stream
+  hm::torch_cuda_compat::DeviceGuard device_guard(img_cuda.device());
+
+  cudaStream_t render_stream = stream;
+
+  // Wrap external streams so ATen conversion work and display interop are
+  // queued on the same stream.
   std::unique_ptr<hm::torch_cuda_compat::Stream> cuda_stream;
   std::unique_ptr<hm::torch_cuda_compat::StreamGuard> stream_guard;
-  if (stream) {
+  if (render_stream) {
     cuda_stream = std::make_unique<hm::torch_cuda_compat::Stream>(
         hm::torch_cuda_compat::get_stream_from_external(
-            stream, img_cuda.device().index()));
+            render_stream, img_cuda.device().index()));
     stream_guard =
         std::make_unique<hm::torch_cuda_compat::StreamGuard>(*cuda_stream);
+  } else {
+    render_stream =
+        hm::torch_cuda_compat::get_current_stream(img_cuda.device().index());
   }
 
   img_cuda = bgr_to_rgb(std::move(img_cuda));
@@ -514,7 +522,16 @@ void show_cuda_tensor_impl(
   if (!render_set) {
     throw std::runtime_error("Render set has been destroyed");
   }
-  render_set->render(label, surface, stream);
+  TORCH_CHECK(
+      render_set->render(label, surface, render_stream),
+      "show_cuda_tensor failed to render frame");
+  if (wait) {
+    const cudaError_t err = cudaStreamSynchronize(render_stream);
+    TORCH_CHECK(
+        err == cudaSuccess,
+        "show_cuda_tensor failed while waiting for render stream: ",
+        cudaGetErrorString(err));
+  }
 }
 
 void on_python_exit() {

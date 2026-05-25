@@ -4,7 +4,7 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.utils.cuda_graph import CudaGraphCallable
-from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 
 from .base import Plugin
 
@@ -44,11 +44,19 @@ class IceRinkSegmBoundariesPlugin(Plugin):
         )
         self._segm = None
         self._default_plot_ice_mask: bool = bool(plot_ice_mask)
-        self._cuda_graph_enabled = bool(cuda_graph) and not plot_ice_mask
+        self._cuda_graph_enabled = False
         self._cg: Optional[CudaGraphCallable] = None
         self._cg_device: Optional[torch.device] = None
         self._raise_bbox_center_by_height_ratio = raise_bbox_center_by_height_ratio
         self._lower_bbox_bottom_by_height_ratio = lower_bbox_bottom_by_height_ratio
+
+    def set_cuda_graph_enabled(self, enabled: bool) -> bool:
+        # The rink-prune graph uses dynamic top-k/index_select over mixed dtypes.
+        # Under threaded per-plugin streams, captured label outputs have shown
+        # intermittent aliasing with bbox float storage. Keep this stage on the
+        # plugin stream; it is small and still runs asynchronously.
+        self._cuda_graph_enabled = False
+        return False
 
     def _ensure_pipeline(self, context: Dict[str, Any], draw: bool):
         if self._segm is not None:
@@ -70,6 +78,115 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             raise_bbox_center_by_height_ratio=self._raise_bbox_center_by_height_ratio,
             lower_bbox_bottom_by_height_ratio=self._lower_bbox_bottom_by_height_ratio,
         )
+
+    @staticmethod
+    def _detector_num_detections(det_instances: InstanceData):
+        for name in ("num_detections", "num_valid_after_nms", "num_valid"):
+            value = getattr(det_instances, name, None)
+            if value is not None:
+                return value
+        metainfo = getattr(det_instances, "metainfo", None)
+        if isinstance(metainfo, dict):
+            for name in ("num_detections", "num_valid_after_nms", "num_valid"):
+                value = metainfo.get(name)
+                if value is not None:
+                    return value
+        return None
+
+    @staticmethod
+    def _num_detections_tensor(num_detections, det_bboxes: torch.Tensor) -> torch.Tensor:
+        if isinstance(num_detections, StreamTensorBase):
+            num_detections = unwrap_tensor(num_detections)
+        if num_detections is None:
+            return torch.full(
+                (1,),
+                int(det_bboxes.shape[0]),
+                device=det_bboxes.device,
+                dtype=torch.int32,
+            )
+        if torch.is_tensor(num_detections):
+            if num_detections.numel() < 1:
+                raise ValueError("num_detections tensor must contain at least one value")
+            return num_detections.reshape(-1)[:1].to(
+                device=det_bboxes.device,
+                dtype=torch.int32,
+                non_blocking=True,
+            )
+        count = int(num_detections)
+        if count < 0 or count > int(det_bboxes.shape[0]):
+            raise ValueError(
+                f"num_detections={count} is outside valid range [0, {int(det_bboxes.shape[0])}]"
+            )
+        return torch.tensor([count], device=det_bboxes.device, dtype=torch.int32)
+
+    @staticmethod
+    def _num_detections_int(num_detections, total: int) -> Optional[int]:
+        if num_detections is None:
+            return None
+        if isinstance(num_detections, StreamTensorBase):
+            num_detections = unwrap_tensor(num_detections, get=True)
+        if torch.is_tensor(num_detections):
+            if num_detections.numel() < 1:
+                raise ValueError("num_detections tensor must contain at least one value")
+            count = int(num_detections.detach().reshape(-1)[:1].cpu().item())
+        else:
+            count = int(num_detections)
+        if count < 0 or count > total:
+            raise ValueError(f"num_detections={count} is outside valid range [0, {total}]")
+        return count
+
+    @staticmethod
+    def _sanitize_pruned_detections(
+        bboxes: torch.Tensor,
+        labels: torch.Tensor,
+        scores: torch.Tensor,
+        num_detections,
+        max_items: Optional[int],
+    ):
+        total = int(bboxes.shape[0])
+        count = IceRinkSegmBoundariesPlugin._num_detections_int(num_detections, total)
+        if count is None:
+            count = total
+
+        bboxes = bboxes[:count].to(dtype=torch.float32)
+        labels = labels[:count].to(dtype=torch.long)
+        scores = scores[:count].to(dtype=torch.float32)
+
+        if labels.numel():
+            max_cpp_int = torch.iinfo(torch.int32).max
+            valid_labels = (labels >= 0) & (labels <= max_cpp_int)
+            if not bool(valid_labels.all().detach().cpu().item()):
+                labels = labels.clone()
+                labels[~valid_labels] = 0
+
+        if bboxes.numel():
+            finite = torch.isfinite(bboxes).all(dim=1)
+            ordered = (bboxes[:, 2] >= bboxes[:, 0]) & (bboxes[:, 3] >= bboxes[:, 1])
+            valid_boxes = finite & ordered
+            if not bool(valid_boxes.all().detach().cpu().item()):
+                bboxes = bboxes[valid_boxes]
+                labels = labels[valid_boxes]
+                scores = scores[valid_boxes]
+
+        kept = int(bboxes.shape[0])
+        if max_items is not None:
+            max_items = max(int(max_items), 0)
+            kept = min(kept, max_items)
+            bboxes = bboxes[:kept]
+            labels = labels[:kept]
+            scores = scores[:kept]
+            if bboxes.shape[0] < max_items:
+                padded_bboxes = bboxes.new_zeros((max_items, 4))
+                padded_labels = labels.new_zeros((max_items,))
+                padded_scores = scores.new_zeros((max_items,))
+                if bboxes.numel():
+                    padded_bboxes[: bboxes.shape[0]].copy_(bboxes)
+                    padded_labels[: labels.shape[0]].copy_(labels)
+                    padded_scores[: scores.shape[0]].copy_(scores)
+                bboxes, labels, scores = padded_bboxes, padded_labels, padded_scores
+
+        num_valid = torch.tensor([kept], device=bboxes.device, dtype=torch.int32)
+        return bboxes, labels, scores, num_valid
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -106,6 +223,7 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             det_bboxes = unwrap_tensor(det_instances.bboxes)
             det_labels = unwrap_tensor(det_instances.labels)
             det_scores = unwrap_tensor(det_instances.scores)
+            num_detections = self._detector_num_detections(det_instances)
 
             # Fast path: CUDA graph the pruning operation (no drawing, fixed max outputs).
             if (
@@ -119,20 +237,40 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             ):
                 if self._cg is None or self._cg_device != det_bboxes.device:
                     # Build a graph for the current input signature.
-                    def _fn(b: torch.Tensor, labels_t: torch.Tensor, s: torch.Tensor):
+                    def _fn(
+                        b: torch.Tensor,
+                        labels_t: torch.Tensor,
+                        s: torch.Tensor,
+                        n: torch.Tensor,
+                    ):
                         out_b, out_l, out_s, num_valid = self._segm.prune_detections_static(
-                            det_bboxes=b, labels=labels_t, scores=s
+                            det_bboxes=b,
+                            labels=labels_t,
+                            scores=s,
+                            num_detections=n,
                         )
                         return out_b, out_l, out_s, num_valid
 
+                    num_detections_t = self._num_detections_tensor(num_detections, det_bboxes)
                     self._cg = CudaGraphCallable(
                         _fn,
-                        (det_bboxes, det_labels, det_scores),
+                        (det_bboxes, det_labels, det_scores, num_detections_t),
                         name="rink_prune",
                     )
                     self._cg_device = det_bboxes.device
+                num_detections_t = self._num_detections_tensor(num_detections, det_bboxes)
                 new_bboxes, new_labels, new_scores, num_valid = self._cg(
-                    det_bboxes, det_labels, det_scores
+                    det_bboxes,
+                    det_labels,
+                    det_scores,
+                    num_detections_t,
+                )
+                new_bboxes, new_labels, new_scores, num_valid = self._sanitize_pruned_detections(
+                    new_bboxes,
+                    new_labels,
+                    new_scores,
+                    num_valid,
+                    self._max_detections_in_mask,
                 )
                 new_inst = InstanceData(
                     bboxes=wrap_tensor(new_bboxes),
@@ -152,6 +290,8 @@ class IceRinkSegmBoundariesPlugin(Plugin):
                 "data_samples": track_samples,
                 "rink_profile": context.get("rink_profile"),
             }
+            if num_detections is not None:
+                pd_input["num_detections"] = num_detections
             if original_images is not None:
                 pd_input["original_images"] = original_images
 
@@ -161,13 +301,20 @@ class IceRinkSegmBoundariesPlugin(Plugin):
             new_bboxes = out["det_bboxes"]
             new_labels = out["labels"]
             new_scores = out["scores"]
+            num_detections = out.get("num_detections")
+            new_bboxes, new_labels, new_scores, num_detections = self._sanitize_pruned_detections(
+                new_bboxes,
+                new_labels,
+                new_scores,
+                num_detections,
+                self._max_detections_in_mask,
+            )
 
             new_inst = InstanceData(
                 bboxes=wrap_tensor(new_bboxes),
                 labels=wrap_tensor(new_labels),
                 scores=wrap_tensor(new_scores),
             )
-            num_detections = out.get("num_detections")
             if num_detections is not None:
                 new_inst.set_metainfo({"num_detections": num_detections})
             img_data_sample.pred_instances = new_inst

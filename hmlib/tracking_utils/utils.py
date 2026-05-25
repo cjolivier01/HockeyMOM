@@ -31,6 +31,14 @@ def get_track_mask(inst) -> Union[torch.Tensor, None]:
         if isinstance(meta, dict):
             num_tracks = meta.get("num_tracks")
     ids = getattr(inst, "instances_id", None)
+    try:
+        from hmlib.utils.gpu import StreamTensorBase
+    except Exception:  # pragma: no cover
+        StreamTensorBase = ()  # type: ignore[assignment]
+    if isinstance(ids, StreamTensorBase):
+        ids = ids.ref()
+    if isinstance(num_tracks, StreamTensorBase):
+        num_tracks = num_tracks.ref()
     if isinstance(num_tracks, torch.Tensor) and isinstance(ids, torch.Tensor):
         count = num_tracks.reshape(-1)[:1][0].to(device=ids.device)
         return torch.arange(ids.shape[0], device=ids.device) < count

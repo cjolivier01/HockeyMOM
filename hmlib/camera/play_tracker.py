@@ -288,6 +288,7 @@ class PlayTracker(torch.nn.Module):
         self._cluster_centroids_path = cluster_centroids_path
         self._save_cluster_centroids = bool(save_cluster_centroids)
         self._cluster_centroids_saved = False
+        self._invalid_track_bbox_warned = False
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
         self._camera_ui_enabled = bool(camera_ui)
@@ -797,6 +798,72 @@ class PlayTracker(torch.nn.Module):
     def get_arena_box(self):
         return self._play_box.clone()
 
+    @staticmethod
+    def _sample_track_mask(video_data_sample, ids: torch.Tensor) -> Optional[torch.Tensor]:
+        meta = getattr(video_data_sample, "metainfo", None)
+        if not isinstance(meta, dict):
+            return None
+        num_tracks = meta.get("num_tracks")
+        if not isinstance(num_tracks, torch.Tensor):
+            return None
+        count = num_tracks.reshape(-1)[:1][0].to(device=ids.device)
+        return torch.arange(ids.shape[0], device=ids.device) < count
+
+    def _prepare_online_tracks(
+        self,
+        track_inst: Any,
+        video_data_sample: Any,
+        frame_id: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        ids = unwrap_tensor(track_inst.instances_id)
+        bboxes_tlbr = unwrap_tensor(track_inst.bboxes)
+        if ids.ndim == 0:
+            ids = ids.reshape(1)
+        if bboxes_tlbr.ndim == 1:
+            bboxes_tlbr = bboxes_tlbr.reshape(-1, 4)
+
+        count = min(int(ids.shape[0]), int(bboxes_tlbr.shape[0]))
+        if count != int(ids.shape[0]) or count != int(bboxes_tlbr.shape[0]):
+            ids = ids[:count]
+            bboxes_tlbr = bboxes_tlbr[:count]
+
+        track_mask = get_track_mask(track_inst)
+        if track_mask is None:
+            track_mask = self._sample_track_mask(video_data_sample, ids)
+        if isinstance(track_mask, torch.Tensor):
+            id_mask = track_mask.to(device=ids.device, dtype=torch.bool)[:count]
+            box_mask = track_mask.to(device=bboxes_tlbr.device, dtype=torch.bool)[:count]
+            ids = ids[id_mask]
+            bboxes_tlbr = bboxes_tlbr[box_mask]
+
+        if bboxes_tlbr.numel() == 0:
+            return ids, bboxes_tlbr.reshape(0, 4), bboxes_tlbr.reshape(0, 4)
+
+        finite = torch.isfinite(bboxes_tlbr).all(dim=1)
+        ordered = (bboxes_tlbr[:, 2] >= bboxes_tlbr[:, 0]) & (
+            bboxes_tlbr[:, 3] >= bboxes_tlbr[:, 1]
+        )
+        valid_ids = ids >= 0
+        if valid_ids.device != bboxes_tlbr.device:
+            valid_ids = valid_ids.to(device=bboxes_tlbr.device)
+        valid = finite & ordered & valid_ids
+        if not bool(valid.all().detach().cpu().item()) and not self._invalid_track_bbox_warned:
+            invalid = ~valid
+            bad_boxes = bboxes_tlbr[invalid][:3].detach().cpu().tolist()
+            bad_ids = ids[invalid.to(device=ids.device)][:3].detach().cpu().tolist()
+            logger.warning(
+                "PlayTracker received invalid track bbox(es) at frame %d; dropping them before C++ PlayTracker. ids=%s boxes=%s",
+                int(frame_id),
+                bad_ids,
+                bad_boxes,
+            )
+            self._invalid_track_bbox_warned = True
+
+        ids = ids[valid.to(device=ids.device)]
+        bboxes_tlbr = bboxes_tlbr[valid]
+        online_tlwhs = batch_tlbrs_to_tlwhs(bboxes_tlbr)
+        return ids, bboxes_tlbr, online_tlwhs
+
     def _kmeans_cuda_device(self):
         return "cpu"
 
@@ -947,23 +1014,11 @@ class PlayTracker(torch.nn.Module):
 
             track_inst = video_data_sample.pred_track_instances
 
-            # Ensure any tracker outputs that may have been produced on a
-            # different CUDA stream are synchronized with the current stream.
-            ids = track_inst.instances_id
-
-            online_tlwhs = batch_tlbrs_to_tlwhs(unwrap_tensor(track_inst.bboxes))
-            online_ids = unwrap_tensor(ids)
-            track_mask = get_track_mask(track_inst)
-
-            if False:
-                # goes a few fps faster when async if this is on CPU
-                frame_id = frame_id.cpu()
-                online_tlwhs = online_tlwhs.cpu()
-                online_ids = online_ids.cpu()
-                if isinstance(track_mask, torch.Tensor):
-                    track_mask = track_mask.cpu()
-                    online_tlwhs = online_tlwhs[track_mask]
-                    online_ids = online_ids[track_mask]
+            online_ids, online_bboxes_tlbr, online_tlwhs = self._prepare_online_tracks(
+                track_inst=track_inst,
+                video_data_sample=video_data_sample,
+                frame_id=scalar_frame_id,
+            )
 
             self.process_jerseys_info(
                 frame_index=frame_index, frame_id=scalar_frame_id, data=results
@@ -1006,14 +1061,19 @@ class PlayTracker(torch.nn.Module):
                 assert not use_transformer, "Cannot use transformer with C++ PlayTracker"
                 tracking_ids: List[int] = []
                 online_bboxes: List[BBox] = []
-                for tid, bbox in zip(
-                    online_ids.cpu().tolist(), video_data_sample.pred_track_instances.bboxes
-                ):
+                for tid, bbox in zip(online_ids.detach().cpu().tolist(), online_bboxes_tlbr.cpu()):
                     if tid < 0:
                         # Invalid ID
                         continue
-                    tracking_ids.append(tid)
-                    online_bboxes.append(BBox(*bbox))
+                    tracking_ids.append(int(tid))
+                    online_bboxes.append(
+                        BBox(
+                            float(bbox[0].item()),
+                            float(bbox[1].item()),
+                            float(bbox[2].item()),
+                            float(bbox[3].item()),
+                        )
+                    )
                 playtracker_results = self._playtracker.forward(tracking_ids, online_bboxes)
                 for msg in getattr(playtracker_results, "log_messages", []):
                     try:

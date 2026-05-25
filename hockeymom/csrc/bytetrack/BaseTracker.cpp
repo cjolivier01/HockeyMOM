@@ -77,7 +77,8 @@ void BaseTracker::update( // TODO: Make the key an enum and just let that enum
   seen_frame_ids.reserve(num_objs);
   for (std::size_t i = 0; i < num_objs; ++i) {
     for (const auto& obj_item : these_memo_items) {
-      obj_memo_items[obj_item.first] = (*obj_item.second)[i];
+      // Track history outlives the per-frame tensors passed into update().
+      obj_memo_items[obj_item.first] = (*obj_item.second)[i].clone();
     }
     const int64_t id = ids[i].item().to<int64_t>();
     if (tracks_.count(id)) {

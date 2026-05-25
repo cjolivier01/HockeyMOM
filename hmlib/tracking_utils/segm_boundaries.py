@@ -212,6 +212,39 @@ class SegmBoundaries:
             return tensor & mask
         return tensor * mask.to(dtype=tensor.dtype)
 
+    @staticmethod
+    def _apply_num_detections_mask(
+        keep_mask: torch.Tensor,
+        num_detections: Optional[Union[int, torch.Tensor]],
+    ) -> torch.Tensor:
+        if num_detections is None:
+            return keep_mask
+        if isinstance(num_detections, StreamTensorBase):
+            num_detections = unwrap_tensor(num_detections)
+
+        total = int(keep_mask.shape[0])
+        if torch.is_tensor(num_detections):
+            if num_detections.numel() < 1:
+                raise ValueError("num_detections tensor must contain at least one value")
+            if num_detections.device.type == "cpu":
+                count = int(num_detections.reshape(-1)[:1].item())
+                if count < 0 or count > total:
+                    raise ValueError(f"num_detections={count} is outside valid range [0, {total}]")
+                active = torch.arange(total, device=keep_mask.device) < count
+            else:
+                count_t = num_detections.reshape(-1)[:1].to(
+                    device=keep_mask.device,
+                    dtype=torch.long,
+                    non_blocking=True,
+                )
+                active = torch.arange(total, device=keep_mask.device, dtype=torch.long) < count_t[0]
+        else:
+            count = int(num_detections)
+            if count < 0 or count > total:
+                raise ValueError(f"num_detections={count} is outside valid range [0, {total}]")
+            active = torch.arange(total, device=keep_mask.device) < count
+        return keep_mask & active
+
     def __call__(self, *args, **kwargs):
         self._iter_num += 1
         # do_trace = self._iter_num == 4
@@ -269,6 +302,7 @@ class SegmBoundaries:
             keep_mask = torch.as_tensor(keep_mask)
         if keep_mask.dtype != torch.bool:
             keep_mask = keep_mask.to(dtype=torch.bool)
+        keep_mask = self._apply_num_detections_mask(keep_mask, data.get("num_detections"))
         keep_count = keep_mask.to(dtype=torch.long).sum()
 
         if self._max_detections_in_mask is not None:
@@ -382,6 +416,7 @@ class SegmBoundaries:
         det_bboxes: torch.Tensor,
         labels: torch.Tensor,
         scores: torch.Tensor,
+        num_detections: Optional[Union[int, torch.Tensor]] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Prune (bboxes, labels, scores) against the segment mask.
 
@@ -415,6 +450,7 @@ class SegmBoundaries:
             keep_mask = torch.as_tensor(keep_mask, device=det_bboxes.device)
         if keep_mask.dtype != torch.bool:
             keep_mask = keep_mask.to(dtype=torch.bool)
+        keep_mask = self._apply_num_detections_mask(keep_mask, num_detections)
         keep_count = keep_mask.to(dtype=torch.int32).sum()
 
         max_items = self._max_detections_in_mask

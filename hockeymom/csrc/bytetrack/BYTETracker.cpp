@@ -4,6 +4,9 @@
 
 #include <torch/torch.h>
 
+#include <cstdlib>
+#include <limits>
+#include <sstream>
 #include <unistd.h>
 
 namespace hm {
@@ -17,6 +20,50 @@ at::Tensor _unscalar(at::Tensor&& t) {
     return t.unsqueeze(0);
   }
   return std::move(t);
+}
+
+std::string tensor_summary(const at::Tensor& tensor) {
+  std::ostringstream ss;
+  ss << "sizes=" << tensor.sizes() << ", dtype=" << tensor.scalar_type()
+     << ", device=" << tensor.device() << ", numel=" << tensor.numel();
+  return ss.str();
+}
+
+int64_t checked_scalar_int64(
+    const at::Tensor& tensor,
+    const std::string& context) {
+  TORCH_CHECK(
+      tensor.numel() == 1,
+      "Expected scalar tensor in ",
+      context,
+      ", got ",
+      tensor_summary(tensor));
+  try {
+    return tensor.reshape({-1})[0].item<int64_t>();
+  } catch (const c10::Error& exc) {
+    TORCH_CHECK(
+        false,
+        "Failed int64 scalar conversion in ",
+        context,
+        ": ",
+        exc.what_without_backtrace(),
+        "; tensor ",
+        tensor_summary(tensor));
+  }
+}
+
+int checked_scalar_int(const at::Tensor& tensor, const std::string& context) {
+  const int64_t value = checked_scalar_int64(tensor, context);
+  TORCH_CHECK(
+      value >= std::numeric_limits<int>::min() &&
+          value <= std::numeric_limits<int>::max(),
+      "Integer scalar out of int range in ",
+      context,
+      ": value=",
+      value,
+      "; tensor ",
+      tensor_summary(tensor));
+  return static_cast<int>(value);
 }
 
 } // namespace
@@ -90,7 +137,11 @@ std::tuple<at::Tensor, at::Tensor> BYTETracker::assign_ids(
   vector<long> track_labels_vec;
   track_labels_vec.reserve(ids.size());
   for (int id : ids) {
-    track_labels_vec.push_back(tracks_.at(id).labels.back().item<int>());
+    std::ostringstream ctx;
+    ctx << "BYTETracker::assign_ids track label"
+        << " track_id=" << id << " ids_count=" << ids.size()
+        << " det_count=" << det_bboxes.size(0);
+    track_labels_vec.push_back(checked_scalar_int(tracks_.at(id).labels.back(), ctx.str()));
   }
   at::Tensor track_labels = at::from_blob(
                                 track_labels_vec.data(),
@@ -386,10 +437,19 @@ std::unordered_map<std::string, at::Tensor> BYTETracker::track(
     for (std::size_t i = 0, n = confirmed_ids.size(); i < n; ++i) {
       auto id = confirmed_ids[i];
       // tracklet is not matched in the first match
-      bool case_1 = first_match_track_inds[i].item().to<int>() == -1;
+      std::ostringstream ctx;
+      ctx << "BYTETracker::track first_match_track_inds"
+          << " frame_id=" << frame_id << " index=" << i << " track_id=" << id
+          << " confirmed_count=" << confirmed_ids.size()
+          << " first_match_shape=" << first_match_track_inds.sizes();
+      bool case_1 = checked_scalar_int(first_match_track_inds[i], ctx.str()) == -1;
       // tracklet is not lost in the previous frame
+      std::ostringstream frame_ctx;
+      frame_ctx << "BYTETracker::track last frame id"
+                << " frame_id=" << frame_id << " track_id=" << id;
       bool case_2 =
-          tracks_[id].frame_ids.back().item().to<bool>() == frame_id - 1;
+          checked_scalar_int64(tracks_[id].frame_ids.back(), frame_ctx.str()) ==
+          frame_id - 1;
       if (debug_) {
         if (case_1) {
           debug_confirmed_was_not_in_first_match.emplace_back(id);
@@ -546,7 +606,55 @@ void BYTETracker::track_update(
       {kBBoxes, &bboxes},
       {kLabels, &labels},
       {kScores, &scores}};
+  if (validate_memos_enabled()) {
+    validate_label_tensor(
+        "before BaseTracker::update",
+        frame_ids.empty() ? -1 : frame_ids.front(),
+        labels);
+  }
   BaseTracker::update(kwargs);
+  if (validate_memos_enabled()) {
+    validate_track_memos(
+        "after BaseTracker::update",
+        frame_ids.empty() ? -1 : frame_ids.front());
+  }
+}
+
+bool BYTETracker::validate_memos_enabled() const {
+  const char* value = std::getenv("HM_TRACKER_VALIDATE_MEMOS");
+  return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+void BYTETracker::validate_label_tensor(
+    const char* stage,
+    int64_t frame_id,
+    const at::Tensor& labels) const {
+  at::Tensor labels_cpu = labels.cpu().reshape({-1});
+  for (int64_t i = 0, n = labels_cpu.size(0); i < n; ++i) {
+    std::ostringstream ctx;
+    ctx << "BYTETracker::validate_label_tensor"
+        << " stage=" << stage << " frame_id=" << frame_id
+        << " index=" << i << " count=" << n;
+    checked_scalar_int(labels_cpu[i], ctx.str());
+  }
+}
+
+void BYTETracker::validate_track_memos(const char* stage, int64_t frame_id)
+    const {
+  for (const auto& item : tracks_) {
+    const int64_t track_id = item.first;
+    const STrack& track = item.second;
+    std::size_t label_index = 0;
+    for (const at::Tensor& label : track.labels) {
+      std::ostringstream ctx;
+      ctx << "BYTETracker::validate_track_memos label"
+          << " stage=" << stage << " frame_id=" << frame_id
+          << " track_id=" << track_id << " label_index=" << label_index
+          << " label_count=" << track.labels.size();
+      checked_scalar_int(label, ctx.str());
+      ++label_index;
+    }
+  }
 }
 
 void BYTETracker::activate_track(int64_t id) {

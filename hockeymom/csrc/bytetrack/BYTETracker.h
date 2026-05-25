@@ -94,6 +94,13 @@ class BYTETracker : public BaseTracker, public IByteTracker {
       const at::Tensor& scores,
       const std::vector<int64_t>& frame_ids);
 
+  bool validate_memos_enabled() const;
+  void validate_label_tensor(
+      const char* stage,
+      int64_t frame_id,
+      const at::Tensor& labels) const;
+  void validate_track_memos(const char* stage, int64_t frame_id) const;
+
   std::tuple<at::Tensor, at::Tensor> assign_ids(
       const std::vector<long>& ids,
       const at::Tensor& det_bboxes,

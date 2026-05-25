@@ -52,6 +52,18 @@ def _same_tensor_signature(a: torch.Tensor, b: torch.Tensor) -> bool:
     )
 
 
+def _clone_output(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        return value.clone()
+    if isinstance(value, tuple):
+        return tuple(_clone_output(item) for item in value)
+    if isinstance(value, list):
+        return [_clone_output(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _clone_output(item) for key, item in value.items()}
+    return value
+
+
 @dataclass
 class CudaGraphStats:
     captures: int = 0
@@ -77,10 +89,12 @@ class CudaGraphCallable:
         *,
         warmup: int = 3,
         name: str = "cuda_graph",
+        clone_outputs: bool = True,
     ) -> None:
         self._fn = fn
         self._warmup = int(max(0, warmup))
         self._name = str(name)
+        self._clone_outputs = bool(clone_outputs)
 
         self._graph: Optional[torch.cuda.CUDAGraph] = None
         self._pool: Optional[torch.cuda.graphs.graph_pool_handle] = None
@@ -163,10 +177,20 @@ class CudaGraphCallable:
     def __call__(self, *inputs: torch.Tensor):
         inp = tuple(inputs)
         self._ensure_signature(inp)
+        assert self._graph is not None
+        device = self._static_inputs[0].device
+        current_stream = torch.cuda.current_stream(device)
+        replay_stream = self._capture_stream or current_stream
         with torch.inference_mode():
-            for s, t in zip(self._static_inputs, inp):
-                s.copy_(t)
-            assert self._graph is not None
-            self._graph.replay()
+            replay_stream.wait_stream(current_stream)
+            with torch.cuda.stream(replay_stream):
+                for s, t in zip(self._static_inputs, inp):
+                    s.copy_(t)
+                self._graph.replay()
+                if self._clone_outputs:
+                    output = _clone_output(self._static_outputs)
+                else:
+                    output = self._static_outputs
+            current_stream.wait_stream(replay_stream)
         self.stats.replays += 1
-        return self._static_outputs
+        return output

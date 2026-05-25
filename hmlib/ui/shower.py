@@ -238,9 +238,10 @@ class Shower:
                                 s_img = make_visible_image(
                                     s_img, enable_resizing=self._show_scaled, force_numpy=False
                                 )
-                                if self._stream is not None:
-                                    self._stream.synchronize()
-                                show_cuda_tensor(self._label, s_img, False, None)
+                                stream_handle = (
+                                    self._stream.cuda_stream if self._stream is not None else None
+                                )
+                                show_cuda_tensor(self._label, s_img, True, stream_handle)
                                 if self._hold_tensor_ref:
                                     # Holds a ref to this image to keep its GPU surface valid
                                     # (is this necessary? Do we create a separate texture out of this?)
@@ -315,8 +316,7 @@ class Shower:
 
     def _ensure_stream(self, device: torch.device):
         if self._stream is None and device.type == "cuda":
-            # We give our dipslay stream high priority to reduce its dependency on other
-            # computations and try to show the frame as soon as possible, in its (possibly) bad data state.
+            # Keep preview copies off the compute streams once producer work is ready.
             self._stream = torch.cuda.Stream(device, priority=-1)
 
     def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = True):

@@ -82,6 +82,35 @@ class TrtBatchedNMS:
         self._np = None
 
     @staticmethod
+    def _zero_padded_outputs(
+        boxes_out: torch.Tensor,
+        scores_out: torch.Tensor,
+        labels_out: torch.Tensor,
+        num_valid: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if num_valid.numel() < 1:
+            raise ValueError("num_valid tensor must contain at least one value")
+        valid_count = num_valid.reshape(-1)[:1].to(
+            device=boxes_out.device,
+            dtype=torch.long,
+            non_blocking=True,
+        )
+        valid_mask = (
+            torch.arange(boxes_out.shape[0], device=boxes_out.device, dtype=torch.long)
+            < valid_count[0]
+        )
+        boxes_out = torch.where(valid_mask.view(-1, 1), boxes_out, torch.zeros_like(boxes_out))
+        scores_mask = valid_mask
+        if scores_mask.device != scores_out.device:
+            scores_mask = scores_mask.to(device=scores_out.device, non_blocking=True)
+        scores_out = torch.where(scores_mask, scores_out, torch.zeros_like(scores_out))
+        labels_mask = valid_mask
+        if labels_mask.device != labels_out.device:
+            labels_mask = labels_mask.to(device=labels_out.device, non_blocking=True)
+        labels_out = torch.where(labels_mask, labels_out, torch.zeros_like(labels_out))
+        return boxes_out, scores_out, labels_out
+
+    @staticmethod
     def from_bbox_head(
         bbox_head: torch.nn.Module,
         max_num_boxes: int,
@@ -423,11 +452,19 @@ class TrtBatchedNMS:
         )
 
         # Use plugin outputs directly; all tensors are already on the correct
-        # CUDA stream. Filtering to the top-k per image is handled via the
-        # plugin's keepTopK/max_output_boxes configuration.
+        # CUDA stream. TensorRT leaves rows beyond num_detections unspecified
+        # for some plugin versions, so explicitly zero the padded tail before
+        # downstream fixed-shape pruning can rank those rows.
         boxes_out = out_boxes[0]
         scores_out = out_scores[0]
         labels_out = out_classes[0].to(torch.long)
+        num_valid_tensor = num_det.view(-1)[0].to(device=device, dtype=torch.int32)
+        boxes_out, scores_out, labels_out = self._zero_padded_outputs(
+            boxes_out,
+            scores_out,
+            labels_out,
+            num_valid_tensor,
+        )
 
         new_inst = InstanceData()
         new_inst.bboxes = boxes_out
@@ -437,7 +474,6 @@ class TrtBatchedNMS:
         # Propagate static padding metadata so _strip_static_padding can
         # trim back to num_valid on the GPU. Keep num_valid on device to
         # avoid a host-side sync here.
-        num_valid_tensor = num_det.view(-1)[0].to(device=device, dtype=torch.int32)
         try:
             new_inst.set_metainfo(
                 dict(
