@@ -11,7 +11,7 @@ from hmlib.utils.hockeymom_compat import (
     HmByteTrackConfig,
     HmTrackerPredictionMode,
 )
-from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
+from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 
 from .base import Plugin
 
@@ -59,6 +59,8 @@ class TrackerPlugin(Plugin):
         self._static_tracker_max_detections: Optional[int] = None
         self._static_tracker_max_tracks: Optional[int] = None
         self._static_tracker_overflow_warned = False
+        self._invalid_label_warned = False
+        self._invalid_bbox_warned = False
         self._iter_num: int = 0
 
     @property
@@ -275,6 +277,11 @@ class TrackerPlugin(Plugin):
                 results = self._hm_tracker.track(tracker_payload)
             except Exception as e:
                 logger.error("Tracker error at frame %d: %s", frame_id_scalar, str(e))
+                logger.error(
+                    "Tracker payload summary at frame %d: %s",
+                    frame_id_scalar,
+                    self._summarize_tracker_payload(tracker_payload),
+                )
                 raise
             results, frame_track_count = self._trim_tracker_outputs(results)
             ids = results.get("user_ids", results.get("ids"))
@@ -289,17 +296,19 @@ class TrackerPlugin(Plugin):
             if isinstance(ids, torch.Tensor):
                 track_mask = torch.arange(ids.shape[0], device=ids.device) < num_tracks[0]
 
-            pred_track_instances = InstanceData(
-                instances_id=wrap_tensor(ids),
-                bboxes=wrap_tensor(results["bboxes"]),
-                scores=wrap_tensor(results["scores"]),
-                labels=wrap_tensor(results["labels"]),
-            )
             meta_info = {}
             if isinstance(num_tracks, torch.Tensor):
                 meta_info["num_tracks"] = num_tracks
             if track_mask is not None:
                 meta_info["track_mask"] = track_mask
+
+            pred_track_instances = InstanceData(
+                metainfo=meta_info,
+                instances_id=wrap_tensor(ids),
+                bboxes=wrap_tensor(results["bboxes"]),
+                scores=wrap_tensor(results["scores"]),
+                labels=wrap_tensor(results["labels"]),
+            )
             if "reid_features" in results:
                 meta_info["reid_features"] = results["reid_features"]
 
@@ -367,6 +376,116 @@ class TrackerPlugin(Plugin):
             out = out.to(device=device, non_blocking=True)
         return out
 
+    @staticmethod
+    def _coerce_num_detections(num_detections: Any, total: int) -> Optional[int]:
+        if num_detections is None:
+            return None
+        if isinstance(num_detections, StreamTensorBase):
+            num_detections = unwrap_tensor(num_detections, get=True)
+        if isinstance(num_detections, torch.Tensor):
+            if num_detections.numel() < 1:
+                raise ValueError("num_detections tensor must contain at least one value")
+            count = int(num_detections.detach().reshape(-1)[:1].cpu().item())
+        else:
+            count = int(num_detections)
+        if count < 0 or count > total:
+            raise ValueError(f"num_detections={count} is outside valid range [0, {total}]")
+        return count
+
+    def _sanitize_tracker_labels(
+        self, det_labels: torch.Tensor, frame_id: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        labels = det_labels.to(dtype=torch.long)
+        if labels.numel() == 0:
+            return labels
+        max_cpp_int = torch.iinfo(torch.int32).max
+        invalid = (labels < 0) | (labels > max_cpp_int)
+        if bool(invalid.any().detach().cpu().item()):
+            if not self._invalid_label_warned:
+                invalid_count = int(invalid.sum().detach().cpu().item())
+                bad_idx = torch.nonzero(invalid, as_tuple=False).reshape(-1)[:5]
+                examples = labels.index_select(0, bad_idx.to(labels.device)).detach().cpu()
+                frame_text = "unknown"
+                if frame_id is not None:
+                    frame_text = str(int(frame_id.reshape(-1)[:1][0].detach().cpu().item()))
+                logger.warning(
+                    "Tracker received %d label(s) outside C++ int range at frame %s; treating them as class 0. examples=%s",
+                    invalid_count,
+                    frame_text,
+                    examples.tolist(),
+                )
+                self._invalid_label_warned = True
+            labels = labels.clone()
+            labels[invalid] = 0
+        return labels
+
+    def _filter_invalid_tracker_bboxes(
+        self,
+        frame_id: torch.Tensor,
+        det_bboxes: torch.Tensor,
+        det_labels: torch.Tensor,
+        det_scores: torch.Tensor,
+        det_reid: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        if det_bboxes.numel() == 0:
+            return det_bboxes, det_labels, det_scores, det_reid
+        finite = torch.isfinite(det_bboxes).all(dim=1)
+        ordered = (det_bboxes[:, 2] >= det_bboxes[:, 0]) & (det_bboxes[:, 3] >= det_bboxes[:, 1])
+        valid = finite & ordered
+        if bool(valid.all().detach().cpu().item()):
+            return det_bboxes, det_labels, det_scores, det_reid
+
+        invalid_count = int((~valid).sum().detach().cpu().item())
+        if not self._invalid_bbox_warned:
+            bad_idx = torch.nonzero(~valid, as_tuple=False).reshape(-1)[:3]
+            examples = det_bboxes.index_select(0, bad_idx.to(det_bboxes.device)).detach().cpu()
+            frame = int(frame_id.reshape(-1)[:1][0].detach().cpu().item())
+            logger.warning(
+                "Tracker received %d invalid bbox(es) at frame %d; dropping them before C++ tracker. examples=%s",
+                invalid_count,
+                frame,
+                examples.tolist(),
+            )
+            self._invalid_bbox_warned = True
+        det_bboxes = det_bboxes[valid]
+        det_labels = det_labels[valid]
+        det_scores = det_scores[valid]
+        if det_reid is not None and det_reid.ndim > 0:
+            det_reid = det_reid[valid]
+        return det_bboxes, det_labels, det_scores, det_reid
+
+    @staticmethod
+    def _summarize_tracker_payload(payload: Dict[str, torch.Tensor]) -> Dict[str, Any]:
+        summary: Dict[str, Any] = {}
+        for name, value in payload.items():
+            if isinstance(value, StreamTensorBase):
+                value = unwrap_tensor(value, get=True)
+            if not isinstance(value, torch.Tensor):
+                summary[name] = type(value).__name__
+                continue
+            item: Dict[str, Any] = {
+                "shape": tuple(value.shape),
+                "dtype": str(value.dtype),
+                "device": str(value.device),
+            }
+            if value.numel():
+                sample = value.detach().reshape(-1).cpu()
+                if torch.is_floating_point(sample):
+                    finite = torch.isfinite(sample)
+                    item["finite"] = bool(finite.all().item())
+                    if bool(finite.any().item()):
+                        finite_sample = sample[finite]
+                        item["min"] = float(finite_sample.min().item())
+                        item["max"] = float(finite_sample.max().item())
+                    else:
+                        item["min"] = None
+                        item["max"] = None
+                else:
+                    item["min"] = int(sample.min().item())
+                    item["max"] = int(sample.max().item())
+            summary[name] = item
+        return summary
+
     def _prepare_tracker_inputs(
         self,
         frame_id: int,
@@ -378,6 +497,25 @@ class TrackerPlugin(Plugin):
     ) -> Dict[str, torch.Tensor]:
         frame_id_t = self._coerce_frame_id_tensor(frame_id)
         if not self._using_static_tracker():
+            valid_count = self._coerce_num_detections(num_detections, int(det_bboxes.shape[0]))
+            if valid_count is not None:
+                det_bboxes = det_bboxes[:valid_count]
+                det_labels = det_labels[:valid_count]
+                det_scores = det_scores[:valid_count]
+                if det_reid is not None and det_reid.ndim > 0:
+                    det_reid = det_reid[:valid_count]
+            det_bboxes = det_bboxes.to(dtype=torch.float32).clone()
+            det_labels = self._sanitize_tracker_labels(det_labels, frame_id_t).clone()
+            det_scores = det_scores.to(dtype=torch.float32).clone()
+            if det_reid is not None:
+                det_reid = det_reid.to(dtype=torch.float32).clone()
+            det_bboxes, det_labels, det_scores, det_reid = self._filter_invalid_tracker_bboxes(
+                frame_id_t,
+                det_bboxes,
+                det_labels,
+                det_scores,
+                det_reid,
+            )
             payload = dict(
                 frame_id=frame_id_t,
                 bboxes=det_bboxes,
@@ -403,12 +541,23 @@ class TrackerPlugin(Plugin):
         frame_id_t = self._coerce_frame_id_tensor(frame_id, device=det_bboxes.device)
         assert self._static_tracker_max_detections is not None
         max_det = self._static_tracker_max_detections
-        bboxes = det_bboxes.to(dtype=torch.float32)
-        labels = det_labels.to(dtype=torch.long)
-        scores = det_scores.to(dtype=torch.float32)
+        total = int(det_bboxes.shape[0])
+        valid_count = self._coerce_num_detections(num_detections, total)
+        if valid_count is None:
+            valid_count = total
+        bboxes = det_bboxes[:valid_count].to(dtype=torch.float32)
+        labels = self._sanitize_tracker_labels(det_labels[:valid_count], frame_id_t)
+        scores = det_scores[:valid_count].to(dtype=torch.float32)
         reid = None
         if det_reid is not None:
-            reid = det_reid.to(dtype=torch.float32, device=bboxes.device)
+            reid = det_reid[:valid_count].to(dtype=torch.float32, device=bboxes.device)
+        bboxes, labels, scores, reid = self._filter_invalid_tracker_bboxes(
+            frame_id_t,
+            bboxes,
+            labels,
+            scores,
+            reid,
+        )
         total = int(bboxes.shape[0])
         kept = min(total, max_det)
         if total > max_det:
@@ -452,9 +601,7 @@ class TrackerPlugin(Plugin):
             "bboxes": padded_bboxes,
             "labels": padded_labels,
             "scores": padded_scores,
-            "num_detections": (
-                torch.min(num_detections, kept_t) if num_detections is not None else kept_t
-            ),
+            "num_detections": kept_t,
         }
         if padded_reid is not None:
             payload["reid_features"] = padded_reid

@@ -53,20 +53,28 @@ def _apply_track_mask(inst, tids, tlbr, scores, labels):
     mask = get_track_mask(inst)
     if isinstance(mask, torch.Tensor):
         mask_np = mask.detach().cpu().numpy()
+        if isinstance(tids, StreamTensorBase):
+            tids = unwrap_tensor(tids)
         if isinstance(tids, torch.Tensor):
-            tids = tids[mask]
+            tids = tids[mask.to(device=tids.device)]
         else:
             tids = np.asarray(tids)[mask_np]
+        if isinstance(tlbr, StreamTensorBase):
+            tlbr = unwrap_tensor(tlbr)
         if isinstance(tlbr, torch.Tensor):
-            tlbr = tlbr[mask]
+            tlbr = tlbr[mask.to(device=tlbr.device)]
         else:
             tlbr = np.asarray(tlbr)[mask_np]
+        if isinstance(scores, StreamTensorBase):
+            scores = unwrap_tensor(scores)
         if isinstance(scores, torch.Tensor):
-            scores = scores[mask]
+            scores = scores[mask.to(device=scores.device)]
         else:
             scores = np.asarray(scores)[mask_np]
+        if isinstance(labels, StreamTensorBase):
+            labels = unwrap_tensor(labels)
         if isinstance(labels, torch.Tensor):
-            labels = labels[mask]
+            labels = labels[mask.to(device=labels.device)]
         else:
             labels = np.asarray(labels)[mask_np]
     return tids, tlbr, scores, labels

@@ -1403,6 +1403,8 @@ class AspenNet(torch.nn.Module):
             seq = self._graph_seq
             self._graph_seq += 1
             context["_aspen_seq"] = seq
+            if self.thread_cuda_streams:
+                context["_aspen_cuda_events"] = {}
             item = _WorkItem(seq=seq, context=context)
             state = _GraphContextState(
                 item=item,
@@ -1584,10 +1586,21 @@ class AspenNet(torch.nn.Module):
                 )
                 with wait_ctx:
                     node.stream.wait_stream(prev_stream)
+            if self.thread_graph_mode:
+                parent_events = context.get("_aspen_cuda_events")
+                if isinstance(parent_events, dict):
+                    for parent_name in node.depends:
+                        event = parent_events.get(parent_name)
+                        if event is not None:
+                            node.stream.wait_event(event)
             context["cuda_stream"] = node.stream
             try:
                 with torch.cuda.stream(node.stream), stream_tensor_tracking("stream"):
                     self._execute_node(node, context)
+                if self.thread_graph_mode:
+                    event = torch.cuda.Event(blocking=False)
+                    node.stream.record_event(event)
+                    context.setdefault("_aspen_cuda_events", {})[node.name] = event
             finally:
                 if prev_stream is not None:
                     context["cuda_stream"] = prev_stream

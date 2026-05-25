@@ -267,26 +267,11 @@ class TrackingDataFrame(HmDataFrameBase):
         labels = getattr(inst, "labels", np.empty((0,), dtype=np.int64))
         mask = get_track_mask(inst)
         if isinstance(mask, torch.Tensor):
-            if isinstance(tids, torch.Tensor):
-                tids = tids[mask]
-            else:
-                mask_np = mask.detach().cpu().numpy()
-                tids = np.asarray(tids)[mask_np]
-            if isinstance(tlbr, torch.Tensor):
-                tlbr = tlbr[mask]
-            else:
-                mask_np = mask.detach().cpu().numpy()
-                tlbr = np.asarray(tlbr)[mask_np]
-            if isinstance(scores, torch.Tensor):
-                scores = scores[mask]
-            else:
-                mask_np = mask.detach().cpu().numpy()
-                scores = np.asarray(scores)[mask_np]
-            if isinstance(labels, torch.Tensor):
-                labels = labels[mask]
-            else:
-                mask_np = mask.detach().cpu().numpy()
-                labels = np.asarray(labels)[mask_np]
+            mask_np = mask.detach().cpu().numpy()
+            tids = self._make_array(tids)[mask_np]
+            tlbr = self._make_array(tlbr)[mask_np]
+            scores = self._make_array(scores)[mask_np]
+            labels = self._make_array(labels)[mask_np]
         self.add_frame_records(
             frame_id=int(frame_id),
             tracking_ids=tids,

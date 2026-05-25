@@ -235,6 +235,35 @@ def should_match_when_cluster_debugging_enabled():
     )
 
 
+def should_filter_invalid_tracks_before_cpp_playtracker():
+    tracker = _build_tracker(_base_game_config(), {}, cpp_playtracker=True)
+    pred_track_instances = SimpleNamespace(
+        bboxes=torch.tensor(
+            [
+                [0.0, 0.0, 10.0, 10.0],
+                [4.0, 9.0, 12.0, 3.0],
+                [20.0, 20.0, 40.0, 60.0],
+                [50.0, 50.0, 60.0, 70.0],
+            ],
+            dtype=torch.float32,
+        ),
+        instances_id=torch.tensor([5, 6, -1, 7], dtype=torch.int64),
+    )
+    video_data_sample = SimpleNamespace(
+        metainfo={"num_tracks": torch.tensor([3], dtype=torch.long)}
+    )
+
+    ids, bboxes, tlwh = tracker._prepare_online_tracks(
+        pred_track_instances,
+        video_data_sample,
+        frame_id=42,
+    )
+
+    assert ids.tolist() == [5]
+    assert_close(bboxes, torch.tensor([[0.0, 0.0, 10.0, 10.0]]))
+    assert_close(tlwh, torch.tensor([[0.0, 0.0, 10.0, 10.0]]))
+
+
 def should_match_with_custom_cluster_centroids():
     custom_centroids = [
         [100.0, 200.0],

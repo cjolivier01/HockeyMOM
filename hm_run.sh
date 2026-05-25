@@ -39,3 +39,14 @@ OMP_NUM_THREADS=16 \
   ${SAVE_DATA_ARGS} \
   ${HYPER_PARAMS} ${STITCHING_PARAMS} ${TEST_SIZE_ARG} \
   ${VIDEO} $@
+status=$?
+set +x
+if [ "${status}" -ne 0 ]; then
+  if [ "${status}" -gt 128 ]; then
+    signal=$((status - 128))
+    echo "hmtrack exited with status ${status} (signal ${signal})" >&2
+  else
+    echo "hmtrack exited with status ${status}" >&2
+  fi
+fi
+exit "${status}"
