@@ -29,7 +29,8 @@ sudo apt install -y \
   libpng-dev \
   fftw-dev \
   libprotobuf-dev \
-  protobuf-compiler
+  protobuf-compiler \
+  nvidia-vaapi-driver
 
 # Enblend
 sudo apt install -y \
