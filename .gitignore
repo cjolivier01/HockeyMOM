@@ -11,6 +11,7 @@ compile_commands.json
 /*.csv
 /*.db
 debug_tensorboard
+/data/
 /dist
 /exp
 /h-demo*
