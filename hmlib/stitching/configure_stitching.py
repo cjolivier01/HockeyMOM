@@ -42,12 +42,19 @@ def _resolve_local_binary(executable: str) -> Optional[str]:
     """Return a package-local binary path if available.
 
     Prefers `<hmlib_root>/bin/<executable>` both for Bazel runfiles
-    and for installed wheels.
+    and for installed wheels. When running from a source checkout, also
+    recognizes Bazel's local output tree after `//hmlib:embed_*` has been built.
     """
     base_dir = Path(__file__).resolve().parent.parent
-    bin_path = base_dir / "bin" / executable
-    if bin_path.is_file() and os.access(bin_path, os.X_OK):
-        return str(bin_path)
+    workspace_dir = base_dir.parent
+    candidates = [
+        base_dir / "bin" / executable,
+        workspace_dir / "bazel-bin" / "hmlib" / "bin" / executable,
+    ]
+    candidates.extend(workspace_dir.glob(f"bazel-out/*/bin/hmlib/bin/{executable}"))
+    for bin_path in candidates:
+        if bin_path.is_file() and os.access(bin_path, os.X_OK):
+            return str(bin_path)
     return None
 
 

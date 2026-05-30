@@ -21,6 +21,8 @@ import yaml
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import rbd
 
+from hmlib.stitching.configure_stitching import get_enblend_bin
+
 # Ensure that the lightglue package is available.
 try:
     import lightglue  # noqa: F401
@@ -555,7 +557,7 @@ def configure_stitching(
 
         # Blend the mappings into a panorama using enblend.
         cmd = [
-            "enblend",
+            get_enblend_bin(),
             "--save-masks=seam_file.png",
             "-o",
             os.path.join(dir_name, "panorama.tif"),
