@@ -30,13 +30,12 @@ distclean expunge:
 	bazel/bazel.sh clean --expunge
 
 develop:
-#	bazel/bazel.sh build --config=debug //hockeymom:develop
 	@if command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
 		bazel/bazel.sh run --config=release //hockeymom:link_ext; \
 	else \
-		printf '%s\n' 'Skipping //hockeymom:link_ext: no local CUDA toolkit detected (nvcc and /usr/local/cuda/include/cuda_runtime.h are both missing).' >&2; \
+		echo "Skipping hockeymom native extension link: CUDA toolkit not found"; \
 	fi
-	bazel/bazel.sh build --config=release //hmlib:develop
+	bazel/bazel.sh run --config=release //hmlib:develop -- --workspace=$(TOPDIR)
 
 deps:
 	cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)

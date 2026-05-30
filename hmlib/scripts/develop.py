@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Install hmlib in editable/develop mode (similar to ``python setup.py develop``).
+Install hm Python packages in editable/develop mode.
 
 This writes a ``.pth`` file pointing at the workspace root and creates lightweight
 console entry-point shims in the current Python environment's scripts directory.
@@ -9,6 +9,7 @@ console entry-point shims in the current Python environment's scripts directory.
 import argparse
 import logging
 import os
+import subprocess
 import sys
 import sysconfig
 from pathlib import Path
@@ -22,6 +23,7 @@ ENTRY_POINTS = {
     "hmfind_ice_rink": "hmlib.cli.find_ice_rink:main",
     "hmpostprocess_shifts": "hmlib.cli.postprocess_shifts:main",
     "hmorientation": "hmlib.cli.hmorientation:main",
+    "hmscoreboard": "hmlib.scoreboard.selector:main",
     "hmconcatenate_videos": "hmlib.cli.concatenate_videos:main",
     "hmcamera_annotate": "hmlib.cli.camera_annotate:main",
 }
@@ -76,16 +78,31 @@ def _write_script(scripts_dir: Path, name: str, target: str) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Install hmlib in develop/editable mode.")
+    parser = argparse.ArgumentParser(description="Install hm Python packages in develop/editable mode.")
     parser.add_argument(
         "--workspace",
         type=Path,
         default=None,
         help="Override the workspace root (defaults to auto-detection).",
     )
+    parser.add_argument(
+        "--python",
+        default=os.environ.get("PYTHON", "python"),
+        help="Python executable for the active development environment.",
+    )
+    parser.add_argument(
+        "--legacy-pth",
+        action="store_true",
+        help="Write the historical .pth and console-script shims instead of using pip editable install.",
+    )
     args = parser.parse_args()
 
     workspace_root = (args.workspace or _find_workspace_root()).resolve()
+    if not args.legacy_pth:
+        cmd = [args.python, "-m", "pip", "install", "-e", str(workspace_root)]
+        logger.info("Running %s", " ".join(cmd))
+        return subprocess.call(cmd, cwd=workspace_root)
+
     site_packages = Path(sysconfig.get_paths()["purelib"])
     scripts_dir = Path(sysconfig.get_paths()["scripts"])
     site_packages.mkdir(parents=True, exist_ok=True)

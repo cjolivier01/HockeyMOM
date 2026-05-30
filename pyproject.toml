@@ -1,3 +1,44 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hmlib"
+version = "0.1.0"
+description = "HockeyMOM Python tools and pipeline helpers"
+requires-python = ">=3.10"
+
+[project.scripts]
+hmtrack = "hmlib.cli.hmtrack:main"
+hmstitch = "hmlib.cli.stitch:main"
+hmcreate_control_points = "hmlib.cli.create_control_points:main"
+hmplayers = "hmlib.cli.players:main"
+hmfind_ice_rink = "hmlib.cli.find_ice_rink:main"
+hmpostprocess_shifts = "hmlib.cli.postprocess_shifts:main"
+hmorientation = "hmlib.cli.hmorientation:main"
+hmconcatenate_videos = "hmlib.cli.concatenate_videos:main"
+hmcamera_annotate = "hmlib.cli.camera_annotate:main"
+hmscoreboard = "hmlib.scoreboard.selector:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["hmlib*", "hockeymom*"]
+exclude = ["tests*", "openmm*", "hockeymom/src*"]
+
+[tool.setuptools.package-data]
+hmlib = [
+    "py.typed",
+    "images/*.svg",
+    "images/*.png",
+    "config/**/*.yaml",
+]
+hockeymom = [
+    "core.pyi",
+    "_hockeymom*.so",
+]
+
 [tool.black]
 line-length = 100
 target-version = ['py310']
