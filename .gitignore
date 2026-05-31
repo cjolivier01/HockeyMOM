@@ -48,3 +48,4 @@ player_shifts_fiverr
 /*.dot
 /.hugin_built
 audit_workdirs
+hmlib.egg-info
