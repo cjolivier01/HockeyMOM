@@ -1615,8 +1615,12 @@ def configure_scoreboard(
     return current_scoreboard
 
 
-if __name__ == "__main__":
+def main() -> None:
     opts = hm_opts()
     args = opts.parse()
 
     configure_scoreboard(game_id=args.game_id, force=True)
+
+
+if __name__ == "__main__":
+    main()

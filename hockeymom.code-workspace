@@ -5,6 +5,9 @@
     },
     {
       "path": "../snapshot"
+    },
+    {
+      "path": "../hstream"
     }
   ],
   "settings": {

@@ -35,6 +35,7 @@ python_library(
                 "hmfind_ice_rink = hmlib.cli.find_ice_rink:main",
                 "hmpostprocess_shifts = hmlib.cli.postprocess_shifts:main",
                 "hmorientation = hmlib.cli.hmorientation:main",
+                "hmscoreboard = hmlib.scoreboard.selector:main",
             "hmconcatenate_videos = hmlib.cli.concatenate_videos:main",
             "hmcamera_annotate = hmlib.cli.camera_annotate:main",
         ],
