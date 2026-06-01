@@ -174,7 +174,7 @@ uint_t _find_dense(
     uint_t lo,
     cost_t* d,
     int_t* cols,
-    int_t* y) {
+    int_t* /* y */) {
   uint_t hi = lo + 1;
   cost_t mind = d[cols[lo]];
   for (uint_t k = hi; k < n; k++) {
@@ -554,33 +554,33 @@ double lapjv(
   if (extend_cost || cost_limit < LONG_MAX) {
     n = n_rows + n_cols;
     cost_c_extended.resize(n);
-    for (int i = 0; i < cost_c_extended.size(); i++)
+    for (int i = 0; i < static_cast<int>(cost_c_extended.size()); i++)
       cost_c_extended[i].resize(n);
 
     if (cost_limit < LONG_MAX) {
-      for (int i = 0; i < cost_c_extended.size(); i++) {
-        for (int j = 0; j < cost_c_extended[i].size(); j++) {
+      for (int i = 0; i < static_cast<int>(cost_c_extended.size()); i++) {
+        for (int j = 0; j < static_cast<int>(cost_c_extended[i].size()); j++) {
           cost_c_extended[i][j] = cost_limit / 2.0;
         }
       }
     } else {
       float cost_max = -1;
 
-      for (int i = 0; i < cost_c.size(); i++) {
-        for (int j = 0; j < cost_c[i].size(); j++) {
+      for (int i = 0; i < static_cast<int>(cost_c.size()); i++) {
+        for (int j = 0; j < static_cast<int>(cost_c[i].size()); j++) {
           if (cost_c[i][j] > cost_max)
             cost_max = cost_c[i][j];
         }
       }
-      for (int i = 0; i < cost_c_extended.size(); i++) {
-        for (int j = 0; j < cost_c_extended[i].size(); j++) {
+      for (int i = 0; i < static_cast<int>(cost_c_extended.size()); i++) {
+        for (int j = 0; j < static_cast<int>(cost_c_extended[i].size()); j++) {
           cost_c_extended[i][j] = cost_max + 1;
         }
       }
     }
 
-    for (int i = n_rows; i < cost_c_extended.size(); i++) {
-      for (int j = n_cols; j < cost_c_extended[i].size(); j++) {
+    for (int i = n_rows; i < static_cast<int>(cost_c_extended.size()); i++) {
+      for (int j = n_cols; j < static_cast<int>(cost_c_extended[i].size()); j++) {
         cost_c_extended[i][j] = 0;
       }
     }
@@ -632,7 +632,7 @@ double lapjv(
     }
 
     if (return_cost) {
-      for (int i = 0; i < rowsol.size(); i++) {
+      for (int i = 0; i < static_cast<int>(rowsol.size()); i++) {
         if (rowsol[i] != -1) {
           // cout << i << "\t" << rowsol[i] << "\t" << cost_ptr[i][rowsol[i]] <<
           // endl;
@@ -641,7 +641,7 @@ double lapjv(
       }
     }
   } else if (return_cost) {
-    for (int i = 0; i < rowsol.size(); i++) {
+    for (int i = 0; i < static_cast<int>(rowsol.size()); i++) {
       opt += cost_ptr[i][rowsol[i]];
     }
   }
