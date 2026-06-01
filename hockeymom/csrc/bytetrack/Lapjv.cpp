@@ -546,7 +546,6 @@ double lapjv(
   } else {
     if (!extend_cost) {
       std::cout << "set extend_cost=True" << std::endl;
-      system("pause");
       exit(0);
     }
   }
@@ -611,7 +610,6 @@ double lapjv(
   int ret = lapjv_internal(n, cost_ptr, x_c, y_c);
   if (ret != 0) {
     std::cout << "Calculate Wrong!" << std::endl;
-    system("pause");
     exit(0);
   }
 
