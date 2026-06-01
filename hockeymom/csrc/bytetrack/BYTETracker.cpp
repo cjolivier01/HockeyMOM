@@ -665,12 +665,10 @@ void BYTETracker::activate_track(int64_t id) {
     assert(track.state == STrack::State::Lost);
     assert(track.frame_ids.size() >= 2);
     auto f_iter = track.frame_ids.rbegin();
-    int64_t frame_id = f_iter->item<int64_t>();
     ++f_iter;
-    int64_t last_frame_id = f_iter->item<int64_t>();
-    int64_t lost_frame_count = frame_id - last_frame_id - 1;
     // std::cout << "Re-acquired track " << id << " after being lost for "
-    //           << lost_frame_count << " frame(s), for a total of "
+    //           << (f_iter[-1]->item<int64_t>() - f_iter->item<int64_t>() - 1)
+    //           << " frame(s), for a total of "
     //           << reacquired_count_ << " reacquisitions." << std::endl;
     lost_tracks_.erase(lost_iter);
     assert(track.state == STrack::State::Lost);
@@ -750,7 +748,7 @@ void BYTETracker::pop_invalid_tracks(int64_t frame_id) {
     const int64_t last_track_frame_id = track.frame_ids.back().item<int64_t>();
     // case1: disappeared frames >= num_frames_to_keep_lost_tracks
     const bool case1 = frame_id - last_track_frame_id >=
-        config_.num_frames_to_keep_lost_tracks;
+        static_cast<int64_t>(config_.num_frames_to_keep_lost_tracks);
     assert(!case1 || track.state == STrack::State::Lost);
     // We never got past the initial tentative state (short new detection)
     const bool case2 = track.state == STrack::State::Tentative &&

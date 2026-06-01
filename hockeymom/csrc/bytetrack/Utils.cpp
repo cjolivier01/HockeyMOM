@@ -140,7 +140,7 @@ std::vector<float> to_float_vect(const at::Tensor& tensor) {
 
 std::vector<float> to_float_vect(const std::list<at::Tensor>& tensor_list) {
   std::vector<float> vals;
-  for (const at::Tensor tensor : tensor_list) {
+  for (const at::Tensor& tensor : tensor_list) {
     assert(tensor.dtype() == at::kFloat);
     if (tensor.ndimension() == 0) {
       // scalar

@@ -99,7 +99,7 @@ std::unordered_map<std::string, at::Tensor> HmTracker::track(
       } else if (item.first == kFrameId) {
         continue;
       }
-      assert(tensor.size(0) == id_count);
+      assert(tensor.size(0) == static_cast<int64_t>(id_count));
       // std::cout << item.first << " -> " << tensor.device()
       //           << std::endl;
       tensor = bool_mask_select(tensor, all_active_mask);
