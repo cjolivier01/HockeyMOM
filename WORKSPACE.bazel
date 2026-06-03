@@ -316,14 +316,18 @@ cc_library(
 
 new_local_repository(
     name = "vigra",
-    path = "/usr",
+    path = "/usr/local",
     build_file_content = """
-load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")
+cc_import(
+    name = "vigraimpex",
+    shared_library = "lib/libvigraimpex.so",
+)
 cc_library(
     name = "vigra",
     hdrs = glob(["include/vigra/**/*.hxx", "include/vigra/**/*.h"]),
     includes = ["include"],
-    linkopts = ["-lvigraimpex"],
+    deps = [":vigraimpex"],
     visibility = ["//visibility:public"],
 )
 """,

@@ -1,6 +1,28 @@
 load("@rules_python//python:defs.bzl", "py_binary")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
+config_setting(
+    name = "arm64",
+    constraint_values = ["@platforms//cpu:arm64"],
+)
+
+config_setting(
+    name = "aarch64",
+    constraint_values = ["@platforms//cpu:aarch64"],
+)
+
+_MULTIBLEND_DATA = select({
+    ":arm64": [],
+    ":aarch64": [],
+    "//conditions:default": [":embed_multiblend"],
+})
+
+_MULTIBLEND_COMPATIBILITY = select({
+    ":arm64": ["@platforms//:incompatible"],
+    ":aarch64": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
 _SOURCES = glob(
     [
         "**/*.py",
@@ -21,8 +43,7 @@ python_library(
         "py.typed",
         "images/scoreboard_selector_thank_you.svg",
         ":embed_enblend",
-        ":embed_multiblend",
-    ],
+    ] + _MULTIBLEND_DATA,
     lint_tests = False,
     imports = [".."],  # Add the parent directory to PYTHONPATH
     test_deps = [
@@ -58,6 +79,7 @@ genrule(
     srcs = ["@multiblend//:multiblend"],
     outs = ["bin/multiblend"],
     cmd = "cp $(location @multiblend//:multiblend) $@ && chmod +x $@",
+    target_compatible_with = _MULTIBLEND_COMPATIBILITY,
     visibility = ["//visibility:public"],
 )
 
@@ -73,12 +95,11 @@ filegroup(
     name = "wheel_data_files",
     srcs = [
         ":embed_enblend",
-        ":embed_multiblend",
         "images/scoreboard_selector_thank_you.svg",
         "images/sports_ai_watermark.png",
         "py.typed",
         # "@multiblend//:multiblend",
-    ] + glob(["**/*.yaml"]),
+    ] + _MULTIBLEND_DATA + glob(["**/*.yaml"]),
     visibility = ["//visibility:public"],
 )
 

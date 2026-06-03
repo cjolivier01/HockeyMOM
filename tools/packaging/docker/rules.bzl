@@ -4,25 +4,34 @@ load("@io_bazel_rules_docker//container:push.bzl", "container_push")
 load("@secrets//:vars.bzl", "IMAGE_REGISTRY")
 
 
+def _manual_tags(tags):
+    tags = tags or []
+    if "manual" in tags:
+        return tags
+    return tags + ["manual"]
+
+
 def python_image(
     name,
     repository,
     base=None,
     entrypoint=None,
     visibility=None,
-    tags=[],
+    tags=None,
     **kwargs,
 ):
     binary_name = "{}.binary".format(name)
     base = base or "//tools/packaging/docker:default_python_base"
+    image_tags = _manual_tags(tags)
     py_binary(
         name=binary_name,
         exec_compatible_with=["@io_bazel_rules_docker//platforms:run_in_container"],
+        tags=image_tags,
         **kwargs,
     )
 
     external_deps_layer = "{}.layer.external".format(name)
-    filter_layer(name=external_deps_layer, dep=binary_name, filter="@")
+    filter_layer(name=external_deps_layer, dep=binary_name, filter="@", tags=image_tags)
 
     deps = [external_deps_layer] + kwargs.get("deps", [])
     for idx, dep in enumerate(deps):
@@ -30,12 +39,14 @@ def python_image(
             name="{}.layer.{}".format(name, idx),
             base=base,
             dep=dep,
+            tags=image_tags,
         )
         base = app_layer(
             name="{}.layer.{}-symlinks".format(name, idx),
             base=base,
             dep=dep,
             binary=binary_name,
+            tags=image_tags,
         )
 
     app_layer(
@@ -44,7 +55,7 @@ def python_image(
         entrypoint=entrypoint or ["/usr/local/bin/python"],
         binary=binary_name,
         visibility=visibility,
-        tags=tags,
+        tags=image_tags,
         args=kwargs.get("args"),
         data=kwargs.get("data"),
         create_empty_workspace_dir=True,
@@ -62,4 +73,5 @@ def python_image(
         repository=repository,
         tag="{STABLE_GIT_BRANCH}-{GIT_SERIAL_NUMBER}-{GIT_SHA}",
         stamp="@io_bazel_rules_docker//stamp:always",
+        tags=image_tags,
     )

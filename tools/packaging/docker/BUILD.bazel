@@ -10,6 +10,7 @@ container_image(
         "LANG": "C.UTF-8",
         "PIP_NO_CACHE_DIR": "false",
     },
+    tags = ["manual"],
     workdir="/app",
     visibility=["//visibility:public"],
 )
