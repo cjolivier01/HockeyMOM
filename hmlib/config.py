@@ -21,7 +21,7 @@ import hmlib
 from hmlib.log import get_logger
 
 _HOME_DIR: str = os.environ.get("HOME") or str(Path.home())
-GAME_DIR_BASE: str = os.path.join(_HOME_DIR, "Videos")
+GAME_DIR_BASE: str = os.environ.get("HM_GAME_DIR") or os.path.join(_HOME_DIR, "Videos")
 ROOT_DIR: str = os.path.dirname(os.path.abspath(hmlib.__file__))
 
 

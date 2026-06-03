@@ -128,6 +128,14 @@ pytest_test(
 )
 
 py_test(
+    name="test_create_control_points_scale",
+    srcs=["test_create_control_points_scale.py"],
+    data=[
+        "//hmlib:cli/create_control_points.py",
+    ],
+)
+
+py_test(
     name="test_jersey_tracker",
     srcs=["test_jersey_tracker.py"],
     deps=[

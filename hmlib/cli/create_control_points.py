@@ -6,8 +6,11 @@ PTO file with the newly computed control points.
 """
 
 import argparse
+import math
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -16,11 +19,13 @@ import ffmpegio
 import kornia
 import numpy as np
 import scipy.signal
+import tifffile
 import torch
 import yaml
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import rbd
 
+from hmlib.config import get_game_dir
 from hmlib.stitching.configure_stitching import get_enblend_bin
 
 # Ensure that the lightglue package is available.
@@ -32,6 +37,114 @@ except ImportError:
 
 # Constant marker used in PTO files to denote control points.
 _CONTROL_POINTS_LINE = "# control points"
+
+
+def _run_stitching_command(cmd: List[str]) -> None:
+    executable = cmd[0]
+    if os.path.sep in executable:
+        resolved = executable if os.access(executable, os.X_OK) else None
+    else:
+        resolved = shutil.which(executable)
+    if resolved is None:
+        raise FileNotFoundError(
+            f"Required Hugin executable not found: {executable}. "
+            "Install/build the Jetson-native Hugin tools or put them on PATH."
+        )
+    subprocess.run(cmd, check=True)
+
+
+def _read_pto_canvas_size(pto_file: str) -> Optional[Tuple[int, int]]:
+    with open(pto_file, "r") as file:
+        for line in file:
+            if not line.startswith("p "):
+                continue
+            width = re.search(r"(?:^|\s)w(\d+)(?:\s|$)", line)
+            height = re.search(r"(?:^|\s)h(\d+)(?:\s|$)", line)
+            if width and height:
+                return int(width.group(1)), int(height.group(1))
+    return None
+
+
+def _game_dir_for_id(game_id: str) -> str:
+    game_dir = get_game_dir(game_id=game_id, assert_exists=False)
+    if game_dir is not None:
+        return game_dir
+    base_dir = os.environ.get("HM_GAME_DIR") or os.path.join(os.environ["HOME"], "Videos")
+    return str(Path(base_dir) / game_id)
+
+
+def _tiff_tag_number(tag, default: float) -> float:
+    if tag is None:
+        return default
+    value = tag.value
+    if isinstance(value, (list, tuple)):
+        if len(value) == 2:
+            numerator, denominator = value
+            return float(numerator) / float(denominator)
+        if len(value) == 1:
+            return float(value[0])
+    return float(value)
+
+
+def _read_mapping_canvas_size(mapping_files: List[str]) -> Optional[Tuple[int, int]]:
+    placements = []
+    for mapping_file in mapping_files:
+        with tifffile.TiffFile(mapping_file) as tif:
+            page = tif.pages[0]
+            tags = page.tags
+            x_resolution = _tiff_tag_number(tags.get("XResolution"), 1.0)
+            y_resolution = _tiff_tag_number(tags.get("YResolution"), 1.0)
+            x_position = _tiff_tag_number(tags.get("XPosition"), 0.0)
+            y_position = _tiff_tag_number(tags.get("YPosition"), 0.0)
+            placements.append(
+                (
+                    x_position * x_resolution,
+                    y_position * y_resolution,
+                    int(page.imagewidth),
+                    int(page.imagelength),
+                )
+            )
+    if not placements:
+        return None
+
+    min_x = min(x for x, _, _, _ in placements)
+    min_y = min(y for _, y, _, _ in placements)
+    width = math.ceil(max(x - min_x + w for x, _, w, _ in placements))
+    height = math.ceil(max(y - min_y + h for _, y, _, h in placements))
+    return int(width), int(height)
+
+
+def _remove_remap_outputs(directory: str) -> None:
+    for pattern in (
+        "autooptimiser_out.pto",
+        "mapping_*.tif",
+        "mapping_*.tiff",
+        "panorama.tif",
+        "seam_file.png",
+        "s.png",
+        "rink_mask_*.png",
+    ):
+        for path in Path(directory).glob(pattern):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _remove_mapping_outputs(directory: str) -> None:
+    for pattern in (
+        "mapping_*.tif",
+        "mapping_*.tiff",
+        "panorama.tif",
+        "seam_file.png",
+        "s.png",
+        "rink_mask_*.png",
+    ):
+        for path in Path(directory).glob(pattern):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def load_audio_as_tensor(
@@ -443,6 +556,7 @@ def configure_stitching(
     fov: float = 108,  # Default FOV (e.g., GoPro Wide)
     max_control_points: int = 240,
     scale: float = None,
+    max_output_dimension: Optional[int] = None,
     device: Optional[torch.device] = None,
 ) -> bool:
     """
@@ -460,6 +574,7 @@ def configure_stitching(
         skip_if_exists: If True, skip creation if output files already exist and are up-to-date.
         fov: Field-of-view parameter for the project generation.
         max_control_points: Maximum number of control points to compute.
+        max_output_dimension: Maximum generated panorama width/height. If set, the PTO is auto-scaled to fit.
         device: Torch device for computations.
 
     Returns:
@@ -508,8 +623,7 @@ def configure_stitching(
                 left_image_file,
                 right_image_file,
             ]
-            cmd_str = " ".join(cmd)
-            os.system(cmd_str)
+            _run_stitching_command(cmd)
 
         # Calculate control points using the provided frames.
         control_points: Dict[str, torch.Tensor] = calculate_control_points(
@@ -523,37 +637,92 @@ def configure_stitching(
         # Update the PTO file with the new control points.
         update_pto_file(project_file_path, control_points)
 
-        # Run autooptimiser (e.g., using RANSAC) on the project file.
-        cmd = [
-            "autooptimiser",
-            "-a",
-            "-l",
-            "-s",
-            "-o",
-            autooptimiser_out,
-            hm_project,
-        ]
-        if scale and scale != 1.0:
-            cmd += [
-                "-x",
-                str(scale),
-            ]
-        os.system(" ".join(cmd))
+        _remove_remap_outputs(dir_name)
 
-        # Generate mapping files using nona.
-        cmd = [
-            "nona",
-            "-m",
-            "TIFF_m",
-            "-z",
-            "NONE",
-            "--bigtiff",
-            "-c",
-            "-o",
-            "mapping_",
-            autooptimiser_out,
-        ]
-        os.system(" ".join(cmd))
+        def run_autooptimiser(output_scale: Optional[float]) -> None:
+            cmd = [
+                "autooptimiser",
+                "-a",
+                "-l",
+                "-s",
+                "-o",
+                autooptimiser_out,
+                hm_project,
+            ]
+            if output_scale and output_scale != 1.0:
+                cmd += [
+                    "-x",
+                    str(output_scale),
+                ]
+            _run_stitching_command(cmd)
+
+        output_scale = float(scale) if scale else None
+        run_autooptimiser(output_scale)
+        if max_output_dimension and max_output_dimension > 0:
+            canvas_size = _read_pto_canvas_size(autooptimiser_out)
+            if canvas_size:
+                canvas_width, canvas_height = canvas_size
+                longest_dimension = max(canvas_width, canvas_height)
+                if longest_dimension > max_output_dimension:
+                    current_scale = output_scale if output_scale else 1.0
+                    output_scale = current_scale * (float(max_output_dimension) / float(longest_dimension))
+                    print(
+                        "Scaling Hugin canvas from "
+                        f"{canvas_width}x{canvas_height} to fit max dimension "
+                        f"{max_output_dimension} (autooptimiser -x {output_scale:.6f})"
+                    )
+                    run_autooptimiser(output_scale)
+
+        def run_nona() -> List[str]:
+            cmd = [
+                "nona",
+                "-m",
+                "TIFF_m",
+                "-z",
+                "NONE",
+                "--bigtiff",
+                "-c",
+                "-o",
+                "mapping_",
+                autooptimiser_out,
+            ]
+            _run_stitching_command(cmd)
+            files = sorted(str(path) for path in Path(dir_name).glob("mapping_????.tif"))
+            if not files:
+                raise FileNotFoundError(f"No Hugin mapping TIFFs were generated in {dir_name}")
+            return files
+
+        mapping_files: List[str] = []
+        for attempt in range(3):
+            mapping_files = run_nona()
+            if not max_output_dimension or max_output_dimension <= 0:
+                break
+
+            mapping_canvas_size = _read_mapping_canvas_size(mapping_files)
+            if not mapping_canvas_size:
+                break
+
+            mapping_width, mapping_height = mapping_canvas_size
+            longest_mapping_dimension = max(mapping_width, mapping_height)
+            if longest_mapping_dimension <= max_output_dimension:
+                break
+
+            if attempt == 2:
+                raise RuntimeError(
+                    "Generated Hugin mapping canvas "
+                    f"{mapping_width}x{mapping_height} still exceeds max dimension "
+                    f"{max_output_dimension}"
+                )
+
+            current_scale = output_scale if output_scale else 1.0
+            output_scale = current_scale * (float(max_output_dimension) / float(longest_mapping_dimension)) * 0.999
+            print(
+                "Generated mapping canvas "
+                f"{mapping_width}x{mapping_height} exceeds max dimension "
+                f"{max_output_dimension}; retrying autooptimiser -x {output_scale:.6f}"
+            )
+            _remove_mapping_outputs(dir_name)
+            run_autooptimiser(output_scale)
 
         # Blend the mappings into a panorama using enblend.
         cmd = [
@@ -561,9 +730,16 @@ def configure_stitching(
             "--save-masks=seam_file.png",
             "-o",
             os.path.join(dir_name, "panorama.tif"),
-            os.path.join(dir_name, "mapping_????.tif"),
+            *mapping_files,
         ]
-        os.system(" ".join(cmd))
+        try:
+            _run_stitching_command(cmd)
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            try:
+                Path(dir_name, "seam_file.png").unlink()
+            except FileNotFoundError:
+                pass
+            print(f"Warning: failed to run enblend for seam mask generation: {exc}")
     finally:
         os.chdir(curr_dir)
     return True
@@ -603,7 +779,14 @@ def main() -> None:
     parser.add_argument(
         "--scale",
         default=None,
+        type=float,
         help="Scale of the final panorama (i.e. for downsizing)",
+    )
+    parser.add_argument(
+        "--max-output-dimension",
+        default=None,
+        type=int,
+        help="Maximum final panorama width/height; scales the Hugin canvas to fit when needed",
     )
     args = parser.parse_args()
 
@@ -612,7 +795,7 @@ def main() -> None:
         exit(1)
 
     if (not args.left or not args.right) and args.game_id:
-        game_dir: str = os.path.join(os.environ["HOME"], "Videos", args.game_id)
+        game_dir: str = _game_dir_for_id(args.game_id)
         config_file: str = os.path.join(game_dir, "config.yaml")
         if not os.path.exists(config_file):
             print(f"Could not find config file: {config_file}")
@@ -658,6 +841,7 @@ def main() -> None:
         directory=str(Path(args.left).parent),
         max_control_points=args.max_control_points,
         scale=args.scale,
+        max_output_dimension=args.max_output_dimension,
     )
 
 
