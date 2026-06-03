@@ -9,6 +9,11 @@ _SOURCES = glob(
     exclude = ["scripts/**"],
 )
 
+exports_files(
+    ["cli/create_control_points.py"],
+    visibility = ["//tests:__pkg__"],
+)
+
 python_library(
     name = "hmlib",
     srcs = _SOURCES,

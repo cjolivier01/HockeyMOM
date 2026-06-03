@@ -6,6 +6,7 @@ PTO file with the newly computed control points.
 """
 
 import argparse
+import math
 import os
 import re
 import shutil
@@ -18,11 +19,13 @@ import ffmpegio
 import kornia
 import numpy as np
 import scipy.signal
+import tifffile
 import torch
 import yaml
 from lightglue import LightGlue, SuperPoint, viz2d
 from lightglue.utils import rbd
 
+from hmlib.config import get_game_dir
 from hmlib.stitching.configure_stitching import get_enblend_bin
 
 # Ensure that the lightglue package is available.
@@ -62,9 +65,74 @@ def _read_pto_canvas_size(pto_file: str) -> Optional[Tuple[int, int]]:
     return None
 
 
+def _game_dir_for_id(game_id: str) -> str:
+    game_dir = get_game_dir(game_id=game_id, assert_exists=False)
+    if game_dir is not None:
+        return game_dir
+    base_dir = os.environ.get("HM_GAME_DIR") or os.path.join(os.environ["HOME"], "Videos")
+    return str(Path(base_dir) / game_id)
+
+
+def _tiff_tag_number(tag, default: float) -> float:
+    if tag is None:
+        return default
+    value = tag.value
+    if isinstance(value, (list, tuple)):
+        if len(value) == 2:
+            numerator, denominator = value
+            return float(numerator) / float(denominator)
+        if len(value) == 1:
+            return float(value[0])
+    return float(value)
+
+
+def _read_mapping_canvas_size(mapping_files: List[str]) -> Optional[Tuple[int, int]]:
+    placements = []
+    for mapping_file in mapping_files:
+        with tifffile.TiffFile(mapping_file) as tif:
+            page = tif.pages[0]
+            tags = page.tags
+            x_resolution = _tiff_tag_number(tags.get("XResolution"), 1.0)
+            y_resolution = _tiff_tag_number(tags.get("YResolution"), 1.0)
+            x_position = _tiff_tag_number(tags.get("XPosition"), 0.0)
+            y_position = _tiff_tag_number(tags.get("YPosition"), 0.0)
+            placements.append(
+                (
+                    x_position * x_resolution,
+                    y_position * y_resolution,
+                    int(page.imagewidth),
+                    int(page.imagelength),
+                )
+            )
+    if not placements:
+        return None
+
+    min_x = min(x for x, _, _, _ in placements)
+    min_y = min(y for _, y, _, _ in placements)
+    width = math.ceil(max(x - min_x + w for x, _, w, _ in placements))
+    height = math.ceil(max(y - min_y + h for _, y, _, h in placements))
+    return int(width), int(height)
+
+
 def _remove_remap_outputs(directory: str) -> None:
     for pattern in (
         "autooptimiser_out.pto",
+        "mapping_*.tif",
+        "mapping_*.tiff",
+        "panorama.tif",
+        "seam_file.png",
+        "s.png",
+        "rink_mask_*.png",
+    ):
+        for path in Path(directory).glob(pattern):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _remove_mapping_outputs(directory: str) -> None:
+    for pattern in (
         "mapping_*.tif",
         "mapping_*.tiff",
         "panorama.tif",
@@ -605,24 +673,56 @@ def configure_stitching(
                     )
                     run_autooptimiser(output_scale)
 
-        # Generate mapping files using nona.
-        cmd = [
-            "nona",
-            "-m",
-            "TIFF_m",
-            "-z",
-            "NONE",
-            "--bigtiff",
-            "-c",
-            "-o",
-            "mapping_",
-            autooptimiser_out,
-        ]
-        _run_stitching_command(cmd)
+        def run_nona() -> List[str]:
+            cmd = [
+                "nona",
+                "-m",
+                "TIFF_m",
+                "-z",
+                "NONE",
+                "--bigtiff",
+                "-c",
+                "-o",
+                "mapping_",
+                autooptimiser_out,
+            ]
+            _run_stitching_command(cmd)
+            files = sorted(str(path) for path in Path(dir_name).glob("mapping_????.tif"))
+            if not files:
+                raise FileNotFoundError(f"No Hugin mapping TIFFs were generated in {dir_name}")
+            return files
 
-        mapping_files = sorted(str(path) for path in Path(dir_name).glob("mapping_????.tif"))
-        if not mapping_files:
-            raise FileNotFoundError(f"No Hugin mapping TIFFs were generated in {dir_name}")
+        mapping_files: List[str] = []
+        for attempt in range(3):
+            mapping_files = run_nona()
+            if not max_output_dimension or max_output_dimension <= 0:
+                break
+
+            mapping_canvas_size = _read_mapping_canvas_size(mapping_files)
+            if not mapping_canvas_size:
+                break
+
+            mapping_width, mapping_height = mapping_canvas_size
+            longest_mapping_dimension = max(mapping_width, mapping_height)
+            if longest_mapping_dimension <= max_output_dimension:
+                break
+
+            if attempt == 2:
+                raise RuntimeError(
+                    "Generated Hugin mapping canvas "
+                    f"{mapping_width}x{mapping_height} still exceeds max dimension "
+                    f"{max_output_dimension}"
+                )
+
+            current_scale = output_scale if output_scale else 1.0
+            output_scale = current_scale * (float(max_output_dimension) / float(longest_mapping_dimension)) * 0.999
+            print(
+                "Generated mapping canvas "
+                f"{mapping_width}x{mapping_height} exceeds max dimension "
+                f"{max_output_dimension}; retrying autooptimiser -x {output_scale:.6f}"
+            )
+            _remove_mapping_outputs(dir_name)
+            run_autooptimiser(output_scale)
 
         # Blend the mappings into a panorama using enblend.
         cmd = [
@@ -635,6 +735,10 @@ def configure_stitching(
         try:
             _run_stitching_command(cmd)
         except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            try:
+                Path(dir_name, "seam_file.png").unlink()
+            except FileNotFoundError:
+                pass
             print(f"Warning: failed to run enblend for seam mask generation: {exc}")
     finally:
         os.chdir(curr_dir)
@@ -691,7 +795,7 @@ def main() -> None:
         exit(1)
 
     if (not args.left or not args.right) and args.game_id:
-        game_dir: str = os.path.join(os.environ["HOME"], "Videos", args.game_id)
+        game_dir: str = _game_dir_for_id(args.game_id)
         config_file: str = os.path.join(game_dir, "config.yaml")
         if not os.path.exists(config_file):
             print(f"Could not find config file: {config_file}")

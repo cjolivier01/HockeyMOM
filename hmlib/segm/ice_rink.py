@@ -45,6 +45,14 @@ if TYPE_CHECKING:
     from mmdet.structures import DetDataSample
 
 
+def _game_dir_for_id(game_id: str, assert_exists: bool = True) -> str:
+    game_dir = get_game_dir(game_id=game_id, assert_exists=assert_exists)
+    if game_dir is not None:
+        return game_dir
+    base_dir = os.environ.get("HM_GAME_DIR") or os.path.join(os.environ["HOME"], "Videos")
+    return str(Path(base_dir) / game_id)
+
+
 def _get_first_frame(video_path: str) -> Optional[torch.Tensor]:
     video_reader = mmcv.VideoReader(str(video_path))
     frame = video_reader.read()
@@ -444,7 +452,9 @@ def save_rink_profile_config(
     if rink_profile["combined_bbox"] is not None:
         combined_bbox = [float(i) for i in rink_profile["combined_bbox"]]
     set_nested_value(game_config, "rink.ice_contours_combined_bbox", combined_bbox)
-    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{game_id}/rink_mask_'
+    game_dir = _game_dir_for_id(game_id, assert_exists=False)
+    Path(game_dir).mkdir(parents=True, exist_ok=True)
+    mask_image_file_base = str(Path(game_dir) / "rink_mask_")
     for i in range(mask_count):
         mask = masks[i]
         image_file = mask_image_file_base + str(i) + ".png"
@@ -462,7 +472,8 @@ def load_rink_combined_mask(
     if mask_count is None:
         return None
     combined_mask = None
-    mask_image_file_base = f'{os.environ["HOME"]}/Videos/{game_id}/rink_mask_'
+    game_dir = _game_dir_for_id(game_id, assert_exists=False)
+    mask_image_file_base = str(Path(game_dir) / "rink_mask_")
     for i in range(mask_count):
         image_file = mask_image_file_base + str(i) + ".png"
         if not os.path.exists(image_file):
@@ -693,12 +704,13 @@ def main(args: argparse.Namespace = None, device: torch.device = torch.device("c
     elif device is None:
         device = torch.device("cpu")
 
-    stitched_frame_file = f"{os.environ['HOME']}/Videos/{args.game_id}/s.png"
+    game_dir = _game_dir_for_id(args.game_id)
+    stitched_frame_file = str(Path(game_dir) / "s.png")
     if not os.path.exists(stitched_frame_file):
         print(f"Could not find stitched frame image: {stitched_frame_file}")
         exit(1)
 
-    image = cv2.imread(f"{os.environ['HOME']}/Videos/{args.game_id}/s.png")
+    image = cv2.imread(stitched_frame_file)
 
     mask_scale = getattr(args, "ice_rink_inference_scale", None)
     if mask_scale is None:
