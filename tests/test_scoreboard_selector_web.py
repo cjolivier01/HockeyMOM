@@ -86,6 +86,27 @@ def should_list_hostname_localhost_and_interface_ips(monkeypatch):
     ]
 
 
+def should_parse_selector_args_without_consuming_common_hm_args():
+    selector_module = _selector_module()
+
+    selector_args, remaining_args = selector_module._parse_selector_cli_args(
+        [
+            "--selector-bind-host",
+            "127.0.0.1",
+            "--selector-port",
+            "8123",
+            "--selector-no-browser",
+            "--game-id",
+            "test-game",
+        ]
+    )
+
+    assert selector_args.bind_host == "127.0.0.1"
+    assert selector_args.port == 8123
+    assert selector_args.open_browser is False
+    assert remaining_args == ["--game-id", "test-game"]
+
+
 def should_save_clockwise_points_from_web_submission():
     selector = _make_selector()
     selector._start_server()
