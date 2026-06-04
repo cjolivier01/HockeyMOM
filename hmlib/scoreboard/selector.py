@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import base64
 import html
 import io
@@ -115,6 +116,38 @@ def _build_access_urls(bind_host: str, port: int) -> List[str]:
 
 def _build_browser_url(port: int) -> str:
     return f"http://localhost:{port}/"
+
+
+def _parse_selector_cli_args(argv: Optional[List[str]] = None) -> Tuple[Any, List[str]]:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--selector-bind-host",
+        dest="bind_host",
+        default=None,
+        help="Bind host for the scoreboard selector web server.",
+    )
+    parser.add_argument(
+        "--selector-port",
+        dest="port",
+        type=int,
+        default=0,
+        help="Port for the scoreboard selector web server. Use 0 to pick a free port.",
+    )
+    browser = parser.add_mutually_exclusive_group()
+    browser.add_argument(
+        "--selector-open-browser",
+        dest="open_browser",
+        action="store_true",
+        default=None,
+        help="Force opening the scoreboard selector in a local browser.",
+    )
+    browser.add_argument(
+        "--selector-no-browser",
+        dest="open_browser",
+        action="store_false",
+        help="Do not open a browser automatically; only print selector URLs.",
+    )
+    return parser.parse_known_args(argv)
 
 
 def get_max_screen_height() -> Optional[int]:
@@ -266,12 +299,12 @@ class ScoreboardSelector:
             self._schedule_shutdown(delay_seconds=1.0)
 
     def _announce_urls(self) -> None:
-        print("")
-        print("Scoreboard selector is ready.")
-        print("Open any of these links in a browser to select the scoreboard:")
+        print("", flush=True)
+        print("Scoreboard selector is ready.", flush=True)
+        print("Open any of these links in a browser to select the scoreboard:", flush=True)
         for url in self._access_urls:
-            print(f"  {url}")
-        print("")
+            print(f"  {url}", flush=True)
+        print("", flush=True)
 
     def _maybe_open_browser(self) -> None:
         if not self._open_browser or self._browser_url is None:
@@ -1616,10 +1649,17 @@ def configure_scoreboard(
 
 
 def main() -> None:
+    selector_args, remaining_args = _parse_selector_cli_args(sys.argv[1:])
     opts = hm_opts()
-    args = opts.parse()
+    args = opts.parse(remaining_args)
 
-    configure_scoreboard(game_id=args.game_id, force=True)
+    configure_scoreboard(
+        game_id=args.game_id,
+        force=True,
+        bind_host=selector_args.bind_host,
+        port=selector_args.port,
+        open_browser=selector_args.open_browser,
+    )
 
 
 if __name__ == "__main__":
