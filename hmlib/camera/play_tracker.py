@@ -54,6 +54,7 @@ from .camera_transformer import (
     unpack_checkpoint,
 )
 from .camera_ui import CameraControlDialog
+from .hm_ui_bridge import HmUiDialog, HmUiProcess
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
 _CPP_BOXES: bool = True
@@ -207,6 +208,7 @@ class PlayTracker(torch.nn.Module):
         plot_actions: bool = False,
         plot_moving_boxes: bool = False,
         camera_ui: int = 0,
+        camera_ui_backend: str = "opencv",
         camera_controller: str = "rule",
         camera_model: Optional[str] = None,
         camera_window: int = 8,
@@ -242,6 +244,7 @@ class PlayTracker(torch.nn.Module):
         @param plot_jersey_numbers: Enable jersey number overlays.
         @param plot_actions: Enable action overlays.
         @param camera_ui: Enable camera UI windows (0/1).
+        @param camera_ui_backend: Camera UI backend ('opencv' or 'rust').
         @param camera_controller: Camera controller mode ('rule'/'transformer').
         @param camera_model: Optional camera transformer checkpoint path.
         @param camera_window: Transformer time window length.
@@ -292,6 +295,12 @@ class PlayTracker(torch.nn.Module):
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
         self._camera_ui_enabled = bool(camera_ui)
+        self._camera_ui_backend = str(camera_ui_backend or "opencv").lower()
+        if self._camera_ui_backend not in ("opencv", "rust"):
+            raise ValueError(
+                f"Unsupported camera_ui_backend={camera_ui_backend!r}; expected 'opencv' or 'rust'"
+            )
+        self._hm_ui_process: Optional[HmUiProcess] = None
         self._ui_window_name = "Tracker Controls"
         self._ui_inited = False
         self._ui_color_window_name = "Tracker Controls (Color)"
@@ -302,8 +311,9 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_right_inited = False
         # Per-window slider defaults: {window_name: {slider_name: default_value}}
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
-        self._ui_dialogs: Dict[str, CameraControlDialog] = {}
+        self._ui_dialogs: Dict[str, Any] = {}
         self._ui_controls_dirty = True
+        self._ui_save_requested = False
         self._stitch_rotation_controller = stitch_rotation_controller
         self._force_stitching: bool = bool(force_stitching)
         self._stitch_slider_enabled = False
@@ -755,7 +765,7 @@ class PlayTracker(torch.nn.Module):
             )
 
         if self._camera_ui_enabled:
-            if _opencv_highgui_available():
+            if self._camera_ui_backend == "rust" or _opencv_highgui_available():
                 self._init_ui_controls()
             else:
                 self._camera_ui_enabled = False
@@ -1612,13 +1622,27 @@ class PlayTracker(torch.nn.Module):
         *,
         initial_size: Tuple[int, int],
         position: Optional[Tuple[int, int]] = None,
-    ) -> CameraControlDialog:
-        dialog = CameraControlDialog(
-            window_name,
-            on_change=self._on_ui_control_changed,
-            initial_size=initial_size,
-            position=position,
-        )
+    ):
+        if self._camera_ui_backend == "rust":
+            if self._hm_ui_process is None:
+                title = "HM UI"
+                if self._game_id:
+                    title = f"HM UI - {self._game_id}"
+                self._hm_ui_process = HmUiProcess(title=title)
+            dialog = HmUiDialog(
+                self._hm_ui_process,
+                window_name,
+                on_change=self._on_ui_control_changed,
+                initial_size=initial_size,
+                position=position,
+            )
+        else:
+            dialog = CameraControlDialog(
+                window_name,
+                on_change=self._on_ui_control_changed,
+                initial_size=initial_size,
+                position=position,
+            )
         dialog.open()
         self._ui_dialogs[window_name] = dialog
         return dialog
@@ -1639,6 +1663,11 @@ class PlayTracker(torch.nn.Module):
     def _render_ui_dialogs(self) -> None:
         for dialog in self._ui_dialogs.values():
             dialog.show()
+
+    def close_ui(self) -> None:
+        if self._hm_ui_process is not None:
+            self._hm_ui_process.close()
+            self._hm_ui_process = None
 
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""
@@ -2074,6 +2103,9 @@ class PlayTracker(torch.nn.Module):
         except Exception:
             pass
         if not self._ui_controls_dirty:
+            if self._ui_save_requested:
+                self._ui_save_requested = False
+                self._save_ui_config()
             return
         try:
             self._ui_controls_dirty = False
@@ -2252,6 +2284,9 @@ class PlayTracker(torch.nn.Module):
                 except Exception:
                     pass
             # For Python-only breakaway values, we read from self._game_config in calculate_breakaway
+            if self._ui_save_requested:
+                self._ui_save_requested = False
+                self._save_ui_config()
         except Exception as ex:
             # If we failed to read UI, try again next frame
             self._ui_controls_dirty = True
@@ -2306,12 +2341,35 @@ class PlayTracker(torch.nn.Module):
     def _handle_ui_keyboard(self):
         if not self._camera_ui_enabled or not self._ui_inited:
             return
+        if self._camera_ui_backend == "rust":
+            try:
+                actions: List[str] = []
+                seen_managers: Set[int] = set()
+                for dialog in self._ui_dialogs.values():
+                    manager = getattr(dialog, "_manager", None)
+                    manager_id = id(manager) if manager is not None else id(dialog)
+                    if manager_id in seen_managers:
+                        continue
+                    seen_managers.add(manager_id)
+                    consumer = getattr(dialog, "consume_actions", None)
+                    if callable(consumer):
+                        actions.extend(str(action) for action in consumer())
+                for action in actions:
+                    if action == "reset":
+                        self._reset_ui_controls()
+                    elif action == "save":
+                        self._ui_save_requested = True
+                        self._ui_controls_dirty = True
+            except Exception as ex:
+                logger.warning("Failed to handle hm-ui action: %s", ex)
+            return
         try:
             k = cv2.waitKey(1) & 0xFF
             if k == ord("r") or k == ord("R"):
                 self._reset_ui_controls()
             elif k == ord("s") or k == ord("S"):
-                self._save_ui_config()
+                self._ui_save_requested = True
+                self._ui_controls_dirty = True
         except Exception:
             pass
 

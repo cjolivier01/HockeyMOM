@@ -1652,7 +1652,13 @@ class hm_opts(object):
             "--camera-ui",
             default=0,
             type=int,
-            help="Enable runtime camera braking UI (OpenCV trackbars)",
+            help="Enable runtime camera braking UI",
+        )
+        ui.add_argument(
+            "--camera-ui-backend",
+            default=None,
+            choices=("opencv", "rust"),
+            help="Runtime camera UI backend. Use 'rust' to launch hm-ui.",
         )
         return hm_opts.finalize_parser(parser)
 

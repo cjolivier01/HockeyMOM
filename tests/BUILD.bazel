@@ -260,3 +260,29 @@ sh_test(
     ],
     tags = ["manual"],
 )
+
+pytest_test(
+    name="test_camera_ui_flag",
+    srcs=["test_camera_ui_flag.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+pytest_test(
+    name="test_hm_ui_bridge",
+    srcs=["test_hm_ui_bridge.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
