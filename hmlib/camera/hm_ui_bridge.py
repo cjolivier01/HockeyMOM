@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
+import cv2
+import numpy as np
+
 from hmlib.log import logger
+from hmlib.utils.gpu import unwrap_tensor
+from hmlib.utils.image import make_visible_image
 
 
 @dataclass
@@ -34,10 +39,13 @@ class HmUiProcess:
         )
         self.spec_path = self._tmpdir / "spec.json"
         self.state_path = self._tmpdir / "state.json"
+        self.preview_path = self._tmpdir / "preview.jpg"
         self._windows: Dict[str, List[_Control]] = {}
         self._process: Optional[subprocess.Popen] = None
         self.stderr_path = self._tmpdir / "hm-ui.stderr.log"
         self._last_state_mtime_ns: Optional[int] = None
+        self._last_preview_write_monotonic = 0.0
+        self._preview_batch_warned = False
         self._last_action_seq = 0
         self._pending_actions: List[str] = []
         self._closed = False
@@ -134,6 +142,56 @@ class HmUiProcess:
         self._pending_actions = []
         return actions
 
+    def publish_preview(
+        self,
+        img,
+        *,
+        show_scaled: Optional[float] = None,
+        max_width: int = 1280,
+        min_interval_seconds: float = 1.0 / 15.0,
+    ) -> None:
+        if self._closed:
+            return
+        now = time.monotonic()
+        if now - self._last_preview_write_monotonic < min_interval_seconds:
+            return
+        frame = unwrap_tensor(img)
+        if frame.ndim == 4:
+            if frame.shape[0] > 1 and not self._preview_batch_warned:
+                logger.warning(
+                    "hm-ui preview received a batch with %s frames; publishing the latest frame",
+                    frame.shape[0],
+                )
+                self._preview_batch_warned = True
+            frame = frame[-1]
+        frame = make_visible_image(
+            frame,
+            enable_resizing=show_scaled,
+            force_numpy=True,
+        )
+        if frame.ndim != 3 or frame.shape[-1] not in (1, 3, 4):
+            raise ValueError(f"hm-ui preview expected HxWxC image, got shape={frame.shape}")
+        frame = np.ascontiguousarray(frame)
+        if max_width > 0 and frame.shape[1] > max_width:
+            scale = float(max_width) / float(frame.shape[1])
+            frame = cv2.resize(
+                frame,
+                (max_width, max(1, int(round(frame.shape[0] * scale)))),
+                interpolation=cv2.INTER_AREA,
+            )
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 85],
+        )
+        if not ok:
+            raise RuntimeError("OpenCV failed to encode hm-ui preview frame")
+        self.preview_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.preview_path.with_suffix(self.preview_path.suffix + ".tmp")
+        tmp.write_bytes(encoded.tobytes())
+        os.replace(tmp, self.preview_path)
+        self._last_preview_write_monotonic = now
+
     def ensure_started(self) -> None:
         if self._closed:
             raise RuntimeError("hm-ui was closed")
@@ -215,6 +273,7 @@ class HmUiProcess:
             "version": 1,
             "title": self.title,
             "subtitle": "Runtime tracking, stitch, and camera controls",
+            "preview_path": str(self.preview_path),
             "windows": [
                 {
                     "name": window_name,
@@ -282,15 +341,20 @@ class HmUiProcess:
         if exe:
             return [exe]
         repo_root = Path(__file__).resolve().parents[2]
+        hmlib_root = Path(__file__).resolve().parents[1]
         runfiles_dir = os.environ.get("RUNFILES_DIR")
         if runfiles_dir:
             for candidate in (
+                Path(runfiles_dir) / "hockeymom" / "hmlib" / "bin" / "hm-ui",
+                Path(runfiles_dir) / "hmlib" / "bin" / "hm-ui",
                 Path(runfiles_dir) / "hockeymom" / "hm-ui" / "hm-ui-bin",
                 Path(runfiles_dir) / "hm-ui" / "hm-ui-bin",
             ):
                 if candidate.exists() and os.access(candidate, os.X_OK):
                     return [str(candidate)]
         for candidate in (
+            hmlib_root / "bin" / "hm-ui",
+            repo_root / "bazel-bin" / "hmlib" / "bin" / "hm-ui",
             repo_root / "bazel-bin" / "hm-ui" / "hm-ui-bin",
             repo_root / "hm-ui" / "target" / "release" / "hm-ui",
             repo_root / "hm-ui" / "target" / "debug" / "hm-ui",

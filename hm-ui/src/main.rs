@@ -27,6 +27,8 @@ struct UiSpec {
     #[serde(default)]
     subtitle: String,
     #[serde(default)]
+    preview_path: Option<PathBuf>,
+    #[serde(default)]
     windows: Vec<WindowSpec>,
 }
 
@@ -70,6 +72,10 @@ struct HmUiApp {
     selected_window: usize,
     last_spec_modified: Option<SystemTime>,
     last_spec_poll: SystemTime,
+    last_preview_modified: Option<SystemTime>,
+    last_preview_poll: SystemTime,
+    preview_texture: Option<egui::TextureHandle>,
+    preview_status: String,
     action_seq: u64,
     last_action: Option<UiAction>,
     status: String,
@@ -83,12 +89,17 @@ impl HmUiApp {
             spec: UiSpec {
                 title,
                 subtitle: "Runtime camera controls".to_string(),
+                preview_path: None,
                 windows: Vec::new(),
             },
             values: BTreeMap::new(),
             selected_window: 0,
             last_spec_modified: None,
             last_spec_poll: UNIX_EPOCH,
+            last_preview_modified: None,
+            last_preview_poll: UNIX_EPOCH,
+            preview_texture: None,
+            preview_status: "Waiting for preview frame".to_string(),
             action_seq: 0,
             last_action: None,
             status: "Starting".to_string(),
@@ -165,6 +176,45 @@ impl HmUiApp {
         self.last_spec_poll = now;
         if let Err(err) = self.reload_spec(false) {
             self.status = format!("Spec error: {err}");
+        }
+    }
+
+    fn poll_preview(&mut self, ctx: &egui::Context) {
+        let now = SystemTime::now();
+        if now
+            .duration_since(self.last_preview_poll)
+            .unwrap_or(Duration::from_secs(1))
+            < Duration::from_millis(120)
+        {
+            return;
+        }
+        self.last_preview_poll = now;
+        let Some(path) = self.spec.preview_path.clone() else {
+            self.preview_status = "No preview path in spec".to_string();
+            return;
+        };
+        let Ok(meta) = fs::metadata(&path) else {
+            self.preview_status = "Waiting for preview frame".to_string();
+            return;
+        };
+        let modified = meta.modified().ok();
+        if modified.is_some() && modified == self.last_preview_modified {
+            return;
+        }
+        match load_color_image(&path) {
+            Ok(image) => {
+                let options = egui::TextureOptions::LINEAR;
+                if let Some(texture) = self.preview_texture.as_mut() {
+                    texture.set(image, options);
+                } else {
+                    self.preview_texture = Some(ctx.load_texture("hm-ui-preview", image, options));
+                }
+                self.last_preview_modified = modified;
+                self.preview_status = "Live preview".to_string();
+            }
+            Err(err) => {
+                self.preview_status = format!("Preview load failed: {err}");
+            }
         }
     }
 
@@ -305,6 +355,37 @@ impl HmUiApp {
         });
     }
 
+    fn draw_preview(&mut self, ui: &mut egui::Ui) {
+        let available = ui.available_size_before_wrap();
+        let height = (available.y * 0.52).clamp(220.0, 520.0);
+        egui::Frame::canvas(ui.style()).show(ui, |ui| {
+            ui.set_min_height(height);
+            ui.set_width(available.x);
+            if let Some(texture) = &self.preview_texture {
+                let texture_size = texture.size_vec2();
+                if texture_size.x > 0.0 && texture_size.y > 0.0 {
+                    let max_size = egui::vec2(ui.available_width(), height);
+                    let scale = (max_size.x / texture_size.x)
+                        .min(max_size.y / texture_size.y)
+                        .max(0.01);
+                    let desired_size = texture_size * scale;
+                    ui.vertical_centered(|ui| {
+                        ui.add(
+                            egui::Image::new(texture)
+                                .fit_to_exact_size(desired_size)
+                                .maintain_aspect_ratio(true),
+                        );
+                    });
+                }
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label(&self.preview_status);
+                });
+            }
+        });
+        ui.add_space(10.0);
+    }
+
     fn draw_commands(&mut self, ui: &mut egui::Ui) {
         ui.heading("Commands");
         ui.add_space(8.0);
@@ -331,6 +412,7 @@ impl HmUiApp {
 impl eframe::App for HmUiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_spec();
+        self.poll_preview(ctx);
         ctx.set_pixels_per_point(1.1);
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             self.draw_top_bar(ui);
@@ -342,6 +424,7 @@ impl eframe::App for HmUiApp {
                 self.draw_sidebar(ui);
             });
         egui::CentralPanel::default().show(ctx, |ui| {
+            self.draw_preview(ui);
             if self.selected_window < self.spec.windows.len() {
                 self.draw_controls(ui, self.selected_window);
             } else if self.selected_window == self.spec.windows.len() {
@@ -393,6 +476,17 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     fs::write(&tmp, data)?;
     fs::rename(tmp, path)?;
     Ok(())
+}
+
+fn load_color_image(path: &Path) -> Result<egui::ColorImage> {
+    let image = image::open(path)
+        .with_context(|| format!("decode {}", path.display()))?
+        .to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    Ok(egui::ColorImage::from_rgba_unmultiplied(
+        size,
+        image.as_raw(),
+    ))
 }
 
 fn main() -> Result<()> {

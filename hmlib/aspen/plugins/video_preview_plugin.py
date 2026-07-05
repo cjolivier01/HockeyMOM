@@ -41,6 +41,7 @@ class VideoPreviewPlugin(Plugin):
         self._headless_preview_port = headless_preview_port
         self._always_stream = bool(always_stream) if always_stream is not None else None
         self._shower: Optional[Shower] = None
+        self._local_display_suppressed_for_hm_ui = False
         self._progress_bar_callback_installed = False
 
     def _resolve_preview_enabled(self, cfg: Dict[str, Any]) -> tuple[bool, bool]:
@@ -65,21 +66,33 @@ class VideoPreviewPlugin(Plugin):
         return show_image, show_youtube
 
     def _ensure_initialized(self, context: Dict[str, Any]) -> None:
-        if self._shower is not None:
-            return
-
         shared = context.get("shared", {})
-        cfg = shared.get("game_config") if isinstance(shared, dict) else {}
+        shared_cfg = shared if isinstance(shared, dict) else {}
+        cfg = shared_cfg.get("game_config") if shared_cfg else {}
         cfg = cfg or {}
         normalize_runtime_config(cfg)
+        hm_ui_preview_active = bool(shared_cfg.get("hm_ui_preview_active"))
+
+        if self._shower is not None:
+            if self._local_display_suppressed_for_hm_ui and not hm_ui_preview_active:
+                self._shower.close()
+                self._shower = None
+                self._local_display_suppressed_for_hm_ui = False
+                self._progress_bar_callback_installed = False
+            else:
+                return
 
         show_image, show_youtube = self._resolve_preview_enabled(cfg)
         if not show_image and not show_youtube:
             return
+        effective_show_image = show_image and not hm_ui_preview_active
+        self._local_display_suppressed_for_hm_ui = show_image and hm_ui_preview_active
+        if not effective_show_image and not show_youtube:
+            return
 
         fps_val = context.get("fps")
-        if fps_val is None and isinstance(shared, dict):
-            fps_val = shared.get("fps")
+        if fps_val is None:
+            fps_val = shared_cfg.get("fps")
         fps = self._preview_fps
         if fps is None:
             cfg_preview_fps = get_nested_value(
@@ -101,8 +114,8 @@ class VideoPreviewPlugin(Plugin):
             fps = None
 
         label = "Preview"
-        if isinstance(shared, dict) and shared.get("game_id"):
-            label = f"{shared['game_id']} preview"
+        if shared_cfg.get("game_id"):
+            label = f"{shared_cfg['game_id']} preview"
 
         headless_preview_host = (
             self._headless_preview_host
@@ -141,7 +154,7 @@ class VideoPreviewPlugin(Plugin):
             profiler=self._profiler,
             skip_frame_when_full=True,
             drop_oldest_when_full=True,
-            enable_local_display=show_image,
+            enable_local_display=effective_show_image,
             show_youtube=show_youtube,
             youtube_stream_url=(
                 self._youtube_stream_url
@@ -174,7 +187,7 @@ class VideoPreviewPlugin(Plugin):
             ),
         )
 
-        progress_bar = shared.get("progress_bar") if isinstance(shared, dict) else None
+        progress_bar = shared_cfg.get("progress_bar")
         if progress_bar is not None and not self._progress_bar_callback_installed:
             progress_bar.add_table_callback(self._shower.update_progress_table)
             self._progress_bar_callback_installed = True

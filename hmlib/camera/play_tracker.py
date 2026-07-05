@@ -1580,6 +1580,7 @@ class PlayTracker(torch.nn.Module):
         img = wrap_tensor(img)
         img._verbose = True
         results["img"] = img
+        self._publish_hm_ui_preview(img)
 
         return results
 
@@ -1664,10 +1665,30 @@ class PlayTracker(torch.nn.Module):
         for dialog in self._ui_dialogs.values():
             dialog.show()
 
+    def _publish_hm_ui_preview(self, img) -> None:
+        if (
+            not self._camera_ui_enabled
+            or self._camera_ui_backend != "rust"
+            or self._hm_ui_process is None
+        ):
+            return
+        try:
+            self._hm_ui_process.publish_preview(img)
+        except Exception as ex:
+            logger.warning("Failed to publish hm-ui preview frame: %s", ex)
+
     def close_ui(self) -> None:
         if self._hm_ui_process is not None:
             self._hm_ui_process.close()
             self._hm_ui_process = None
+
+    def hm_ui_preview_active(self) -> bool:
+        return (
+            self._camera_ui_enabled
+            and self._camera_ui_backend == "rust"
+            and self._hm_ui_process is not None
+            and not self._hm_ui_process.closed
+        )
 
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""

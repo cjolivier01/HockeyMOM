@@ -2282,6 +2282,11 @@ class hm_opts(object):
             explicit_arg_names=explicit_arg_names,
         )
         hm_opts.apply_implied_arg_mappings(opt)
+        if int(opt.camera_ui or 0) and (opt.camera_ui_backend or "").lower() == "rust":
+            opt.show_image = True
+            if isinstance(opt.game_config, dict):
+                normalize_runtime_config(opt.game_config)
+                set_nested_value(opt.game_config, "video_out.show_image", True)
 
         return opt
 
