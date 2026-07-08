@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 from typing import Any, Dict
 
-import torch
+import pytest
 
-from hmlib.tasks import tracking
+_HAS_TORCH = importlib.util.find_spec("torch") is not None
+pytestmark = pytest.mark.skipif(not _HAS_TORCH, reason="torch is not available")
+
+if _HAS_TORCH:
+    import torch
 
 
 class _DummyDataloader:
@@ -23,6 +28,8 @@ class _DummyDataloader:
 
 
 def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
+    from hmlib.tasks import tracking
+
     captured: Dict[str, Any] = {}
     sentinel_controller: object = object()
 
@@ -86,6 +93,8 @@ def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
 
 
 def should_allow_config_camera_ui_backend_when_cli_default_is_unset(monkeypatch):
+    from hmlib.tasks import tracking
+
     captured: Dict[str, Any] = {}
 
     class DummyAspenNet(torch.nn.Module):

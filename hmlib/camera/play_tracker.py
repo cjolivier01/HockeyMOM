@@ -1959,9 +1959,9 @@ class PlayTracker(torch.nn.Module):
             )
             if self._stitch_slider_enabled:
                 try:
-                    self._ui_defaults[self._ui_window_name]["Stitch_Rotate_Degrees"] = (
-                        self._ui_slider_value(self._ui_window_name, "Stitch_Rotate_Degrees")
-                    )
+                    self._ui_defaults[self._ui_window_name][
+                        "Stitch_Rotate_Degrees"
+                    ] = self._ui_slider_value(self._ui_window_name, "Stitch_Rotate_Degrees")
                 except KeyError as ex:
                     logger.warning("Failed to store stitch camera UI default: %s", ex)
             self._ui_inited = True

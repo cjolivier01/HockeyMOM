@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 import types
 
-import hmlib.cli.hmtrack as hmtrack_cli
+import pytest
+
+_HAS_TORCH = importlib.util.find_spec("torch") is not None
+pytestmark = pytest.mark.skipif(not _HAS_TORCH, reason="torch is not available")
+
+if _HAS_TORCH:
+    import hmlib.cli.hmtrack as hmtrack_cli
 
 
 def _make_cfg():

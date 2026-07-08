@@ -13,10 +13,8 @@ import torch
 import torch.nn.functional as F
 
 from hmlib.stitching.configure_stitching import get_image_geo_position
-from hmlib.utils.hockeymom_compat import (
-    ImageRemapper as NativeImageRemapper,
-    RemapImageInfo,
-)
+from hmlib.utils.hockeymom_compat import ImageRemapper as NativeImageRemapper
+from hmlib.utils.hockeymom_compat import RemapImageInfo
 from hmlib.utils.image import image_height, image_width, pad_tensor_to_size_batched
 
 

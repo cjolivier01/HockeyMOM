@@ -20,7 +20,6 @@ from torch import nn
 
 from hmlib.camera.camera_transformer import CameraNorm, PositionalEncoding
 
-
 OPENDRIVE_UNIAD_MODEL_ID = "OpenDriveLab/UniAD2.0_R101_nuScenes"
 OPENDRIVE_UNIAD_PLANNING_FILE = "ckpts/uniad_base_e2e.pth"
 

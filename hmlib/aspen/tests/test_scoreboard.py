@@ -1,5 +1,5 @@
-import torch
 import pytest
+import torch
 
 from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.transforms.perspective_rotation import HmPerspectiveRotation

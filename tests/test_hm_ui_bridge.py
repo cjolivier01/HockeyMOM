@@ -1,10 +1,22 @@
+import importlib.util
 import json
 import time
 
-import cv2
-import numpy as np
+import pytest
 
-from hmlib.camera.hm_ui_bridge import HmUiProcess
+_HAS_IMAGE_DEPS = (
+    importlib.util.find_spec("cv2") is not None and importlib.util.find_spec("numpy") is not None
+)
+pytestmark = pytest.mark.skipif(
+    not _HAS_IMAGE_DEPS,
+    reason="cv2/numpy are not available",
+)
+
+if _HAS_IMAGE_DEPS:
+    import cv2
+    import numpy as np
+
+    from hmlib.camera.hm_ui_bridge import HmUiProcess
 
 
 def should_update_controls_from_hm_ui_state(tmp_path):
