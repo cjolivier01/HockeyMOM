@@ -561,20 +561,19 @@ def stitch_videos(
     post_stitch_rotate_degrees: Optional[float] = None,
     args: Optional[argparse.Namespace] = None,
 ):
-    from hmlib.config import get_clip_box
+    from hmlib.config import (
+        get_clip_box,
+        get_config,
+        load_yaml_files_ordered,
+        normalize_runtime_config,
+        resolve_global_refs,
+    )
     from hmlib.tracking_utils.timer import Timer
     from hmlib.ui import Shower
     from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
     from hmlib.utils.image import image_height, image_width, resize_image
     from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
     from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
-
-    from hmlib.config import (
-        get_config,
-        load_yaml_files_ordered,
-        normalize_runtime_config,
-        resolve_global_refs,
-    )
 
     AspenNet = globals().get("AspenNet")
     if AspenNet is None:

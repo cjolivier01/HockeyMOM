@@ -314,23 +314,12 @@ cc_library(
 """,
 )
 
-new_local_repository(
+http_archive(
     name = "vigra",
-    path = "/usr/local",
-    build_file_content = """
-load("@rules_cc//cc:defs.bzl", "cc_import", "cc_library")
-cc_import(
-    name = "vigraimpex",
-    shared_library = "lib/libvigraimpex.so",
-)
-cc_library(
-    name = "vigra",
-    hdrs = glob(["include/vigra/**/*.hxx", "include/vigra/**/*.h"]),
-    includes = ["include"],
-    deps = [":vigraimpex"],
-    visibility = ["//visibility:public"],
-)
-""",
+    build_file = "//buildfiles/third_party:vigra.BUILD",
+    sha256 = "4841936f5c3c137611ec782e293d961df29d3b5b70ade8cb711374de0f4cb5d3",
+    strip_prefix = "vigra-Version-1-11-2",
+    urls = ["https://github.com/ukoethe/vigra/archive/refs/tags/Version-1-11-2.tar.gz"],
 )
 
 new_local_repository(

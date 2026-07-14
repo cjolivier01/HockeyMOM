@@ -6,21 +6,20 @@ no local display is available.
 """
 
 import atexit
-
 from typing import Optional, Union
-
-from hmlib.ui.display_env import sanitize_display_env_for_cv2
-
-sanitize_display_env_for_cv2()
 
 import cv2
 import numpy as np
 import torch
 from PIL.Image import Image
 
+from hmlib.ui.display_env import sanitize_display_env_for_cv2
 from hmlib.ui.headless_preview import BrowserPreviewServer, has_local_display
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import make_visible_image
+
+sanitize_display_env_for_cv2()
+
 
 _HEADLESS_PREVIEWS: dict[tuple[str, Optional[float]], BrowserPreviewServer] = {}
 

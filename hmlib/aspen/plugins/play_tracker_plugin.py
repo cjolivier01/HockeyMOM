@@ -57,6 +57,7 @@ class PlayTrackerPlugin(Plugin):
         camera_controller: Optional[str] = None,
         camera_model: Optional[str] = None,
         camera_window: Optional[int] = None,
+        camera_ui_backend: Optional[str] = None,
         force_stitching: bool = False,
         cluster_centroids_path: Optional[str] = None,
         save_cluster_centroids: bool = False,
@@ -83,9 +84,17 @@ class PlayTrackerPlugin(Plugin):
         self._camera_controller = camera_controller
         self._camera_model = camera_model
         self._camera_window = camera_window
+        self._camera_ui_backend = camera_ui_backend
         self._force_stitching = bool(force_stitching)
         self._cluster_centroids_path = cluster_centroids_path
         self._save_cluster_centroids = bool(save_cluster_centroids)
+
+    def _update_hm_ui_preview_status(self, context: Dict[str, Any]) -> None:
+        shared = context.get("shared") if isinstance(context, dict) else None
+        if not isinstance(shared, dict) or self._play_tracker is None:
+            return
+        status_fn = getattr(self._play_tracker, "hm_ui_preview_active", None)
+        shared["hm_ui_preview_active"] = bool(status_fn()) if callable(status_fn) else False
 
     # region helpers
     @staticmethod
@@ -230,6 +239,10 @@ class PlayTrackerPlugin(Plugin):
             plot_jersey_numbers=self._plot_jersey_numbers,
             plot_actions=self._plot_actions,
             camera_ui=int(context.get("shared", {}).get("camera_ui", 0)),
+            camera_ui_backend=str(
+                self._camera_ui_backend
+                or context.get("shared", {}).get("camera_ui_backend", "opencv")
+            ),
             camera_controller=controller,
             camera_model=cam_model,
             camera_window=int(cam_window),
@@ -242,6 +255,14 @@ class PlayTrackerPlugin(Plugin):
             or bool(shared.get("save_cluster_centroids", False)),
         )
         self._play_tracker.eval()
+        self._update_hm_ui_preview_status(context)
+
+    def finalize(self) -> None:
+        if self._play_tracker is None:
+            return
+        closer = getattr(self._play_tracker, "close_ui", None)
+        if callable(closer):
+            closer()
 
     # endregion
 
@@ -282,6 +303,7 @@ class PlayTrackerPlugin(Plugin):
         assert self._play_tracker is not None
         with torch.no_grad():
             out = self._play_tracker.forward(results=results)
+        self._update_hm_ui_preview_status(context)
         # Surface current play_box for downstream video out sizing
         try:
             out["play_box"] = self._play_tracker.play_box

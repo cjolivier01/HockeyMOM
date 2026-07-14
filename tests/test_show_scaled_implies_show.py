@@ -19,6 +19,19 @@ def should_show_scaled_imply_show_image_and_config() -> None:
     assert args.game_config["video_out"]["show_image"] is True
 
 
+def should_rust_camera_ui_default_show_image_and_config() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(["--camera-ui=1", "--camera-ui-backend=rust"])
+    args.game_config = {"video_out": {"show_image": False}}
+
+    args = hm_opts.init(args, parser)
+
+    assert args.show_image is True
+    assert args.game_config["video_out"]["show_image"] is True
+
+
 def should_map_stitch_frame_time_arg_into_config() -> None:
     from hmlib.hm_opts import hm_opts
 

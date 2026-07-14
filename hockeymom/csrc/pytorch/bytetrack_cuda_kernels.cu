@@ -1,4 +1,5 @@
-#include <ATen/ATen.h>
+#include <ATen/Dispatch.h>
+#include <ATen/Tensor.h>
 
 #include "hockeymom/csrc/pytorch/torch_cuda_compat.h"
 

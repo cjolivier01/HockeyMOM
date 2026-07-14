@@ -1182,7 +1182,9 @@ class PyAmdVideoEncoderWriter(VideoStreamWriterInterface):
         backend = (
             "vaapi"
             if codec_lower.endswith("_vaapi")
-            else "amf" if codec_lower.endswith("_amf") else "auto"
+            else "amf"
+            if codec_lower.endswith("_amf")
+            else "auto"
         )
         self._encoder = PyAmdVideoEncoder(
             output_path=self._filename,

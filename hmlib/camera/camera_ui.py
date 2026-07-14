@@ -9,7 +9,6 @@ from typing import Callable, Dict, Optional, Tuple
 import cv2
 import numpy as np
 
-
 Color = Tuple[int, int, int]
 Rect = Tuple[int, int, int, int]
 logger = logging.getLogger(__name__)

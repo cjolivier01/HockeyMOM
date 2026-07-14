@@ -1060,6 +1060,21 @@ def _case_video_preview(monkeypatch, _tmp_path: Path, cuda_graph_enabled: bool =
     plugin.finalize()
     assert FakeShower.instances[0].closed is True
 
+    FakeShower.instances.clear()
+    plugin = VideoPreviewPlugin()
+    out = plugin(
+        {
+            "img": torch.zeros((1, 8, 8, 3), dtype=torch.uint8),
+            "fps": 30.0,
+            "shared": {
+                "game_config": {"video_out": {"show_image": True}},
+                "hm_ui_preview_active": True,
+            },
+        }
+    )
+    assert out == {}
+    assert FakeShower.instances == []
+
 
 def _case_apply_camera(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
     from hmlib.camera.apply_camera_plugin import ApplyCameraPlugin

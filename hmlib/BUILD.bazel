@@ -91,10 +91,19 @@ genrule(
     visibility = ["//visibility:public"],
 )
 
+genrule(
+    name = "embed_hm_ui",
+    srcs = ["//hm-ui:hm-ui"],
+    outs = ["bin/hm-ui"],
+    cmd = "cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "wheel_data_files",
     srcs = [
         ":embed_enblend",
+        ":embed_hm_ui",
         "images/scoreboard_selector_thank_you.svg",
         "images/sports_ai_watermark.png",
         "py.typed",

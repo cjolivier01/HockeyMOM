@@ -1652,7 +1652,13 @@ class hm_opts(object):
             "--camera-ui",
             default=0,
             type=int,
-            help="Enable runtime camera braking UI (OpenCV trackbars)",
+            help="Enable runtime camera braking UI",
+        )
+        ui.add_argument(
+            "--camera-ui-backend",
+            default=None,
+            choices=("opencv", "rust"),
+            help="Runtime camera UI backend. Use 'rust' to launch hm-ui.",
         )
         return hm_opts.finalize_parser(parser)
 
@@ -1879,9 +1885,9 @@ class hm_opts(object):
     IMPLIED_ARG_TO_CONFIG_MAP: Mapping[str, Sequence[tuple[str, Callable[[Any], Any]]]] = {
         "show_scaled": [("video_out.show_image", lambda _: True)],
     }
-    PRIVATE_CONFIG_ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = (
-        ALL_YAML_ARG_TO_CONFIG_MAP
-    )
+    PRIVATE_CONFIG_ARG_TO_CONFIG_MAP: Mapping[
+        str, Union[str, Sequence[str]]
+    ] = ALL_YAML_ARG_TO_CONFIG_MAP
     PRIVATE_CONFIG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
         **ARG_VALUE_MAP,
         **INIT_ARG_VALUE_MAP,
@@ -2276,6 +2282,11 @@ class hm_opts(object):
             explicit_arg_names=explicit_arg_names,
         )
         hm_opts.apply_implied_arg_mappings(opt)
+        if int(opt.camera_ui or 0) and (opt.camera_ui_backend or "").lower() == "rust":
+            opt.show_image = True
+            if isinstance(opt.game_config, dict):
+                normalize_runtime_config(opt.game_config)
+                set_nested_value(opt.game_config, "video_out.show_image", True)
 
         return opt
 

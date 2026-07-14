@@ -15,6 +15,7 @@ debug_tensorboard
 /dist
 /exp
 /h-demo*
+/hm-ui/target/
 hockey_league.db
 hockeymom.egg-info
 .idea

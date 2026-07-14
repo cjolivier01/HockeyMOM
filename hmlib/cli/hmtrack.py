@@ -24,8 +24,8 @@ import hmlib
 from hmlib.config import (
     get_clip_box,
     get_config,
-    get_game_dir,
     get_game_config_private,
+    get_game_dir,
     get_nested_value,
     load_config_file,
     normalize_runtime_config,
@@ -33,7 +33,6 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import _get_baseline_runtime_config, copy_opts, hm_opts
-
 from hmlib.log import get_root_logger, logger
 from hmlib.utils.path import (
     add_game_id_prefix_to_filename,
@@ -1495,11 +1494,11 @@ class _StitchRotationController:
 
 
 def _main(args, num_gpu):
+    from mmcv.transforms import Compose
+
     import hmlib.hm_transforms  # noqa: F401
     import hmlib.tracking_utils.segm_boundaries  # noqa: F401
     import hmlib.transforms  # noqa: F401
-    from mmcv.transforms import Compose
-
     from hmlib.camera.camera import should_unsharp_mask_camera
     from hmlib.datasets.dataframe import find_latest_dataframe_file
     from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -1825,9 +1824,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params["tracker_class"] = (
-                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
-                        )
+                        tracker_params[
+                            "tracker_class"
+                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)

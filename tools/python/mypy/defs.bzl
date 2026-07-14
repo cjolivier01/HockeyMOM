@@ -62,6 +62,7 @@ def _extract_runfiles(ctx):
 def _extract_direct_srcs(srcs):
     """Extract srcs which have a valid extension."""
     direct_src_files = []
+    direct_src_paths = {}
     for src in srcs:
         for f in src.files.to_list():
             if "-" in f.short_path:
@@ -69,7 +70,16 @@ def _extract_direct_srcs(srcs):
                 continue
             if f.extension in VALID_EXTENSIONS:
                 direct_src_files.append(f)
-    return direct_src_files
+                direct_src_paths[f.short_path] = True
+
+    filtered_src_files = []
+    for f in direct_src_files:
+        if f.basename == "__init__.py":
+            sibling_module_path = f.dirname + ".py"
+            if sibling_module_path in direct_src_paths:
+                continue
+        filtered_src_files.append(f)
+    return filtered_src_files
 
 
 def _extract_transitive_depsets(ctx):

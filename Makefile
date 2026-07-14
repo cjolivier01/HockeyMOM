@@ -5,7 +5,10 @@ TOPDIR=$(shell pwd)
 
 all: print_targets
 
-.PHONY: print_targets perf debug develop wheel docs test clean distclean expunge
+.PHONY: print_targets perf debug develop wheel docs test clean distclean expunge hm-ui hmtrack-rust-ui
+
+hm-ui:
+	bazel/bazel.sh build --config=release //hm-ui:hm-ui
 
 perf:
 	bazel/bazel.sh build --config=release //...
@@ -37,6 +40,9 @@ develop:
 	fi
 	bazel/bazel.sh run --config=release //hmlib:develop -- --workspace=$(TOPDIR)
 
+hmtrack-rust-ui: hm-ui
+	HM_UI_BIN=$(TOPDIR)/bazel-bin/hm-ui/hm-ui-bin PYTHONPATH=$(TOPDIR) python hmlib/cli/hmtrack.py --camera-ui=1 --camera-ui-backend=rust $(ARGS)
+
 deps:
 	cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
 	cd -
@@ -47,6 +53,7 @@ print_targets:
 		'' \
 		'Build Outputs' \
 		'-------------' \
+		'hm-ui        Build the Rust hm-ui sidecar binary used by --camera-ui-backend=rust.' \
 		'perf         Build every Bazel target with --config=release; use for optimized binaries before packaging or deploying.' \
 		'debug        Build every Bazel target with --config=debug; use while iterating locally when you need symbols and asserts.' \
 		'' \
@@ -57,6 +64,7 @@ print_targets:
 		'Developer Workflow' \
 		'------------------' \
 		'develop      Refreshes hockeymom extension symlinks when a local CUDA toolkit is available, then builds the hmlib develop wheel.' \
+		'hmtrack-rust-ui  Build hm-ui, then run hmtrack with the Rust camera UI. Pass hmtrack args with ARGS="--game-id chicago-3 ...".' \
 		'test         Runs the release-configured Bazel test suite; use to verify regressions before submitting or tagging builds.' \
 		'wheel        Builds release wheels for hockeymom and hmlib; run when you need distributable Python packages.' \
 		'' \
