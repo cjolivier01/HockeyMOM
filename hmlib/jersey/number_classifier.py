@@ -1,10 +1,8 @@
 import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 import torch
-from mmocr.apis.inferencers import MMOCRInferencer
-from mmocr.utils import poly2bbox
 
 from hmlib.bbox.box_functions import center, width
 from hmlib.bbox.tiling import (
@@ -19,6 +17,9 @@ from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.ui import show_image
 from hmlib.utils.gpu import StreamTensorBase
 from hmlib.utils.image import image_height, image_width, make_channels_first, make_channels_last
+
+if TYPE_CHECKING:
+    from mmocr.apis.inferencers import MMOCRInferencer
 
 # TV_10_1_ROSTER: Set[int] = {19, 9, 87, 7, 98, 78, 43, 10, 11, 39, 66, 92, 15}
 TV_10_1_ROSTER: Set[int] = {}
@@ -81,7 +82,9 @@ class HmNumberClassifier:
         return self.forward(data, **kwargs)
 
     @staticmethod
-    def create_inferencer():
+    def create_inferencer() -> "MMOCRInferencer":
+        from mmocr.apis.inferencers import MMOCRInferencer
+
         config = {
             "det": "FCENet",
             "det_weights": None,
@@ -186,6 +189,8 @@ class HmNumberClassifier:
     def process_results(
         self, ocr_results: Dict[str, Any], det_thresh: float = 0.5, rec_thresh: float = 0.8
     ) -> Dict[str, Any]:
+        from mmocr.utils import poly2bbox
+
         predictions = ocr_results["predictions"]
         assert len(predictions) == 1
         predictions = predictions[0]
@@ -319,7 +324,8 @@ def sample():
 # ]
 
 
-def get_inferencer() -> MMOCRInferencer:
+def get_inferencer() -> "MMOCRInferencer":
+    from mmocr.apis.inferencers import MMOCRInferencer
 
     config = {
         "det": "FCENet",

@@ -6,7 +6,7 @@ h5py
 importlib-metadata
 rich
 av
-PyNvVideoCodec
+pynvvideocodec
 html5lib
 typeguard
 django
