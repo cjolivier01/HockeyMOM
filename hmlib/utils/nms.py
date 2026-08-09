@@ -44,6 +44,30 @@ def get_trt_logger(trt_module):
     return _TRT_LOGGER
 
 
+def _get_plugin_creator(registry, name: str):
+    """Look up a TensorRT plugin across the pre-11 and 11+ registry APIs."""
+    # Prefer enumerating creators: TensorRT 11 logs an error when get_creator
+    # probes a plugin removed from the registry, even when absence is expected.
+    for collection_name in ("all_creators", "plugin_creator_list"):
+        creators = getattr(registry, collection_name, None)
+        if creators is None:
+            continue
+        for creator in creators:
+            creator_name = getattr(creator, "name", None)
+            creator_version = getattr(creator, "plugin_version", None)
+            creator_namespace = getattr(creator, "plugin_namespace", None)
+            if (creator_name, creator_version, creator_namespace) == (name, "1", ""):
+                return creator
+        return None
+
+    get_creator = getattr(registry, "get_creator", None)
+    if get_creator is None:
+        get_creator = getattr(registry, "get_plugin_creator", None)
+    if get_creator is None:
+        raise RuntimeError("TensorRT plugin registry does not expose a creator lookup API")
+    return get_creator(name, "1", "")
+
+
 @dataclass
 class TrtNmsConfig:
     num_classes: int
@@ -80,6 +104,7 @@ class TrtBatchedNMS:
         self._stream: Optional[torch.cuda.Stream] = stream
         self._trt = None
         self._np = None
+        self._output_dtypes: dict[str, torch.dtype] = {}
 
     @staticmethod
     def _zero_padded_outputs(
@@ -199,7 +224,10 @@ class TrtBatchedNMS:
         logger = get_trt_logger(trt)
 
         builder = trt.Builder(logger)
-        flags = int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        # TensorRT 10 and earlier require this flag; TensorRT 11 removes it
+        # because explicit batch is the only supported network mode.
+        explicit_batch = getattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH", 0)
+        flags = int(explicit_batch)
         network = builder.create_network(flags)
         config = builder.create_builder_config()
         # NMS network is tiny; 32MB is plenty.
@@ -216,10 +244,30 @@ class TrtBatchedNMS:
         N = int(self.cfg.max_num_boxes)
         C = int(self.cfg.num_classes)
 
-        # Prefer EfficientNMS_TRT when available; fall back to BatchedNMS
-        # for older TensorRT builds where EfficientNMS is missing.
+        # TensorRT 11 removes BatchedNMSDynamic_TRT, while older releases may
+        # lack EfficientNMS_TRT. Resolve the requested plugin before defining
+        # inputs so the runtime bindings use the selected plugin's shapes.
         plugin_kind = getattr(self.cfg, "plugin", "efficient").lower()
         registry = trt.get_plugin_registry()
+        efficient_creator = _get_plugin_creator(registry, "EfficientNMS_TRT")
+        batched_creator = _get_plugin_creator(registry, "BatchedNMSDynamic_TRT")
+
+        if plugin_kind == "efficient" and efficient_creator is None:
+            if batched_creator is None:
+                raise RuntimeError("No supported NMS plugin found in TensorRT registry")
+            get_logger(__name__).warning(
+                "EfficientNMS_TRT is unavailable; falling back to BatchedNMSDynamic_TRT"
+            )
+            plugin_kind = "batched"
+        elif plugin_kind != "efficient" and batched_creator is None:
+            if efficient_creator is None:
+                raise RuntimeError("No supported NMS plugin found in TensorRT registry")
+            get_logger(__name__).warning(
+                "BatchedNMSDynamic_TRT is unavailable; falling back to EfficientNMS_TRT"
+            )
+            plugin_kind = "efficient"
+
+        self.cfg.plugin = plugin_kind
 
         if plugin_kind == "efficient":
             # EfficientNMS expects boxes in shape [B, num_boxes, 4] and scores
@@ -235,37 +283,33 @@ class TrtBatchedNMS:
                 shape=(B, N, C),
             )
 
-            creator = registry.get_plugin_creator("EfficientNMS_TRT", "1", "")
-            if creator is None:
-                # Fall back to BatchedNMSDynamic_TRT on older TensorRT builds.
-                plugin_kind = "batched"
-            else:
-                fields = []
+            fields = []
 
-                def add_field(name: str, value, ftype):
-                    arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
-                    fields.append(trt.PluginField(name, arr, ftype))
+            def add_field(name: str, value, ftype):
+                arr = np.array([value], dtype=np.int32 if "INT" in ftype.name else np.float32)
+                fields.append(trt.PluginField(name, arr, ftype))
 
-                # EfficientNMS parameters
-                add_field(
-                    "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
-                )
-                add_field(
-                    "iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32
-                )
-                add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
-                add_field(
-                    "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
-                )
-                # 0 = no activation (scores already in [0,1]), 1 = sigmoid
-                add_field("score_activation", 0, trt.PluginFieldType.INT32)
-                # 0 = per-class NMS, 1 = class-agnostic
-                add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
-                # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
-                add_field("box_coding", 0, trt.PluginFieldType.INT32)
+            # EfficientNMS parameters
+            add_field(
+                "score_threshold", float(self.cfg.score_threshold), trt.PluginFieldType.FLOAT32
+            )
+            add_field("iou_threshold", float(self.cfg.iou_threshold), trt.PluginFieldType.FLOAT32)
+            add_field("max_output_boxes", int(self.cfg.keep_top_k), trt.PluginFieldType.INT32)
+            add_field(
+                "background_class", int(self.cfg.background_label_id), trt.PluginFieldType.INT32
+            )
+            # 0 = no activation (scores already in [0,1]), 1 = sigmoid
+            add_field("score_activation", 0, trt.PluginFieldType.INT32)
+            # 0 = per-class NMS, 1 = class-agnostic
+            add_field("class_agnostic", 0, trt.PluginFieldType.INT32)
+            # 0 = boxes in [x1, y1, x2, y2], 1 = [x, y, w, h]
+            add_field("box_coding", 0, trt.PluginFieldType.INT32)
 
-                plugin = creator.create_plugin("efficient_nms", trt.PluginFieldCollection(fields))
-                layer = network.add_plugin_v2([boxes, scores], plugin)
+            assert efficient_creator is not None
+            plugin = efficient_creator.create_plugin(
+                "efficient_nms", trt.PluginFieldCollection(fields)
+            )
+            layer = network.add_plugin_v2([boxes, scores], plugin)
 
         if plugin_kind != "efficient":
             # Legacy BatchedNMSDynamic_TRT plugin.
@@ -279,10 +323,6 @@ class TrtBatchedNMS:
                 dtype=trt.DataType.FLOAT,
                 shape=(B, N, C),
             )
-
-            creator = registry.get_plugin_creator("BatchedNMSDynamic_TRT", "1", "")
-            if creator is None:
-                raise RuntimeError("BatchedNMSDynamic_TRT plugin not found in TensorRT registry")
 
             fields = []
 
@@ -310,7 +350,8 @@ class TrtBatchedNMS:
                 "caffeSemantics", int(bool(self.cfg.caffe_semantics)), trt.PluginFieldType.INT32
             )
 
-            plugin = creator.create_plugin("batched_nms", trt.PluginFieldCollection(fields))
+            assert batched_creator is not None
+            plugin = batched_creator.create_plugin("batched_nms", trt.PluginFieldCollection(fields))
             layer = network.add_plugin_v2([boxes, scores], plugin)
 
         num_det = layer.get_output(0)
@@ -353,6 +394,17 @@ class TrtBatchedNMS:
 
         self._engine = engine
         self._context = context
+        self._output_dtypes = {
+            name: torch.from_numpy(
+                np.empty((), dtype=trt.nptype(engine.get_tensor_dtype(name)))
+            ).dtype
+            for name in (
+                "num_detections",
+                "nmsed_boxes",
+                "nmsed_scores",
+                "nmsed_classes",
+            )
+        }
 
     def _ensure_engine(self, device: torch.device) -> None:
         if self._engine is None or self._context is None:
@@ -394,10 +446,10 @@ class TrtBatchedNMS:
             boxes_pad[0, : boxes.shape[0], 0, :] = boxes
         scores_pad[0, : scores.shape[0], :] = scores
 
-        num_det = torch.empty((B, 1), device=device, dtype=torch.int32)
-        out_boxes = torch.empty((B, K, 4), device=device, dtype=torch.float32)
-        out_scores = torch.empty((B, K), device=device, dtype=torch.float32)
-        out_classes = torch.empty((B, K), device=device, dtype=torch.float32)
+        num_det = torch.empty((B, 1), device=device, dtype=self._output_dtypes["num_detections"])
+        out_boxes = torch.empty((B, K, 4), device=device, dtype=self._output_dtypes["nmsed_boxes"])
+        out_scores = torch.empty((B, K), device=device, dtype=self._output_dtypes["nmsed_scores"])
+        out_classes = torch.empty((B, K), device=device, dtype=self._output_dtypes["nmsed_classes"])
 
         # Bind buffers by tensor name.
         context.set_tensor_address("boxes", boxes_pad.data_ptr())
@@ -474,19 +526,13 @@ class TrtBatchedNMS:
         # Propagate static padding metadata so _strip_static_padding can
         # trim back to num_valid on the GPU. Keep num_valid on device to
         # avoid a host-side sync here.
-        try:
-            new_inst.set_metainfo(
-                dict(
-                    num_valid_after_nms=num_valid_tensor,
-                    max_detections=int(self.cfg.max_num_boxes),
-                    num_valid_before_nms=int(num_boxes),
-                )
+        new_inst.set_metainfo(
+            dict(
+                num_valid_after_nms=num_valid_tensor,
+                max_detections=int(self.cfg.max_num_boxes),
+                num_valid_before_nms=int(num_boxes),
             )
-        except Exception as ex:
-            get_logger(__name__).exception("Failed to set NMS metainfo: %s", ex)
-            import traceback
-
-            traceback.print_exc()
+        )
         return new_inst
 
 

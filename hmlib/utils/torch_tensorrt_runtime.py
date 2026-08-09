@@ -165,6 +165,9 @@ def compile_torch_tensorrt(
         use_explicit_typing=not fp16,
         require_full_compilation=True,
         pass_through_build_failures=True,
+        # Torch-TensorRT 2.11 applies its default threshold of five supported
+        # ops before require_full_compilation, so small graphs need this to
+        # avoid being returned as uncompiled PyTorch modules.
         min_block_size=1,
         use_fast_partitioner=False,
         optimization_level=5,

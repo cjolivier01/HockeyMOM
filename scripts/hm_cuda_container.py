@@ -165,16 +165,6 @@ def cmd_build(args: argparse.Namespace) -> None:
         f"UID={args.uid}",
         "--build-arg",
         f"GID={args.gid}",
-        "--build-arg",
-        f"CUDA_BASE={args.cuda_base}",
-        "--build-arg",
-        f"TORCH_INDEX_URL={args.torch_index_url}",
-        "--build-arg",
-        f"TORCH_VERSION={args.torch_version}",
-        "--build-arg",
-        f"TORCHVISION_VERSION={args.torchvision_version}",
-        "--build-arg",
-        f"TORCHAUDIO_VERSION={args.torchaudio_version}",
         str(repo_root),
     ]
     returncode, saw_transient_dns_failure = _run_streaming(build_cmd, env=_docker_env())
@@ -315,15 +305,6 @@ def main(argv: list[str]) -> int:
             f"(default: auto -> {default_build_network})"
         ),
     )
-    build.add_argument(
-        "--cuda-base",
-        default="nvidia/cuda:13.0.2-devel-ubuntu22.04",
-        help="Base CUDA image (must include nvcc for CUDA builds)",
-    )
-    build.add_argument("--torch-index-url", default="https://download.pytorch.org/whl/cu130")
-    build.add_argument("--torch-version", default="2.11.0+cu130")
-    build.add_argument("--torchvision-version", default="0.26.0+cu130")
-    build.add_argument("--torchaudio-version", default="2.11.0+cu130")
     build.set_defaults(func=cmd_build)
 
     run = subparsers.add_parser(

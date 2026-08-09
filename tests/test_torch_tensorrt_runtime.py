@@ -239,6 +239,90 @@ def should_surface_python_314_incompatibility_before_import(monkeypatch) -> None
     assert imported is False
 
 
+def should_lookup_nms_plugins_with_tensor_rt_11_registry_api() -> None:
+    from hmlib.utils.nms import _get_plugin_creator
+
+    expected = object()
+
+    class _Registry:
+        def get_creator(self, name, version, namespace):
+            assert (name, version, namespace) == ("EfficientNMS_TRT", "1", "")
+            return expected
+
+    assert _get_plugin_creator(_Registry(), "EfficientNMS_TRT") is expected
+
+
+def should_enumerate_tensor_rt_11_plugins_without_probing_missing_creators() -> None:
+    from hmlib.utils.nms import _get_plugin_creator
+
+    creator = SimpleNamespace(
+        name="EfficientNMS_TRT",
+        plugin_version="1",
+        plugin_namespace="",
+    )
+
+    class _Registry:
+        all_creators = [creator]
+
+        def get_creator(self, _name, _version, _namespace):
+            raise AssertionError(
+                "creator lookup should not be called when enumeration is available"
+            )
+
+    registry = _Registry()
+    assert _get_plugin_creator(registry, "EfficientNMS_TRT") is creator
+    assert _get_plugin_creator(registry, "BatchedNMSDynamic_TRT") is None
+
+
+def should_lookup_nms_plugins_with_legacy_registry_api() -> None:
+    from hmlib.utils.nms import _get_plugin_creator
+
+    expected = object()
+
+    class _Registry:
+        def get_plugin_creator(self, name, version, namespace):
+            assert (name, version, namespace) == ("BatchedNMSDynamic_TRT", "1", "")
+            return expected
+
+    assert _get_plugin_creator(_Registry(), "BatchedNMSDynamic_TRT") is expected
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
+def should_preserve_nonzero_labels_during_tensor_rt_nms_fallback() -> None:
+    pytest.importorskip("tensorrt")
+    from hmlib.utils.nms import TrtBatchedNMS, TrtNmsConfig
+
+    cfg = TrtNmsConfig(
+        num_classes=3,
+        max_num_boxes=32,
+        top_k=32,
+        keep_top_k=8,
+        score_threshold=0.1,
+        iou_threshold=0.5,
+        max_per_img=8,
+        plugin="batched",
+    )
+    nms = TrtBatchedNMS(cfg, stream=None)
+    boxes = torch.tensor(
+        [
+            [0.0, 0.0, 10.0, 10.0],
+            [1.0, 1.0, 9.0, 9.0],
+            [20.0, 20.0, 30.0, 30.0],
+        ],
+        device="cuda",
+    )
+    scores = torch.zeros((3, 3), device="cuda")
+    scores[:, 2] = torch.tensor([0.9, 0.8, 0.7], device="cuda")
+
+    num_det, _out_boxes, _out_scores, out_classes = nms._infer(boxes, scores)
+    torch.cuda.synchronize()
+    count = int(num_det[0, 0])
+
+    assert count == 2
+    assert out_classes.dtype == nms._output_dtypes["nmsed_classes"]
+    assert out_classes[0, :count].to(torch.long).tolist() == [2, 2]
+
+
 def should_default_tensor_rt_models_to_fp16() -> None:
     from hmlib.hm_opts import hm_opts
 
