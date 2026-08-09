@@ -314,8 +314,6 @@ class PlayTracker(torch.nn.Module):
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
         self._ui_dialogs: Dict[str, HmUiDialog] = {}
         self._ui_controls_dirty = True
-        self._ui_save_requested = False
-        self._ui_reset_source: Optional[Dict[str, Any]] = None
         self._fixed_edge_rotation_last_sliders: Tuple[int, int] = (0, 0)
         self._stitch_rotation_controller = stitch_rotation_controller
         self._force_stitching: bool = bool(force_stitching)
@@ -1724,6 +1722,50 @@ class PlayTracker(torch.nn.Module):
             left_x10 = right_x10 = 0
         return linked, left_x10, right_x10
 
+    def _apply_fixed_edge_rotation_controls(self) -> Union[float, List[float]]:
+        fixed_linked = bool(
+            self._ui_slider_value(
+                self._ui_window_name,
+                "Link_Fixed_Edge_Rotation_Left_Right",
+            )
+        )
+        fixed_left_x10 = self._ui_slider_value(
+            self._ui_window_name,
+            "Left_Fixed_Edge_Rotation_Angle_x10",
+        )
+        fixed_right_x10 = self._ui_slider_value(
+            self._ui_window_name,
+            "Right_Fixed_Edge_Rotation_Angle_x10",
+        )
+        previous_left_x10, previous_right_x10 = self._fixed_edge_rotation_last_sliders
+        if fixed_linked:
+            if fixed_right_x10 != previous_right_x10 and fixed_left_x10 == previous_left_x10:
+                fixed_left_x10 = fixed_right_x10
+            else:
+                fixed_right_x10 = fixed_left_x10
+            self._set_ui_slider_value(
+                self._ui_window_name,
+                "Left_Fixed_Edge_Rotation_Angle_x10",
+                fixed_left_x10,
+            )
+            self._set_ui_slider_value(
+                self._ui_window_name,
+                "Right_Fixed_Edge_Rotation_Angle_x10",
+                fixed_right_x10,
+            )
+            fixed_edge_rotation_angle: Union[float, List[float]] = float(fixed_left_x10) / 10.0
+        else:
+            fixed_edge_rotation_angle = [
+                float(fixed_left_x10) / 10.0,
+                float(fixed_right_x10) / 10.0,
+            ]
+        self._fixed_edge_rotation_last_sliders = (fixed_left_x10, fixed_right_x10)
+        self._set_ui_config_value(
+            ("rink", "camera", "fixed_edge_rotation_angle"),
+            fixed_edge_rotation_angle,
+        )
+        return fixed_edge_rotation_angle
+
     def _current_stitch_rotation_degrees(self) -> Optional[float]:
         """Read the current post-stitch rotation from controller or config."""
         ctrl = self._stitch_rotation_controller
@@ -2261,15 +2303,42 @@ class PlayTracker(torch.nn.Module):
             except (OSError, RuntimeError) as close_ex:
                 logger.warning("Failed to close disabled camera UI: %s", close_ex)
             return
-        try:
-            self._handle_ui_actions()
-        except Exception as ex:
-            logger.warning("Failed to handle camera UI action: %s", ex)
-        if not self._ui_controls_dirty:
-            if self._ui_save_requested:
-                self._ui_save_requested = False
-                self._save_ui_config()
+        process = self._hm_ui_process
+        if process is None:
             return
+        controls_changed = self._ui_controls_dirty
+        final_values = process.control_values()
+        events = process.consume_action_events(poll=False)
+        runtime_values = None
+        try:
+            for event in events:
+                process.apply_control_values(final_values if event.values is None else event.values)
+                event_values = process.control_values()
+                if event.kind == "reset-system":
+                    if not self._apply_current_ui_control_values():
+                        raise RuntimeError("Failed to apply system-reset camera UI values")
+                    self._restore_ui_managed_config(self._system_game_config)
+                    runtime_values = event_values
+                elif event.kind == "reset-open":
+                    if not self._apply_current_ui_control_values():
+                        raise RuntimeError("Failed to apply open-reset camera UI values")
+                    self._restore_ui_managed_config(self._open_game_config)
+                    runtime_values = event_values
+                elif event.kind == "save":
+                    if event_values != runtime_values:
+                        if not self._apply_current_ui_control_values():
+                            raise RuntimeError("Failed to apply saved camera UI values")
+                        runtime_values = event_values
+                    self._save_ui_config()
+            process.apply_control_values(final_values)
+            if (controls_changed or events) and final_values != runtime_values:
+                self._apply_current_ui_control_values()
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError) as ex:
+            self._ui_controls_dirty = True
+            logger.warning("Failed to replay camera UI actions: %s", ex)
+            process.apply_control_values(final_values)
+
+    def _apply_current_ui_control_values(self) -> bool:
         try:
             self._ui_controls_dirty = False
             # Read scalable camera controls.
@@ -2371,47 +2440,7 @@ class PlayTracker(torch.nn.Module):
             msy = self._ui_slider_value(self._ui_window_name, "Max_Speed_Y_x10") / 10.0
             maxx = self._ui_slider_value(self._ui_window_name, "Max_Accel_X_x10") / 10.0
             maxy = self._ui_slider_value(self._ui_window_name, "Max_Accel_Y_x10") / 10.0
-            fixed_linked = bool(
-                self._ui_slider_value(
-                    self._ui_window_name,
-                    "Link_Fixed_Edge_Rotation_Left_Right",
-                )
-            )
-            fixed_left_x10 = self._ui_slider_value(
-                self._ui_window_name,
-                "Left_Fixed_Edge_Rotation_Angle_x10",
-            )
-            fixed_right_x10 = self._ui_slider_value(
-                self._ui_window_name,
-                "Right_Fixed_Edge_Rotation_Angle_x10",
-            )
-            previous_left_x10, previous_right_x10 = self._fixed_edge_rotation_last_sliders
-            if fixed_linked:
-                if fixed_right_x10 != previous_right_x10 and fixed_left_x10 == previous_left_x10:
-                    fixed_left_x10 = fixed_right_x10
-                else:
-                    fixed_right_x10 = fixed_left_x10
-                self._set_ui_slider_value(
-                    self._ui_window_name,
-                    "Left_Fixed_Edge_Rotation_Angle_x10",
-                    fixed_left_x10,
-                )
-                self._set_ui_slider_value(
-                    self._ui_window_name,
-                    "Right_Fixed_Edge_Rotation_Angle_x10",
-                    fixed_right_x10,
-                )
-                fixed_edge_rotation_angle: Union[float, List[float]] = float(fixed_left_x10) / 10.0
-            else:
-                fixed_edge_rotation_angle = [
-                    float(fixed_left_x10) / 10.0,
-                    float(fixed_right_x10) / 10.0,
-                ]
-            self._fixed_edge_rotation_last_sliders = (fixed_left_x10, fixed_right_x10)
-            self._set_ui_config_value(
-                ("rink", "camera", "fixed_edge_rotation_angle"),
-                fixed_edge_rotation_angle,
-            )
+            self._apply_fixed_edge_rotation_controls()
             if self._camera_base_speed_x > 0:
                 self._set_ui_config_value(
                     ("rink", "camera", "max_speed_ratio_x"),
@@ -2487,18 +2516,13 @@ class PlayTracker(torch.nn.Module):
                     self._playtracker.set_breakaway_braking(int(ov_delay_scaled), ov_scal)
                 except Exception as ex:
                     logger.warning("Failed to apply camera UI values to C++ play tracker: %s", ex)
-            if self._ui_reset_source is not None:
-                reset_source = self._ui_reset_source
-                self._ui_reset_source = None
-                self._restore_ui_managed_config(reset_source)
             # For Python-only breakaway values, we read from self._game_config in calculate_breakaway
-            if self._ui_save_requested:
-                self._ui_save_requested = False
-                self._save_ui_config()
+            return True
         except Exception as ex:
             # If we failed to read UI, try again next frame
             self._ui_controls_dirty = True
             logger.warning("Failed to read/apply camera UI controls: %s", ex)
+            return False
 
     def _draw_ui_overlay(self, img):
         if not self._camera_ui_enabled or not self._ui_inited:
@@ -2541,19 +2565,6 @@ class PlayTracker(torch.nn.Module):
         except Exception as ex:
             logger.warning("Failed to draw camera UI status overlay: %s", ex)
         return img
-
-    def _handle_ui_actions(self):
-        if not self._camera_ui_enabled or not self._ui_inited or self._hm_ui_process is None:
-            return
-        for action in self._hm_ui_process.consume_actions(poll=False):
-            if action == "save":
-                self._ui_save_requested = True
-            elif action == "reset-system":
-                self._ui_reset_source = self._system_game_config
-                self._ui_controls_dirty = True
-            elif action == "reset-open":
-                self._ui_reset_source = self._open_game_config
-                self._ui_controls_dirty = True
 
     def _values_equal(self, a, b) -> bool:
         if a is _MISSING or b is _MISSING:

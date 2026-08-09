@@ -54,6 +54,7 @@ def should_write_programmatic_updates_to_state_and_spec(tmp_path):
     assert control["name"] == "Brightness_Multiplier_x100"
     assert control["value"] == 145
     assert control["default_value"] == 145
+    assert control["value_revision"] == 1
 
 
 def should_not_change_defaults_for_runtime_notifications(tmp_path):
@@ -92,7 +93,7 @@ def should_publish_grouping_and_system_defaults(tmp_path):
     assert controls["Left_Fixed_Edge_Rotation_Angle_x10"]["group"] == "Perspective Rotation"
 
 
-def should_consume_hm_ui_actions_once(tmp_path):
+def should_consume_hm_ui_action_snapshots_once_and_acknowledge_them(tmp_path):
     ui = HmUiProcess(title="test", tmpdir=tmp_path)
     ui.ensure_started = lambda: None
 
@@ -104,16 +105,35 @@ def should_consume_hm_ui_actions_once(tmp_path):
         "updated_ms": int(time.time() * 1000),
         "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
         "actions": [
-            {"seq": 1, "kind": "reset-system"},
-            {"seq": 2, "kind": "save"},
+            {
+                "seq": 1,
+                "kind": "reset-system",
+                "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 0}},
+            },
+            {
+                "seq": 2,
+                "kind": "save",
+                "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
+            },
         ],
-        "last_action": {"seq": 2, "kind": "save"},
+        "last_action": {
+            "seq": 2,
+            "kind": "save",
+            "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
+        },
     }
     ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    assert ui.consume_actions() == ["reset-system", "save"]
+    events = ui.consume_action_events()
+    assert [(event.seq, event.kind) for event in events] == [
+        (1, "reset-system"),
+        (2, "save"),
+    ]
+    assert events[0].values == {"Tracker Controls": {"Apply_To_Follower_Box": 0}}
+    assert events[1].values == {"Tracker Controls": {"Apply_To_Follower_Box": 1}}
+    assert json.loads(ui.action_ack_path.read_text(encoding="utf-8")) == {"seq": 2}
     assert ui.last_poll_values_changed is False
-    assert ui.consume_actions() == []
+    assert ui.consume_action_events() == []
 
 
 def should_not_overwrite_pending_actions_with_programmatic_values(tmp_path):
@@ -125,8 +145,18 @@ def should_not_overwrite_pending_actions_with_programmatic_values(tmp_path):
         "version": 1,
         "updated_ms": int(time.time() * 1000),
         "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
-        "actions": [{"seq": 1, "kind": "save"}],
-        "last_action": {"seq": 1, "kind": "save"},
+        "actions": [
+            {
+                "seq": 1,
+                "kind": "save",
+                "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
+            }
+        ],
+        "last_action": {
+            "seq": 1,
+            "kind": "save",
+            "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
+        },
     }
     ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -135,7 +165,7 @@ def should_not_overwrite_pending_actions_with_programmatic_values(tmp_path):
     ui._process = None
 
     state = json.loads(ui.state_path.read_text(encoding="utf-8"))
-    assert state["actions"] == [{"seq": 1, "kind": "save"}]
+    assert state["actions"] == payload["actions"]
 
 
 def should_follow_selected_preview_without_marking_controls_changed(tmp_path):

@@ -383,15 +383,30 @@ class StitchUiPlugin(Plugin):
             if self._process.closed:
                 self._disable_ui()
                 return {"img": img}
-            actions = self._process.consume_actions(poll=False)
-            if "reset-system" in actions:
-                self._restore_managed_config(self._system_config)
-            elif "reset-open" in actions:
-                self._restore_managed_config(self._open_config)
-            elif controls_changed:
+            final_values = self._process.control_values()
+            events = self._process.consume_action_events(poll=False)
+            runtime_values = None
+            for event in events:
+                self._process.apply_control_values(
+                    final_values if event.values is None else event.values
+                )
+                event_values = self._process.control_values()
+                if event.kind == "reset-system":
+                    self._apply_controls()
+                    self._restore_managed_config(self._system_config)
+                    runtime_values = event_values
+                elif event.kind == "reset-open":
+                    self._apply_controls()
+                    self._restore_managed_config(self._open_config)
+                    runtime_values = event_values
+                elif event.kind == "save":
+                    if event_values != runtime_values:
+                        self._apply_controls()
+                        runtime_values = event_values
+                    self._save()
+            self._process.apply_control_values(final_values)
+            if (controls_changed or events) and final_values != runtime_values:
                 self._apply_controls()
-            if "save" in actions:
-                self._save()
             if img is not None:
                 self._process.publish_preview(img, name="Stitched")
         except (OSError, RuntimeError, TypeError, ValueError, KeyError):

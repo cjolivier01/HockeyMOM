@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from types import SimpleNamespace
 from typing import Any, Dict
 
 import pytest
@@ -117,3 +118,116 @@ def should_propagate_camera_ui_initialization_failure(monkeypatch):
     assert str(exc_info.value.__cause__) == "hm-ui binary is unavailable"
     assert partial_process.closed is True
     assert tracker._hm_ui_process is None
+
+
+def should_round_trip_linked_and_independent_fixed_edge_rotation_controls():
+    from hmlib.camera.play_tracker import PlayTracker
+
+    tracker = PlayTracker.__new__(PlayTracker)
+    tracker._game_config = {"rink": {"camera": {"fixed_edge_rotation_angle": 12.5}}}
+    tracker._ui_dirty_paths = set()
+    tracker._ui_window_name = "Tracker Controls"
+
+    assert tracker._fixed_edge_rotation_slider_defaults() == (1, 125, 125)
+    tracker._game_config["rink"]["camera"]["fixed_edge_rotation_angle"] = [12.5, 35.5]
+    assert tracker._fixed_edge_rotation_slider_defaults() == (0, 125, 355)
+
+    values = {
+        "Link_Fixed_Edge_Rotation_Left_Right": 1,
+        "Left_Fixed_Edge_Rotation_Angle_x10": 100,
+        "Right_Fixed_Edge_Rotation_Angle_x10": 255,
+    }
+    tracker._fixed_edge_rotation_last_sliders = (100, 100)
+    tracker._ui_slider_value = lambda _window, name: values[name]
+    tracker._set_ui_slider_value = lambda _window, name, value, **_kwargs: values.__setitem__(
+        name, value
+    )
+
+    assert tracker._apply_fixed_edge_rotation_controls() == 25.5
+    assert values["Left_Fixed_Edge_Rotation_Angle_x10"] == 255
+    assert tracker._game_config["rink"]["camera"]["fixed_edge_rotation_angle"] == 25.5
+
+    values.update(
+        {
+            "Link_Fixed_Edge_Rotation_Left_Right": 0,
+            "Left_Fixed_Edge_Rotation_Angle_x10": 125,
+            "Right_Fixed_Edge_Rotation_Angle_x10": 355,
+        }
+    )
+    assert tracker._apply_fixed_edge_rotation_controls() == [12.5, 35.5]
+    assert tracker._game_config["rink"]["camera"]["fixed_edge_rotation_angle"] == [12.5, 35.5]
+
+
+def should_replay_tracking_ui_action_snapshots_in_click_order():
+    from hmlib.camera.play_tracker import PlayTracker
+
+    class FakeProcess:
+        def __init__(self, final_value, events) -> None:
+            self.values = {"Tracker Controls": {"Fixed_Angle_x10": final_value}}
+            self.events = events
+
+        def control_values(self):
+            return {window: dict(values) for window, values in self.values.items()}
+
+        def consume_action_events(self, *, poll: bool):
+            assert poll is False
+            events, self.events = self.events, []
+            return events
+
+        def apply_control_values(self, values) -> None:
+            self.values = {window: dict(items) for window, items in values.items()}
+
+    def event(kind: str, value: int):
+        return SimpleNamespace(
+            kind=kind,
+            values={"Tracker Controls": {"Fixed_Angle_x10": value}},
+        )
+
+    tracker = PlayTracker.__new__(PlayTracker)
+    tracker._camera_ui_enabled = True
+    tracker._ui_inited = True
+    tracker._ui_controls_dirty = True
+    tracker._system_game_config = {"fixed_angle": 0.5}
+    tracker._open_game_config = {"fixed_angle": 5.0}
+    tracker._render_ui_dialogs = lambda: None
+    runtime = {"fixed_angle": 2.0}
+    saved = []
+
+    def apply_current() -> bool:
+        runtime["fixed_angle"] = (
+            tracker._hm_ui_process.values["Tracker Controls"]["Fixed_Angle_x10"] / 10.0
+        )
+        tracker._ui_controls_dirty = False
+        return True
+
+    tracker._apply_current_ui_control_values = apply_current
+    tracker._restore_ui_managed_config = lambda source: runtime.update(source)
+    tracker._save_ui_config = lambda: saved.append(runtime["fixed_angle"])
+
+    # Save the pre-reset value, then leave the runtime at the reset value.
+    tracker._hm_ui_process = FakeProcess(
+        final_value=5,
+        events=[event("save", 150), event("reset-system", 5)],
+    )
+    tracker._apply_ui_controls()
+    assert saved == [15.0]
+    assert runtime["fixed_angle"] == 0.5
+
+    # A post-reset edit must be applied before its following Save.
+    tracker._ui_controls_dirty = True
+    tracker._hm_ui_process = FakeProcess(
+        final_value=100,
+        events=[event("reset-system", 5), event("save", 100)],
+    )
+    tracker._apply_ui_controls()
+    assert saved[-1] == 10.0
+    assert runtime["fixed_angle"] == 10.0
+
+    # Consecutive resets retain their order and exact source values.
+    tracker._ui_controls_dirty = True
+    tracker._hm_ui_process = FakeProcess(
+        final_value=50,
+        events=[event("reset-system", 5), event("reset-open", 50)],
+    )
+    tracker._apply_ui_controls()
+    assert runtime["fixed_angle"] == 5.0

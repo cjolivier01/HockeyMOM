@@ -29,6 +29,8 @@ struct UiSpec {
     #[serde(default)]
     preview_path: Option<PathBuf>,
     #[serde(default)]
+    action_ack_path: Option<PathBuf>,
+    #[serde(default)]
     previews: Vec<PreviewSpec>,
     #[serde(default)]
     windows: Vec<WindowSpec>,
@@ -60,6 +62,8 @@ struct ControlSpec {
     group: String,
     #[serde(default)]
     view: String,
+    #[serde(default)]
+    value_revision: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -80,6 +84,13 @@ struct UiState {
 struct UiAction {
     seq: u64,
     kind: String,
+    #[serde(default)]
+    windows: BTreeMap<String, BTreeMap<String, i32>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct UiActionAck {
+    seq: u64,
 }
 
 struct HmUiApp {
@@ -87,10 +98,12 @@ struct HmUiApp {
     state_path: PathBuf,
     spec: UiSpec,
     values: BTreeMap<String, BTreeMap<String, i32>>,
+    control_revisions: BTreeMap<String, BTreeMap<String, u64>>,
     selected_page: usize,
     selected_preview: usize,
     last_spec_modified: Option<SystemTime>,
     last_spec_poll: SystemTime,
+    last_action_ack_poll: SystemTime,
     last_preview_modified: BTreeMap<String, Option<SystemTime>>,
     last_preview_poll: SystemTime,
     preview_textures: BTreeMap<String, egui::TextureHandle>,
@@ -110,14 +123,17 @@ impl HmUiApp {
                 title,
                 subtitle: "Runtime camera controls".to_string(),
                 preview_path: None,
+                action_ack_path: None,
                 previews: Vec::new(),
                 windows: Vec::new(),
             },
             values: BTreeMap::new(),
+            control_revisions: BTreeMap::new(),
             selected_page: 0,
             selected_preview: 0,
             last_spec_modified: None,
             last_spec_poll: UNIX_EPOCH,
+            last_action_ack_poll: UNIX_EPOCH,
             last_preview_modified: BTreeMap::new(),
             last_preview_poll: UNIX_EPOCH,
             preview_textures: BTreeMap::new(),
@@ -157,17 +173,28 @@ impl HmUiApp {
         }
         for window in &spec.windows {
             let entry = self.values.entry(window.name.clone()).or_default();
+            let revisions = self
+                .control_revisions
+                .entry(window.name.clone())
+                .or_default();
             for control in &window.controls {
-                entry
-                    .entry(control.name.clone())
-                    .and_modify(|value| *value = control.value)
-                    .or_insert(control.value);
+                let previous_revision = revisions.get(&control.name).copied();
+                if !entry.contains_key(&control.name)
+                    || previous_revision.is_none()
+                    || control.value_revision > previous_revision.unwrap_or_default()
+                {
+                    entry.insert(control.name.clone(), control.value);
+                    revisions.insert(control.name.clone(), control.value_revision);
+                }
             }
             let valid_names: Vec<String> = window.controls.iter().map(|c| c.name.clone()).collect();
             entry.retain(|name, _| valid_names.contains(name));
+            revisions.retain(|name, _| valid_names.contains(name));
         }
         let valid_windows: Vec<String> = spec.windows.iter().map(|w| w.name.clone()).collect();
         self.values.retain(|name, _| valid_windows.contains(name));
+        self.control_revisions
+            .retain(|name, _| valid_windows.contains(name));
         let pages = control_pages(&spec);
         if self.selected_page >= pages.len() + 2 {
             self.selected_page = 0;
@@ -202,6 +229,50 @@ impl HmUiApp {
         self.last_spec_poll = now;
         if let Err(err) = self.reload_spec(false) {
             self.status = format!("Spec error: {err}");
+        }
+    }
+
+    fn poll_action_ack(&mut self) {
+        let now = SystemTime::now();
+        if now
+            .duration_since(self.last_action_ack_poll)
+            .unwrap_or(Duration::from_secs(1))
+            < Duration::from_millis(300)
+        {
+            return;
+        }
+        self.last_action_ack_poll = now;
+        let Some(path) = self.spec.action_ack_path.clone() else {
+            return;
+        };
+        let data = match fs::read_to_string(&path) {
+            Ok(data) => data,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+            Err(err) => {
+                self.status = format!("Action acknowledgement read failed: {err}");
+                return;
+            }
+        };
+        let ack = match serde_json::from_str::<UiActionAck>(&data) {
+            Ok(ack) => ack,
+            Err(err) => {
+                self.status = format!("Action acknowledgement parse failed: {err}");
+                return;
+            }
+        };
+        let previous_len = self.actions.len();
+        self.actions.retain(|action| action.seq > ack.seq);
+        if self
+            .last_action
+            .as_ref()
+            .is_some_and(|action| action.seq <= ack.seq)
+        {
+            self.last_action = None;
+        }
+        if self.actions.len() != previous_len {
+            if let Err(err) = self.write_state() {
+                self.status = format!("State write failed: {err}");
+            }
         }
     }
 
@@ -263,6 +334,7 @@ impl HmUiApp {
         let action = UiAction {
             seq: self.action_seq,
             kind: kind.to_string(),
+            windows: self.values.clone(),
         };
         self.actions.push(action.clone());
         self.last_action = Some(action);
@@ -564,6 +636,7 @@ impl HmUiApp {
 impl eframe::App for HmUiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_spec();
+        self.poll_action_ack();
         self.poll_preview(ctx);
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             self.draw_top_bar(ui);

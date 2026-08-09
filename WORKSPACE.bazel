@@ -34,6 +34,9 @@ register_detected_cuda_toolchains()
 load("//bazel:py_soabi.bzl", "py_soabi")
 py_soabi(name = "py_soabi")
 
+load("//tools/packaging/wheel:glibc_repository.bzl", "host_glibc_repository")
+host_glibc_repository(name = "host_glibc")
+
 # Install lcov dependencies:
 load("//tools/coverage/lcov:repositories.bzl", "install_lcov_dependencies")
 install_lcov_dependencies()

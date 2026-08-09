@@ -32,6 +32,7 @@ class _Control:
     system_default_value: int
     group: str
     view: str
+    value_revision: int
 
 
 @dataclass
@@ -39,6 +40,13 @@ class _PreviewJob:
     img: Any
     show_scaled: Optional[float]
     max_width: int
+
+
+@dataclass(frozen=True)
+class HmUiAction:
+    seq: int
+    kind: str
+    values: Optional[Dict[str, Dict[str, int]]]
 
 
 class HmUiProcess:
@@ -57,6 +65,7 @@ class HmUiProcess:
         )
         self.spec_path = self._tmpdir / "spec.json"
         self.state_path = self._tmpdir / "state.json"
+        self.action_ack_path = self._tmpdir / "action-ack.json"
         normalized_preview_names = [
             str(name).strip() for name in preview_names if str(name).strip()
         ]
@@ -84,7 +93,7 @@ class HmUiProcess:
         self._preview_worker_stop = False
         self._preview_batch_warned = False
         self._last_action_seq = 0
-        self._pending_actions: List[str] = []
+        self._pending_actions: List[HmUiAction] = []
         self._closed = False
 
     def add_window(self, name: str) -> None:
@@ -103,6 +112,7 @@ class HmUiProcess:
                 control.system_default_value = control.value
                 control.group = group
                 control.view = view
+                control.value_revision += 1
                 break
         else:
             max_i = max(1, int(max_value))
@@ -116,6 +126,7 @@ class HmUiProcess:
                     system_default_value=value_i,
                     group=group,
                     view=view,
+                    value_revision=0,
                 )
             )
         self._write_spec()
@@ -156,6 +167,7 @@ class HmUiProcess:
                 self._write_spec()
             return False
         control.value = new_value
+        control.value_revision += 1
         if self._process is None:
             self._write_state()
         self._write_spec()
@@ -209,7 +221,13 @@ class HmUiProcess:
             kind = str(action.get("kind") or "")
             if seq > self._last_action_seq and kind:
                 self._last_action_seq = seq
-                self._pending_actions.append(kind)
+                self._pending_actions.append(
+                    HmUiAction(
+                        seq=seq,
+                        kind=kind,
+                        values=self._normalize_control_values(action.get("windows")),
+                    )
+                )
                 changed = True
         return changed
 
@@ -217,12 +235,20 @@ class HmUiProcess:
     def last_poll_values_changed(self) -> bool:
         return self._last_poll_values_changed
 
-    def consume_actions(self, *, poll: bool = True) -> List[str]:
+    def consume_action_events(self, *, poll: bool = True) -> List[HmUiAction]:
         if poll:
             self.poll()
         actions = self._pending_actions
         self._pending_actions = []
+        if actions:
+            self._write_json_atomic(
+                self.action_ack_path,
+                {"seq": max(action.seq for action in actions)},
+            )
         return actions
+
+    def consume_actions(self, *, poll: bool = True) -> List[str]:
+        return [event.kind for event in self.consume_action_events(poll=poll)]
 
     def publish_preview(
         self,
@@ -416,23 +442,47 @@ class HmUiProcess:
     def closed(self) -> bool:
         return self._closed
 
-    def _apply_state_values(self, state: Dict) -> bool:
-        windows = state.get("windows")
+    def control_values(self) -> Dict[str, Dict[str, int]]:
+        return {
+            window_name: {control.name: control.value for control in controls}
+            for window_name, controls in self._windows.items()
+        }
+
+    def apply_control_values(self, values: Dict[str, Dict[str, int]]) -> bool:
+        return self._apply_state_values({"windows": values})
+
+    def _normalize_control_values(self, windows: Any) -> Optional[Dict[str, Dict[str, int]]]:
         if not isinstance(windows, dict):
+            return None
+        normalized: Dict[str, Dict[str, int]] = {}
+        for window_name, controls in self._windows.items():
+            raw_values = windows.get(window_name)
+            if not isinstance(raw_values, dict):
+                continue
+            values: Dict[str, int] = {}
+            for control in controls:
+                if control.name not in raw_values:
+                    continue
+                try:
+                    values[control.name] = self._clamp(
+                        int(raw_values[control.name]), control.max_value
+                    )
+                except (TypeError, ValueError):
+                    continue
+            normalized[window_name] = values
+        return normalized
+
+    def _apply_state_values(self, state: Dict) -> bool:
+        windows = self._normalize_control_values(state.get("windows"))
+        if windows is None:
             return False
         changed = False
         for window_name, values in windows.items():
-            if not isinstance(values, dict):
-                continue
-            controls = self._windows.get(str(window_name), [])
+            controls = self._windows.get(window_name, [])
             by_name = {control.name: control for control in controls}
-            for control_name, raw_value in values.items():
-                control = by_name.get(str(control_name))
+            for control_name, new_value in values.items():
+                control = by_name.get(control_name)
                 if control is None:
-                    continue
-                try:
-                    new_value = self._clamp(int(raw_value), control.max_value)
-                except (TypeError, ValueError):
                     continue
                 if new_value != control.value:
                     control.value = new_value
@@ -445,6 +495,7 @@ class HmUiProcess:
             "title": self.title,
             "subtitle": "Runtime tracking, stitch, and camera controls",
             "preview_path": str(self.preview_path),
+            "action_ack_path": str(self.action_ack_path),
             "previews": [
                 {"name": name, "path": str(path)} for name, path in self.preview_paths.items()
             ],
@@ -460,6 +511,7 @@ class HmUiProcess:
                             "system_default_value": control.system_default_value,
                             "group": control.group,
                             "view": control.view,
+                            "value_revision": control.value_revision,
                         }
                         for control in controls
                     ],
