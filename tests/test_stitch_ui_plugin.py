@@ -130,17 +130,12 @@ def should_apply_and_save_stitch_only_rust_controls(monkeypatch):
     assert current_config["stitching"]["post_stitch_rotate_degrees"] == 10.0
     assert current_config["rink"]["camera"]["color"]["brightness"] == 1.25
 
-    process.actions = ["reset-system"]
+    process.actions = ["reset-system", "save"]
     process.changed = True
     plugin.forward({"img": image, "shared": shared})
 
     assert current_config["stitching"]["post_stitch_rotate_degrees"] == 0.5
     assert current_config["rink"]["camera"]["color"]["brightness"] == 1.0
-
-    saved.clear()
-    process.actions = ["save"]
-    plugin.forward({"img": image, "shared": shared})
-
     assert "post_stitch_rotate_degrees" not in saved.get("stitching", {})
 
     process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80

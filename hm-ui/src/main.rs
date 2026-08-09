@@ -69,6 +69,10 @@ struct UiState {
     #[serde(default)]
     windows: BTreeMap<String, BTreeMap<String, i32>>,
     #[serde(default)]
+    selected_preview: Option<String>,
+    #[serde(default)]
+    actions: Vec<UiAction>,
+    #[serde(default)]
     last_action: Option<UiAction>,
 }
 
@@ -92,6 +96,7 @@ struct HmUiApp {
     preview_textures: BTreeMap<String, egui::TextureHandle>,
     preview_status: BTreeMap<String, String>,
     action_seq: u64,
+    actions: Vec<UiAction>,
     last_action: Option<UiAction>,
     status: String,
 }
@@ -118,6 +123,7 @@ impl HmUiApp {
             preview_textures: BTreeMap::new(),
             preview_status: BTreeMap::new(),
             action_seq: 0,
+            actions: Vec::new(),
             last_action: None,
             status: "Starting".to_string(),
         };
@@ -149,20 +155,13 @@ impl HmUiApp {
                 });
             }
         }
-        let state_values = self.read_state_values().unwrap_or_default();
-
         for window in &spec.windows {
             let entry = self.values.entry(window.name.clone()).or_default();
             for control in &window.controls {
-                let state_value = state_values
-                    .get(&window.name)
-                    .and_then(|controls| controls.get(&control.name))
-                    .copied();
-                let initial_value = state_value.unwrap_or(control.value);
                 entry
                     .entry(control.name.clone())
-                    .and_modify(|value| *value = initial_value)
-                    .or_insert(initial_value);
+                    .and_modify(|value| *value = control.value)
+                    .or_insert(control.value);
             }
             let valid_names: Vec<String> = window.controls.iter().map(|c| c.name.clone()).collect();
             entry.retain(|name, _| valid_names.contains(name));
@@ -189,16 +188,6 @@ impl HmUiApp {
         self.status = "Connected".to_string();
         self.write_state()?;
         Ok(())
-    }
-
-    fn read_state_values(&self) -> Result<BTreeMap<String, BTreeMap<String, i32>>> {
-        if !self.state_path.exists() {
-            return Ok(BTreeMap::new());
-        }
-        let data = fs::read_to_string(&self.state_path)
-            .with_context(|| format!("read {}", self.state_path.display()))?;
-        let state: UiState = serde_json::from_str(&data).context("parse UI state")?;
-        Ok(state.windows)
     }
 
     fn poll_spec(&mut self) {
@@ -271,10 +260,12 @@ impl HmUiApp {
 
     fn set_action(&mut self, kind: &str) {
         self.action_seq += 1;
-        self.last_action = Some(UiAction {
+        let action = UiAction {
             seq: self.action_seq,
             kind: kind.to_string(),
-        });
+        };
+        self.actions.push(action.clone());
+        self.last_action = Some(action);
         if let Err(err) = self.write_state() {
             self.status = format!("State write failed: {err}");
         }
@@ -310,6 +301,12 @@ impl HmUiApp {
                 .unwrap_or_default()
                 .as_millis(),
             windows: self.values.clone(),
+            selected_preview: self
+                .spec
+                .previews
+                .get(self.selected_preview)
+                .map(|preview| preview.name.clone()),
+            actions: self.actions.clone(),
             last_action: self.last_action.clone(),
         };
         write_json_atomic(&self.state_path, &state)
@@ -489,6 +486,9 @@ impl HmUiApp {
                     {
                         self.selected_preview = idx;
                         self.last_preview_poll = UNIX_EPOCH;
+                        if let Err(err) = self.write_state() {
+                            self.status = format!("State write failed: {err}");
+                        }
                     }
                 }
             });

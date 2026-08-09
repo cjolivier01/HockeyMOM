@@ -77,9 +77,9 @@ python_library(
     wheel = wheel(
         name = "hmlib",
         platform = select({
-            ":linux_x86_64": "manylinux_2_43_x86_64",
-            ":linux_arm64": "manylinux_2_43_aarch64",
-            ":linux_aarch64": "manylinux_2_43_aarch64",
+            ":linux_x86_64": "linux_x86_64",
+            ":linux_arm64": "linux_aarch64",
+            ":linux_aarch64": "linux_aarch64",
         }),
         entry_points = {
             "console_scripts": [
@@ -124,7 +124,12 @@ genrule(
     name = "embed_hm_ui",
     srcs = ["//hm-ui:hm-ui"],
     outs = ["bin/hm-ui"],
-    cmd = "cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+    cmd = select({
+        ":linux_x86_64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) x86_64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_arm64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_aarch64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+    }),
+    tools = ["//tools/packaging/wheel:validate_elf_arch"],
     visibility = ["//visibility:public"],
 )
 

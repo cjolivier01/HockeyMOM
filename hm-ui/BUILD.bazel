@@ -5,8 +5,6 @@ exports_files([
 filegroup(
     name = "sources",
     srcs = glob([
-        "Cargo.toml",
-        "Cargo.lock",
         "src/**/*.rs",
     ], allow_empty = True),
 )
@@ -15,14 +13,20 @@ genrule(
     name = "hm-ui",
     srcs = [
         "Cargo.toml",
+        "Cargo.lock",
         ":sources",
     ],
     outs = ["hm-ui-bin"],
     cmd = """
 set -eu
-export CARGO_HOME="$$(pwd)/.cargo-home"
-export CARGO_TARGET_DIR="$$(pwd)/.cargo-target"
-cargo build --locked --manifest-path $(location Cargo.toml) --release
+build_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/hm-ui-build.XXXXXX")"
+trap 'rm -rf "$${build_dir}"' EXIT
+cp $(location Cargo.toml) "$${build_dir}/Cargo.toml"
+cp $(location Cargo.lock) "$${build_dir}/Cargo.lock"
+cp -R "$$(dirname $(location Cargo.toml))/src" "$${build_dir}/src"
+export CARGO_HOME="$${build_dir}/.cargo-home"
+export CARGO_TARGET_DIR="$${build_dir}/.cargo-target"
+cargo build --locked --manifest-path "$${build_dir}/Cargo.toml" --release
 cp "$$CARGO_TARGET_DIR/release/hm-ui" "$@"
 """,
     executable = True,

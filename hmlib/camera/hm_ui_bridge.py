@@ -66,6 +66,7 @@ class HmUiProcess:
             name: self._tmpdir / f"preview-{self._slug(name)}.jpg"
             for name in normalized_preview_names
         }
+        self._selected_preview_name = next(iter(self.preview_paths))
         # Compatibility for callers/tests that predate named preview streams.
         self.preview_path = next(iter(self.preview_paths.values()))
         self._windows: Dict[str, List[_Control]] = {}
@@ -150,11 +151,13 @@ class HmUiProcess:
             control.default_value = new_value
         if new_value == control.value:
             if not notify:
-                self._write_state()
+                if self._process is None:
+                    self._write_state()
                 self._write_spec()
             return False
         control.value = new_value
-        self._write_state()
+        if self._process is None:
+            self._write_state()
         self._write_spec()
         if notify:
             return True
@@ -186,10 +189,22 @@ class HmUiProcess:
             logger.warning("Failed to read hm-ui state: %s", ex)
             return False
         self._last_state_mtime_ns = mtime_ns
+        selected_preview = state.get("selected_preview")
+        if (
+            isinstance(selected_preview, str)
+            and selected_preview in self.preview_paths
+            and selected_preview != self._selected_preview_name
+        ):
+            self._selected_preview_name = selected_preview
+            self._last_preview_write_monotonic[selected_preview] = 0.0
         changed = self._apply_state_values(state)
         self._last_poll_values_changed = changed
-        action = state.get("last_action")
-        if isinstance(action, dict):
+        actions = state.get("actions")
+        if not isinstance(actions, list):
+            actions = [state.get("last_action")]
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
             seq = int(action.get("seq") or 0)
             kind = str(action.get("kind") or "")
             if seq > self._last_action_seq and kind:
@@ -216,12 +231,16 @@ class HmUiProcess:
         name: str = "Stitched",
         show_scaled: Optional[float] = None,
         max_width: int = 1280,
-        min_interval_seconds: float = 1.0 / 15.0,
+        min_interval_seconds: Optional[float] = None,
     ) -> None:
         if self._closed:
             return
         if name not in self.preview_paths:
             return
+        if min_interval_seconds is None:
+            min_interval_seconds = 1.0 / 15.0 if name == self._selected_preview_name else 1.0
+        else:
+            min_interval_seconds = max(0.0, float(min_interval_seconds))
         now = time.monotonic()
         with self._preview_condition:
             if self._preview_worker_stop:
@@ -235,7 +254,6 @@ class HmUiProcess:
                 show_scaled=show_scaled,
                 max_width=int(max_width),
             )
-            self._pending_preview_jobs.move_to_end(name)
             self._last_preview_write_monotonic[name] = now
             if self._preview_worker is None:
                 self._preview_worker = threading.Thread(
@@ -459,6 +477,8 @@ class HmUiProcess:
                 window_name: {control.name: control.value for control in controls}
                 for window_name, controls in self._windows.items()
             },
+            "selected_preview": self._selected_preview_name,
+            "actions": [],
             "last_action": None,
         }
         self._write_json_atomic(self.state_path, payload)

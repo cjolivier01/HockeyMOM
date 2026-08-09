@@ -103,13 +103,58 @@ def should_consume_hm_ui_actions_once(tmp_path):
         "version": 1,
         "updated_ms": int(time.time() * 1000),
         "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
+        "actions": [
+            {"seq": 1, "kind": "reset-system"},
+            {"seq": 2, "kind": "save"},
+        ],
+        "last_action": {"seq": 2, "kind": "save"},
+    }
+    ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert ui.consume_actions() == ["reset-system", "save"]
+    assert ui.last_poll_values_changed is False
+    assert ui.consume_actions() == []
+
+
+def should_not_overwrite_pending_actions_with_programmatic_values(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+    ui.add_window("Tracker Controls")
+    ui.add_slider("Tracker Controls", "Apply_To_Follower_Box", 1, 1)
+    payload = {
+        "version": 1,
+        "updated_ms": int(time.time() * 1000),
+        "windows": {"Tracker Controls": {"Apply_To_Follower_Box": 1}},
+        "actions": [{"seq": 1, "kind": "save"}],
         "last_action": {"seq": 1, "kind": "save"},
     }
     ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    assert ui.consume_actions() == ["save"]
+    ui._process = object()
+    ui.set_value("Tracker Controls", "Apply_To_Follower_Box", 0)
+    ui._process = None
+
+    state = json.loads(ui.state_path.read_text(encoding="utf-8"))
+    assert state["actions"] == [{"seq": 1, "kind": "save"}]
+
+
+def should_follow_selected_preview_without_marking_controls_changed(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+    ui.add_window("Tracker Controls")
+
+    payload = {
+        "version": 1,
+        "updated_ms": int(time.time() * 1000),
+        "windows": {"Tracker Controls": {}},
+        "selected_preview": "Final",
+        "last_action": None,
+    }
+    ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert ui.poll() is False
     assert ui.last_poll_values_changed is False
-    assert ui.consume_actions() == []
+    assert ui._selected_preview_name == "Final"
 
 
 def should_publish_preview_frame(tmp_path):
@@ -141,6 +186,37 @@ def should_publish_named_preview_frames_independently(tmp_path):
     assert [preview["name"] for preview in spec["previews"]] == ["Stitched", "Final"]
     assert cv2.imread(str(ui.preview_paths["Stitched"])).shape[:2] == (24, 32)
     assert cv2.imread(str(ui.preview_paths["Final"])).shape[:2] == (18, 30)
+
+
+def should_throttle_inactive_preview_until_it_is_selected(tmp_path, monkeypatch):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    encoded = []
+
+    def encode(name, _job):
+        encoded.append(name)
+
+    monkeypatch.setattr(ui, "_encode_preview", encode)
+    frame = np.zeros((2, 2, 3), dtype=np.uint8)
+
+    ui.publish_preview(frame, name="Final")
+    assert ui.flush_previews()
+    ui.publish_preview(frame, name="Final")
+    assert ui.flush_previews()
+    assert encoded == ["Final"]
+
+    payload = {
+        "version": 1,
+        "updated_ms": int(time.time() * 1000),
+        "windows": {},
+        "selected_preview": "Final",
+        "last_action": None,
+    }
+    ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert ui.poll() is False
+
+    ui.publish_preview(frame, name="Final")
+    assert ui.flush_previews()
+    assert encoded == ["Final", "Final"]
 
 
 def should_publish_latest_preview_frame_from_batch(tmp_path):
@@ -180,6 +256,39 @@ def should_keep_only_latest_pending_preview_per_stream(tmp_path, monkeypatch):
     assert ui.flush_previews()
     assert encoded[-1] == ("Stitched", 3)
     assert len(encoded) <= 2
+
+
+def should_preserve_pending_preview_order_when_replacing_frames(tmp_path, monkeypatch):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    encoded = []
+    started = threading.Event()
+    gate = threading.Event()
+
+    def encode(name, job):
+        started.set()
+        gate.wait(timeout=2.0)
+        encoded.append((name, int(job.img[0, 0, 0])))
+
+    monkeypatch.setattr(ui, "_encode_preview", encode)
+    ui.publish_preview(np.full((2, 2, 3), 1, dtype=np.uint8), min_interval_seconds=0)
+    assert started.wait(timeout=2.0)
+    ui.publish_preview(
+        np.full((2, 2, 3), 2, dtype=np.uint8),
+        name="Final",
+        min_interval_seconds=0,
+    )
+    ui.publish_preview(np.full((2, 2, 3), 3, dtype=np.uint8), min_interval_seconds=0)
+    ui.publish_preview(
+        np.full((2, 2, 3), 4, dtype=np.uint8),
+        name="Final",
+        min_interval_seconds=0,
+    )
+
+    with ui._preview_condition:
+        assert list(ui._pending_preview_jobs) == ["Final", "Stitched"]
+    gate.set()
+    assert ui.flush_previews()
+    assert encoded == [("Stitched", 1), ("Final", 4), ("Stitched", 3)]
 
 
 def should_keep_preview_worker_alive_after_opencv_error(tmp_path, monkeypatch):
