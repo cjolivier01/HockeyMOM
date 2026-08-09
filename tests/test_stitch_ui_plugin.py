@@ -274,7 +274,7 @@ def should_propagate_stitch_ui_initialization_failure(monkeypatch):
     assert FailingHmUiProcess.instances[0].closed is True
 
 
-def should_retry_stitch_ui_actions_after_transient_save_failure(monkeypatch):
+def should_retry_stitch_ui_actions_and_restore_final_values_after_failure(monkeypatch):
     class RetryingHmUiProcess(_FakeHmUiProcess):
         def consume_action_events(self, *, poll: bool = True):
             del poll
@@ -322,16 +322,20 @@ def should_retry_stitch_ui_actions_after_transient_save_failure(monkeypatch):
     process = RetryingHmUiProcess.instances[0]
     process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
     process.queue_action("save")
+    process.queue_reset(system=True)
+    final_values = process.control_values()
 
     plugin.forward(context)
     assert process.closed is False
     assert process.acknowledged_seq == 0
-    assert len(process.actions) == 1
+    assert len(process.actions) == 2
+    assert process.control_values() == final_values
 
     plugin.forward(context)
     assert process.closed is False
-    assert process.acknowledged_seq == 1
+    assert process.acknowledged_seq == 2
     assert process.actions == []
+    assert process.control_values() == final_values
     assert save_attempts == ["game-1", "game-1"]
 
 

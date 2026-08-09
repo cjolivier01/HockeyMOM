@@ -382,10 +382,10 @@ class StitchUiPlugin(Plugin):
         if self._process.closed:
             self._disable_ui()
             return {"img": img}
+        final_values = self._process.control_values()
+        events = self._process.consume_action_events(poll=False)
+        runtime_values = None
         try:
-            final_values = self._process.control_values()
-            events = self._process.consume_action_events(poll=False)
-            runtime_values = None
             for event in events:
                 self._process.apply_control_values(
                     final_values if event.values is None else event.values
@@ -413,6 +413,7 @@ class StitchUiPlugin(Plugin):
             logger.exception(
                 "Stitch camera UI action processing failed; pending actions will be retried"
             )
+            self._process.apply_control_values(final_values, publish=bool(events))
         if img is not None:
             self._process.publish_preview(img, name="Stitched")
         return {"img": img}
