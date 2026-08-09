@@ -716,26 +716,27 @@ class hm_opts(object):
             dest="detector_trt_engine",
             type=str,
             default=None,
-            help="Path to save/load the detector TensorRT engine (defaults under output_workdirs/<GAME_ID>/detector.engine).",
+            help="TensorRT detector cache namespace (defaults under output_workdirs/<GAME_ID>/detector.engine).",
         )
         trt_det.add_argument(
             "--detector-trt-fp16",
             dest="detector_trt_fp16",
-            action="store_true",
-            help="Build TensorRT detector engine in FP16 mode if supported.",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Build the TensorRT detector in FP16 mode (default: enabled).",
         )
         trt_det.add_argument(
             "--detector-trt-int8",
             dest="detector_trt_int8",
             action="store_true",
-            help="Build TensorRT detector engine in INT8 mode with calibration frames.",
+            help="Legacy compatibility flag; unsupported by the Torch-TensorRT path, which falls back to PyTorch.",
         )
         trt_det.add_argument(
             "--detector-trt-calib-frames",
             dest="detector_trt_calib_frames",
             type=int,
             default=200,
-            help="Number of early frames to collect for TensorRT INT8 calibration (default: 200).",
+            help="Deprecated legacy INT8 calibration-frame count (ignored by Torch-TensorRT).",
         )
         trt_det.add_argument(
             "--detector-trt-force-build",
@@ -798,26 +799,27 @@ class hm_opts(object):
             dest="pose_trt_engine",
             type=str,
             default=None,
-            help="Path to save/load the pose TensorRT engine (defaults under output_workdirs/<GAME_ID>/pose.engine).",
+            help="TensorRT pose cache namespace (defaults under output_workdirs/<GAME_ID>/pose.engine).",
         )
         trt_pose.add_argument(
             "--pose-trt-fp16",
             dest="pose_trt_fp16",
-            action="store_true",
-            help="Build TensorRT pose engine in FP16 mode if supported.",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Build the TensorRT pose model in FP16 mode (default: enabled).",
         )
         trt_pose.add_argument(
             "--pose-trt-int8",
             dest="pose_trt_int8",
             action="store_true",
-            help="Build TensorRT pose engine in INT8 mode with calibration frames.",
+            help="Legacy compatibility flag; unsupported by the Torch-TensorRT path, which falls back to PyTorch.",
         )
         trt_pose.add_argument(
             "--pose-trt-calib-frames",
             dest="pose_trt_calib_frames",
             type=int,
             default=200,
-            help="Number of early frames to collect for TensorRT INT8 calibration for pose (default: 200).",
+            help="Deprecated legacy INT8 calibration-frame count (ignored by Torch-TensorRT).",
         )
         trt_pose.add_argument(
             "--pose-trt-force-build",
@@ -1885,9 +1887,9 @@ class hm_opts(object):
     IMPLIED_ARG_TO_CONFIG_MAP: Mapping[str, Sequence[tuple[str, Callable[[Any], Any]]]] = {
         "show_scaled": [("video_out.show_image", lambda _: True)],
     }
-    PRIVATE_CONFIG_ARG_TO_CONFIG_MAP: Mapping[
-        str, Union[str, Sequence[str]]
-    ] = ALL_YAML_ARG_TO_CONFIG_MAP
+    PRIVATE_CONFIG_ARG_TO_CONFIG_MAP: Mapping[str, Union[str, Sequence[str]]] = (
+        ALL_YAML_ARG_TO_CONFIG_MAP
+    )
     PRIVATE_CONFIG_VALUE_MAP: Mapping[str, Union[Mapping[Any, Any], Callable[[Any], Any]]] = {
         **ARG_VALUE_MAP,
         **INIT_ARG_VALUE_MAP,

@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
 from hmlib.config import prepend_root_dir
 from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
+from hmlib.utils.torch_tensorrt_runtime import compile_torch_tensorrt
 
 from .base import Plugin
 
@@ -83,8 +84,14 @@ class PoseInferencerFactoryPlugin(Plugin):
                 preds = runner.forward(data)
                 if isinstance(preds, (list, tuple)):
                     return list(preds)
-            except Exception:
-                pass
+            except Exception as exc:
+                from hmlib.log import get_logger
+
+                get_logger(__name__).warning(
+                    "Pose accelerator invocation failed; using the unwrapped "
+                    "PyTorch pose model: %s",
+                    exc,
+                )
             return orig_test_step(data, *args, **kwargs)
 
         setattr(model, "_hm_test_step_wrapped", True)
@@ -169,8 +176,16 @@ class PoseInferencerFactoryPlugin(Plugin):
                         )
                         # Attach for PosePlugin to pick up
                         setattr(self._inferencer, "_hm_onnx_runner", self._onnx_runner)
-            except Exception:
-                # Non-fatal; fall back to PyTorch model
+            except Exception as exc:
+                # Non-fatal; fall back to PyTorch model, but surface why the
+                # requested accelerator could not be initialized.
+                from hmlib.log import get_logger
+
+                get_logger(__name__).warning(
+                    "Failed to initialize the requested pose accelerator; "
+                    "falling back to PyTorch: %s",
+                    exc,
+                )
                 self._onnx_runner = None
                 self._trt_runner = None
             try:
@@ -182,8 +197,14 @@ class PoseInferencerFactoryPlugin(Plugin):
                 elif self._onnx_runner is not None:
                     setattr(self._inferencer, "_hm_pose_runner", self._onnx_runner)
                     self._wrap_model_test_step(pose_model, self._onnx_runner)
-            except Exception:
-                pass
+            except Exception as exc:
+                from hmlib.log import get_logger
+
+                get_logger(__name__).warning(
+                    "Failed to attach the requested pose accelerator; using the "
+                    "unwrapped PyTorch pose model: %s",
+                    exc,
+                )
 
         context["pose_inferencer"] = self._inferencer
         return {"pose_inferencer": self._inferencer}
@@ -532,7 +553,7 @@ class _OnnxPoseRunner:
 
 
 class _TrtPoseRunner:
-    """Run pose backbone+neck with TensorRT via torch2trt; decode with PyTorch head."""
+    """Compile pose backbone+neck with Torch-TensorRT; decode with PyTorch."""
 
     def __init__(
         self,
@@ -548,18 +569,19 @@ class _TrtPoseRunner:
         self.force_build = bool(force_build)
         self.fp16 = bool(fp16)
         self.int8 = bool(int8)
-        self.calib_frames = int(calib_frames or 0)
+        # Retain the constructor argument for existing Aspen configurations;
+        # Torch-TensorRT's Dynamo frontend cannot consume legacy frame calibration.
         self._trt_module = None
-        self._calib_dataset = None
+        self._trt_modules: Dict[Tuple[Tuple[int, ...], torch.dtype, str], torch.nn.Module] = {}
         self._wrapper_module = None
         self._fallback_test_step = None
+        self._trt_disabled_reason: Optional[str] = None
         self._mean = None
         self._std = None
         self._mean_t = None
         self._std_t = None
         self._swap_rgb = False
         self._init_preprocess()
-        self._build_or_load()
 
     def set_fallback_test_step(self, fn) -> None:
         self._fallback_test_step = fn
@@ -603,8 +625,14 @@ class _TrtPoseRunner:
             bgr_to_rgb = bool(getattr(dp, "bgr_to_rgb", False))
             rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
             self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
-        except Exception:
-            pass
+        except Exception as exc:
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning(
+                "Could not read pose preprocessing metadata; TensorRT inputs "
+                "will not be normalized by the wrapper: %s",
+                exc,
+            )
 
     @staticmethod
     def _ensure_tensor(x: Any) -> torch.Tensor:
@@ -647,164 +675,43 @@ class _TrtPoseRunner:
             x = (x - mean) / std
         return x.contiguous()
 
-    def _build_or_load(self) -> None:
-        try:
-            import torch2trt  # type: ignore
-        except Exception as ex:
-            raise RuntimeError(
-                "torch2trt is required for TensorRT pose path but is not available"
-            ) from ex
-        import os
-
-        # Try to load an existing engine at the provided path; otherwise, defer building
-        if (not self.force_build) and os.path.exists(self.engine_path):
-            try:
-                trt_mod = torch2trt.TRTModule()
-                import torch as _torch
-
-                trt_mod.load_state_dict(_torch.load(self.engine_path))
-                self._trt_module = trt_mod
-                return
-            except Exception:
-                pass
-        # Defer building until first inputs are seen so shapes/dtypes are known
-        return
-
-    def _ensure_trt_engine(self, shape: torch.Size, dtype: torch.dtype) -> None:
-        if self._trt_module is not None:
+    def _ensure_trt_engine(self, sample: torch.Tensor) -> None:
+        cache_key = (tuple(sample.shape), sample.dtype, str(sample.device))
+        cached_module = self._trt_modules.get(cache_key)
+        if cached_module is not None:
+            self._trt_module = cached_module
             return
-        try:
-            import torch2trt  # type: ignore
-        except Exception:
-            return
-        import os
-        from pathlib import Path as _Path
-
-        # Append shape (and int8 tag) to engine filename to specialize per input
-        base = _Path(self.engine_path)
-        portions = [base.stem]
-        if self.int8:
-            portions.append("int8")
-        for dim in shape:
-            portions.append(str(dim))
-        engine_path = base.with_stem("_".join(portions))
-        if (not self.force_build) and os.path.exists(engine_path):
-            try:
-                trt_mod = torch2trt.TRTModule()
-                import torch as _torch
-
-                trt_mod.load_state_dict(_torch.load(engine_path))
-                self._trt_module = trt_mod
-                return
-            except Exception:
-                pass
-        # Build engine now
         try:
             try:
                 dev = next(self.model.parameters()).device
             except StopIteration:
                 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
+            self._wrapper_module = wrapper
             with torch.inference_mode():
-                if self.int8:
-                    if self._calib_dataset is None or len(self._calib_dataset) == 0:
-                        return
-                    trt_mod = torch2trt.torch2trt(
-                        wrapper,
-                        self._calib_dataset,
-                        int8_mode=True,
-                        int8_calib_dataset=self._calib_dataset,
-                        fp16_mode=False,
-                        max_workspace_size=1 << 28,
-                    )
-                else:
-                    sample = torch.randn(*shape, device=dev, dtype=dtype)
-                    trt_mod = torch2trt.torch2trt(
-                        wrapper,
-                        [sample],
-                        fp16_mode=self.fp16,
-                        max_batch_size=shape[0],
-                        max_workspace_size=1 << 28,
-                    )
-            try:
-                import torch as _torch
-
-                _torch.save(trt_mod.state_dict(), engine_path)
-            except Exception:
-                pass
-            self._trt_module = trt_mod
-        except Exception as ex:
-            from hmlib.log import get_logger
-
-            get_logger(__name__).warning("TRT build for pose failed: %s", ex)
-
-    def _maybe_build_int8(self, sample_shape: torch.Size, sample_dtype: torch.dtype):
-        if self._trt_module is not None:
-            return
-        if not self.int8:
-            return
-        if self.calib_frames <= 0:
-            return
-        try:
-            import torch2trt  # type: ignore
-        except Exception:
-            return
-        # Prepare dataset and build when enough samples
-        if self._calib_dataset is None:
-            try:
-                from torch2trt import ListDataset  # type: ignore
-            except Exception:
-                return
-            self._calib_dataset = ListDataset()
-        if len(self._calib_dataset) < self.calib_frames:
-            return
-        # Build INT8 engine
-        try:
-            dev = next(self.model.parameters()).device
-        except StopIteration:
-            dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
-        try:
-            with torch.inference_mode():
-                trt_mod = torch2trt.torch2trt(
+                compiled = compile_torch_tensorrt(
                     wrapper,
-                    self._calib_dataset,
-                    int8_mode=True,
-                    int8_calib_dataset=self._calib_dataset,
-                    fp16_mode=False,
-                    max_workspace_size=1 << 28,
+                    [sample],
+                    engine_path=self.engine_path,
+                    force_build=self.force_build,
+                    fp16=self.fp16,
+                    int8=self.int8,
                 )
-            # Save
-            try:
-                import torch as _torch
-
-                _torch.save(trt_mod.state_dict(), self.engine_path)
-            except Exception:
-                pass
-            self._trt_module = trt_mod
+            self._trt_modules[cache_key] = compiled
+            self._trt_module = compiled
         except Exception as ex:
-            # Fallback: try building non-int8 engine to proceed
-            from hmlib.log import get_logger
+            self._disable_trt(ex)
 
-            get_logger(__name__).warning("Pose INT8 build failed, falling back to non-INT8: %s", ex)
-            try:
-                with torch.inference_mode():
-                    trt_mod = torch2trt.torch2trt(
-                        wrapper,
-                        [torch.randn(*sample_shape, device=dev, dtype=sample_dtype)],
-                        fp16_mode=self.fp16,
-                        max_batch_size=1,
-                        max_workspace_size=1 << 28,
-                    )
-                try:
-                    import torch as _torch
+    def _disable_trt(self, exc: Exception) -> None:
+        if self._trt_disabled_reason is not None:
+            return
+        self._trt_disabled_reason = str(exc)
+        self._trt_module = None
+        from hmlib.log import get_logger
 
-                    _torch.save(trt_mod.state_dict(), self.engine_path)
-                except Exception:
-                    pass
-                self._trt_module = trt_mod
-            except Exception:
-                self._trt_module = None
+        get_logger(__name__).warning(
+            "Disabling TensorRT pose path and falling back to PyTorch: %s", exc
+        )
 
     def _run_feats(self, x: torch.Tensor):
         if x.dtype != torch.float32:
@@ -822,46 +729,22 @@ class _TrtPoseRunner:
         try:
             inputs = self._prepare_inputs(proc_inputs["inputs"])
             datas = proc_inputs.get("data_samples", None)
-            # Calibration capture for INT8; defer fp16/fp32 build to first inputs
-            if self.int8:
-                if self._calib_dataset is None and self.calib_frames > 0:
-                    try:
-                        from torch2trt import ListDataset  # type: ignore
-
-                        self._calib_dataset = ListDataset()
-                    except Exception:
-                        self._calib_dataset = None
-                if self._calib_dataset is not None and len(self._calib_dataset) < self.calib_frames:
-                    # store GPU tensors for calibration to match module device
-                    remaining = max(0, self.calib_frames - len(self._calib_dataset))
-                    take = min(int(inputs.size(0)), remaining)
-                    for i in range(take):
-                        self._calib_dataset.insert([inputs[i : i + 1].detach()])
-                # Try to build INT8 engine once enough samples collected
-                if (
-                    self._calib_dataset is not None
-                    and len(self._calib_dataset) >= self.calib_frames
-                ):
-                    self._ensure_trt_engine(inputs.shape, inputs.dtype)
-            else:
-                # Lazy build for fp16/fp32 path
-                self._ensure_trt_engine(inputs.shape, inputs.dtype)
+            if self._trt_disabled_reason is None:
+                self._ensure_trt_engine(inputs)
             feats = self._run_feats(inputs)
             head = getattr(self.model, "head", None)
             if head is not None and hasattr(head, "predict") and datas is not None:
                 with torch.inference_mode():
-                    preds = head.predict(feats, datas)
-                return preds
-        except Exception:
-            pass
-        # Fallback to model
+                    return head.predict(feats, datas)
+        except Exception as exc:
+            self._disable_trt(exc)
+
+        # Preserve MMPose's complete preprocessing/decode path when the split
+        # backbone/head runner is unavailable or incompatible with the model.
         with torch.no_grad():
-            try:
-                if self._fallback_test_step is not None:
-                    return self._fallback_test_step(proc_inputs)
-                return self.model.test_step(proc_inputs)
-            except Exception:
-                try:
-                    return self.model(**proc_inputs)
-                except Exception:
-                    return []
+            if self._fallback_test_step is not None:
+                return self._fallback_test_step(proc_inputs)
+            test_step = getattr(self.model, "test_step", None)
+            if callable(test_step):
+                return test_step(proc_inputs)
+            return self.model(**proc_inputs)
