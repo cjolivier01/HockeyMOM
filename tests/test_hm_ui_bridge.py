@@ -36,6 +36,7 @@ def should_update_controls_from_hm_ui_state(tmp_path):
     ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert ui.get_value("Tracker Controls", "Max_Speed_X_x10") == 725
+    assert ui.last_poll_values_changed is True
 
 
 def should_write_programmatic_updates_to_state_and_spec(tmp_path):
@@ -107,6 +108,7 @@ def should_consume_hm_ui_actions_once(tmp_path):
     ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert ui.consume_actions() == ["save"]
+    assert ui.last_poll_values_changed is False
     assert ui.consume_actions() == []
 
 
@@ -178,3 +180,26 @@ def should_keep_only_latest_pending_preview_per_stream(tmp_path, monkeypatch):
     assert ui.flush_previews()
     assert encoded[-1] == ("Stitched", 3)
     assert len(encoded) <= 2
+
+
+def should_keep_preview_worker_alive_after_opencv_error(tmp_path, monkeypatch):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    encoded = []
+
+    def encode(name, job):
+        if not encoded:
+            encoded.append("failed")
+            raise cv2.error("invalid preview frame")
+        encoded.append((name, int(job.img[0, 0, 0])))
+
+    monkeypatch.setattr(ui, "_encode_preview", encode)
+    failed = np.full((2, 2, 3), 1, dtype=np.uint8)
+    recovered = np.full((2, 2, 3), 2, dtype=np.uint8)
+
+    ui.publish_preview(failed, min_interval_seconds=0)
+    assert ui.flush_previews()
+    ui.publish_preview(recovered, min_interval_seconds=0)
+    assert ui.flush_previews()
+
+    assert encoded == ["failed", ("Stitched", 2)]
+    assert ui._preview_worker.is_alive()

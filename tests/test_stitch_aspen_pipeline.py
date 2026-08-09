@@ -4,13 +4,25 @@ import types
 from pathlib import Path
 from typing import Any, Dict, List
 
-import torch
+import pytest
 import yaml
 
-import hmlib.cli.stitch as stitch_cli
+try:
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - Bazel Python toolchain lacks torch
+    torch = None  # type: ignore[assignment]
+
+pytestmark = pytest.mark.skipif(torch is None, reason="requires torch")
+
+if torch is not None:
+    import hmlib.cli.stitch as stitch_cli
+else:
+    stitch_cli = None  # type: ignore[assignment]
+
+_TORCH_MODULE_BASE = torch.nn.Module if torch is not None else object
 
 
-class _DummyAspenNet(torch.nn.Module):
+class _DummyAspenNet(_TORCH_MODULE_BASE):
     """Lightweight AspenNet stub to capture graph config and contexts."""
 
     def __init__(

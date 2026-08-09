@@ -286,3 +286,46 @@ pytest_test(
         requirement("pytest"),
     ],
 )
+
+pytest_test(
+    name="test_stitch_ui_plugin",
+    srcs=["test_stitch_ui_plugin.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)
+
+pytest_test(
+    name="test_stitch_aspen_pipeline",
+    srcs=["test_stitch_aspen_pipeline.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    data=[
+        "//hmlib:config_data_files",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+        requirement("pyyaml"),
+    ],
+)
+
+pytest_test(
+    name="test_apply_camera_plugin_dimensions",
+    srcs=["test_apply_camera_plugin_dimensions.py"],
+    args=[
+        "-c",
+        "$(location //:pyproject.toml)",
+    ],
+    deps=[
+        "//hmlib:hmlib.lib",
+        requirement("pytest"),
+    ],
+)

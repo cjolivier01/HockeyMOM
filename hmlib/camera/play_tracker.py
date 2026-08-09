@@ -1659,7 +1659,8 @@ class PlayTracker(torch.nn.Module):
     def _render_ui_dialogs(self) -> None:
         if self._hm_ui_process is None:
             return
-        if self._hm_ui_process.poll():
+        self._hm_ui_process.poll()
+        if self._hm_ui_process.last_poll_values_changed:
             self._on_ui_control_changed(0)
         if self._hm_ui_process.closed:
             raise RuntimeError("hm-ui was closed")
@@ -2547,7 +2548,6 @@ class PlayTracker(torch.nn.Module):
         for action in self._hm_ui_process.consume_actions(poll=False):
             if action == "save":
                 self._ui_save_requested = True
-                self._ui_controls_dirty = True
             elif action == "reset-system":
                 self._ui_reset_source = self._system_game_config
                 self._ui_controls_dirty = True

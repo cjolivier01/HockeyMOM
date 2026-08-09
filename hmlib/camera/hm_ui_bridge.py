@@ -72,6 +72,7 @@ class HmUiProcess:
         self._process: Optional[subprocess.Popen] = None
         self.stderr_path = self._tmpdir / "hm-ui.stderr.log"
         self._last_state_mtime_ns: Optional[int] = None
+        self._last_poll_values_changed = False
         self._last_preview_write_monotonic: Dict[str, float] = {
             name: 0.0 for name in self.preview_paths
         }
@@ -160,6 +161,7 @@ class HmUiProcess:
         return False
 
     def poll(self) -> bool:
+        self._last_poll_values_changed = False
         if self._process is not None and self._process.poll() is not None:
             logger.warning(
                 "hm-ui exited with status %s; disabling Rust camera UI. stderr log: %s",
@@ -185,6 +187,7 @@ class HmUiProcess:
             return False
         self._last_state_mtime_ns = mtime_ns
         changed = self._apply_state_values(state)
+        self._last_poll_values_changed = changed
         action = state.get("last_action")
         if isinstance(action, dict):
             seq = int(action.get("seq") or 0)
@@ -194,6 +197,10 @@ class HmUiProcess:
                 self._pending_actions.append(kind)
                 changed = True
         return changed
+
+    @property
+    def last_poll_values_changed(self) -> bool:
+        return self._last_poll_values_changed
 
     def consume_actions(self, *, poll: bool = True) -> List[str]:
         if poll:
@@ -263,7 +270,14 @@ class HmUiProcess:
                 self._preview_worker_processing = True
             try:
                 self._encode_preview(name, job)
-            except (OSError, RuntimeError, TypeError, ValueError, AssertionError) as ex:
+            except (
+                OSError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+                AssertionError,
+                cv2.error,
+            ) as ex:
                 logger.warning("Failed to encode hm-ui %s preview frame: %s", name, ex)
             finally:
                 with self._preview_condition:
@@ -579,7 +593,8 @@ class HmUiDialog:
             self._on_change(value)
 
     def show(self) -> None:
-        if self._manager.poll() and self._on_change is not None:
+        self._manager.poll()
+        if self._manager.last_poll_values_changed and self._on_change is not None:
             self._on_change(0)
         if self._manager.closed:
             raise RuntimeError("hm-ui was closed")

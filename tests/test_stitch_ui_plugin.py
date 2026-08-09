@@ -2,8 +2,21 @@ from __future__ import annotations
 
 import copy
 
-from hmlib.aspen.plugins import stitch_ui_plugin as stitch_ui_module
-from hmlib.aspen.plugins.stitch_ui_plugin import StitchUiPlugin
+import pytest
+
+try:
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - Bazel Python toolchain lacks torch
+    torch = None  # type: ignore[assignment]
+
+pytestmark = pytest.mark.skipif(torch is None, reason="requires torch")
+
+if torch is not None:
+    from hmlib.aspen.plugins import stitch_ui_plugin as stitch_ui_module
+    from hmlib.aspen.plugins.stitch_ui_plugin import StitchUiPlugin
+else:
+    stitch_ui_module = None  # type: ignore[assignment]
+    StitchUiPlugin = None  # type: ignore[assignment,misc]
 
 
 def _color() -> dict:
@@ -35,6 +48,7 @@ class _FakeHmUiProcess:
         self.values = {}
         self.system_defaults = {}
         self.changed = False
+        self.last_poll_values_changed = False
         self.actions = []
         self.previews = []
         self.closed = False
@@ -55,7 +69,8 @@ class _FakeHmUiProcess:
 
     def poll(self) -> bool:
         changed, self.changed = self.changed, False
-        return changed
+        self.last_poll_values_changed = changed
+        return changed or bool(self.actions)
 
     def consume_actions(self, *, poll: bool = True):
         del poll
@@ -72,7 +87,7 @@ class _FakeHmUiProcess:
 def should_apply_and_save_stitch_only_rust_controls(monkeypatch):
     _FakeHmUiProcess.instances.clear()
     current_config = _config(rotation=5.0)
-    system_config = _config(rotation=0.0)
+    system_config = _config(rotation=0.5)
     private_config = {"rink": {"camera": {"color": {"contrast": 1.0}}}}
     saved = {}
 
@@ -119,8 +134,14 @@ def should_apply_and_save_stitch_only_rust_controls(monkeypatch):
     process.changed = True
     plugin.forward({"img": image, "shared": shared})
 
-    assert current_config["stitching"]["post_stitch_rotate_degrees"] == 0.0
+    assert current_config["stitching"]["post_stitch_rotate_degrees"] == 0.5
     assert current_config["rink"]["camera"]["color"]["brightness"] == 1.0
+
+    saved.clear()
+    process.actions = ["save"]
+    plugin.forward({"img": image, "shared": shared})
+
+    assert "post_stitch_rotate_degrees" not in saved.get("stitching", {})
 
     process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
     process.values["Tracker Controls (Stitched Color)"]["Brightness_Multiplier_x100"] = 125
@@ -136,3 +157,28 @@ def should_apply_and_save_stitch_only_rust_controls(monkeypatch):
     plugin.finalize()
     assert process.closed is True
     assert shared["hm_ui_process"] is None
+
+
+def should_propagate_stitch_ui_initialization_failure(monkeypatch):
+    class FailingHmUiProcess(_FakeHmUiProcess):
+        def add_window(self, name: str) -> None:
+            del name
+            raise OSError("cannot start hm-ui")
+
+    FailingHmUiProcess.instances.clear()
+    monkeypatch.setattr(stitch_ui_module, "HmUiProcess", FailingHmUiProcess)
+    plugin = StitchUiPlugin()
+
+    with pytest.raises(RuntimeError, match="Failed to initialize stitch camera UI") as exc_info:
+        plugin.forward(
+            {
+                "img": object(),
+                "shared": {
+                    "camera_ui": 1,
+                    "game_config": _config(rotation=0.0),
+                },
+            }
+        )
+
+    assert str(exc_info.value.__cause__) == "cannot start hm-ui"
+    assert FailingHmUiProcess.instances[0].closed is True

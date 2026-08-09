@@ -372,14 +372,14 @@ class StitchUiPlugin(Plugin):
         img = context.get("img")
         try:
             self._ensure_initialized(context)
-        except (OSError, RuntimeError, TypeError, ValueError, KeyError):
-            logger.exception("Failed to initialize stitch camera UI; disabling it")
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError) as ex:
             self._disable_ui()
-            return {"img": img}
+            raise RuntimeError("Failed to initialize stitch camera UI") from ex
         if self._process is None:
             return {"img": img}
         try:
-            controls_changed = self._process.poll()
+            self._process.poll()
+            controls_changed = self._process.last_poll_values_changed
             if self._process.closed:
                 self._disable_ui()
                 return {"img": img}
@@ -391,7 +391,6 @@ class StitchUiPlugin(Plugin):
             elif controls_changed:
                 self._apply_controls()
             if "save" in actions:
-                self._apply_controls()
                 self._save()
             if img is not None:
                 self._process.publish_preview(img, name="Stitched")
