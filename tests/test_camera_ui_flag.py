@@ -152,3 +152,20 @@ def should_allow_config_camera_ui_backend_when_cli_default_is_unset(monkeypatch)
     shared = captured.get("shared")
     assert isinstance(shared, dict)
     assert shared.get("camera_ui_backend") == "rust"
+
+
+def should_propagate_camera_ui_initialization_failure(monkeypatch):
+    from hmlib.camera.play_tracker import PlayTracker
+
+    tracker = PlayTracker.__new__(PlayTracker)
+    tracker._ui_dialogs = {}
+
+    def fail_to_create_dialog(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("OpenCV HighGUI is unavailable")
+
+    monkeypatch.setattr(tracker, "_create_ui_dialog", fail_to_create_dialog)
+
+    with pytest.raises(RuntimeError, match="Failed to initialize camera UI controls") as exc_info:
+        tracker._init_ui_controls()
+
+    assert str(exc_info.value.__cause__) == "OpenCV HighGUI is unavailable"

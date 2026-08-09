@@ -5,7 +5,6 @@ from __future__ import absolute_import, division, print_function
 import copy
 import csv
 import os
-import sys
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -1959,9 +1958,9 @@ class PlayTracker(torch.nn.Module):
             )
             if self._stitch_slider_enabled:
                 try:
-                    self._ui_defaults[self._ui_window_name][
-                        "Stitch_Rotate_Degrees"
-                    ] = self._ui_slider_value(self._ui_window_name, "Stitch_Rotate_Degrees")
+                    self._ui_defaults[self._ui_window_name]["Stitch_Rotate_Degrees"] = (
+                        self._ui_slider_value(self._ui_window_name, "Stitch_Rotate_Degrees")
+                    )
                 except KeyError as ex:
                     logger.warning("Failed to store stitch camera UI default: %s", ex)
             self._ui_inited = True
@@ -2102,12 +2101,8 @@ class PlayTracker(torch.nn.Module):
                 except Exception as ex:
                     logger.warning("Failed to initialize right camera color UI controls: %s", ex)
                     self._ui_color_right_inited = False
-        except Exception:
-            import traceback
-
-            traceback.print_exc()
-            print("Failed to initialize camera UI controls.", file=sys.stderr)
-            self._camera_ui_enabled = False
+        except Exception as ex:
+            raise RuntimeError("Failed to initialize camera UI controls") from ex
 
     def _apply_ui_controls(self):
         if not self._camera_ui_enabled or not self._ui_inited:
