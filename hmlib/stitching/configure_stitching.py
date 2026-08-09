@@ -17,7 +17,6 @@ import cv2
 import numpy as np
 import tifffile
 import torch
-from PIL import Image
 
 from hmlib.config import (
     get_game_config_private,
@@ -64,22 +63,21 @@ def _save_stitched_reference_frame(dir_name: Union[str, Path]) -> None:
     if not panorama_file.exists():
         return
     frame_file = panorama_file.with_name("s.png")
-    try:
-        panorama = np.asarray(tifffile.imread(str(panorama_file)))
-        if panorama.ndim == 4:
-            panorama = panorama[0]
-        if panorama.ndim == 3 and panorama.shape[0] in (3, 4) and panorama.shape[-1] not in (3, 4):
-            panorama = np.moveaxis(panorama, 0, -1)
-        if panorama.ndim == 3 and panorama.shape[-1] > 3:
-            panorama = panorama[:, :, :3]
-        if panorama.dtype != np.uint8:
-            panorama = np.clip(panorama, 0, 255).astype(np.uint8)
-        image = Image.fromarray(panorama)
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        image.save(frame_file)
-    except Exception:
-        logger.debug("Failed to refresh stitched reference frame under %s", dir_name, exc_info=True)
+    panorama = cv2.imread(str(panorama_file), cv2.IMREAD_UNCHANGED)
+    if panorama is None:
+        raise RuntimeError(f"Failed to read stitched reference panorama: {panorama_file}")
+    if panorama.ndim == 2:
+        panorama = cv2.cvtColor(panorama, cv2.COLOR_GRAY2BGR)
+    elif panorama.ndim != 3 or panorama.shape[-1] not in (3, 4):
+        raise RuntimeError(
+            f"Unexpected stitched reference panorama shape {panorama.shape}: {panorama_file}"
+        )
+    if panorama.shape[-1] == 4:
+        panorama = panorama[:, :, :3]
+    if panorama.dtype != np.uint8:
+        panorama = np.clip(panorama, 0, 255).astype(np.uint8)
+    if not cv2.imwrite(str(frame_file), panorama):
+        raise RuntimeError(f"Failed to write stitched reference frame: {frame_file}")
 
 
 def get_multiblend_bin() -> str:

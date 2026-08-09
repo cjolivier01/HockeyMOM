@@ -11,11 +11,12 @@ import os
 import platform
 import sys
 from fractions import Fraction
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from typeguard import typechecked
 
 from hmlib.log import logger
@@ -222,6 +223,80 @@ def yuv_to_bgr_float(
     # rgb = (rgb * 255).clamp(0, 255)
     rgb.clamp_(0, 255)
     return rgb
+
+
+def _nv12_to_bgr(
+    planes: Sequence[torch.Tensor],
+    *,
+    color_range: Optional[str] = None,
+    color_space: Optional[str] = None,
+    pixel_format: Optional[str] = None,
+) -> torch.Tensor:
+    """Convert native PyNvVideoCodec NV12 planes to a BGR uint8 tensor."""
+    if len(planes) != 2:
+        raise ValueError(f"NV12 decode expected 2 planes, got {len(planes)}")
+
+    y_plane, uv_plane = planes
+    if y_plane.ndim == 3 and y_plane.shape[-1] == 1:
+        y_plane = y_plane.squeeze(-1)
+    if y_plane.ndim != 2:
+        raise ValueError(f"NV12 Y plane must have shape (H, W), got {tuple(y_plane.shape)}")
+    if uv_plane.ndim != 3 or uv_plane.shape[-1] != 2:
+        raise ValueError(
+            f"NV12 UV plane must have shape (H/2, W/2, 2), got {tuple(uv_plane.shape)}"
+        )
+    if uv_plane.shape[0] * 2 != y_plane.shape[0] or uv_plane.shape[1] * 2 != y_plane.shape[1]:
+        raise ValueError(
+            "NV12 plane dimensions do not match: "
+            f"Y={tuple(y_plane.shape)}, UV={tuple(uv_plane.shape)}"
+        )
+    if y_plane.dtype != torch.uint8 or uv_plane.dtype != torch.uint8:
+        raise ValueError(
+            f"NV12 conversion supports uint8 planes, got Y={y_plane.dtype}, UV={uv_plane.dtype}"
+        )
+
+    work_dtype = torch.float16 if y_plane.is_cuda else torch.float32
+    uv = uv_plane.permute(2, 0, 1).unsqueeze(0).to(dtype=work_dtype)
+    uv = F.interpolate(uv, size=y_plane.shape, mode="nearest")[0]
+    y = y_plane.to(dtype=work_dtype)
+    u = uv[0] - 128.0
+    v = uv[1] - 128.0
+
+    color_space_key = (color_space or "").strip().lower()
+    if "2020" in color_space_key:
+        kr, kb = 0.2627, 0.0593
+    elif color_space_key in {"bt470bg", "smpte170m", "smpte240m", "bt601"}:
+        kr, kb = 0.2990, 0.1140
+    elif "709" in color_space_key or y_plane.shape[0] > 576:
+        kr, kb = 0.2126, 0.0722
+    else:
+        kr, kb = 0.2990, 0.1140
+
+    range_key = (color_range or "").strip().lower()
+    format_key = (pixel_format or "").strip().lower()
+    full_range = range_key in {"pc", "jpeg", "full", "2"} or (
+        not range_key and format_key.startswith("yuvj")
+    )
+    if full_range:
+        y_offset = 0.0
+        y_scale = 1.0
+        chroma_scale = 1.0
+    else:
+        y_offset = 16.0
+        y_scale = 255.0 / 219.0
+        chroma_scale = 255.0 / 224.0
+
+    kg = 1.0 - kr - kb
+    red_scale = 2.0 * (1.0 - kr)
+    blue_scale = 2.0 * (1.0 - kb)
+    green_u_scale = kb * blue_scale / kg
+    green_v_scale = kr * red_scale / kg
+    y = (y - y_offset) * y_scale
+    b = y + chroma_scale * blue_scale * u
+    g = y - chroma_scale * green_u_scale * u - chroma_scale * green_v_scale * v
+    r = y + chroma_scale * red_scale * v
+
+    return torch.stack((b, g, r), dim=0).add_(0.5).clamp_(0.0, 255.0).to(torch.uint8)
 
 
 def time_to_frame(time_str: str, fps: float):
@@ -556,11 +631,17 @@ class PyNvVideoCodecIterator:
         device: torch.device,
         cuda_stream: torch.cuda.Stream,
         batch_size: int = 1,
+        color_range: Optional[str] = None,
+        color_space: Optional[str] = None,
+        pixel_format: Optional[str] = None,
     ):
         self._decoder = decoder
         self._batch_size = batch_size
         self._device = device
         self._cuda_stream = cuda_stream
+        self._color_range = color_range
+        self._color_space = color_space
+        self._pixel_format = pixel_format
         self.frames_delivered_count: int = 0
 
     def __next__(self):
@@ -575,12 +656,12 @@ class PyNvVideoCodecIterator:
                 if planes is None:
                     continue
                 plane_tensors = [torch.as_tensor(p, device=self._device) for p in planes]
-                if len(plane_tensors) >= 3:
-                    # RGB->BGR
-                    tmp = plane_tensors[0]
-                    plane_tensors[0] = plane_tensors[2]
-                    plane_tensors[2] = tmp
-                tensor = torch.stack(plane_tensors, dim=0)
+                tensor = _nv12_to_bgr(
+                    plane_tensors,
+                    color_range=self._color_range,
+                    color_space=self._color_space,
+                    pixel_format=self._pixel_format,
+                )
                 batch_tensors.append(tensor)
 
             if not batch_tensors:
@@ -798,11 +879,15 @@ class VideoStreamReader:
             )
         elif self._type == "pynvcodec":
             assert self._cuda_stream is not None
+            ffstream = getattr(self._video_info, "_ffstream", None)
             return PyNvVideoCodecIterator(
                 self._video_in,
                 device=self._device,
                 cuda_stream=self._cuda_stream,
                 batch_size=self._batch_size,
+                color_range=getattr(ffstream, "color_range", None),
+                color_space=getattr(ffstream, "color_space", None),
+                pixel_format=getattr(ffstream, "pix_fmt", None),
             )
         elif self._type == "pyamdcodec":
             return PyAmdVideoCodecIterator(self._video_in, batch_size=self._batch_size)
@@ -963,7 +1048,7 @@ class VideoStreamReader:
                     max_width=int(self._video_info.width),
                     max_height=int(self._video_info.height),
                     need_scanned_stream_metadata=0,
-                    output_color_type=nvc.OutputColorType.RGBP,
+                    output_color_type=nvc.OutputColorType.NATIVE,
                     cuda_stream=self._cuda_stream.cuda_stream,
                 )
                 self._video_in = nvc.SimpleDecoder(**self._video_in_args)
@@ -976,7 +1061,7 @@ class VideoStreamReader:
                     max_width=int(self._video_info.width),
                     max_height=int(self._video_info.height),
                     need_scanned_stream_metadata=0,
-                    output_color_type=nvc.OutputColorType.RGBP,
+                    output_color_type=nvc.OutputColorType.NATIVE,
                     cuda_stream=self._cuda_stream.cuda_stream,
                 )
                 self._video_in = nvc.ThreadedDecoder(**self._video_in_args)
