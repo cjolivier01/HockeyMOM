@@ -27,7 +27,9 @@ if [ -d "$(pwd)/src" ]; then
   REPO_PYTHONPATH="${REPO_PYTHONPATH}:$(pwd)/src"
 fi
 
-OPENMM_PYTHONPATH="$(pwd)/openmm/mmcv:$(pwd)/openmm/mmengine:$(pwd)/openmm/mmeval:$(pwd)/openmm/mmdetection:$(pwd)/openmm/mmpose"
+# MMCV is installed as a compiled package. Adding openmm/mmcv here shadows that
+# package with the source tree, where mmcv._ext is not installed.
+OPENMM_PYTHONPATH="$(pwd)/openmm/mmengine:$(pwd)/openmm/mmeval:$(pwd)/openmm/mmdetection:$(pwd)/openmm/mmpose"
 PYTHON_SITE_PACKAGES="$("${CONDA_PREFIX}/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
 NATIVE_LIBRARY_PATH="${CONDA_PREFIX}/lib:${CONDA_PREFIX}/lib/hugin:${PYTHON_SITE_PACKAGES}/torch/lib:${PYTHON_SITE_PACKAGES}/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
 set -x
