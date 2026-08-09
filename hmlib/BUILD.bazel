@@ -125,9 +125,9 @@ genrule(
     srcs = ["//hm-ui:hm-ui"],
     outs = ["bin/hm-ui"],
     cmd = select({
-        ":linux_x86_64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) x86_64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
-        ":linux_arm64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
-        ":linux_aarch64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_x86_64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) x86_64 2.35 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_arm64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 2.35 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_aarch64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 2.35 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
     }),
     tools = ["//tools/packaging/wheel:validate_elf_arch"],
     visibility = ["//visibility:public"],

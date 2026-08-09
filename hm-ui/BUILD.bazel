@@ -15,6 +15,8 @@ genrule(
         "Cargo.toml",
         "Cargo.lock",
         ":sources",
+        "@ubuntu2204_glibc//:sysroot",
+        "@ubuntu2204_glibc//:.sysroot_marker",
     ],
     outs = ["hm-ui-bin"],
     cmd = """
@@ -28,12 +30,44 @@ export CARGO_HOME="$${build_dir}/.cargo-home"
 export CARGO_TARGET_DIR="$${build_dir}/.cargo-target"
 rust_target="$$(rustc -vV | sed -n 's/^host: //p')"
 rust_target_env="$$(printf '%s' "$${rust_target}" | tr '[:lower:]-' '[:upper:]_')"
-# Keep the bundled UI independent of the build host's glibc baseline. This is
-# intentionally target-specific so proc-macro crates still build for the host.
-export "CARGO_TARGET_$${rust_target_env}_RUSTFLAGS=-C target-feature=+crt-static"
+case "$${rust_target}" in
+  x86_64-unknown-linux-gnu)
+    glibc_libdir="x86_64-linux-gnu"
+    ;;
+  aarch64-unknown-linux-gnu)
+    glibc_libdir="aarch64-linux-gnu"
+    ;;
+  *)
+    echo "Unsupported hm-ui Rust target: $${rust_target}" >&2
+    exit 1
+    ;;
+esac
+baseline_sysroot="$$(cd "$$(dirname $(location @ubuntu2204_glibc//:.sysroot_marker))" && pwd)"
+# Link target crates dynamically against the Ubuntu 22.04 (glibc 2.35)
+# sysroot. Target-specific flags leave host-built proc macros unaffected.
+rustflags="-C link-arg=--sysroot=$${baseline_sysroot}"
+rustflags="$${rustflags} -C link-arg=-L$${baseline_sysroot}/usr/lib/$${glibc_libdir}"
+rustflags="$${rustflags} -C link-arg=-L$${baseline_sysroot}/lib/$${glibc_libdir}"
+rustflags="$${rustflags} -C link-arg=-Wl,-rpath-link,$${baseline_sysroot}/lib/$${glibc_libdir}"
+rustflags="$${rustflags} -C link-arg=-Wl,--allow-shlib-undefined"
+export "CARGO_TARGET_$${rust_target_env}_RUSTFLAGS=$${rustflags}"
 cargo build --locked --manifest-path "$${build_dir}/Cargo.toml" --release --target "$${rust_target}"
 cp "$$CARGO_TARGET_DIR/$${rust_target}/release/hm-ui" "$@"
 """,
     executable = True,
     visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "gui_smoke_test",
+    srcs = ["gui_smoke_test.sh"],
+    args = [
+        "$(rootpath :hm-ui)",
+        "$(rootpath :gui_smoke_spec.json)",
+    ],
+    data = [
+        ":gui_smoke_spec.json",
+        ":hm-ui",
+    ],
+    tags = ["manual"],
 )

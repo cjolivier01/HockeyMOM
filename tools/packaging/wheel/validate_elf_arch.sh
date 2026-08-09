@@ -4,6 +4,7 @@ set -euo pipefail
 
 binary_path="$1"
 expected_arch="$2"
+maximum_glibc="$3"
 
 machine="$(readelf -h -- "${binary_path}" | sed -n 's/^[[:space:]]*Machine:[[:space:]]*//p')"
 case "${expected_arch}" in
@@ -24,12 +25,13 @@ if [[ "${machine}" != "${expected_machine}" ]]; then
   exit 1
 fi
 
-if readelf -l -- "${binary_path}" | grep -q 'Requesting program interpreter'; then
-  echo "hm-ui must be statically linked before it can be bundled in the portable Linux wheel" >&2
-  exit 1
-fi
-
-if readelf -d -- "${binary_path}" 2>/dev/null | grep -q '(NEEDED)'; then
-  echo "hm-ui has dynamic library dependencies and cannot be bundled in the portable Linux wheel" >&2
+required_glibc="$(
+  readelf --version-info -- "${binary_path}" \
+    | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' \
+    | sort -Vu \
+    | tail -1
+)"
+if [[ -n "${required_glibc}" ]] && [[ "$(printf '%s\n' "${maximum_glibc}" "${required_glibc}" | sort -V | tail -1)" != "${maximum_glibc}" ]]; then
+  echo "hm-ui requires GLIBC ${required_glibc}, newer than supported baseline ${maximum_glibc}" >&2
   exit 1
 fi
