@@ -317,13 +317,13 @@ def main(argv: list[str]) -> int:
     )
     build.add_argument(
         "--cuda-base",
-        default="nvidia/cuda:12.4.1-devel-ubuntu22.04",
+        default="nvidia/cuda:13.0.2-devel-ubuntu22.04",
         help="Base CUDA image (must include nvcc for CUDA builds)",
     )
-    build.add_argument("--torch-index-url", default="https://download.pytorch.org/whl/cu128")
-    build.add_argument("--torch-version", default="2.7.1+cu128")
-    build.add_argument("--torchvision-version", default="0.22.1+cu128")
-    build.add_argument("--torchaudio-version", default="2.7.1+cu128")
+    build.add_argument("--torch-index-url", default="https://download.pytorch.org/whl/cu130")
+    build.add_argument("--torch-version", default="2.11.0+cu130")
+    build.add_argument("--torchvision-version", default="0.26.0+cu130")
+    build.add_argument("--torchaudio-version", default="2.11.0+cu130")
     build.set_defaults(func=cmd_build)
 
     run = subparsers.add_parser(

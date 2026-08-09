@@ -8,6 +8,7 @@ optional dependency during normal PyTorch execution.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import sys
 from pathlib import Path
@@ -30,19 +31,19 @@ class TorchTensorRTConfigurationError(ValueError):
 
 def load_torch_tensorrt() -> Any:
     """Load Torch-TensorRT lazily and provide an actionable import error."""
+    if sys.version_info >= (3, 14):
+        raise TorchTensorRTUnavailableError(
+            "Torch-TensorRT 2.11 and TensorRT 10.15 provide official wheels for "
+            "Python 3.10-3.13 only; use a Python 3.13 environment for TensorRT "
+            "model acceleration."
+        )
     try:
         return importlib.import_module("torch_tensorrt")
     except Exception as exc:
-        python_compatibility = (
-            " Torch-TensorRT 2.11 and TensorRT 10.15 support Python 3.10-3.13; "
-            "use a Python 3.13 environment instead of Python 3.14."
-            if sys.version_info >= (3, 14)
-            else ""
-        )
         raise TorchTensorRTUnavailableError(
             "Torch-TensorRT is required for TensorRT model acceleration. "
             "Install the Torch-TensorRT release matching the installed PyTorch "
-            f"and CUDA versions.{python_compatibility}"
+            "and CUDA versions."
         ) from exc
 
 
@@ -50,6 +51,51 @@ def engine_cache_directory(engine_path: str | Path) -> Path:
     """Map the legacy engine filename setting to a Torch-TensorRT cache directory."""
     path = Path(engine_path).expanduser()
     return path.parent / f"{path.name}.torch_tensorrt_cache"
+
+
+def _cache_fingerprint(
+    module: torch.nn.Module,
+    torch_tensorrt: Any,
+    device: torch.device,
+) -> str:
+    """Partition serialized engines by model structure and runtime compatibility."""
+    tensorrt = importlib.import_module("tensorrt")
+    properties = torch.cuda.get_device_properties(device)
+    parts = [
+        f"torch={torch.__version__}",
+        f"torch_cuda={torch.version.cuda}",
+        f"torch_tensorrt={getattr(torch_tensorrt, '__version__', 'unknown')}",
+        f"tensorrt={getattr(tensorrt, '__version__', 'unknown')}",
+        f"gpu={properties.name}",
+        f"compute={properties.major}.{properties.minor}",
+    ]
+    for name, value in list(module.named_parameters()) + list(module.named_buffers()):
+        parts.append(f"{name}:{tuple(value.shape)}:{value.dtype}")
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:20]
+
+
+def _validate_cuda_device(
+    module: torch.nn.Module,
+    example_inputs: Sequence[torch.Tensor],
+) -> torch.device:
+    input_device = example_inputs[0].device
+    if input_device.type != "cuda":
+        raise TorchTensorRTConfigurationError("Torch-TensorRT example inputs must be CUDA tensors.")
+    if any(value.device != input_device for value in example_inputs):
+        raise TorchTensorRTConfigurationError(
+            "Torch-TensorRT example inputs must all use the same CUDA device."
+        )
+    module_devices = {
+        value.device
+        for value in list(module.parameters()) + list(module.buffers())
+        if value.device.type != "meta"
+    }
+    if any(device != input_device for device in module_devices):
+        raise TorchTensorRTConfigurationError(
+            "Torch-TensorRT module parameters, buffers, and inputs must use the same "
+            f"CUDA device ({input_device})."
+        )
+    return input_device
 
 
 def compile_torch_tensorrt(
@@ -86,9 +132,14 @@ def compile_torch_tensorrt(
             "Torch-TensorRT example inputs must all be torch.Tensor instances."
         )
 
+    input_device = _validate_cuda_device(module, example_inputs)
+
     torch_tensorrt = load_torch_tensorrt()
-    cache_dir = engine_cache_directory(engine_path)
+    cache_dir = engine_cache_directory(engine_path) / _cache_fingerprint(
+        module, torch_tensorrt, input_device
+    )
     cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_had_entries = any(cache_dir.iterdir())
 
     input_specs = [
         torch_tensorrt.Input(
@@ -106,10 +157,10 @@ def compile_torch_tensorrt(
         cache_dir,
     )
 
-    compiled = torch_tensorrt.compile(
-        module.eval(),
+    compile_options = dict(
         ir="dynamo",
         inputs=input_specs,
+        device=input_device,
         enabled_precisions={precision},
         use_explicit_typing=not fp16,
         require_full_compilation=True,
@@ -127,6 +178,18 @@ def compile_torch_tensorrt(
         reuse_cached_engines=not force_build,
         engine_cache_dir=str(cache_dir),
     )
+    with torch.cuda.device(input_device):
+        try:
+            compiled = torch_tensorrt.compile(module.eval(), **compile_options)
+        except Exception as exc:
+            if force_build or not cache_had_entries:
+                raise
+            logger.warning(
+                "Cached Torch-TensorRT engine failed to load; rebuilding it once: %s",
+                exc,
+            )
+            compile_options["reuse_cached_engines"] = False
+            compiled = torch_tensorrt.compile(module.eval(), **compile_options)
 
     # Static output shapes allow the runtime to overlap output-buffer setup
     # with inference.  Keep the controller alive with the compiled module.

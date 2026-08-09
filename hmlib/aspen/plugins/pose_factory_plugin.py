@@ -158,6 +158,7 @@ class PoseInferencerFactoryPlugin(Plugin):
                             fp16=bool(self._trt_cfg.get("fp16", True)),
                             int8=bool(self._trt_cfg.get("int8", False)),
                             calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
+                            batch_size=int(self._trt_cfg.get("batch_size", 32)),
                         )
                         setattr(self._inferencer, "_hm_trt_runner", self._trt_runner)
                 # Otherwise, enable ONNX if requested
@@ -563,6 +564,7 @@ class _TrtPoseRunner:
         fp16: bool = True,
         int8: bool = False,
         calib_frames: int = 0,
+        batch_size: int = 32,
     ):
         self.model = model
         self.engine_path = engine_path
@@ -571,8 +573,12 @@ class _TrtPoseRunner:
         self.int8 = bool(int8)
         # Retain the constructor argument for existing Aspen configurations;
         # Torch-TensorRT's Dynamo frontend cannot consume legacy frame calibration.
+        self.batch_size = int(batch_size)
+        if self.batch_size <= 0:
+            raise ValueError("Torch-TensorRT pose batch size must be positive")
         self._trt_module = None
         self._trt_modules: Dict[Tuple[Tuple[int, ...], torch.dtype, str], torch.nn.Module] = {}
+        self._trt_input_buffers: Dict[Tuple[Tuple[int, ...], torch.dtype, str], torch.Tensor] = {}
         self._wrapper_module = None
         self._fallback_test_step = None
         self._trt_disabled_reason: Optional[str] = None
@@ -675,7 +681,29 @@ class _TrtPoseRunner:
             x = (x - mean) / std
         return x.contiguous()
 
+    def _static_batch(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Pad one pose chunk to the configured, engine-specialized batch size."""
+        if inputs.size(0) > self.batch_size:
+            raise ValueError(
+                f"Pose chunk has {inputs.size(0)} inputs, exceeding batch size {self.batch_size}"
+            )
+        if inputs.size(0) == self.batch_size:
+            return inputs
+
+        shape = (self.batch_size, *inputs.shape[1:])
+        key = (shape, inputs.dtype, str(inputs.device))
+        buffer = self._trt_input_buffers.get(key)
+        if buffer is None:
+            buffer = inputs.new_zeros(shape)
+            self._trt_input_buffers[key] = buffer
+        else:
+            buffer.zero_()
+        if inputs.size(0) > 0:
+            buffer[: inputs.size(0)].copy_(inputs)
+        return buffer
+
     def _ensure_trt_engine(self, sample: torch.Tensor) -> None:
+        sample = self._static_batch(sample[: self.batch_size])
         cache_key = (tuple(sample.shape), sample.dtype, str(sample.device))
         cached_module = self._trt_modules.get(cache_key)
         if cached_module is not None:
@@ -725,22 +753,42 @@ class _TrtPoseRunner:
                 self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(x.device)
             return self._wrapper_module(x)
 
-    def forward(self, proc_inputs: Dict[str, Any]):
-        try:
-            inputs = self._prepare_inputs(proc_inputs["inputs"])
-            datas = proc_inputs.get("data_samples", None)
-            if self._trt_disabled_reason is None:
-                self._ensure_trt_engine(inputs)
-            feats = self._run_feats(inputs)
-            head = getattr(self.model, "head", None)
-            if head is not None and hasattr(head, "predict") and datas is not None:
-                with torch.inference_mode():
-                    return head.predict(feats, datas)
-        except Exception as exc:
-            self._disable_trt(exc)
+    @staticmethod
+    def _slice_feature_batch(feats: Any, valid_count: int) -> Any:
+        if isinstance(feats, torch.Tensor):
+            return feats[:valid_count]
+        if isinstance(feats, tuple):
+            return tuple(_TrtPoseRunner._slice_feature_batch(value, valid_count) for value in feats)
+        if isinstance(feats, list):
+            return [_TrtPoseRunner._slice_feature_batch(value, valid_count) for value in feats]
+        raise TypeError(f"Unexpected pose feature output type: {type(feats).__name__}")
 
-        # Preserve MMPose's complete preprocessing/decode path when the split
-        # backbone/head runner is unavailable or incompatible with the model.
+    def _predict_trt_chunks(self, inputs: torch.Tensor, datas: Any, head: Any):
+        predictions: List[Any] = []
+        assert self._trt_module is not None
+        for start in range(0, inputs.size(0), self.batch_size):
+            chunk = inputs[start : start + self.batch_size]
+            static_chunk = self._static_batch(chunk)
+            try:
+                with torch.inference_mode():
+                    feats = self._trt_module(static_chunk)
+            except Exception as exc:
+                self._disable_trt(exc)
+                return None
+            feats = self._slice_feature_batch(feats, chunk.size(0))
+            with torch.inference_mode():
+                chunk_predictions = head.predict(
+                    feats,
+                    datas[start : start + chunk.size(0)],
+                )
+            if not isinstance(chunk_predictions, (list, tuple)):
+                raise TypeError(
+                    "Pose head.predict must return a sequence for batched TensorRT inference"
+                )
+            predictions.extend(chunk_predictions)
+        return predictions
+
+    def _fallback(self, proc_inputs: Dict[str, Any]):
         with torch.no_grad():
             if self._fallback_test_step is not None:
                 return self._fallback_test_step(proc_inputs)
@@ -748,3 +796,55 @@ class _TrtPoseRunner:
             if callable(test_step):
                 return test_step(proc_inputs)
             return self.model(**proc_inputs)
+
+    def forward(self, proc_inputs: Dict[str, Any]):
+        try:
+            inputs = self._prepare_inputs(proc_inputs["inputs"])
+        except Exception as exc:
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning(
+                "Pose preprocessing failed; using the original PyTorch test_step: %s",
+                exc,
+            )
+            return self._fallback(proc_inputs)
+
+        datas = proc_inputs.get("data_samples", None)
+        head = getattr(self.model, "head", None)
+        if head is None or not hasattr(head, "predict") or datas is None:
+            return self._fallback(proc_inputs)
+        if inputs.size(0) == 0:
+            return []
+
+        if self._trt_disabled_reason is None:
+            self._ensure_trt_engine(inputs)
+        if self._trt_module is not None:
+            try:
+                predictions = self._predict_trt_chunks(inputs, datas, head)
+                if predictions is not None:
+                    return predictions
+            except Exception as exc:
+                from hmlib.log import get_logger
+
+                get_logger(__name__).warning(
+                    "Pose head decode failed; using the original PyTorch test_step "
+                    "for this invocation: %s",
+                    exc,
+                )
+                return self._fallback(proc_inputs)
+
+        try:
+            feats = self._run_feats(inputs)
+            with torch.inference_mode():
+                return head.predict(feats, datas)
+        except Exception as exc:
+            from hmlib.log import get_logger
+
+            get_logger(__name__).warning(
+                "Split PyTorch pose inference failed; using the original test_step: %s",
+                exc,
+            )
+
+        # Preserve MMPose's complete preprocessing/decode path when the split
+        # backbone/head runner is unavailable or incompatible with the model.
+        return self._fallback(proc_inputs)

@@ -822,6 +822,13 @@ class hm_opts(object):
             help="Deprecated legacy INT8 calibration-frame count (ignored by Torch-TensorRT).",
         )
         trt_pose.add_argument(
+            "--pose-trt-batch-size",
+            dest="pose_trt_batch_size",
+            type=int,
+            default=32,
+            help="Static TensorRT pose batch size; larger inputs are chunked and tails padded (default: 32).",
+        )
+        trt_pose.add_argument(
             "--pose-trt-force-build",
             dest="pose_trt_force_build",
             action="store_true",

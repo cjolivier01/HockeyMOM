@@ -1,4 +1,4 @@
-ARG CUDA_BASE=nvidia/cuda:12.4.1-devel-ubuntu22.04
+ARG CUDA_BASE=nvidia/cuda:13.0.2-devel-ubuntu22.04
 FROM ${CUDA_BASE}
 
 # Set environment variables for non-interactive installation
@@ -106,7 +106,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Build OpenCV (C++11 ABI) for Torch extensions
 #
 ####################################################################
-# PyTorch cu128 wheels are built with `_GLIBCXX_USE_CXX11_ABI=1`, and our native
+# PyTorch CUDA wheels are built with `_GLIBCXX_USE_CXX11_ABI=1`, and our native
 # extensions link against OpenCV. Build an ABI-compatible OpenCV into /usr/local.
 WORKDIR /tmp
 RUN git clone https://github.com/opencv/opencv.git \
@@ -284,10 +284,10 @@ RUN chown -R "${UID}:${GID}" /opt/hm
 # Python deps (runtime + build)
 #
 ####################################################################
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
-ARG TORCH_VERSION=2.7.1+cu128
-ARG TORCHVISION_VERSION=0.22.1+cu128
-ARG TORCHAUDIO_VERSION=2.7.1+cu128
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
+ARG TORCH_VERSION=2.11.0+cu130
+ARG TORCHVISION_VERSION=0.26.0+cu130
+ARG TORCHAUDIO_VERSION=2.11.0+cu130
 
 RUN pip install --no-cache-dir --index-url https://pypi.org/simple --extra-index-url "${TORCH_INDEX_URL}" \
     "torch==${TORCH_VERSION}" \

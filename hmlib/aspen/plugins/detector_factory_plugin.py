@@ -818,80 +818,76 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             pass
         with self._profile_scope():
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
-            results: List[Any] = []
             try:
                 dev = next(self.model.parameters()).device
             except StopIteration:
                 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            for i in range(imgs.size(0)):
-                data_sample = data_samples[i]
-                img_meta = getattr(data_sample, "metainfo", {})
-                with self._profile_scope("preprocess"):
-                    x = imgs[i : i + 1].to(device=dev, non_blocking=True)
-                    x = self._preprocess(x)
-                with self._profile_scope("engine"):
-                    if self._trt_disabled_reason is None:
-                        try:
-                            self._ensure_trt_engine(x)
-                        except Exception as ex:
-                            self._disable_trt(ex)
-                    if self._trt_module is not None:
-                        try:
-                            feats = self._trt_module(x)
-                        except Exception as ex:
-                            self._disable_trt(ex)
-                            assert self._wrapper_module is not None
-                            with torch.inference_mode():
-                                feats = self._wrapper_module(x)
-                    else:
-                        if self._wrapper_module is None:
-                            self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(dev)
+            img_metas = [getattr(data_sample, "metainfo", {}) for data_sample in data_samples]
+            with self._profile_scope("preprocess"):
+                x = imgs.to(device=dev, non_blocking=True)
+                x = self._preprocess(x)
+            with self._profile_scope("engine"):
+                if self._trt_disabled_reason is None:
+                    try:
+                        self._ensure_trt_engine(x)
+                    except Exception as ex:
+                        self._disable_trt(ex)
+                if self._trt_module is not None:
+                    try:
+                        feats = self._trt_module(x)
+                    except Exception as ex:
+                        self._disable_trt(ex)
+                        assert self._wrapper_module is not None
                         with torch.inference_mode():
                             feats = self._wrapper_module(x)
-                    if isinstance(feats, torch.Tensor):
-                        feats = [feats, feats, feats]
-                    elif isinstance(feats, (list, tuple)):
-                        feats = list(feats)
+                else:
+                    if self._wrapper_module is None:
+                        self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(dev)
+                    with torch.inference_mode():
+                        feats = self._wrapper_module(x)
+                if isinstance(feats, torch.Tensor):
+                    feats = [feats, feats, feats]
+                elif isinstance(feats, (list, tuple)):
+                    feats = list(feats)
+                else:
+                    feats = [torch.as_tensor(feats)]
+            with torch.inference_mode():
+                with self._profile_scope("head"):
+                    bbox_head_results = self.model.bbox_head(tuple(feats))
+                    objectnesses = None
+                    if len(bbox_head_results) == 3:
+                        cls_scores, bbox_preds, objectnesses = bbox_head_results
+                    elif len(bbox_head_results) == 2:
+                        cls_scores, bbox_preds = bbox_head_results
                     else:
-                        feats = [torch.as_tensor(feats)]
-                with torch.inference_mode():
-                    with self._profile_scope("head"):
-                        bbox_head_results = self.model.bbox_head(tuple(feats))
-                        objectnesses = None
-                        if len(bbox_head_results) == 3:
-                            cls_scores, bbox_preds, objectnesses = bbox_head_results
-                        elif len(bbox_head_results) == 2:
-                            cls_scores, bbox_preds = bbox_head_results
-                        else:
-                            raise RuntimeError(
-                                "Unexpected number of outputs from bbox_head: "
-                                f"{len(bbox_head_results)}"
-                            )
-                        # Decode boxes and scores but skip the built-in NMS,
-                        # so that we can apply TensorRT batched NMS instead.
-                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                            cls_scores=cls_scores,
-                            bbox_preds=bbox_preds,
-                            objectnesses=objectnesses,
-                            batch_img_metas=[img_meta],
-                            cfg=None,
-                            rescale=True,
-                            with_nms=False,
+                        raise RuntimeError(
+                            "Unexpected number of outputs from bbox_head: "
+                            f"{len(bbox_head_results)}"
                         )
-                inst = result_list[0]
-
-                # Apply configured NMS backend via the centralized dispatcher.
-                with self._profile_scope("nms"):
-                    inst = self._nms.run_single(inst, img_meta)
-
-                class _Wrap:
-                    def __init__(self, inst_):
-                        self.pred_instances = inst_
-
-                with self._profile_scope("postprocess"):
-                    results.append(
-                        _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    # Decode the complete batch once, then retain the existing
+                    # per-image NMS behavior in the centralized dispatcher.
+                    result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                        cls_scores=cls_scores,
+                        bbox_preds=bbox_preds,
+                        objectnesses=objectnesses,
+                        batch_img_metas=img_metas,
+                        cfg=None,
+                        rescale=True,
+                        with_nms=False,
                     )
+
+            with self._profile_scope("nms"):
+                result_list = self._nms.run_batch(result_list, img_metas)
+
+            class _Wrap:
+                def __init__(self, inst_):
+                    self.pred_instances = inst_
+
+            with self._profile_scope("postprocess"):
+                results = [
+                    _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    for inst in result_list
+                ]
 
             if do_trace == 10:
                 pass

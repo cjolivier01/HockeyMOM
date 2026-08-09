@@ -1718,9 +1718,9 @@ def _main(args, num_gpu):
                     onnx_cfg["calib_frames"] = int(args.detector_onnx_calib_frames or 0)
                     # Mirror NMS configuration for ONNX-backed detectors so the
                     # same DetectorNMS path can be used.
-                    onnx_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
-                    onnx_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
-                    onnx_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
+                    onnx_cfg["nms_backend"] = args.detector_nms_backend
+                    onnx_cfg["nms_test"] = bool(args.detector_nms_test)
+                    onnx_cfg["nms_plugin"] = args.detector_trt_nms_plugin
                     df_params["onnx"] = onnx_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -1743,14 +1743,12 @@ def _main(args, num_gpu):
                     trt_cfg["force_build"] = bool(args.detector_trt_force_build)
                     trt_cfg["fp16"] = bool(args.detector_trt_fp16)
                     # INT8 options
-                    trt_cfg["int8"] = bool(getattr(args, "detector_trt_int8", False))
-                    trt_cfg["calib_frames"] = int(
-                        getattr(args, "detector_trt_calib_frames", 0) or 0
-                    )
+                    trt_cfg["int8"] = bool(args.detector_trt_int8)
+                    trt_cfg["calib_frames"] = int(args.detector_trt_calib_frames or 0)
                     # NMS backend selection for TensorRT detector
-                    trt_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
-                    trt_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
-                    trt_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
+                    trt_cfg["nms_backend"] = args.detector_nms_backend
+                    trt_cfg["nms_test"] = bool(args.detector_nms_test)
+                    trt_cfg["nms_plugin"] = args.detector_trt_nms_plugin
                     df_params["trt"] = trt_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -1797,8 +1795,9 @@ def _main(args, num_gpu):
                     ptrt_cfg["force_build"] = bool(args.pose_trt_force_build)
                     ptrt_cfg["fp16"] = bool(args.pose_trt_fp16)
                     # INT8 options
-                    ptrt_cfg["int8"] = bool(getattr(args, "pose_trt_int8", False))
-                    ptrt_cfg["calib_frames"] = int(getattr(args, "pose_trt_calib_frames", 0) or 0)
+                    ptrt_cfg["int8"] = bool(args.pose_trt_int8)
+                    ptrt_cfg["calib_frames"] = int(args.pose_trt_calib_frames or 0)
+                    ptrt_cfg["batch_size"] = int(args.pose_trt_batch_size)
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
@@ -1824,9 +1823,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params[
-                            "tracker_class"
-                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        tracker_params["tracker_class"] = (
+                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        )
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
