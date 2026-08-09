@@ -1,5 +1,4 @@
-ARG CUDA_BASE=nvidia/cuda:12.4.1-devel-ubuntu22.04
-FROM ${CUDA_BASE}
+FROM nvidia/cuda:13.0.2-devel-ubuntu22.04
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -90,7 +89,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libgstrtspserver-1.0-dev \
   libsoup2.4-dev \
   libjson-glib-dev \
-  libnvinfer-dev \
   texinfo \
   zlib1g-dev \
   libavformat-dev \
@@ -106,7 +104,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Build OpenCV (C++11 ABI) for Torch extensions
 #
 ####################################################################
-# PyTorch cu128 wheels are built with `_GLIBCXX_USE_CXX11_ABI=1`, and our native
+# PyTorch CUDA wheels are built with `_GLIBCXX_USE_CXX11_ABI=1`, and our native
 # extensions link against OpenCV. Build an ABI-compatible OpenCV into /usr/local.
 WORKDIR /tmp
 RUN git clone https://github.com/opencv/opencv.git \
@@ -210,7 +208,7 @@ RUN git clone https://github.com/FFmpeg/nv-codec-headers.git \
 RUN git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg \
   && cd ffmpeg \
   && git checkout n5.1.4 \
-  && NVCCFLAGS="-gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89" \
+  && NVCCFLAGS="-gencode arch=compute_75,code=sm_75 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_120,code=sm_120" \
      ./configure \
        --prefix="/usr/local" \
        --extra-cflags='-I/usr/local/cuda/include' \
@@ -284,15 +282,13 @@ RUN chown -R "${UID}:${GID}" /opt/hm
 # Python deps (runtime + build)
 #
 ####################################################################
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128
-ARG TORCH_VERSION=2.7.1+cu128
-ARG TORCHVISION_VERSION=0.22.1+cu128
-ARG TORCHAUDIO_VERSION=2.7.1+cu128
-
-RUN pip install --no-cache-dir --index-url https://pypi.org/simple --extra-index-url "${TORCH_INDEX_URL}" \
-    "torch==${TORCH_VERSION}" \
-    "torchvision==${TORCHVISION_VERSION}" \
-    "torchaudio==${TORCHAUDIO_VERSION}"
+# Keep this ABI-sensitive stack in lockstep with Torch-TensorRT in
+# requirements.txt. These versions intentionally are not build arguments.
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple \
+    --extra-index-url https://download.pytorch.org/whl/cu130 \
+    "torch==2.11.0+cu130" \
+    "torchvision==0.26.0+cu130" \
+    "torchaudio==2.11.0+cu130"
 
 # PyNvVideoCodec is hosted on NVIDIA's index for many setups.
 # Avoid `nvidia-pyindex` here: its build backend expects `pip` to be importable
@@ -331,8 +327,9 @@ RUN export HOME="/home/${USERNAME}" \
   && rm -rf "${HOME}/.cache/bazel" \
   && cd /opt/hm/src/hm \
   && rm -rf dist && mkdir -p dist \
-  && ./run.sh //hockeymom:bdist_wheel \
-  && ./run.sh //hmlib:bdist_wheel
+  && export CUDA_BAZEL_ARCHS="sm_75;sm_80;sm_86;sm_89;sm_90;compute_120:compute_120,sm_120" \
+  && ./bazel/bazel.sh run //hockeymom:bdist_wheel \
+  && ./bazel/bazel.sh run //hmlib:bdist_wheel
 
 USER root
 RUN cd /opt/hm/src/hm \
@@ -347,7 +344,7 @@ RUN set -eux; \
   export CUDA_HOME=/usr/local/cuda; \
   export FORCE_CUDA=1; \
   export MMCV_WITH_OPS=1; \
-  export TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0+PTX"; \
+  export TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9;9.0;12.0+PTX"; \
   export MAX_JOBS="$(nproc)"; \
   WHEEL_DIR="/tmp/local_wheels"; \
   rm -rf "${WHEEL_DIR}"; \

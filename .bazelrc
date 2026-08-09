@@ -52,6 +52,8 @@ build --workspace_status_command=$PWD/stamp.sh
 
 # Test configuration:
 test --test_output=errors
+test --test_env=CONDA_PREFIX
+test --test_env=PYTHON_BIN_PATH
 
 # Coverage-related configuration:
 coverage --combined_report=lcov

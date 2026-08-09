@@ -11,6 +11,7 @@ from hmlib.config import prepend_root_dir
 from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.utils.nms import DetectorNMS
 from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
+from hmlib.utils.torch_tensorrt_runtime import compile_torch_tensorrt
 
 from .base import Plugin
 
@@ -688,10 +689,11 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
 
 
 class _TrtDetectorWrapper(_ProfilerMixin):
-    """Backbone+neck with TensorRT via torch2trt; decode with PyTorch YOLOX head.
+    """Compile backbone+neck with Torch-TensorRT and decode with the PyTorch head.
 
-    Builds the engine on-the-fly and caches to disk. Exposes a .predict compatible
-    with mmdet SingleStageDetector expectations used downstream.
+    Engines are specialized lazily from the first input shape and persisted in
+    Torch-TensorRT's disk cache.  The wrapper exposes the ``predict`` interface
+    expected by downstream mmdetection code.
     """
 
     def __init__(
@@ -713,13 +715,14 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self.force_build = bool(force_build)
         self.fp16 = bool(fp16)
         self.int8 = bool(int8)
-        self.calib_frames = int(calib_frames or 0)
+        # Retain the constructor argument for existing Aspen configurations;
+        # Torch-TensorRT's Dynamo frontend cannot consume legacy frame calibration.
         self._trt_module = None
+        self._trt_modules: Dict[Tuple[Tuple[int, ...], torch.dtype, str], torch.nn.Module] = {}
         self._wrapper_module: Optional[_BackboneNeckWrapper] = None
         self._mean = None
         self._std = None
         self._swap_rgb = False
-        self._calib_dataset = None
         self._pass: int = 0
         self._trt_disabled_reason: Optional[str] = None
         self._nms_backend: str = str(nms_backend or "trt")
@@ -767,90 +770,35 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                 bgr_to_rgb = bool(getattr(dp, "bgr_to_rgb", False))
                 rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
                 self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
-        except Exception:
-            pass
+        except Exception as exc:
+            from hmlib.log import get_logger
 
-    def _ensure_trt_engine(self, shape: torch.Shape, dtype: torch.dtype) -> None:
-        if self._trt_module is not None:
+            get_logger(__name__).warning(
+                "Could not read detector preprocessing metadata; TensorRT inputs "
+                "will not be normalized by the wrapper: %s",
+                exc,
+            )
+
+    def _ensure_trt_engine(self, sample: torch.Tensor) -> None:
+        cache_key = (tuple(sample.shape), sample.dtype, str(sample.device))
+        cached_module = self._trt_modules.get(cache_key)
+        if cached_module is not None:
+            self._trt_module = cached_module
             return
-        try:
-            import torch2trt  # type: ignore
-        except Exception as ex:
-            raise RuntimeError(
-                "torch2trt is required for TensorRT path but is not available"
-            ) from ex
-        import os
-
-        portions: list[str] = [self.engine_path.stem]
-        if self.int8:
-            portions.append("int8")
-        for dim in shape:
-            portions.append(str(dim))
-        self.engine_path = self.engine_path.with_stem("_".join(portions))
-
         dev = next(self.model.parameters()).device
         wrapper = _BackboneNeckWrapper(self.model).eval().to(dev)
         self._wrapper_module = wrapper
-        if (not self.force_build) and os.path.exists(self.engine_path):
-            try:
-                trt_mod = torch2trt.TRTModule()
-                import torch as _torch
-
-                trt_mod.load_state_dict(_torch.load(self.engine_path))
-                self._trt_module = trt_mod
-                return
-            except Exception:
-                pass
-        # Build
-        from hmlib.log import get_logger
-
-        get_logger(__name__).info("Building TensorRT engine for detector backbone+neck...")
         with torch.inference_mode():
-            if self.int8:
-                # If INT8 calibration is requested, require a calibration dataset; defer build until available
-                if self._calib_dataset is None or len(self._calib_dataset) == 0:
-                    # Not enough data to calibrate yet; skip building now
-                    return
-                try:
-                    trt_mod = torch2trt.torch2trt(
-                        wrapper,
-                        self._calib_dataset,
-                        int8_mode=True,
-                        int8_calib_dataset=self._calib_dataset,
-                        fp16_mode=False,
-                        max_workspace_size=1 << 30,
-                    )
-                except Exception as ex:
-                    get_logger(__name__).warning(
-                        "INT8 build failed, falling back to FP16/FP32: %s", ex
-                    )
-                    # Fallback: try fp16 if requested else fp32
-                    sample = torch.randn(*shape, device=dev, dtype=dtype)
-                    trt_mod = torch2trt.torch2trt(
-                        wrapper,
-                        [sample],
-                        fp16_mode=self.fp16,
-                        max_batch_size=shape[0],
-                        max_workspace_size=1 << 30,
-                    )
-            else:
-                sample = torch.randn(*shape, device=dev, dtype=dtype)
-                trt_mod = torch2trt.torch2trt(
-                    wrapper,
-                    [sample],
-                    fp16_mode=self.fp16,
-                    max_batch_size=shape[0],
-                    max_workspace_size=1 << 30,
-                )
-        # Save engine
-        try:
-            import torch as _torch
-
-            _torch.save(trt_mod.state_dict(), self.engine_path)
-            get_logger(__name__).info("Saved TensorRT engine to %s", self.engine_path)
-        except Exception:
-            get_logger(__name__).warning("Failed to save TensorRT engine to %s", self.engine_path)
-        self._trt_module = trt_mod
+            compiled = compile_torch_tensorrt(
+                wrapper,
+                [sample],
+                engine_path=self.engine_path,
+                force_build=self.force_build,
+                fp16=self.fp16,
+                int8=self.int8,
+            )
+        self._trt_modules[cache_key] = compiled
+        self._trt_module = compiled
 
     def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
         # Normalize similar to data_preprocessor if present
@@ -862,7 +810,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             mean = self._mean.to(device=x.device, dtype=x.dtype)
             std = self._std.to(device=x.device, dtype=x.dtype)
             x = (x - mean) / std
-        return x
+        return x.contiguous()
 
     def predict(self, imgs: torch.Tensor, data_samples: List[Any]):  # type: ignore[override]
         do_trace: bool = self._pass == 10
@@ -870,94 +818,76 @@ class _TrtDetectorWrapper(_ProfilerMixin):
             pass
         with self._profile_scope():
             assert isinstance(data_samples, (list, tuple)) and len(data_samples) == imgs.size(0)
-            results: List[Any] = []
             try:
                 dev = next(self.model.parameters()).device
             except StopIteration:
                 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            if self.int8 and self._calib_dataset is None and self.calib_frames > 0:
-                try:
-                    from torch2trt import ListDataset  # type: ignore
-                except Exception:
-                    ListDataset = None
-                if ListDataset is not None:
-                    self._calib_dataset = ListDataset()
-            for i in range(imgs.size(0)):
-                data_sample = data_samples[i]
-                try:
-                    img_meta = getattr(data_sample, "metainfo", {})
-                except Exception:
-                    img_meta = {}
-                with self._profile_scope("preprocess"):
-                    x = imgs[i : i + 1].to(device=dev, non_blocking=True)
-                    x = self._preprocess(x)
-                if self.int8 and self._calib_dataset is not None and self._trt_module is None:
-                    with self._profile_scope("calibration"):
-                        if len(self._calib_dataset) < max(0, self.calib_frames):
-                            self._calib_dataset.insert([x.detach()])
-                        if len(self._calib_dataset) >= max(0, self.calib_frames):
-                            if self._trt_disabled_reason is None:
-                                try:
-                                    self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
-                                except Exception as ex:
-                                    self._disable_trt(ex)
-                with self._profile_scope("engine"):
-                    if self._trt_disabled_reason is None:
-                        try:
-                            self._ensure_trt_engine(shape=x.shape, dtype=x.dtype)
-                        except Exception as ex:
-                            self._disable_trt(ex)
-                    if self._trt_module is not None:
+            img_metas = [getattr(data_sample, "metainfo", {}) for data_sample in data_samples]
+            with self._profile_scope("preprocess"):
+                x = imgs.to(device=dev, non_blocking=True)
+                x = self._preprocess(x)
+            with self._profile_scope("engine"):
+                if self._trt_disabled_reason is None:
+                    try:
+                        self._ensure_trt_engine(x)
+                    except Exception as ex:
+                        self._disable_trt(ex)
+                if self._trt_module is not None:
+                    try:
                         feats = self._trt_module(x)
-                    else:
-                        if self._wrapper_module is None:
-                            self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(dev)
+                    except Exception as ex:
+                        self._disable_trt(ex)
+                        assert self._wrapper_module is not None
                         with torch.inference_mode():
                             feats = self._wrapper_module(x)
-                    if isinstance(feats, torch.Tensor):
-                        feats = [feats, feats, feats]
-                    elif isinstance(feats, (list, tuple)):
-                        feats = list(feats)
+                else:
+                    if self._wrapper_module is None:
+                        self._wrapper_module = _BackboneNeckWrapper(self.model).eval().to(dev)
+                    with torch.inference_mode():
+                        feats = self._wrapper_module(x)
+                if isinstance(feats, torch.Tensor):
+                    feats = [feats, feats, feats]
+                elif isinstance(feats, (list, tuple)):
+                    feats = list(feats)
+                else:
+                    feats = [torch.as_tensor(feats)]
+            with torch.inference_mode():
+                with self._profile_scope("head"):
+                    bbox_head_results = self.model.bbox_head(tuple(feats))
+                    objectnesses = None
+                    if len(bbox_head_results) == 3:
+                        cls_scores, bbox_preds, objectnesses = bbox_head_results
+                    elif len(bbox_head_results) == 2:
+                        cls_scores, bbox_preds = bbox_head_results
                     else:
-                        feats = [torch.as_tensor(feats)]
-                with torch.inference_mode():
-                    with self._profile_scope("head"):
-                        bbox_head_results = self.model.bbox_head(tuple(feats))
-                        objectnesses = None
-                        if len(bbox_head_results) == 3:
-                            cls_scores, bbox_preds, objectnesses = bbox_head_results
-                        elif len(bbox_head_results) == 2:
-                            cls_scores, bbox_preds = bbox_head_results
-                        else:
-                            raise RuntimeError(
-                                "Unexpected number of outputs from bbox_head: "
-                                f"{len(bbox_head_results)}"
-                            )
-                        # Decode boxes and scores but skip the built-in NMS,
-                        # so that we can apply TensorRT batched NMS instead.
-                        result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
-                            cls_scores=cls_scores,
-                            bbox_preds=bbox_preds,
-                            objectnesses=objectnesses,
-                            batch_img_metas=[img_meta],
-                            cfg=None,
-                            rescale=True,
-                            with_nms=False,
+                        raise RuntimeError(
+                            "Unexpected number of outputs from bbox_head: "
+                            f"{len(bbox_head_results)}"
                         )
-                inst = result_list[0]
-
-                # Apply configured NMS backend via the centralized dispatcher.
-                with self._profile_scope("nms"):
-                    inst = self._nms.run_single(inst, img_meta)
-
-                class _Wrap:
-                    def __init__(self, inst_):
-                        self.pred_instances = inst_
-
-                with self._profile_scope("postprocess"):
-                    results.append(
-                        _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    # Decode the complete batch once, then retain the existing
+                    # per-image NMS behavior in the centralized dispatcher.
+                    result_list: List[InstanceData] = self.model.bbox_head.predict_by_feat(
+                        cls_scores=cls_scores,
+                        bbox_preds=bbox_preds,
+                        objectnesses=objectnesses,
+                        batch_img_metas=img_metas,
+                        cfg=None,
+                        rescale=True,
+                        with_nms=False,
                     )
+
+            with self._profile_scope("nms"):
+                result_list = self._nms.run_batch(result_list, img_metas)
+
+            class _Wrap:
+                def __init__(self, inst_):
+                    self.pred_instances = inst_
+
+            with self._profile_scope("postprocess"):
+                results = [
+                    _Wrap(_strip_static_padding(inst, strip=self._nms_backend != "trt"))
+                    for inst in result_list
+                ]
 
             if do_trace == 10:
                 pass
@@ -967,6 +897,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
 
     def _disable_trt(self, exc: Exception) -> None:
         self._trt_disabled_reason = str(exc)
+        self._trt_module = None
         if self._nms_backend.lower() == "trt":
             self._nms_backend = "torchvision"
             self._nms = DetectorNMS(

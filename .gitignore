@@ -48,5 +48,6 @@ YOLOX_outputs
 player_shifts_fiverr
 /*.dot
 /.hugin_built
+*.torch_tensorrt_cache/
 audit_workdirs
 hmlib.egg-info
