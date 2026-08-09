@@ -274,6 +274,67 @@ def should_propagate_stitch_ui_initialization_failure(monkeypatch):
     assert FailingHmUiProcess.instances[0].closed is True
 
 
+def should_retry_stitch_ui_actions_after_transient_save_failure(monkeypatch):
+    class RetryingHmUiProcess(_FakeHmUiProcess):
+        def consume_action_events(self, *, poll: bool = True):
+            del poll
+            return list(self.actions)
+
+        def acknowledge_action_events(self, through_seq: int) -> None:
+            super().acknowledge_action_events(through_seq)
+            self.actions = [action for action in self.actions if action.seq > through_seq]
+
+    RetryingHmUiProcess.instances.clear()
+    current_config = _config(rotation=5.0)
+    save_attempts = []
+
+    monkeypatch.setattr(stitch_ui_module, "HmUiProcess", RetryingHmUiProcess)
+    monkeypatch.setattr(
+        stitch_ui_module,
+        "get_config",
+        lambda **_kwargs: _config(rotation=0.5),
+    )
+    monkeypatch.setattr(
+        stitch_ui_module,
+        "get_game_config_private",
+        lambda **_kwargs: {},
+    )
+
+    def save_private(_game_id, _data, verbose=True):
+        del verbose
+        save_attempts.append(_game_id)
+        if len(save_attempts) == 1:
+            raise OSError("temporary config write failure")
+
+    monkeypatch.setattr(stitch_ui_module, "save_private_config", save_private)
+
+    plugin = StitchUiPlugin()
+    context = {
+        "img": object(),
+        "shared": {
+            "camera_ui": 1,
+            "game_id": "game-1",
+            "game_config": current_config,
+        },
+    }
+    plugin.forward(context)
+
+    process = RetryingHmUiProcess.instances[0]
+    process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
+    process.queue_action("save")
+
+    plugin.forward(context)
+    assert process.closed is False
+    assert process.acknowledged_seq == 0
+    assert len(process.actions) == 1
+
+    plugin.forward(context)
+    assert process.closed is False
+    assert process.acknowledged_seq == 1
+    assert process.actions == []
+    assert save_attempts == ["game-1", "game-1"]
+
+
 def should_suppress_local_preview_when_rust_camera_ui_owns_it(monkeypatch):
     _FakeShower.instances.clear()
     monkeypatch.setattr(video_preview_module, "Shower", _FakeShower)

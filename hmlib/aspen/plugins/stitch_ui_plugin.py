@@ -377,12 +377,12 @@ class StitchUiPlugin(Plugin):
             raise RuntimeError("Failed to initialize stitch camera UI") from ex
         if self._process is None:
             return {"img": img}
+        self._process.poll()
+        controls_changed = self._process.last_poll_values_changed
+        if self._process.closed:
+            self._disable_ui()
+            return {"img": img}
         try:
-            self._process.poll()
-            controls_changed = self._process.last_poll_values_changed
-            if self._process.closed:
-                self._disable_ui()
-                return {"img": img}
             final_values = self._process.control_values()
             events = self._process.consume_action_events(poll=False)
             runtime_values = None
@@ -409,11 +409,12 @@ class StitchUiPlugin(Plugin):
                 self._apply_controls()
             if events:
                 self._process.acknowledge_action_events(max(event.seq for event in events))
-            if img is not None:
-                self._process.publish_preview(img, name="Stitched")
         except (OSError, RuntimeError, TypeError, ValueError, KeyError):
-            logger.exception("Stitch camera UI failed; disabling it for the rest of this run")
-            self._disable_ui()
+            logger.exception(
+                "Stitch camera UI action processing failed; pending actions will be retried"
+            )
+        if img is not None:
+            self._process.publish_preview(img, name="Stitched")
         return {"img": img}
 
     def finalize(self) -> None:

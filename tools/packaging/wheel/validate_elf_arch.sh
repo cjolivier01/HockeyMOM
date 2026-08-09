@@ -23,3 +23,13 @@ if [[ "${machine}" != "${expected_machine}" ]]; then
   echo "hm-ui architecture mismatch: expected ${expected_arch}, readelf reported ${machine:-unknown}" >&2
   exit 1
 fi
+
+if readelf -l -- "${binary_path}" | grep -q 'Requesting program interpreter'; then
+  echo "hm-ui must be statically linked before it can be bundled in the portable Linux wheel" >&2
+  exit 1
+fi
+
+if readelf -d -- "${binary_path}" 2>/dev/null | grep -q '(NEEDED)'; then
+  echo "hm-ui has dynamic library dependencies and cannot be bundled in the portable Linux wheel" >&2
+  exit 1
+fi
