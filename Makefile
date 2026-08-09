@@ -32,7 +32,7 @@ clean:
 distclean expunge:
 	bazel/bazel.sh clean --expunge
 
-develop:
+develop: hm-ui
 	@if command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
 		bazel/bazel.sh run --config=release //hockeymom:link_ext; \
 	else \
@@ -41,7 +41,7 @@ develop:
 	bazel/bazel.sh run --config=release //hmlib:develop -- --workspace=$(TOPDIR)
 
 hmtrack-rust-ui: hm-ui
-	HM_UI_BIN=$(TOPDIR)/bazel-bin/hm-ui/hm-ui-bin PYTHONPATH=$(TOPDIR) python hmlib/cli/hmtrack.py --camera-ui=1 --camera-ui-backend=rust $(ARGS)
+	HM_UI_BIN=$(TOPDIR)/bazel-bin/hm-ui/hm-ui-bin PYTHONPATH=$(TOPDIR) python hmlib/cli/hmtrack.py --camera-ui=1 $(ARGS)
 
 deps:
 	cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
@@ -53,7 +53,7 @@ print_targets:
 		'' \
 		'Build Outputs' \
 		'-------------' \
-		'hm-ui        Build the Rust hm-ui sidecar binary used by --camera-ui-backend=rust.' \
+		'hm-ui        Build the Rust hm-ui sidecar binary used by --camera-ui=1.' \
 		'perf         Build every Bazel target with --config=release; use for optimized binaries before packaging or deploying.' \
 		'debug        Build every Bazel target with --config=debug; use while iterating locally when you need symbols and asserts.' \
 		'' \
@@ -63,7 +63,7 @@ print_targets:
 		'' \
 		'Developer Workflow' \
 		'------------------' \
-		'develop      Refreshes hockeymom extension symlinks when a local CUDA toolkit is available, then builds the hmlib develop wheel.' \
+		'develop      Builds hm-ui, refreshes hockeymom extension symlinks when CUDA is available, then installs hmlib for development.' \
 		'hmtrack-rust-ui  Build hm-ui, then run hmtrack with the Rust camera UI. Pass hmtrack args with ARGS="--game-id chicago-3 ...".' \
 		'test         Runs the release-configured Bazel test suite; use to verify regressions before submitting or tagging builds.' \
 		'wheel        Builds release wheels for hockeymom and hmlib; run when you need distributable Python packages.' \

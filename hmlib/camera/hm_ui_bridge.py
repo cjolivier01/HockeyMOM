@@ -11,7 +11,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -27,24 +27,45 @@ class _Control:
     max_value: int
     value: int
     default_value: int
+    system_default_value: int
+    group: str
+    view: str
 
 
 class HmUiProcess:
     """Owns the Rust hm-ui process and its JSON spec/state files."""
 
-    def __init__(self, *, title: str = "HM UI", tmpdir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        *,
+        title: str = "HM UI",
+        tmpdir: Optional[Path] = None,
+        preview_names: Iterable[str] = ("Stitched", "Final"),
+    ) -> None:
         self.title = title
         self._tmpdir = (
             Path(tmpdir) if tmpdir is not None else Path(tempfile.mkdtemp(prefix="hm-ui-"))
         )
         self.spec_path = self._tmpdir / "spec.json"
         self.state_path = self._tmpdir / "state.json"
-        self.preview_path = self._tmpdir / "preview.jpg"
+        normalized_preview_names = [
+            str(name).strip() for name in preview_names if str(name).strip()
+        ]
+        if not normalized_preview_names:
+            raise ValueError("hm-ui requires at least one preview name")
+        self.preview_paths: Dict[str, Path] = {
+            name: self._tmpdir / f"preview-{self._slug(name)}.jpg"
+            for name in normalized_preview_names
+        }
+        # Compatibility for callers/tests that predate named preview streams.
+        self.preview_path = next(iter(self.preview_paths.values()))
         self._windows: Dict[str, List[_Control]] = {}
         self._process: Optional[subprocess.Popen] = None
         self.stderr_path = self._tmpdir / "hm-ui.stderr.log"
         self._last_state_mtime_ns: Optional[int] = None
-        self._last_preview_write_monotonic = 0.0
+        self._last_preview_write_monotonic: Dict[str, float] = {
+            name: 0.0 for name in self.preview_paths
+        }
         self._preview_batch_warned = False
         self._last_action_seq = 0
         self._pending_actions: List[str] = []
@@ -57,11 +78,15 @@ class HmUiProcess:
 
     def add_slider(self, window_name: str, name: str, max_value: int, initial_value: int) -> None:
         controls = self._windows.setdefault(window_name, [])
+        view, group = self._control_location(window_name, name)
         for control in controls:
             if control.name == name:
                 control.max_value = max(1, int(max_value))
                 control.value = self._clamp(initial_value, control.max_value)
                 control.default_value = control.value
+                control.system_default_value = control.value
+                control.group = group
+                control.view = view
                 break
         else:
             max_i = max(1, int(max_value))
@@ -72,8 +97,27 @@ class HmUiProcess:
                     max_value=max_i,
                     value=value_i,
                     default_value=value_i,
+                    system_default_value=value_i,
+                    group=group,
+                    view=view,
                 )
             )
+        self._write_spec()
+
+    def set_system_defaults(self, defaults: Dict[str, Dict[str, int]]) -> None:
+        """Publish system defaults separately from the values captured at UI open time."""
+        for window_name, values in defaults.items():
+            for control_name, value in values.items():
+                try:
+                    control = self._find_control(window_name, control_name)
+                except KeyError:
+                    logger.warning(
+                        "Ignoring system default for unknown hm-ui control %s.%s",
+                        window_name,
+                        control_name,
+                    )
+                    continue
+                control.system_default_value = self._clamp(value, control.max_value)
         self._write_spec()
 
     def get_value(self, window_name: str, control_name: str) -> int:
@@ -146,14 +190,17 @@ class HmUiProcess:
         self,
         img,
         *,
+        name: str = "Stitched",
         show_scaled: Optional[float] = None,
         max_width: int = 1280,
         min_interval_seconds: float = 1.0 / 15.0,
     ) -> None:
         if self._closed:
             return
+        if name not in self.preview_paths:
+            return
         now = time.monotonic()
-        if now - self._last_preview_write_monotonic < min_interval_seconds:
+        if now - self._last_preview_write_monotonic[name] < min_interval_seconds:
             return
         frame = unwrap_tensor(img)
         if frame.ndim == 4:
@@ -186,11 +233,12 @@ class HmUiProcess:
         )
         if not ok:
             raise RuntimeError("OpenCV failed to encode hm-ui preview frame")
-        self.preview_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.preview_path.with_suffix(self.preview_path.suffix + ".tmp")
+        preview_path = self.preview_paths[name]
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = preview_path.with_suffix(preview_path.suffix + ".tmp")
         tmp.write_bytes(encoded.tobytes())
-        os.replace(tmp, self.preview_path)
-        self._last_preview_write_monotonic = now
+        os.replace(tmp, preview_path)
+        self._last_preview_write_monotonic[name] = now
 
     def ensure_started(self) -> None:
         if self._closed:
@@ -274,6 +322,9 @@ class HmUiProcess:
             "title": self.title,
             "subtitle": "Runtime tracking, stitch, and camera controls",
             "preview_path": str(self.preview_path),
+            "previews": [
+                {"name": name, "path": str(path)} for name, path in self.preview_paths.items()
+            ],
             "windows": [
                 {
                     "name": window_name,
@@ -283,6 +334,9 @@ class HmUiProcess:
                             "max_value": control.max_value,
                             "value": control.value,
                             "default_value": control.default_value,
+                            "system_default_value": control.system_default_value,
+                            "group": control.group,
+                            "view": control.view,
                         }
                         for control in controls
                     ],
@@ -319,6 +373,30 @@ class HmUiProcess:
             if control.name == control_name:
                 return control
         raise KeyError(control_name)
+
+    @staticmethod
+    def _control_location(window_name: str, control_name: str) -> Tuple[str, str]:
+        """Keep controls that affect different rendered views in separate tabs."""
+        lower_window = window_name.lower()
+        if "left" in lower_window and "color" in lower_window:
+            return "Stitched", "Left Input Color"
+        if "right" in lower_window and "color" in lower_window:
+            return "Stitched", "Right Input Color"
+        if "color" in lower_window:
+            view = "Stitched" if "stitched" in lower_window else "Final"
+            return view, f"{view} Color"
+        if control_name == "Stitch_Rotate_Degrees" or "stitch" in lower_window:
+            return "Stitched", "Alignment"
+        if control_name.startswith(("Overshoot_", "Post_Nonstop_")):
+            return "Final", "Breakaway Tracking"
+        if control_name.startswith(("Max_Speed_", "Max_Accel_", "Apply_To_")):
+            return "Final", "Motion Limits"
+        return "Final", "Play Tracking"
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+        return slug or "view"
 
     @staticmethod
     def _clamp(value: int, max_value: int) -> int:
@@ -377,7 +455,7 @@ class HmUiProcess:
 
 
 class HmUiDialog:
-    """CameraControlDialog-compatible handle backed by the hm-ui sidecar."""
+    """Handle for one control group backed by the hm-ui sidecar."""
 
     def __init__(
         self,

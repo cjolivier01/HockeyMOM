@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from hmlib.builder import HM
 from hmlib.config import get_nested_value, normalize_runtime_config
+from hmlib.log import logger
 from hmlib.ui.shower import Shower
 
 from .base import Plugin
@@ -213,10 +214,18 @@ class VideoPreviewPlugin(Plugin):
         with self.profile_scope("video_preview.forward"):
             with self.profile_scope("video_preview.ensure_initialized"):
                 self._ensure_initialized(context)
-            if self._shower is None:
-                return {}
             img = context.get("img")
             if img is None:
+                return {}
+            shared = context.get("shared", {})
+            hm_ui_process = shared.get("hm_ui_process") if isinstance(shared, dict) else None
+            publish_preview = getattr(hm_ui_process, "publish_preview", None)
+            if callable(publish_preview):
+                try:
+                    publish_preview(img, name="Final")
+                except (OSError, RuntimeError, TypeError, ValueError) as ex:
+                    logger.warning("Failed to publish final hm-ui preview frame: %s", ex)
+            if self._shower is None:
                 return {}
             with self.profile_scope("video_preview.enqueue"):
                 if getattr(img, "ndim", None) == 4:

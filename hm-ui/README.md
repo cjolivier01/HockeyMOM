@@ -19,7 +19,19 @@ cargo build --locked --manifest-path hm-ui/Cargo.toml
 ## Use With hmtrack
 
 ```bash
-hmtrack --game-id <game> --camera-ui=1 --camera-ui-backend=rust
+hmtrack --game-id <game> --camera-ui=1
+```
+
+The UI provides separate Stitched and Final preview tabs while tracking, and groups controls
+under the view they affect. Each control can be reset to its open-time value; the top bar can
+reset all controls to open-time or system defaults. Save writes only values that differ from
+system configuration to the game's private config.
+
+The same UI is available for the stitching-only workflow. It shows only the stitched preview
+and the alignment/input/output color controls that affect that image:
+
+```bash
+hmstitch --game-id <game> --camera-ui=1
 ```
 
 For local source-tree runs, this also builds the sidecar first:

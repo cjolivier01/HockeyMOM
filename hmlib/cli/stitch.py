@@ -559,6 +559,7 @@ def stitch_videos(
     configure_only: bool = False,
     lowmem: bool = False,
     post_stitch_rotate_degrees: Optional[float] = None,
+    camera_ui: int = 0,
     args: Optional[argparse.Namespace] = None,
 ):
     from hmlib.config import (
@@ -948,6 +949,7 @@ def stitch_videos(
             aspen_shared["game_config"] = getattr(args, "game_config", None)
             aspen_shared["game_dir"] = dir_name
             aspen_shared["output_label"] = output_label
+            aspen_shared["camera_ui"] = int(camera_ui)
         aspen_name = game_id or "stitch"
         aspen_net = AspenNet(aspen_name, aspen_graph_cfg, shared=aspen_shared)
         aspen_net = aspen_net.to(encoder_device)
@@ -1188,6 +1190,7 @@ def _main(args) -> None:
             configure_only=args.configure_only,
             lowmem=gpu_allocator.is_single_lowmem_gpu(),
             post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+            camera_ui=int(args.camera_ui or 0),
             args=args,
         )
 

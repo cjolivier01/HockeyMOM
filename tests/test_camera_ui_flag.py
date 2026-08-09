@@ -61,7 +61,6 @@ def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
         },
         "initial_args": {
             "camera_ui": 1,
-            "camera_ui_backend": "rust",
         },
         "camera_ui": 1,
         "game_config": {},
@@ -87,71 +86,8 @@ def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
     assert isinstance(shared, dict)
     # Ensure the CLI flag is threaded into Aspen shared context for PlayTrackerPlugin.
     assert shared.get("camera_ui") == 1
-    assert shared.get("camera_ui_backend") == "rust"
     # Stitch rotation controller should also be forwarded untouched.
     assert shared.get("stitch_rotation_controller") is sentinel_controller
-
-
-def should_allow_config_camera_ui_backend_when_cli_default_is_unset(monkeypatch):
-    from hmlib.tasks import tracking
-
-    captured: Dict[str, Any] = {}
-
-    class DummyAspenNet(torch.nn.Module):
-        def __init__(
-            self,
-            name: str,
-            graph_cfg: Dict[str, Any],
-            shared: Dict[str, Any] | None = None,
-            **_: Any,
-        ):  # type: ignore[override]
-            super().__init__()
-            captured["shared"] = dict(shared or {})
-
-        def to(self, *args: Any, **kwargs: Any):  # pragma: no cover - trivial passthrough
-            return self
-
-        def forward(self, context: Dict[str, Any]):  # pragma: no cover - not exercised
-            return context
-
-        def finalize(self):  # pragma: no cover - not exercised
-            pass
-
-    monkeypatch.setattr(tracking, "AspenNet", DummyAspenNet)
-    monkeypatch.setattr(tracking, "find_latest_dataframe_file", lambda *a, **k: None)
-
-    cfg: Dict[str, Any] = {
-        "aspen": {
-            "plugins": {},
-            "pipeline": {},
-        },
-        "initial_args": {
-            "camera_ui": 1,
-            "camera_ui_backend": None,
-        },
-        "camera_ui": 1,
-        "camera_ui_backend": "rust",
-        "game_config": {},
-    }
-
-    tracking.run_mmtrack(
-        model=None,
-        pose_inferencer=None,
-        config=cfg,
-        dataloader=_DummyDataloader(),
-        postprocessor=None,
-        progress_bar=None,
-        device=torch.device("cpu"),
-        input_cache_size=1,
-        fp16=False,
-        no_cuda_streams=True,
-        track_mean_mode=None,
-        profiler=None,
-    )
-
-    shared = captured.get("shared")
-    assert isinstance(shared, dict)
-    assert shared.get("camera_ui_backend") == "rust"
 
 
 def should_propagate_camera_ui_initialization_failure(monkeypatch):
@@ -161,11 +97,11 @@ def should_propagate_camera_ui_initialization_failure(monkeypatch):
     tracker._ui_dialogs = {}
 
     def fail_to_create_dialog(*args: Any, **kwargs: Any) -> None:
-        raise RuntimeError("OpenCV HighGUI is unavailable")
+        raise RuntimeError("hm-ui binary is unavailable")
 
     monkeypatch.setattr(tracker, "_create_ui_dialog", fail_to_create_dialog)
 
     with pytest.raises(RuntimeError, match="Failed to initialize camera UI controls") as exc_info:
         tracker._init_ui_controls()
 
-    assert str(exc_info.value.__cause__) == "OpenCV HighGUI is unavailable"
+    assert str(exc_info.value.__cause__) == "hm-ui binary is unavailable"
