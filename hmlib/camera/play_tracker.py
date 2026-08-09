@@ -2312,6 +2312,7 @@ class PlayTracker(torch.nn.Module):
         if process is None:
             return
         controls_changed = self._ui_controls_dirty
+        rust_controls_changed = process.last_poll_values_changed
         final_values = process.control_values()
         events = process.consume_action_events(poll=False)
         runtime_values = None
@@ -2322,7 +2323,7 @@ class PlayTracker(torch.nn.Module):
             self._ui_action_retry_delay_seconds = 0.0
         try:
             if retry_deferred:
-                if controls_changed and not self._apply_current_ui_control_values():
+                if rust_controls_changed and not self._apply_current_ui_control_values():
                     raise RuntimeError("Failed to apply deferred camera UI values")
             else:
                 for event in events:

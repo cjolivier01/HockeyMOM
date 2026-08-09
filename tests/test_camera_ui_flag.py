@@ -205,6 +205,7 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
             self.values = {"Tracker Controls": {"Fixed_Angle_x10": final_value}}
             self.events = events
             self.acknowledged_seq = None
+            self.last_poll_values_changed = False
 
         def control_values(self):
             return {window: dict(values) for window, values in self.values.items()}
@@ -319,3 +320,28 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
     assert tracker._hm_ui_process.acknowledged_seq == action_seq[0]
     assert runtime["fixed_angle"] == 0.5
     assert save_attempts == [12.5, 12.5]
+
+    # A failed apply marks controls dirty, but that retry-only dirtiness must
+    # not bypass the pending-action backoff on the next video frame.
+    tracker._ui_controls_dirty = True
+    tracker._ui_action_retry_after_monotonic = 0.0
+    tracker._ui_action_retry_delay_seconds = 0.0
+    apply_attempts = []
+
+    def failed_apply() -> bool:
+        apply_attempts.append(clock[0])
+        tracker._ui_controls_dirty = True
+        return False
+
+    tracker._apply_current_ui_control_values = failed_apply
+    tracker._hm_ui_process = FakeProcess(
+        final_value=75,
+        events=[event("save", 75)],
+    )
+    tracker._apply_ui_controls()
+    first_frame_attempts = len(apply_attempts)
+    assert first_frame_attempts > 0
+
+    tracker._apply_ui_controls()
+    assert len(apply_attempts) == first_frame_attempts
+    assert tracker._hm_ui_process.acknowledged_seq is None
