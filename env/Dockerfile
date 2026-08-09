@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   rsync \
   unzip \
   zip \
+  xauth \
+  xvfb \
   build-essential \
   pkg-config \
   yasm \

@@ -69,5 +69,4 @@ sh_test(
         ":gui_smoke_spec.json",
         ":hm-ui",
     ],
-    tags = ["manual"],
 )
