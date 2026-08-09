@@ -5,6 +5,7 @@ from __future__ import absolute_import, division, print_function
 import copy
 import csv
 import os
+import time
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -63,6 +64,8 @@ _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
 # _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 _MISSING = object()
+_UI_ACTION_RETRY_INITIAL_SECONDS = 0.5
+_UI_ACTION_RETRY_MAX_SECONDS = 5.0
 _COLOR_TRACKBARS = {
     "White_Balance_Kelvin_Enable",
     "White_Balance_Kelvin_Temperature",
@@ -314,6 +317,8 @@ class PlayTracker(torch.nn.Module):
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
         self._ui_dialogs: Dict[str, HmUiDialog] = {}
         self._ui_controls_dirty = True
+        self._ui_action_retry_after_monotonic = 0.0
+        self._ui_action_retry_delay_seconds = 0.0
         self._fixed_edge_rotation_last_sliders: Tuple[int, int] = (0, 0)
         self._stitch_rotation_controller = stitch_rotation_controller
         self._force_stitching: bool = bool(force_stitching)
@@ -2310,37 +2315,67 @@ class PlayTracker(torch.nn.Module):
         final_values = process.control_values()
         events = process.consume_action_events(poll=False)
         runtime_values = None
+        retry_now = time.monotonic()
+        retry_deferred = bool(events) and retry_now < self._ui_action_retry_after_monotonic
+        if not events:
+            self._ui_action_retry_after_monotonic = 0.0
+            self._ui_action_retry_delay_seconds = 0.0
         try:
-            for event in events:
-                process.apply_control_values(final_values if event.values is None else event.values)
-                event_values = process.control_values()
-                if event.kind == "reset-system":
-                    if not self._apply_current_ui_control_values():
-                        raise RuntimeError("Failed to apply system-reset camera UI values")
-                    self._restore_ui_managed_config(self._system_game_config)
-                    runtime_values = event_values
-                elif event.kind == "reset-open":
-                    if not self._apply_current_ui_control_values():
-                        raise RuntimeError("Failed to apply open-reset camera UI values")
-                    self._restore_ui_managed_config(self._open_game_config)
-                    runtime_values = event_values
-                elif event.kind == "save":
-                    if event_values != runtime_values:
+            if retry_deferred:
+                if controls_changed and not self._apply_current_ui_control_values():
+                    raise RuntimeError("Failed to apply deferred camera UI values")
+            else:
+                for event in events:
+                    process.apply_control_values(
+                        final_values if event.values is None else event.values
+                    )
+                    event_values = process.control_values()
+                    if event.kind == "reset-system":
                         if not self._apply_current_ui_control_values():
-                            raise RuntimeError("Failed to apply saved camera UI values")
+                            raise RuntimeError("Failed to apply system-reset camera UI values")
+                        self._restore_ui_managed_config(self._system_game_config)
                         runtime_values = event_values
-                    if not self._save_ui_config():
-                        raise RuntimeError("Failed to save camera UI values")
-            process.apply_control_values(final_values, publish=bool(events))
-            if (controls_changed or events) and final_values != runtime_values:
-                if not self._apply_current_ui_control_values():
-                    raise RuntimeError("Failed to apply final camera UI values")
-            if events:
-                process.acknowledge_action_events(max(event.seq for event in events))
+                    elif event.kind == "reset-open":
+                        if not self._apply_current_ui_control_values():
+                            raise RuntimeError("Failed to apply open-reset camera UI values")
+                        self._restore_ui_managed_config(self._open_game_config)
+                        runtime_values = event_values
+                    elif event.kind == "save":
+                        if event_values != runtime_values:
+                            if not self._apply_current_ui_control_values():
+                                raise RuntimeError("Failed to apply saved camera UI values")
+                            runtime_values = event_values
+                        if not self._save_ui_config():
+                            raise RuntimeError("Failed to save camera UI values")
+                process.apply_control_values(final_values, publish=bool(events))
+                if (controls_changed or events) and final_values != runtime_values:
+                    if not self._apply_current_ui_control_values():
+                        raise RuntimeError("Failed to apply final camera UI values")
+                if events:
+                    process.acknowledge_action_events(max(event.seq for event in events))
+                    self._ui_action_retry_after_monotonic = 0.0
+                    self._ui_action_retry_delay_seconds = 0.0
         except (OSError, RuntimeError, TypeError, ValueError, KeyError) as ex:
             self._ui_controls_dirty = True
-            logger.warning("Failed to replay camera UI actions: %s", ex)
-            process.apply_control_values(final_values, publish=bool(events))
+            delay = (
+                _UI_ACTION_RETRY_INITIAL_SECONDS
+                if self._ui_action_retry_delay_seconds <= 0.0
+                else min(
+                    _UI_ACTION_RETRY_MAX_SECONDS,
+                    self._ui_action_retry_delay_seconds * 2.0,
+                )
+            )
+            self._ui_action_retry_delay_seconds = delay
+            self._ui_action_retry_after_monotonic = retry_now + delay
+            logger.warning("Failed to replay camera UI actions; retrying in %.1fs: %s", delay, ex)
+            try:
+                process.apply_control_values(final_values, publish=bool(events))
+                if final_values != runtime_values:
+                    if not self._apply_current_ui_control_values():
+                        raise RuntimeError("Failed to restore final camera UI values")
+                    self._restore_final_ui_reset_config(events, final_values)
+            except (OSError, RuntimeError, TypeError, ValueError, KeyError) as restore_ex:
+                logger.warning("Failed to restore final camera UI values: %s", restore_ex)
 
     def _apply_current_ui_control_values(self) -> bool:
         try:
@@ -2805,6 +2840,22 @@ class PlayTracker(torch.nn.Module):
         stitch_value = self._get_path_value(source, stitch_path)
         if stitch_value is not _MISSING and self._stitch_slider_enabled:
             self._set_stitch_rotation_degrees(float(stitch_value))
+
+    def _restore_final_ui_reset_config(
+        self,
+        events: List[Any],
+        final_values: Dict[str, Dict[str, int]],
+    ) -> None:
+        for event in reversed(events):
+            event_values = final_values if event.values is None else event.values
+            if event_values != final_values:
+                continue
+            if event.kind == "reset-system":
+                self._restore_ui_managed_config(self._system_game_config)
+                return
+            if event.kind == "reset-open":
+                self._restore_ui_managed_config(self._open_game_config)
+                return
 
     def _save_ui_config(self) -> bool:
         # Save current game_config to private config.yaml if game_id is present

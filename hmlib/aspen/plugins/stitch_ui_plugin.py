@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import time
 from typing import Any, Dict, Optional, Set, Tuple
 
 from hmlib.builder import HM
@@ -23,6 +24,8 @@ _EXPOSURE_EV_X10_MIN = -40
 _EXPOSURE_EV_X10_MAX = 40
 _EXPOSURE_EV_X10_SLIDER_MAX = _EXPOSURE_EV_X10_MAX - _EXPOSURE_EV_X10_MIN
 _EXPOSURE_EV_X10_SLIDER_ZERO = -_EXPOSURE_EV_X10_MIN
+_UI_ACTION_RETRY_INITIAL_SECONDS = 0.5
+_UI_ACTION_RETRY_MAX_SECONDS = 5.0
 
 
 @HM.register_module()
@@ -41,6 +44,8 @@ class StitchUiPlugin(Plugin):
         self._dirty_paths: Set[Tuple[str, ...]] = set()
         self._shared: Optional[Dict[str, Any]] = None
         self._active = False
+        self._action_retry_after_monotonic = 0.0
+        self._action_retry_delay_seconds = 0.0
 
     @staticmethod
     def _stitch_deg_to_slider(degrees: Any) -> int:
@@ -352,6 +357,18 @@ class StitchUiPlugin(Plugin):
         for path in self._managed_paths():
             self._set_runtime_path(path, self._path_value(source, path))
 
+    def _restore_final_reset_config(self, events: list[Any], final_values: Dict[str, Any]) -> None:
+        for event in reversed(events):
+            event_values = final_values if event.values is None else event.values
+            if event_values != final_values:
+                continue
+            if event.kind == "reset-system":
+                self._restore_managed_config(self._system_config)
+                return
+            if event.kind == "reset-open":
+                self._restore_managed_config(self._open_config)
+                return
+
     def _disable_ui(self) -> None:
         if self._process is not None:
             self._process.close()
@@ -385,35 +402,63 @@ class StitchUiPlugin(Plugin):
         final_values = self._process.control_values()
         events = self._process.consume_action_events(poll=False)
         runtime_values = None
+        retry_now = time.monotonic()
+        retry_deferred = bool(events) and retry_now < self._action_retry_after_monotonic
+        if not events:
+            self._action_retry_after_monotonic = 0.0
+            self._action_retry_delay_seconds = 0.0
         try:
-            for event in events:
-                self._process.apply_control_values(
-                    final_values if event.values is None else event.values
-                )
-                event_values = self._process.control_values()
-                if event.kind == "reset-system":
+            if retry_deferred:
+                if controls_changed:
                     self._apply_controls()
-                    self._restore_managed_config(self._system_config)
-                    runtime_values = event_values
-                elif event.kind == "reset-open":
-                    self._apply_controls()
-                    self._restore_managed_config(self._open_config)
-                    runtime_values = event_values
-                elif event.kind == "save":
-                    if event_values != runtime_values:
+            else:
+                for event in events:
+                    self._process.apply_control_values(
+                        final_values if event.values is None else event.values
+                    )
+                    event_values = self._process.control_values()
+                    if event.kind == "reset-system":
                         self._apply_controls()
+                        self._restore_managed_config(self._system_config)
                         runtime_values = event_values
-                    self._save()
-            self._process.apply_control_values(final_values, publish=bool(events))
-            if (controls_changed or events) and final_values != runtime_values:
-                self._apply_controls()
-            if events:
-                self._process.acknowledge_action_events(max(event.seq for event in events))
+                    elif event.kind == "reset-open":
+                        self._apply_controls()
+                        self._restore_managed_config(self._open_config)
+                        runtime_values = event_values
+                    elif event.kind == "save":
+                        if event_values != runtime_values:
+                            self._apply_controls()
+                            runtime_values = event_values
+                        self._save()
+                self._process.apply_control_values(final_values, publish=bool(events))
+                if (controls_changed or events) and final_values != runtime_values:
+                    self._apply_controls()
+                if events:
+                    self._process.acknowledge_action_events(max(event.seq for event in events))
+                    self._action_retry_after_monotonic = 0.0
+                    self._action_retry_delay_seconds = 0.0
         except (OSError, RuntimeError, TypeError, ValueError, KeyError):
-            logger.exception(
-                "Stitch camera UI action processing failed; pending actions will be retried"
+            delay = (
+                _UI_ACTION_RETRY_INITIAL_SECONDS
+                if self._action_retry_delay_seconds <= 0.0
+                else min(
+                    _UI_ACTION_RETRY_MAX_SECONDS,
+                    self._action_retry_delay_seconds * 2.0,
+                )
             )
-            self._process.apply_control_values(final_values, publish=bool(events))
+            self._action_retry_delay_seconds = delay
+            self._action_retry_after_monotonic = retry_now + delay
+            logger.exception(
+                "Stitch camera UI action processing failed; retrying pending actions in %.1fs",
+                delay,
+            )
+            try:
+                self._process.apply_control_values(final_values, publish=bool(events))
+                if final_values != runtime_values:
+                    self._apply_controls()
+                    self._restore_final_reset_config(events, final_values)
+            except (OSError, RuntimeError, TypeError, ValueError, KeyError) as restore_ex:
+                logger.error("Failed to restore final stitch camera UI values: %s", restore_ex)
         if img is not None:
             self._process.publish_preview(img, name="Stitched")
         return {"img": img}

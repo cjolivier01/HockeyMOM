@@ -287,8 +287,10 @@ def should_retry_stitch_ui_actions_and_restore_final_values_after_failure(monkey
     RetryingHmUiProcess.instances.clear()
     current_config = _config(rotation=5.0)
     save_attempts = []
+    clock = [100.0]
 
     monkeypatch.setattr(stitch_ui_module, "HmUiProcess", RetryingHmUiProcess)
+    monkeypatch.setattr(stitch_ui_module.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(
         stitch_ui_module,
         "get_config",
@@ -330,7 +332,15 @@ def should_retry_stitch_ui_actions_and_restore_final_values_after_failure(monkey
     assert process.acknowledged_seq == 0
     assert len(process.actions) == 2
     assert process.control_values() == final_values
+    assert current_config["stitching"]["post_stitch_rotate_degrees"] == 0.5
+    assert save_attempts == ["game-1"]
 
+    # Persistent failures are not retried or logged on every video frame.
+    plugin.forward(context)
+    assert process.acknowledged_seq == 0
+    assert save_attempts == ["game-1"]
+
+    clock[0] += 0.5
     plugin.forward(context)
     assert process.closed is False
     assert process.acknowledged_seq == 2

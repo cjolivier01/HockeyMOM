@@ -211,8 +211,7 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
 
         def consume_action_events(self, *, poll: bool):
             assert poll is False
-            events, self.events = self.events, []
-            return events
+            return list(self.events)
 
         def apply_control_values(self, values, *, publish: bool = False) -> None:
             del publish
@@ -220,6 +219,7 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
 
         def acknowledge_action_events(self, through_seq: int) -> None:
             self.acknowledged_seq = through_seq
+            self.events = [event for event in self.events if event.seq > through_seq]
 
     action_seq = [0]
 
@@ -235,9 +235,14 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
     tracker._camera_ui_enabled = True
     tracker._ui_inited = True
     tracker._ui_controls_dirty = True
+    tracker._ui_action_retry_after_monotonic = 0.0
+    tracker._ui_action_retry_delay_seconds = 0.0
     tracker._system_game_config = {"fixed_angle": 0.5}
     tracker._open_game_config = {"fixed_angle": 5.0}
     tracker._render_ui_dialogs = lambda: None
+    clock = [100.0]
+    play_tracker_module = sys.modules[PlayTracker.__module__]
+    monkeypatch.setattr(play_tracker_module.time, "monotonic", lambda: clock[0])
     runtime = {"fixed_angle": 2.0}
     saved = []
 
@@ -286,12 +291,31 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
     tracker._apply_ui_controls()
     assert runtime["fixed_angle"] == 5.0
 
-    # Failed persistence leaves the action pending for a later retry.
+    # Failed persistence restores the final reset value and backs off before retrying.
     tracker._ui_controls_dirty = True
-    tracker._save_ui_config = lambda: False
+    save_attempts = []
+
+    def transient_save() -> bool:
+        save_attempts.append(runtime["fixed_angle"])
+        return len(save_attempts) > 1
+
+    tracker._save_ui_config = transient_save
     tracker._hm_ui_process = FakeProcess(
-        final_value=125,
-        events=[event("save", 125)],
+        final_value=5,
+        events=[event("save", 125), event("reset-system", 5)],
     )
     tracker._apply_ui_controls()
     assert tracker._hm_ui_process.acknowledged_seq is None
+    assert tracker._hm_ui_process.values["Tracker Controls"]["Fixed_Angle_x10"] == 5
+    assert runtime["fixed_angle"] == 0.5
+    assert save_attempts == [12.5]
+
+    tracker._apply_ui_controls()
+    assert tracker._hm_ui_process.acknowledged_seq is None
+    assert save_attempts == [12.5]
+
+    clock[0] += 0.5
+    tracker._apply_ui_controls()
+    assert tracker._hm_ui_process.acknowledged_seq == action_seq[0]
+    assert runtime["fixed_angle"] == 0.5
+    assert save_attempts == [12.5, 12.5]
