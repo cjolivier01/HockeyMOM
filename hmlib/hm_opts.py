@@ -1654,6 +1654,12 @@ class hm_opts(object):
             type=int,
             help="Enable the Rust runtime camera UI",
         )
+        ui.add_argument(
+            "--camera-ui-backend",
+            default="rust",
+            choices=("rust",),
+            help=argparse.SUPPRESS,
+        )
         return hm_opts.finalize_parser(parser)
 
     def parse(self, args=""):

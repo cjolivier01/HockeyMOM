@@ -28,17 +28,26 @@ def should_camera_ui_imply_show_image_and_config() -> None:
 
     args = hm_opts.init(args, parser)
 
-    assert "camera_ui_backend" not in vars(args)
+    assert args.camera_ui_backend == "rust"
     assert args.show_image is True
     assert args.game_config["video_out"]["show_image"] is True
 
 
-def should_reject_removed_camera_ui_backend_option() -> None:
+def should_accept_deprecated_rust_camera_ui_backend_option() -> None:
+    from hmlib.hm_opts import hm_opts
+
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(["--camera-ui-backend=rust"])
+
+    assert args.camera_ui_backend == "rust"
+
+
+def should_reject_removed_opencv_camera_ui_backend_option() -> None:
     from hmlib.hm_opts import hm_opts
 
     parser = hm_opts.parser(argparse.ArgumentParser())
     with pytest.raises(SystemExit):
-        parser.parse_args(["--camera-ui-backend=rust"])
+        parser.parse_args(["--camera-ui-backend=opencv"])
 
 
 def should_map_stitch_frame_time_arg_into_config() -> None:

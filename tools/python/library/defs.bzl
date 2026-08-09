@@ -137,6 +137,7 @@ def python_library(
             requires=wheel.requires,
             extra_requires=wheel.extra_requires,
             entry_points=wheel.entry_points,
+            platform=wheel.platform,
             publish=wheel.publish,
         )
 
@@ -230,6 +231,7 @@ def wheel(
     requires=[],
     extra_requires={},
     entry_points={},
+    platform="any",
     publish=True,
     **kwargs,
 ):
@@ -239,6 +241,7 @@ def wheel(
         requires=requires,
         extra_requires=extra_requires,
         entry_points=entry_points,
+        platform=platform,
         publish=publish,
         **kwargs,
     )

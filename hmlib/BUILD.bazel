@@ -52,6 +52,11 @@ python_library(
     visibility = ["//visibility:public"],
     wheel = wheel(
         name = "hmlib",
+        platform = select({
+            ":arm64": "linux_aarch64",
+            ":aarch64": "linux_aarch64",
+            "//conditions:default": "linux_x86_64",
+        }),
         entry_points = {
             "console_scripts": [
                 "hmtrack = hmlib.cli.hmtrack:main",

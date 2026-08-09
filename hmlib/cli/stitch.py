@@ -719,6 +719,8 @@ def stitch_videos(
         )
         if args is not None and getattr(args, "aspen_stitching", None) is not None:
             use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
+        if camera_ui and not use_aspen_stitching:
+            raise ValueError("--camera-ui requires Aspen stitching; remove --no-aspen-stitching")
         if use_aspen_stitching and lowmem:
             _apply_stitch_buffering_defaults(aspen_cfg_all, args)
 
@@ -902,6 +904,10 @@ def stitch_videos(
         # parameters (output path, skip-final-save, frame dumping).
         aspen_graph_cfg: Dict[str, Any] = aspen_cfg_all.get("aspen", {}) or {}
         plugins_cfg: Dict[str, Any] = aspen_graph_cfg.get("plugins", {}) or {}
+        if not camera_ui:
+            # Avoid a worker/queue handoff for a host-side UI sink that cannot
+            # do useful work when the camera UI is disabled.
+            plugins_cfg.pop("stitch_ui", None)
         video_out_prep_spec: Dict[str, Any] = plugins_cfg.get("video_out_prep", {}) or {}
         video_out_prep_params: Dict[str, Any] = video_out_prep_spec.get("params", {}) or {}
         video_out_spec: Dict[str, Any] = plugins_cfg.get("video_out", {}) or {}

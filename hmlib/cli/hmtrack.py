@@ -1824,9 +1824,9 @@ def _main(args, num_gpu):
                         tracker_params.pop("tracker_class", None)
                         tracker_params.pop("tracker_kwargs", None)
                     elif tracker_backend == "static_bytetrack":
-                        tracker_params[
-                            "tracker_class"
-                        ] = "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        tracker_params["tracker_class"] = (
+                            "hmlib.tracking_utils.bytetrack.HmByteTrackerCudaStatic"
+                        )
                         tracker_kwargs = tracker_params.setdefault("tracker_kwargs", {}) or {}
                         max_det = getattr(args, "tracker_max_detections", 256)
                         max_tracks = getattr(args, "tracker_max_tracks", 256)
@@ -1950,6 +1950,11 @@ def _main(args, num_gpu):
             else:
                 use_aspen_stitching = bool(aspen_stitching_cli)
             if is_stitching(args.input_video):
+                if args.camera_ui and not use_aspen_stitching:
+                    raise ValueError(
+                        "--camera-ui requires Aspen stitching for multi-camera input; "
+                        "remove --no-aspen-stitching"
+                    )
                 project_file_name = "hm_project.pto"
 
                 game_videos = {}

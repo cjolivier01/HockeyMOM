@@ -49,14 +49,16 @@ class _FakeHmUiProcess:
     def set_system_defaults(self, defaults) -> None:
         self.system_defaults = copy.deepcopy(defaults)
 
-    def get_value(self, window: str, name: str) -> int:
+    def get_value(self, window: str, name: str, *, poll: bool = True) -> int:
+        del poll
         return self.values[window][name]
 
     def poll(self) -> bool:
         changed, self.changed = self.changed, False
         return changed
 
-    def consume_actions(self):
+    def consume_actions(self, *, poll: bool = True):
+        del poll
         actions, self.actions = self.actions, []
         return actions
 
@@ -112,6 +114,18 @@ def should_apply_and_save_stitch_only_rust_controls(monkeypatch):
 
     assert current_config["stitching"]["post_stitch_rotate_degrees"] == 10.0
     assert current_config["rink"]["camera"]["color"]["brightness"] == 1.25
+
+    process.actions = ["reset-system"]
+    process.changed = True
+    plugin.forward({"img": image, "shared": shared})
+
+    assert current_config["stitching"]["post_stitch_rotate_degrees"] == 0.0
+    assert current_config["rink"]["camera"]["color"]["brightness"] == 1.0
+
+    process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
+    process.values["Tracker Controls (Stitched Color)"]["Brightness_Multiplier_x100"] = 125
+    process.changed = True
+    plugin.forward({"img": image, "shared": shared})
 
     process.actions = ["save"]
     plugin.forward({"img": image, "shared": shared})

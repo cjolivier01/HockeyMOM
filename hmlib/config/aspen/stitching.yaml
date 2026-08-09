@@ -25,15 +25,9 @@ aspen:
         max_output_width: GLOBAL.stitching.max_output_width
         cache_rotation_grid: GLOBAL.stitching.cache_rotation_grid
 
-    stitch_ui:
-      class: hmlib.aspen.plugins.stitch_ui_plugin.StitchUiPlugin
-      depends: [stitching]
-      enabled: true
-      params: {}
-
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [stitch_ui]
+      depends: [stitching]
       enabled: true
       params:
         # Inline the pipeline here so this config is self-contained and
@@ -56,6 +50,15 @@ aspen:
         skip_final_save: GLOBAL.video_out.skip_final_save
         output_width: GLOBAL.video_out.output_width
         output_height: GLOBAL.video_out.output_height
+
+    # Host-side UI work must remain a terminal CUDA-graph sink. Publishing the
+    # prepared image also makes the preview match the encoded stitched output,
+    # including rink.camera.color adjustments applied above.
+    stitch_ui:
+      class: hmlib.aspen.plugins.stitch_ui_plugin.StitchUiPlugin
+      depends: [video_out_prep]
+      enabled: true
+      params: {}
 
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin

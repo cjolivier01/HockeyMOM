@@ -8,17 +8,19 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from hmlib.log import logger
 from hmlib.utils.gpu import unwrap_tensor
-from hmlib.utils.image import make_visible_image
+from hmlib.utils.image import image_width, make_visible_image, resize_image
 
 
 @dataclass
@@ -30,6 +32,13 @@ class _Control:
     system_default_value: int
     group: str
     view: str
+
+
+@dataclass
+class _PreviewJob:
+    img: Any
+    show_scaled: Optional[float]
+    max_width: int
 
 
 class HmUiProcess:
@@ -66,6 +75,11 @@ class HmUiProcess:
         self._last_preview_write_monotonic: Dict[str, float] = {
             name: 0.0 for name in self.preview_paths
         }
+        self._preview_condition = threading.Condition()
+        self._pending_preview_jobs: OrderedDict[str, _PreviewJob] = OrderedDict()
+        self._preview_worker: Optional[threading.Thread] = None
+        self._preview_worker_processing = False
+        self._preview_worker_stop = False
         self._preview_batch_warned = False
         self._last_action_seq = 0
         self._pending_actions: List[str] = []
@@ -120,8 +134,9 @@ class HmUiProcess:
                 control.system_default_value = self._clamp(value, control.max_value)
         self._write_spec()
 
-    def get_value(self, window_name: str, control_name: str) -> int:
-        self.poll()
+    def get_value(self, window_name: str, control_name: str, *, poll: bool = True) -> int:
+        if poll:
+            self.poll()
         control = self._find_control(window_name, control_name)
         return control.value
 
@@ -180,8 +195,9 @@ class HmUiProcess:
                 changed = True
         return changed
 
-    def consume_actions(self) -> List[str]:
-        self.poll()
+    def consume_actions(self, *, poll: bool = True) -> List[str]:
+        if poll:
+            self.poll()
         actions = self._pending_actions
         self._pending_actions = []
         return actions
@@ -200,9 +216,63 @@ class HmUiProcess:
         if name not in self.preview_paths:
             return
         now = time.monotonic()
-        if now - self._last_preview_write_monotonic[name] < min_interval_seconds:
-            return
-        frame = unwrap_tensor(img)
+        with self._preview_condition:
+            if self._preview_worker_stop:
+                return
+            if now - self._last_preview_write_monotonic[name] < min_interval_seconds:
+                return
+            # Keep one pending frame per stream. Replacing a queued frame makes
+            # preview publication lossy and bounded instead of slowing tracking.
+            self._pending_preview_jobs[name] = _PreviewJob(
+                img=img,
+                show_scaled=show_scaled,
+                max_width=int(max_width),
+            )
+            self._pending_preview_jobs.move_to_end(name)
+            self._last_preview_write_monotonic[name] = now
+            if self._preview_worker is None:
+                self._preview_worker = threading.Thread(
+                    target=self._preview_worker_main,
+                    name="hm-ui-preview",
+                    daemon=True,
+                )
+                self._preview_worker.start()
+            self._preview_condition.notify()
+
+    def flush_previews(self, timeout: float = 5.0) -> bool:
+        """Wait for queued preview work, primarily for orderly shutdown and tests."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._preview_condition:
+            while self._pending_preview_jobs or self._preview_worker_processing:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._preview_condition.wait(timeout=remaining)
+        return True
+
+    def _preview_worker_main(self) -> None:
+        while True:
+            with self._preview_condition:
+                while not self._pending_preview_jobs and not self._preview_worker_stop:
+                    self._preview_condition.wait()
+                if self._preview_worker_stop:
+                    self._pending_preview_jobs.clear()
+                    self._preview_condition.notify_all()
+                    return
+                name, job = self._pending_preview_jobs.popitem(last=False)
+                self._preview_worker_processing = True
+            try:
+                self._encode_preview(name, job)
+            except (OSError, RuntimeError, TypeError, ValueError, AssertionError) as ex:
+                logger.warning("Failed to encode hm-ui %s preview frame: %s", name, ex)
+            finally:
+                with self._preview_condition:
+                    self._preview_worker_processing = False
+                    if not self._pending_preview_jobs:
+                        self._preview_condition.notify_all()
+
+    def _encode_preview(self, name: str, job: _PreviewJob) -> None:
+        frame = unwrap_tensor(job.img)
         if frame.ndim == 4:
             if frame.shape[0] > 1 and not self._preview_batch_warned:
                 logger.warning(
@@ -211,21 +281,31 @@ class HmUiProcess:
                 )
                 self._preview_batch_warned = True
             frame = frame[-1]
+        # Resize before a CUDA-to-host transfer when the source is a GPU tensor.
         frame = make_visible_image(
             frame,
-            enable_resizing=show_scaled,
-            force_numpy=True,
+            enable_resizing=job.show_scaled,
+            force_numpy=False,
         )
+        if job.max_width > 0 and image_width(frame) > job.max_width:
+            scale = float(job.max_width) / float(image_width(frame))
+            new_height = max(1, int(round(frame.shape[-3] * scale)))
+            if isinstance(frame, np.ndarray):
+                frame = cv2.resize(
+                    frame,
+                    (job.max_width, new_height),
+                    interpolation=cv2.INTER_AREA,
+                )
+            else:
+                frame = resize_image(
+                    frame,
+                    new_width=job.max_width,
+                    new_height=new_height,
+                )
+        frame = make_visible_image(frame, force_numpy=True)
         if frame.ndim != 3 or frame.shape[-1] not in (1, 3, 4):
             raise ValueError(f"hm-ui preview expected HxWxC image, got shape={frame.shape}")
         frame = np.ascontiguousarray(frame)
-        if max_width > 0 and frame.shape[1] > max_width:
-            scale = float(max_width) / float(frame.shape[1])
-            frame = cv2.resize(
-                frame,
-                (max_width, max(1, int(round(frame.shape[0] * scale)))),
-                interpolation=cv2.INTER_AREA,
-            )
         ok, encoded = cv2.imencode(
             ".jpg",
             frame,
@@ -238,7 +318,6 @@ class HmUiProcess:
         tmp = preview_path.with_suffix(preview_path.suffix + ".tmp")
         tmp.write_bytes(encoded.tobytes())
         os.replace(tmp, preview_path)
-        self._last_preview_write_monotonic[name] = now
 
     def ensure_started(self) -> None:
         if self._closed:
@@ -286,7 +365,19 @@ class HmUiProcess:
             except subprocess.TimeoutExpired:
                 self._process.kill()
                 self._process.wait(timeout=2.0)
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        with self._preview_condition:
+            self._preview_worker_stop = True
+            self._pending_preview_jobs.clear()
+            self._preview_condition.notify_all()
+        if self._preview_worker is not None:
+            self._preview_worker.join(timeout=5.0)
+        if self._preview_worker is not None and self._preview_worker.is_alive():
+            logger.error(
+                "hm-ui preview worker did not stop; preserving temporary files at %s",
+                self._tmpdir,
+            )
+        else:
+            shutil.rmtree(self._tmpdir, ignore_errors=True)
         self._closed = True
 
     @property
@@ -389,6 +480,8 @@ class HmUiProcess:
             return "Stitched", "Alignment"
         if control_name.startswith(("Overshoot_", "Post_Nonstop_")):
             return "Final", "Breakaway Tracking"
+        if "Fixed_Edge_Rotation" in control_name:
+            return "Final", "Perspective Rotation"
         if control_name.startswith(("Max_Speed_", "Max_Accel_", "Apply_To_")):
             return "Final", "Motion Limits"
         return "Final", "Play Tracking"
@@ -478,7 +571,7 @@ class HmUiDialog:
         self._manager.add_slider(self.window_name, name, max_value, initial_value)
 
     def get_value(self, name: str) -> int:
-        return self._manager.get_value(self.window_name, name)
+        return self._manager.get_value(self.window_name, name, poll=False)
 
     def set_value(self, name: str, value: int, *, notify: bool = True) -> None:
         changed = self._manager.set_value(self.window_name, name, value, notify=notify)

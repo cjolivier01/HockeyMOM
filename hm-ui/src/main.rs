@@ -226,44 +226,45 @@ impl HmUiApp {
             return;
         }
         self.last_preview_poll = now;
-        for preview in self.spec.previews.clone() {
-            let Ok(meta) = fs::metadata(&preview.path) else {
+        let Some(preview) = self.spec.previews.get(self.selected_preview).cloned() else {
+            return;
+        };
+        let Ok(meta) = fs::metadata(&preview.path) else {
+            self.preview_status
+                .insert(preview.name, "Waiting for preview frame".to_string());
+            return;
+        };
+        let modified = meta.modified().ok();
+        if modified.is_some()
+            && self
+                .last_preview_modified
+                .get(&preview.name)
+                .copied()
+                .flatten()
+                == modified
+        {
+            return;
+        }
+        match load_color_image(&preview.path) {
+            Ok(image) => {
+                let options = egui::TextureOptions::LINEAR;
+                if let Some(texture) = self.preview_textures.get_mut(&preview.name) {
+                    texture.set(image, options);
+                } else {
+                    let texture_name = format!("hm-ui-preview-{}", preview.name);
+                    self.preview_textures.insert(
+                        preview.name.clone(),
+                        ctx.load_texture(texture_name, image, options),
+                    );
+                }
+                self.last_preview_modified
+                    .insert(preview.name.clone(), modified);
                 self.preview_status
-                    .insert(preview.name, "Waiting for preview frame".to_string());
-                continue;
-            };
-            let modified = meta.modified().ok();
-            if modified.is_some()
-                && self
-                    .last_preview_modified
-                    .get(&preview.name)
-                    .copied()
-                    .flatten()
-                    == modified
-            {
-                continue;
+                    .insert(preview.name, "Live preview".to_string());
             }
-            match load_color_image(&preview.path) {
-                Ok(image) => {
-                    let options = egui::TextureOptions::LINEAR;
-                    if let Some(texture) = self.preview_textures.get_mut(&preview.name) {
-                        texture.set(image, options);
-                    } else {
-                        let texture_name = format!("hm-ui-preview-{}", preview.name);
-                        self.preview_textures.insert(
-                            preview.name.clone(),
-                            ctx.load_texture(texture_name, image, options),
-                        );
-                    }
-                    self.last_preview_modified
-                        .insert(preview.name.clone(), modified);
-                    self.preview_status
-                        .insert(preview.name, "Live preview".to_string());
-                }
-                Err(err) => {
-                    self.preview_status
-                        .insert(preview.name, format!("Preview load failed: {err}"));
-                }
+            Err(err) => {
+                self.preview_status
+                    .insert(preview.name, format!("Preview load failed: {err}"));
             }
         }
     }
@@ -326,6 +327,8 @@ impl HmUiApp {
             });
             ui.separator();
             ui.label(&self.spec.subtitle);
+        });
+        ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Save").clicked() {
                     self.set_action("save");
@@ -485,6 +488,7 @@ impl HmUiApp {
                         .clicked()
                     {
                         self.selected_preview = idx;
+                        self.last_preview_poll = UNIX_EPOCH;
                     }
                 }
             });

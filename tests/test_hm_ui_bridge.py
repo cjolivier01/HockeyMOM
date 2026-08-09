@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import threading
 import time
 
 import pytest
@@ -75,6 +76,7 @@ def should_publish_grouping_and_system_defaults(tmp_path):
     ui.add_window("Tracker Controls")
     ui.add_slider("Tracker Controls", "Overshoot_Stop_Delay_Frames", 60, 8)
     ui.add_slider("Tracker Controls", "Stitch_Rotate_Degrees", 180, 90)
+    ui.add_slider("Tracker Controls", "Left_Fixed_Edge_Rotation_Angle_x10", 900, 250)
     ui.set_system_defaults({"Tracker Controls": {"Overshoot_Stop_Delay_Frames": 3}})
 
     spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
@@ -85,6 +87,8 @@ def should_publish_grouping_and_system_defaults(tmp_path):
     assert controls["Overshoot_Stop_Delay_Frames"]["system_default_value"] == 3
     assert controls["Stitch_Rotate_Degrees"]["view"] == "Stitched"
     assert controls["Stitch_Rotate_Degrees"]["group"] == "Alignment"
+    assert controls["Left_Fixed_Edge_Rotation_Angle_x10"]["view"] == "Final"
+    assert controls["Left_Fixed_Edge_Rotation_Angle_x10"]["group"] == "Perspective Rotation"
 
 
 def should_consume_hm_ui_actions_once(tmp_path):
@@ -112,6 +116,7 @@ def should_publish_preview_frame(tmp_path):
     frame[:, :, 1] = 200
 
     ui.publish_preview(frame, min_interval_seconds=0)
+    assert ui.flush_previews()
 
     assert ui.preview_path.exists()
     decoded = cv2.imread(str(ui.preview_path), cv2.IMREAD_COLOR)
@@ -128,6 +133,7 @@ def should_publish_named_preview_frames_independently(tmp_path):
 
     ui.publish_preview(stitched, name="Stitched", min_interval_seconds=0)
     ui.publish_preview(final, name="Final", min_interval_seconds=0)
+    assert ui.flush_previews()
 
     spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
     assert [preview["name"] for preview in spec["previews"]] == ["Stitched", "Final"]
@@ -142,8 +148,33 @@ def should_publish_latest_preview_frame_from_batch(tmp_path):
     frame[1, :, :, 2] = 220
 
     ui.publish_preview(frame, min_interval_seconds=0)
+    assert ui.flush_previews()
 
     decoded = cv2.imread(str(ui.preview_path), cv2.IMREAD_COLOR)
     assert decoded is not None
     assert decoded.shape[:2] == (24, 32)
     assert decoded[:, :, 2].mean() > decoded[:, :, 1].mean()
+
+
+def should_keep_only_latest_pending_preview_per_stream(tmp_path, monkeypatch):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    encoded = []
+    gate = threading.Event()
+
+    def encode(name, job):
+        gate.wait(timeout=2.0)
+        encoded.append((name, int(job.img[0, 0, 0])))
+
+    monkeypatch.setattr(ui, "_encode_preview", encode)
+    first = np.full((2, 2, 3), 1, dtype=np.uint8)
+    second = np.full((2, 2, 3), 2, dtype=np.uint8)
+    latest = np.full((2, 2, 3), 3, dtype=np.uint8)
+
+    ui.publish_preview(first, min_interval_seconds=0)
+    ui.publish_preview(second, min_interval_seconds=0)
+    ui.publish_preview(latest, min_interval_seconds=0)
+    gate.set()
+
+    assert ui.flush_previews()
+    assert encoded[-1] == ("Stitched", 3)
+    assert len(encoded) <= 2

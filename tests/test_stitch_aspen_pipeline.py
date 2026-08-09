@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import torch
+import yaml
 
 import hmlib.cli.stitch as stitch_cli
 
@@ -147,6 +148,7 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     # Ensure the stitching Aspen graph has a video_out plugin with the
     # CLI-provided output path wired in.
     plugins = net.graph_cfg.get("plugins", {})
+    assert "stitch_ui" not in plugins
     assert "video_out" in plugins
     vo_spec = plugins["video_out"]
     params = vo_spec.get("params", {})
@@ -167,6 +169,21 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     assert captured_net.get("configure_game_id") == "test-game"
     assert captured_net.get("configure_ignore_private_config") is False
     assert isinstance(captured_net.get("configure_game_config"), dict)
+
+
+def should_keep_stitch_ui_terminal_after_post_processing() -> None:
+    config_path = Path(stitch_cli.__file__).resolve().parents[1] / "config/aspen/stitching.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    plugins = config["aspen"]["plugins"]
+
+    assert plugins["apply_camera"]["depends"] == ["stitching"]
+    assert plugins["video_out_prep"]["depends"] == ["apply_camera"]
+    assert plugins["stitch_ui"]["depends"] == ["video_out_prep"]
+    assert all(
+        "stitch_ui" not in (spec.get("depends") or [])
+        for name, spec in plugins.items()
+        if name != "stitch_ui"
+    )
 
 
 def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_path):

@@ -95,8 +95,18 @@ def should_propagate_camera_ui_initialization_failure(monkeypatch):
 
     tracker = PlayTracker.__new__(PlayTracker)
     tracker._ui_dialogs = {}
+    tracker._hm_ui_process = None
+
+    class PartialProcess:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    partial_process = PartialProcess()
 
     def fail_to_create_dialog(*args: Any, **kwargs: Any) -> None:
+        tracker._hm_ui_process = partial_process
         raise RuntimeError("hm-ui binary is unavailable")
 
     monkeypatch.setattr(tracker, "_create_ui_dialog", fail_to_create_dialog)
@@ -105,3 +115,5 @@ def should_propagate_camera_ui_initialization_failure(monkeypatch):
         tracker._init_ui_controls()
 
     assert str(exc_info.value.__cause__) == "hm-ui binary is unavailable"
+    assert partial_process.closed is True
+    assert tracker._hm_ui_process is None

@@ -35,6 +35,7 @@ class StitchUiPlugin(Plugin):
         super().__init__(enabled=enabled)
         self._process: Optional[HmUiProcess] = None
         self._game_config: Dict[str, Any] = {}
+        self._open_config: Dict[str, Any] = {}
         self._system_config: Dict[str, Any] = {}
         self._game_id: Optional[str] = None
         self._dirty_paths: Set[Tuple[str, ...]] = set()
@@ -139,6 +140,7 @@ class StitchUiPlugin(Plugin):
 
         self._shared = shared
         self._game_config = shared.get("game_config") or {}
+        self._open_config = copy.deepcopy(self._game_config)
         self._game_id = shared.get("game_id")
         self._system_config = copy.deepcopy(self._game_config)
         if self._game_id:
@@ -249,7 +251,7 @@ class StitchUiPlugin(Plugin):
 
         def value(name: str) -> int:
             assert self._process is not None
-            return self._process.get_value(window_name, name)
+            return self._process.get_value(window_name, name, poll=False)
 
         if value("White_Balance_Kelvin_Enable"):
             kelvin = max(1000, min(15000, value("White_Balance_Kelvin_Temperature")))
@@ -283,7 +285,7 @@ class StitchUiPlugin(Plugin):
     def _apply_controls(self) -> None:
         assert self._process is not None
         rotation = self._slider_to_stitch_deg(
-            self._process.get_value("Stitch Alignment", "Stitch_Rotate_Degrees")
+            self._process.get_value("Stitch Alignment", "Stitch_Rotate_Degrees", poll=False)
         )
         self._set_runtime_path(("stitching", "post_stitch_rotate_degrees"), rotation)
         self._apply_color_window(
@@ -314,6 +316,21 @@ class StitchUiPlugin(Plugin):
             ):
                 self._set_path(private_config, path, _MISSING)
 
+        changed = False
+        for path in self._managed_paths() | self._dirty_paths:
+            current = self._path_value(self._game_config, path)
+            system = self._path_value(self._system_config, path)
+            value = (
+                _MISSING if current is _MISSING or self._values_equal(current, system) else current
+            )
+            changed |= self._set_path(private_config, path, value)
+        if changed:
+            save_private_config(self._game_id, private_config, verbose=True)
+        self._dirty_paths.clear()
+
+    @staticmethod
+    def _managed_paths() -> Set[Tuple[str, ...]]:
+        rotation_path = ("stitching", "post_stitch_rotate_degrees")
         color_keys = {
             "white_balance",
             "white_balance_temp",
@@ -329,18 +346,19 @@ class StitchUiPlugin(Plugin):
             ("stitching", "right", "color"),
         ):
             managed_paths.update(prefix + (key,) for key in color_keys)
+        return managed_paths
 
-        changed = False
-        for path in managed_paths | self._dirty_paths:
-            current = self._path_value(self._game_config, path)
-            system = self._path_value(self._system_config, path)
-            value = (
-                _MISSING if current is _MISSING or self._values_equal(current, system) else current
-            )
-            changed |= self._set_path(private_config, path, value)
-        if changed:
-            save_private_config(self._game_id, private_config, verbose=True)
-        self._dirty_paths.clear()
+    def _restore_managed_config(self, source: Dict[str, Any]) -> None:
+        for path in self._managed_paths():
+            self._set_runtime_path(path, self._path_value(source, path))
+
+    def _disable_ui(self) -> None:
+        if self._process is not None:
+            self._process.close()
+            self._process = None
+        if self._shared is not None:
+            self._shared["hm_ui_process"] = None
+            self._shared["hm_ui_preview_active"] = False
 
     def input_keys(self) -> set[str]:
         return {"img", "shared"}
@@ -351,33 +369,39 @@ class StitchUiPlugin(Plugin):
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
             return {"img": context.get("img")}
-        self._ensure_initialized(context)
-        if self._process is None:
-            return {"img": context.get("img")}
-        controls_changed = self._process.poll()
-        if self._process.closed:
-            if self._shared is not None:
-                self._shared["hm_ui_process"] = None
-                self._shared["hm_ui_preview_active"] = False
-            return {"img": context.get("img")}
-        if controls_changed:
-            self._apply_controls()
-        actions = self._process.consume_actions()
-        if "save" in actions:
-            self._apply_controls()
-            self._save()
         img = context.get("img")
-        if img is not None:
-            self._process.publish_preview(img, name="Stitched")
+        try:
+            self._ensure_initialized(context)
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError):
+            logger.exception("Failed to initialize stitch camera UI; disabling it")
+            self._disable_ui()
+            return {"img": img}
+        if self._process is None:
+            return {"img": img}
+        try:
+            controls_changed = self._process.poll()
+            if self._process.closed:
+                self._disable_ui()
+                return {"img": img}
+            actions = self._process.consume_actions(poll=False)
+            if "reset-system" in actions:
+                self._restore_managed_config(self._system_config)
+            elif "reset-open" in actions:
+                self._restore_managed_config(self._open_config)
+            elif controls_changed:
+                self._apply_controls()
+            if "save" in actions:
+                self._apply_controls()
+                self._save()
+            if img is not None:
+                self._process.publish_preview(img, name="Stitched")
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError):
+            logger.exception("Stitch camera UI failed; disabling it for the rest of this run")
+            self._disable_ui()
         return {"img": img}
 
     def finalize(self) -> None:
-        if self._process is not None:
-            self._process.close()
-            self._process = None
-        if self._shared is not None:
-            self._shared["hm_ui_process"] = None
-            self._shared["hm_ui_preview_active"] = False
+        self._disable_ui()
 
 
 __all__ = ["StitchUiPlugin"]
