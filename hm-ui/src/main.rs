@@ -73,6 +73,8 @@ struct UiState {
     #[serde(default)]
     windows: BTreeMap<String, BTreeMap<String, i32>>,
     #[serde(default)]
+    control_revisions: BTreeMap<String, BTreeMap<String, u64>>,
+    #[serde(default)]
     selected_preview: Option<String>,
     #[serde(default)]
     actions: Vec<UiAction>,
@@ -346,6 +348,10 @@ impl HmUiApp {
     fn reset_values(&mut self, system_defaults: bool) {
         for window in &self.spec.windows {
             let entry = self.values.entry(window.name.clone()).or_default();
+            let revisions = self
+                .control_revisions
+                .entry(window.name.clone())
+                .or_default();
             for control in &window.controls {
                 let value = if system_defaults {
                     control
@@ -356,6 +362,8 @@ impl HmUiApp {
                     control.default_value.unwrap_or(control.value)
                 };
                 entry.insert(control.name.clone(), value);
+                let revision = revisions.entry(control.name.clone()).or_default();
+                *revision = revision.saturating_add(1);
             }
         }
         self.set_action(if system_defaults {
@@ -373,6 +381,7 @@ impl HmUiApp {
                 .unwrap_or_default()
                 .as_millis(),
             windows: self.values.clone(),
+            control_revisions: self.control_revisions.clone(),
             selected_preview: self
                 .spec
                 .previews
@@ -477,6 +486,7 @@ impl HmUiApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (window_name, control) in &controls {
+                    let mut control_changed = false;
                     ui.push_id((window_name, &control.name), |ui| {
                         let max_value = control.max_value.max(1);
                         let value = self
@@ -532,11 +542,21 @@ impl HmUiApp {
                             *value = open_default;
                             changed = true;
                         }
+                        control_changed = changed;
                         any_changed |= changed;
                         ui.add_space(2.0);
                         ui.separator();
                         ui.add_space(2.0);
                     });
+                    if control_changed {
+                        let revision = self
+                            .control_revisions
+                            .entry(window_name.clone())
+                            .or_default()
+                            .entry(control.name.clone())
+                            .or_default();
+                        *revision = revision.saturating_add(1);
+                    }
                 }
             });
         if any_changed {

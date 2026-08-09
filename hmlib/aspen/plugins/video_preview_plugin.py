@@ -73,9 +73,14 @@ class VideoPreviewPlugin(Plugin):
         cfg = cfg or {}
         normalize_runtime_config(cfg)
         hm_ui_preview_active = bool(shared_cfg.get("hm_ui_preview_active"))
+        hm_ui_owns_local_preview = hm_ui_preview_active or bool(shared_cfg.get("camera_ui"))
 
         if self._shower is not None:
-            if self._local_display_suppressed_for_hm_ui and not hm_ui_preview_active:
+            if hm_ui_owns_local_preview and not self._local_display_suppressed_for_hm_ui:
+                self._shower.close()
+                self._shower = None
+                self._progress_bar_callback_installed = False
+            elif self._local_display_suppressed_for_hm_ui and not hm_ui_owns_local_preview:
                 self._shower.close()
                 self._shower = None
                 self._local_display_suppressed_for_hm_ui = False
@@ -86,8 +91,8 @@ class VideoPreviewPlugin(Plugin):
         show_image, show_youtube = self._resolve_preview_enabled(cfg)
         if not show_image and not show_youtube:
             return
-        effective_show_image = show_image and not hm_ui_preview_active
-        self._local_display_suppressed_for_hm_ui = show_image and hm_ui_preview_active
+        effective_show_image = show_image and not hm_ui_owns_local_preview
+        self._local_display_suppressed_for_hm_ui = show_image and hm_ui_owns_local_preview
         if not effective_show_image and not show_youtube:
             return
 

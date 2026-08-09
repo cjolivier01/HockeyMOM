@@ -1,5 +1,4 @@
 load("@rules_python//python:defs.bzl", "py_binary")
-load("@host_glibc//:defs.bzl", "HOST_GLIBC_VERSION", "HOST_MANYLINUX_TAG")
 load("//tools/python/library:defs.bzl", "python_library", "wheel")
 
 config_setting(
@@ -78,9 +77,9 @@ python_library(
     wheel = wheel(
         name = "hmlib",
         platform = select({
-            ":linux_x86_64": HOST_MANYLINUX_TAG + "_x86_64",
-            ":linux_arm64": HOST_MANYLINUX_TAG + "_aarch64",
-            ":linux_aarch64": HOST_MANYLINUX_TAG + "_aarch64",
+            ":linux_x86_64": "linux_x86_64",
+            ":linux_arm64": "linux_aarch64",
+            ":linux_aarch64": "linux_aarch64",
         }),
         entry_points = {
             "console_scripts": [
@@ -126,9 +125,9 @@ genrule(
     srcs = ["//hm-ui:hm-ui"],
     outs = ["bin/hm-ui"],
     cmd = select({
-        ":linux_x86_64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) x86_64 " + HOST_GLIBC_VERSION + " && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
-        ":linux_arm64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 " + HOST_GLIBC_VERSION + " && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
-        ":linux_aarch64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 " + HOST_GLIBC_VERSION + " && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_x86_64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) x86_64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_arm64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
+        ":linux_aarch64": "$(location //tools/packaging/wheel:validate_elf_arch) $(location //hm-ui:hm-ui) aarch64 && cp $(location //hm-ui:hm-ui) $@ && chmod +x $@",
     }),
     tools = ["//tools/packaging/wheel:validate_elf_arch"],
     visibility = ["//visibility:public"],

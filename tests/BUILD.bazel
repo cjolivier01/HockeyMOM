@@ -261,16 +261,28 @@ sh_test(
     tags = ["manual"],
 )
 
-pytest_test(
+sh_test(
     name="test_camera_ui_flag",
-    srcs=["test_camera_ui_flag.py"],
+    srcs=["runtime_pytest.sh"],
     args=[
-        "-c",
-        "$(location //:pyproject.toml)",
+        "tests/test_camera_ui_flag.py",
+        "cv2",
+        "mmengine",
+        "networkx",
+        "numpy",
+        "pytest",
+        "torch",
+        "yaml",
     ],
-    deps=[
+    data=[
+        "//:pyproject.toml",
         "//hmlib:hmlib.lib",
-        requirement("pytest"),
+        "python_runtime.sh",
+        "test_camera_ui_flag.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
     ],
 )
 

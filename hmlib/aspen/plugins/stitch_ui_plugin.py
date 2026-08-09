@@ -404,9 +404,11 @@ class StitchUiPlugin(Plugin):
                         self._apply_controls()
                         runtime_values = event_values
                     self._save()
-            self._process.apply_control_values(final_values)
+            self._process.apply_control_values(final_values, publish=bool(events))
             if (controls_changed or events) and final_values != runtime_values:
                 self._apply_controls()
+            if events:
+                self._process.acknowledge_action_events(max(event.seq for event in events))
             if img is not None:
                 self._process.publish_preview(img, name="Stitched")
         except (OSError, RuntimeError, TypeError, ValueError, KeyError):

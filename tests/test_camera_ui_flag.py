@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
+from types import ModuleType
 from types import SimpleNamespace
 from typing import Any, Dict
 
@@ -26,6 +28,42 @@ class _DummyDataloader:
 
     def __iter__(self):
         return iter(())
+
+
+def _load_play_tracker(monkeypatch):
+    loaded = sys.modules.get("hmlib.camera.play_tracker")
+    if loaded is not None:
+        return loaded.PlayTracker
+
+    class NativeStub:
+        pass
+
+    hockeymom = ModuleType("hockeymom")
+    hockeymom.__path__ = []  # type: ignore[attr-defined]
+    hockeymom_core = ModuleType("hockeymom.core")
+    hockeymom_core.AllLivingBoxConfig = NativeStub
+    hockeymom_core.BBox = NativeStub
+    hockeymom_core.HmLogLevel = NativeStub
+    hockeymom_core.LivingBox = NativeStub
+    hockeymom_core.PlayTracker = NativeStub
+    hockeymom_core.PlayTrackerConfig = NativeStub
+    hockeymom_core.WHDims = NativeStub
+    hockeymom_core.compute_kmeans_clusters = lambda **_kwargs: ([], {})
+
+    jersey = ModuleType("hmlib.jersey")
+    jersey.__path__ = []  # type: ignore[attr-defined]
+    jersey_tracker = ModuleType("hmlib.jersey.jersey_tracker")
+    jersey_tracker.JerseyTracker = NativeStub
+
+    monkeypatch.setitem(sys.modules, "hockeymom", hockeymom)
+    monkeypatch.setitem(sys.modules, "hockeymom.core", hockeymom_core)
+    monkeypatch.setitem(sys.modules, "hmlib.jersey", jersey)
+    monkeypatch.setitem(sys.modules, "hmlib.jersey.jersey_tracker", jersey_tracker)
+    sys.modules.pop("hmlib.camera.clusters", None)
+    sys.modules.pop("hmlib.camera.living_box", None)
+    from hmlib.camera.play_tracker import PlayTracker
+
+    return PlayTracker
 
 
 def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
@@ -92,11 +130,12 @@ def should_propagate_camera_ui_into_aspen_shared(monkeypatch):
 
 
 def should_propagate_camera_ui_initialization_failure(monkeypatch):
-    from hmlib.camera.play_tracker import PlayTracker
+    PlayTracker = _load_play_tracker(monkeypatch)
 
     tracker = PlayTracker.__new__(PlayTracker)
     tracker._ui_dialogs = {}
     tracker._hm_ui_process = None
+    tracker._ui_window_name = "Tracker Controls"
 
     class PartialProcess:
         closed = False
@@ -120,8 +159,8 @@ def should_propagate_camera_ui_initialization_failure(monkeypatch):
     assert tracker._hm_ui_process is None
 
 
-def should_round_trip_linked_and_independent_fixed_edge_rotation_controls():
-    from hmlib.camera.play_tracker import PlayTracker
+def should_round_trip_linked_and_independent_fixed_edge_rotation_controls(monkeypatch):
+    PlayTracker = _load_play_tracker(monkeypatch)
 
     tracker = PlayTracker.__new__(PlayTracker)
     tracker._game_config = {"rink": {"camera": {"fixed_edge_rotation_angle": 12.5}}}
@@ -158,13 +197,14 @@ def should_round_trip_linked_and_independent_fixed_edge_rotation_controls():
     assert tracker._game_config["rink"]["camera"]["fixed_edge_rotation_angle"] == [12.5, 35.5]
 
 
-def should_replay_tracking_ui_action_snapshots_in_click_order():
-    from hmlib.camera.play_tracker import PlayTracker
+def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
+    PlayTracker = _load_play_tracker(monkeypatch)
 
     class FakeProcess:
         def __init__(self, final_value, events) -> None:
             self.values = {"Tracker Controls": {"Fixed_Angle_x10": final_value}}
             self.events = events
+            self.acknowledged_seq = None
 
         def control_values(self):
             return {window: dict(values) for window, values in self.values.items()}
@@ -174,11 +214,19 @@ def should_replay_tracking_ui_action_snapshots_in_click_order():
             events, self.events = self.events, []
             return events
 
-        def apply_control_values(self, values) -> None:
+        def apply_control_values(self, values, *, publish: bool = False) -> None:
+            del publish
             self.values = {window: dict(items) for window, items in values.items()}
 
+        def acknowledge_action_events(self, through_seq: int) -> None:
+            self.acknowledged_seq = through_seq
+
+    action_seq = [0]
+
     def event(kind: str, value: int):
+        action_seq[0] += 1
         return SimpleNamespace(
+            seq=action_seq[0],
             kind=kind,
             values={"Tracker Controls": {"Fixed_Angle_x10": value}},
         )
@@ -202,7 +250,12 @@ def should_replay_tracking_ui_action_snapshots_in_click_order():
 
     tracker._apply_current_ui_control_values = apply_current
     tracker._restore_ui_managed_config = lambda source: runtime.update(source)
-    tracker._save_ui_config = lambda: saved.append(runtime["fixed_angle"])
+
+    def save_current() -> bool:
+        saved.append(runtime["fixed_angle"])
+        return True
+
+    tracker._save_ui_config = save_current
 
     # Save the pre-reset value, then leave the runtime at the reset value.
     tracker._hm_ui_process = FakeProcess(
@@ -212,6 +265,7 @@ def should_replay_tracking_ui_action_snapshots_in_click_order():
     tracker._apply_ui_controls()
     assert saved == [15.0]
     assert runtime["fixed_angle"] == 0.5
+    assert tracker._hm_ui_process.acknowledged_seq == 2
 
     # A post-reset edit must be applied before its following Save.
     tracker._ui_controls_dirty = True
@@ -231,3 +285,13 @@ def should_replay_tracking_ui_action_snapshots_in_click_order():
     )
     tracker._apply_ui_controls()
     assert runtime["fixed_angle"] == 5.0
+
+    # Failed persistence leaves the action pending for a later retry.
+    tracker._ui_controls_dirty = True
+    tracker._save_ui_config = lambda: False
+    tracker._hm_ui_process = FakeProcess(
+        final_value=125,
+        events=[event("save", 125)],
+    )
+    tracker._apply_ui_controls()
+    assert tracker._hm_ui_process.acknowledged_seq is None

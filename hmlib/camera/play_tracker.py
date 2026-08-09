@@ -2329,14 +2329,18 @@ class PlayTracker(torch.nn.Module):
                         if not self._apply_current_ui_control_values():
                             raise RuntimeError("Failed to apply saved camera UI values")
                         runtime_values = event_values
-                    self._save_ui_config()
-            process.apply_control_values(final_values)
+                    if not self._save_ui_config():
+                        raise RuntimeError("Failed to save camera UI values")
+            process.apply_control_values(final_values, publish=bool(events))
             if (controls_changed or events) and final_values != runtime_values:
-                self._apply_current_ui_control_values()
+                if not self._apply_current_ui_control_values():
+                    raise RuntimeError("Failed to apply final camera UI values")
+            if events:
+                process.acknowledge_action_events(max(event.seq for event in events))
         except (OSError, RuntimeError, TypeError, ValueError, KeyError) as ex:
             self._ui_controls_dirty = True
             logger.warning("Failed to replay camera UI actions: %s", ex)
-            process.apply_control_values(final_values)
+            process.apply_control_values(final_values, publish=bool(events))
 
     def _apply_current_ui_control_values(self) -> bool:
         try:
@@ -2802,12 +2806,12 @@ class PlayTracker(torch.nn.Module):
         if stitch_value is not _MISSING and self._stitch_slider_enabled:
             self._set_stitch_rotation_degrees(float(stitch_value))
 
-    def _save_ui_config(self):
+    def _save_ui_config(self) -> bool:
         # Save current game_config to private config.yaml if game_id is present
         try:
             game_id = self._game_id
             if not game_id:
-                return
+                return True
             priv = get_game_config_private(game_id=game_id) or {}
             normalize_runtime_config(priv)
 
@@ -2857,8 +2861,10 @@ class PlayTracker(torch.nn.Module):
             if dirty:
                 save_private_config(game_id=game_id, data=priv, verbose=True)
             self._ui_dirty_paths.clear()
+            return True
         except Exception:
             logger.exception("Failed to save camera UI values to private config")
+            return False
 
     def calculate_breakaway(
         self,

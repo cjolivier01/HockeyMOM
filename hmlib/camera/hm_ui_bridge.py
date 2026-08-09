@@ -238,17 +238,20 @@ class HmUiProcess:
     def consume_action_events(self, *, poll: bool = True) -> List[HmUiAction]:
         if poll:
             self.poll()
-        actions = self._pending_actions
-        self._pending_actions = []
-        if actions:
-            self._write_json_atomic(
-                self.action_ack_path,
-                {"seq": max(action.seq for action in actions)},
-            )
-        return actions
+        return list(self._pending_actions)
+
+    def acknowledge_action_events(self, through_seq: int) -> None:
+        through_seq = int(through_seq)
+        self._write_json_atomic(self.action_ack_path, {"seq": through_seq})
+        self._pending_actions = [
+            action for action in self._pending_actions if action.seq > through_seq
+        ]
 
     def consume_actions(self, *, poll: bool = True) -> List[str]:
-        return [event.kind for event in self.consume_action_events(poll=poll)]
+        events = self.consume_action_events(poll=poll)
+        if events:
+            self.acknowledge_action_events(max(event.seq for event in events))
+        return [event.kind for event in events]
 
     def publish_preview(
         self,
@@ -448,8 +451,22 @@ class HmUiProcess:
             for window_name, controls in self._windows.items()
         }
 
-    def apply_control_values(self, values: Dict[str, Dict[str, int]]) -> bool:
-        return self._apply_state_values({"windows": values})
+    def apply_control_values(
+        self,
+        values: Dict[str, Dict[str, int]],
+        *,
+        publish: bool = False,
+    ) -> bool:
+        normalized = self._normalize_control_values(values)
+        if normalized is None:
+            return False
+        changed = self._apply_normalized_control_values(normalized)
+        if publish:
+            for window_name, controls in normalized.items():
+                for control_name in controls:
+                    self._find_control(window_name, control_name).value_revision += 1
+            self._write_spec()
+        return changed
 
     def _normalize_control_values(self, windows: Any) -> Optional[Dict[str, Dict[str, int]]]:
         if not isinstance(windows, dict):
@@ -472,10 +489,39 @@ class HmUiProcess:
             normalized[window_name] = values
         return normalized
 
+    def _normalize_control_revisions(self, revisions: Any) -> Optional[Dict[str, Dict[str, int]]]:
+        if not isinstance(revisions, dict):
+            return None
+        normalized: Dict[str, Dict[str, int]] = {}
+        for window_name, controls in self._windows.items():
+            raw_revisions = revisions.get(window_name)
+            if not isinstance(raw_revisions, dict):
+                normalized[window_name] = {}
+                continue
+            values: Dict[str, int] = {}
+            for control in controls:
+                if control.name not in raw_revisions:
+                    continue
+                try:
+                    values[control.name] = max(0, int(raw_revisions[control.name]))
+                except (TypeError, ValueError):
+                    continue
+            normalized[window_name] = values
+        return normalized
+
     def _apply_state_values(self, state: Dict) -> bool:
         windows = self._normalize_control_values(state.get("windows"))
         if windows is None:
             return False
+        revisions = self._normalize_control_revisions(state.get("control_revisions"))
+        return self._apply_normalized_control_values(windows, revisions=revisions)
+
+    def _apply_normalized_control_values(
+        self,
+        windows: Dict[str, Dict[str, int]],
+        *,
+        revisions: Optional[Dict[str, Dict[str, int]]] = None,
+    ) -> bool:
         changed = False
         for window_name, values in windows.items():
             controls = self._windows.get(window_name, [])
@@ -484,6 +530,11 @@ class HmUiProcess:
                 control = by_name.get(control_name)
                 if control is None:
                     continue
+                if revisions is not None:
+                    revision = revisions.get(window_name, {}).get(control_name)
+                    if revision is None or revision < control.value_revision:
+                        continue
+                    control.value_revision = revision
                 if new_value != control.value:
                     control.value = new_value
                     changed = True
@@ -527,6 +578,10 @@ class HmUiProcess:
             "updated_ms": int(time.time() * 1000),
             "windows": {
                 window_name: {control.name: control.value for control in controls}
+                for window_name, controls in self._windows.items()
+            },
+            "control_revisions": {
+                window_name: {control.name: control.value_revision for control in controls}
                 for window_name, controls in self._windows.items()
             },
             "selected_preview": self._selected_preview_name,

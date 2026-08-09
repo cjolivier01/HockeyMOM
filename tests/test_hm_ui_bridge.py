@@ -71,6 +71,48 @@ def should_not_change_defaults_for_runtime_notifications(tmp_path):
     assert control["default_value"] == 100
 
 
+def should_publish_action_snapshot_with_a_newer_control_revision(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+
+    ui.add_window("Tracker Controls")
+    ui.add_slider("Tracker Controls", "Left_Fixed_Edge_Rotation_Angle_x10", 900, 100)
+    ui.set_value("Tracker Controls", "Left_Fixed_Edge_Rotation_Angle_x10", 255)
+    ui.apply_control_values(
+        {"Tracker Controls": {"Left_Fixed_Edge_Rotation_Angle_x10": 125}},
+        publish=True,
+    )
+
+    spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
+    control = spec["windows"][0]["controls"][0]
+    assert control["value"] == 125
+    assert control["value_revision"] == 2
+
+
+def should_keep_newer_python_value_and_accept_equal_revision_rust_edit(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+    ui.add_window("Tracker Controls")
+    ui.add_slider("Tracker Controls", "Right_Fixed_Edge_Rotation_Angle_x10", 900, 100)
+    ui.set_value("Tracker Controls", "Right_Fixed_Edge_Rotation_Angle_x10", 255)
+
+    payload = {
+        "windows": {"Tracker Controls": {"Right_Fixed_Edge_Rotation_Angle_x10": 100}},
+        "control_revisions": {"Tracker Controls": {"Right_Fixed_Edge_Rotation_Angle_x10": 0}},
+    }
+    ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+    ui._last_state_mtime_ns = None
+    ui.poll()
+    assert ui.get_value("Tracker Controls", "Right_Fixed_Edge_Rotation_Angle_x10") == 255
+
+    payload["windows"]["Tracker Controls"]["Right_Fixed_Edge_Rotation_Angle_x10"] = 355
+    payload["control_revisions"]["Tracker Controls"]["Right_Fixed_Edge_Rotation_Angle_x10"] = 1
+    ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+    ui._last_state_mtime_ns = None
+    ui.poll()
+    assert ui.get_value("Tracker Controls", "Right_Fixed_Edge_Rotation_Angle_x10") == 355
+
+
 def should_publish_grouping_and_system_defaults(tmp_path):
     ui = HmUiProcess(title="test", tmpdir=tmp_path)
     ui.ensure_started = lambda: None
@@ -131,6 +173,8 @@ def should_consume_hm_ui_action_snapshots_once_and_acknowledge_them(tmp_path):
     ]
     assert events[0].values == {"Tracker Controls": {"Apply_To_Follower_Box": 0}}
     assert events[1].values == {"Tracker Controls": {"Apply_To_Follower_Box": 1}}
+    assert not ui.action_ack_path.exists()
+    ui.acknowledge_action_events(events[-1].seq)
     assert json.loads(ui.action_ack_path.read_text(encoding="utf-8")) == {"seq": 2}
     assert ui.last_poll_values_changed is False
     assert ui.consume_action_events() == []

@@ -14,10 +14,14 @@ pytestmark = pytest.mark.skipif(torch is None, reason="requires torch")
 
 if torch is not None:
     from hmlib.aspen.plugins import stitch_ui_plugin as stitch_ui_module
+    from hmlib.aspen.plugins import video_preview_plugin as video_preview_module
     from hmlib.aspen.plugins.stitch_ui_plugin import StitchUiPlugin
+    from hmlib.aspen.plugins.video_preview_plugin import VideoPreviewPlugin
 else:
     stitch_ui_module = None  # type: ignore[assignment]
+    video_preview_module = None  # type: ignore[assignment]
     StitchUiPlugin = None  # type: ignore[assignment,misc]
+    VideoPreviewPlugin = None  # type: ignore[assignment,misc]
 
 
 def _color() -> dict:
@@ -52,6 +56,8 @@ class _FakeHmUiProcess:
         self.changed = False
         self.last_poll_values_changed = False
         self.actions = []
+        self.next_action_seq = 1
+        self.acknowledged_seq = 0
         self.previews = []
         self.closed = False
         self.instances.append(self)
@@ -84,14 +90,25 @@ class _FakeHmUiProcess:
     def control_values(self):
         return copy.deepcopy(self.values)
 
-    def apply_control_values(self, values) -> bool:
+    def apply_control_values(self, values, *, publish: bool = False) -> bool:
+        del publish
         changed = values != self.values
         for window, controls in values.items():
             self.values.setdefault(window, {}).update(copy.deepcopy(controls))
         return changed
 
     def queue_action(self, kind: str) -> None:
-        self.actions.append(_FakeAction(kind=kind, values=self.control_values()))
+        self.actions.append(
+            _FakeAction(
+                seq=self.next_action_seq,
+                kind=kind,
+                values=self.control_values(),
+            )
+        )
+        self.next_action_seq += 1
+
+    def acknowledge_action_events(self, through_seq: int) -> None:
+        self.acknowledged_seq = through_seq
 
     def queue_reset(self, *, system: bool) -> None:
         self.values = copy.deepcopy(self.system_defaults if system else self.open_defaults)
@@ -107,8 +124,28 @@ class _FakeHmUiProcess:
 
 @dataclass(frozen=True)
 class _FakeAction:
+    seq: int
     kind: str
     values: dict
+
+
+class _FakeShower:
+    instances = []
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.closed = False
+        self.calls = []
+        self.instances.append(self)
+
+    def show(self, img, *, clone: bool) -> None:
+        self.calls.append((img, clone))
+
+    def close(self) -> None:
+        self.closed = True
+
+    def update_progress_table(self, _table) -> None:
+        return None
 
 
 def should_apply_and_save_stitch_only_rust_controls(monkeypatch):
@@ -235,3 +272,28 @@ def should_propagate_stitch_ui_initialization_failure(monkeypatch):
 
     assert str(exc_info.value.__cause__) == "cannot start hm-ui"
     assert FailingHmUiProcess.instances[0].closed is True
+
+
+def should_suppress_local_preview_when_rust_camera_ui_owns_it(monkeypatch):
+    _FakeShower.instances.clear()
+    monkeypatch.setattr(video_preview_module, "Shower", _FakeShower)
+    plugin = VideoPreviewPlugin()
+    context = {
+        "img": torch.zeros((1, 8, 8, 3), dtype=torch.uint8),
+        "fps": 30.0,
+        "shared": {"game_config": {"video_out": {"show_image": True}}},
+    }
+
+    plugin(context)
+    assert len(_FakeShower.instances) == 1
+    local_shower = _FakeShower.instances[0]
+
+    context["shared"]["camera_ui"] = 1
+    plugin(context)
+    assert local_shower.closed is True
+    assert plugin._shower is None
+
+    _FakeShower.instances.clear()
+    plugin = VideoPreviewPlugin()
+    plugin(context)
+    assert _FakeShower.instances == []
