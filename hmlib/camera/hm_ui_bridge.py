@@ -8,17 +8,19 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from hmlib.log import logger
 from hmlib.utils.gpu import unwrap_tensor
-from hmlib.utils.image import make_visible_image
+from hmlib.utils.image import image_width, make_visible_image, resize_image
 
 
 @dataclass
@@ -27,27 +29,71 @@ class _Control:
     max_value: int
     value: int
     default_value: int
+    system_default_value: int
+    group: str
+    view: str
+    value_revision: int
+
+
+@dataclass
+class _PreviewJob:
+    img: Any
+    show_scaled: Optional[float]
+    max_width: int
+
+
+@dataclass(frozen=True)
+class HmUiAction:
+    seq: int
+    kind: str
+    values: Optional[Dict[str, Dict[str, int]]]
 
 
 class HmUiProcess:
     """Owns the Rust hm-ui process and its JSON spec/state files."""
 
-    def __init__(self, *, title: str = "HM UI", tmpdir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        *,
+        title: str = "HM UI",
+        tmpdir: Optional[Path] = None,
+        preview_names: Iterable[str] = ("Stitched", "Final"),
+    ) -> None:
         self.title = title
         self._tmpdir = (
             Path(tmpdir) if tmpdir is not None else Path(tempfile.mkdtemp(prefix="hm-ui-"))
         )
         self.spec_path = self._tmpdir / "spec.json"
         self.state_path = self._tmpdir / "state.json"
-        self.preview_path = self._tmpdir / "preview.jpg"
+        self.action_ack_path = self._tmpdir / "action-ack.json"
+        normalized_preview_names = [
+            str(name).strip() for name in preview_names if str(name).strip()
+        ]
+        if not normalized_preview_names:
+            raise ValueError("hm-ui requires at least one preview name")
+        self.preview_paths: Dict[str, Path] = {
+            name: self._tmpdir / f"preview-{self._slug(name)}.jpg"
+            for name in normalized_preview_names
+        }
+        self._selected_preview_name = next(iter(self.preview_paths))
+        # Compatibility for callers/tests that predate named preview streams.
+        self.preview_path = next(iter(self.preview_paths.values()))
         self._windows: Dict[str, List[_Control]] = {}
         self._process: Optional[subprocess.Popen] = None
         self.stderr_path = self._tmpdir / "hm-ui.stderr.log"
         self._last_state_mtime_ns: Optional[int] = None
-        self._last_preview_write_monotonic = 0.0
+        self._last_poll_values_changed = False
+        self._last_preview_write_monotonic: Dict[str, float] = {
+            name: 0.0 for name in self.preview_paths
+        }
+        self._preview_condition = threading.Condition()
+        self._pending_preview_jobs: OrderedDict[str, _PreviewJob] = OrderedDict()
+        self._preview_worker: Optional[threading.Thread] = None
+        self._preview_worker_processing = False
+        self._preview_worker_stop = False
         self._preview_batch_warned = False
         self._last_action_seq = 0
-        self._pending_actions: List[str] = []
+        self._pending_actions: List[HmUiAction] = []
         self._closed = False
 
     def add_window(self, name: str) -> None:
@@ -57,11 +103,16 @@ class HmUiProcess:
 
     def add_slider(self, window_name: str, name: str, max_value: int, initial_value: int) -> None:
         controls = self._windows.setdefault(window_name, [])
+        view, group = self._control_location(window_name, name)
         for control in controls:
             if control.name == name:
                 control.max_value = max(1, int(max_value))
                 control.value = self._clamp(initial_value, control.max_value)
                 control.default_value = control.value
+                control.system_default_value = control.value
+                control.group = group
+                control.view = view
+                control.value_revision += 1
                 break
         else:
             max_i = max(1, int(max_value))
@@ -72,12 +123,33 @@ class HmUiProcess:
                     max_value=max_i,
                     value=value_i,
                     default_value=value_i,
+                    system_default_value=value_i,
+                    group=group,
+                    view=view,
+                    value_revision=0,
                 )
             )
         self._write_spec()
 
-    def get_value(self, window_name: str, control_name: str) -> int:
-        self.poll()
+    def set_system_defaults(self, defaults: Dict[str, Dict[str, int]]) -> None:
+        """Publish system defaults separately from the values captured at UI open time."""
+        for window_name, values in defaults.items():
+            for control_name, value in values.items():
+                try:
+                    control = self._find_control(window_name, control_name)
+                except KeyError:
+                    logger.warning(
+                        "Ignoring system default for unknown hm-ui control %s.%s",
+                        window_name,
+                        control_name,
+                    )
+                    continue
+                control.system_default_value = self._clamp(value, control.max_value)
+        self._write_spec()
+
+    def get_value(self, window_name: str, control_name: str, *, poll: bool = True) -> int:
+        if poll:
+            self.poll()
         control = self._find_control(window_name, control_name)
         return control.value
 
@@ -90,17 +162,21 @@ class HmUiProcess:
             control.default_value = new_value
         if new_value == control.value:
             if not notify:
-                self._write_state()
+                if self._process is None:
+                    self._write_state()
                 self._write_spec()
             return False
         control.value = new_value
-        self._write_state()
+        control.value_revision += 1
+        if self._process is None:
+            self._write_state()
         self._write_spec()
         if notify:
             return True
         return False
 
     def poll(self) -> bool:
+        self._last_poll_values_changed = False
         if self._process is not None and self._process.poll() is not None:
             logger.warning(
                 "hm-ui exited with status %s; disabling Rust camera UI. stderr log: %s",
@@ -125,37 +201,139 @@ class HmUiProcess:
             logger.warning("Failed to read hm-ui state: %s", ex)
             return False
         self._last_state_mtime_ns = mtime_ns
+        selected_preview = state.get("selected_preview")
+        if (
+            isinstance(selected_preview, str)
+            and selected_preview in self.preview_paths
+            and selected_preview != self._selected_preview_name
+        ):
+            self._selected_preview_name = selected_preview
+            self._last_preview_write_monotonic[selected_preview] = 0.0
         changed = self._apply_state_values(state)
-        action = state.get("last_action")
-        if isinstance(action, dict):
+        self._last_poll_values_changed = changed
+        actions = state.get("actions")
+        if not isinstance(actions, list):
+            actions = [state.get("last_action")]
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
             seq = int(action.get("seq") or 0)
             kind = str(action.get("kind") or "")
             if seq > self._last_action_seq and kind:
                 self._last_action_seq = seq
-                self._pending_actions.append(kind)
+                self._pending_actions.append(
+                    HmUiAction(
+                        seq=seq,
+                        kind=kind,
+                        values=self._normalize_control_values(action.get("windows")),
+                    )
+                )
                 changed = True
         return changed
 
-    def consume_actions(self) -> List[str]:
-        self.poll()
-        actions = self._pending_actions
-        self._pending_actions = []
-        return actions
+    @property
+    def last_poll_values_changed(self) -> bool:
+        return self._last_poll_values_changed
+
+    def consume_action_events(self, *, poll: bool = True) -> List[HmUiAction]:
+        if poll:
+            self.poll()
+        return list(self._pending_actions)
+
+    def acknowledge_action_events(self, through_seq: int) -> None:
+        through_seq = int(through_seq)
+        self._write_json_atomic(self.action_ack_path, {"seq": through_seq})
+        self._pending_actions = [
+            action for action in self._pending_actions if action.seq > through_seq
+        ]
+
+    def consume_actions(self, *, poll: bool = True) -> List[str]:
+        events = self.consume_action_events(poll=poll)
+        if events:
+            self.acknowledge_action_events(max(event.seq for event in events))
+        return [event.kind for event in events]
 
     def publish_preview(
         self,
         img,
         *,
+        name: str = "Stitched",
         show_scaled: Optional[float] = None,
         max_width: int = 1280,
-        min_interval_seconds: float = 1.0 / 15.0,
+        min_interval_seconds: Optional[float] = None,
     ) -> None:
         if self._closed:
             return
-        now = time.monotonic()
-        if now - self._last_preview_write_monotonic < min_interval_seconds:
+        if name not in self.preview_paths:
             return
-        frame = unwrap_tensor(img)
+        if min_interval_seconds is None:
+            min_interval_seconds = 1.0 / 15.0 if name == self._selected_preview_name else 1.0
+        else:
+            min_interval_seconds = max(0.0, float(min_interval_seconds))
+        now = time.monotonic()
+        with self._preview_condition:
+            if self._preview_worker_stop:
+                return
+            if now - self._last_preview_write_monotonic[name] < min_interval_seconds:
+                return
+            # Keep one pending frame per stream. Replacing a queued frame makes
+            # preview publication lossy and bounded instead of slowing tracking.
+            self._pending_preview_jobs[name] = _PreviewJob(
+                img=img,
+                show_scaled=show_scaled,
+                max_width=int(max_width),
+            )
+            self._last_preview_write_monotonic[name] = now
+            if self._preview_worker is None:
+                self._preview_worker = threading.Thread(
+                    target=self._preview_worker_main,
+                    name="hm-ui-preview",
+                    daemon=True,
+                )
+                self._preview_worker.start()
+            self._preview_condition.notify()
+
+    def flush_previews(self, timeout: float = 5.0) -> bool:
+        """Wait for queued preview work, primarily for orderly shutdown and tests."""
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._preview_condition:
+            while self._pending_preview_jobs or self._preview_worker_processing:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._preview_condition.wait(timeout=remaining)
+        return True
+
+    def _preview_worker_main(self) -> None:
+        while True:
+            with self._preview_condition:
+                while not self._pending_preview_jobs and not self._preview_worker_stop:
+                    self._preview_condition.wait()
+                if self._preview_worker_stop:
+                    self._pending_preview_jobs.clear()
+                    self._preview_condition.notify_all()
+                    return
+                name, job = self._pending_preview_jobs.popitem(last=False)
+                self._preview_worker_processing = True
+            try:
+                self._encode_preview(name, job)
+            except (
+                OSError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+                AssertionError,
+                cv2.error,
+            ) as ex:
+                logger.warning("Failed to encode hm-ui %s preview frame: %s", name, ex)
+            finally:
+                with self._preview_condition:
+                    self._preview_worker_processing = False
+                    if not self._pending_preview_jobs:
+                        self._preview_condition.notify_all()
+
+    def _encode_preview(self, name: str, job: _PreviewJob) -> None:
+        frame = unwrap_tensor(job.img)
         if frame.ndim == 4:
             if frame.shape[0] > 1 and not self._preview_batch_warned:
                 logger.warning(
@@ -164,21 +342,31 @@ class HmUiProcess:
                 )
                 self._preview_batch_warned = True
             frame = frame[-1]
+        # Resize before a CUDA-to-host transfer when the source is a GPU tensor.
         frame = make_visible_image(
             frame,
-            enable_resizing=show_scaled,
-            force_numpy=True,
+            enable_resizing=job.show_scaled,
+            force_numpy=False,
         )
+        if job.max_width > 0 and image_width(frame) > job.max_width:
+            scale = float(job.max_width) / float(image_width(frame))
+            new_height = max(1, int(round(frame.shape[-3] * scale)))
+            if isinstance(frame, np.ndarray):
+                frame = cv2.resize(
+                    frame,
+                    (job.max_width, new_height),
+                    interpolation=cv2.INTER_AREA,
+                )
+            else:
+                frame = resize_image(
+                    frame,
+                    new_width=job.max_width,
+                    new_height=new_height,
+                )
+        frame = make_visible_image(frame, force_numpy=True)
         if frame.ndim != 3 or frame.shape[-1] not in (1, 3, 4):
             raise ValueError(f"hm-ui preview expected HxWxC image, got shape={frame.shape}")
         frame = np.ascontiguousarray(frame)
-        if max_width > 0 and frame.shape[1] > max_width:
-            scale = float(max_width) / float(frame.shape[1])
-            frame = cv2.resize(
-                frame,
-                (max_width, max(1, int(round(frame.shape[0] * scale)))),
-                interpolation=cv2.INTER_AREA,
-            )
         ok, encoded = cv2.imencode(
             ".jpg",
             frame,
@@ -186,11 +374,11 @@ class HmUiProcess:
         )
         if not ok:
             raise RuntimeError("OpenCV failed to encode hm-ui preview frame")
-        self.preview_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.preview_path.with_suffix(self.preview_path.suffix + ".tmp")
+        preview_path = self.preview_paths[name]
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = preview_path.with_suffix(preview_path.suffix + ".tmp")
         tmp.write_bytes(encoded.tobytes())
-        os.replace(tmp, self.preview_path)
-        self._last_preview_write_monotonic = now
+        os.replace(tmp, preview_path)
 
     def ensure_started(self) -> None:
         if self._closed:
@@ -238,31 +426,115 @@ class HmUiProcess:
             except subprocess.TimeoutExpired:
                 self._process.kill()
                 self._process.wait(timeout=2.0)
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        with self._preview_condition:
+            self._preview_worker_stop = True
+            self._pending_preview_jobs.clear()
+            self._preview_condition.notify_all()
+        if self._preview_worker is not None:
+            self._preview_worker.join(timeout=5.0)
+        if self._preview_worker is not None and self._preview_worker.is_alive():
+            logger.error(
+                "hm-ui preview worker did not stop; preserving temporary files at %s",
+                self._tmpdir,
+            )
+        else:
+            shutil.rmtree(self._tmpdir, ignore_errors=True)
         self._closed = True
 
     @property
     def closed(self) -> bool:
         return self._closed
 
-    def _apply_state_values(self, state: Dict) -> bool:
-        windows = state.get("windows")
-        if not isinstance(windows, dict):
+    def control_values(self) -> Dict[str, Dict[str, int]]:
+        return {
+            window_name: {control.name: control.value for control in controls}
+            for window_name, controls in self._windows.items()
+        }
+
+    def apply_control_values(
+        self,
+        values: Dict[str, Dict[str, int]],
+        *,
+        publish: bool = False,
+    ) -> bool:
+        normalized = self._normalize_control_values(values)
+        if normalized is None:
             return False
-        changed = False
-        for window_name, values in windows.items():
-            if not isinstance(values, dict):
+        changed = self._apply_normalized_control_values(normalized)
+        if publish:
+            for window_name, controls in normalized.items():
+                for control_name in controls:
+                    self._find_control(window_name, control_name).value_revision += 1
+            self._write_spec()
+        return changed
+
+    def _normalize_control_values(self, windows: Any) -> Optional[Dict[str, Dict[str, int]]]:
+        if not isinstance(windows, dict):
+            return None
+        normalized: Dict[str, Dict[str, int]] = {}
+        for window_name, controls in self._windows.items():
+            raw_values = windows.get(window_name)
+            if not isinstance(raw_values, dict):
                 continue
-            controls = self._windows.get(str(window_name), [])
-            by_name = {control.name: control for control in controls}
-            for control_name, raw_value in values.items():
-                control = by_name.get(str(control_name))
-                if control is None:
+            values: Dict[str, int] = {}
+            for control in controls:
+                if control.name not in raw_values:
                     continue
                 try:
-                    new_value = self._clamp(int(raw_value), control.max_value)
+                    values[control.name] = self._clamp(
+                        int(raw_values[control.name]), control.max_value
+                    )
                 except (TypeError, ValueError):
                     continue
+            normalized[window_name] = values
+        return normalized
+
+    def _normalize_control_revisions(self, revisions: Any) -> Optional[Dict[str, Dict[str, int]]]:
+        if not isinstance(revisions, dict):
+            return None
+        normalized: Dict[str, Dict[str, int]] = {}
+        for window_name, controls in self._windows.items():
+            raw_revisions = revisions.get(window_name)
+            if not isinstance(raw_revisions, dict):
+                normalized[window_name] = {}
+                continue
+            values: Dict[str, int] = {}
+            for control in controls:
+                if control.name not in raw_revisions:
+                    continue
+                try:
+                    values[control.name] = max(0, int(raw_revisions[control.name]))
+                except (TypeError, ValueError):
+                    continue
+            normalized[window_name] = values
+        return normalized
+
+    def _apply_state_values(self, state: Dict) -> bool:
+        windows = self._normalize_control_values(state.get("windows"))
+        if windows is None:
+            return False
+        revisions = self._normalize_control_revisions(state.get("control_revisions"))
+        return self._apply_normalized_control_values(windows, revisions=revisions)
+
+    def _apply_normalized_control_values(
+        self,
+        windows: Dict[str, Dict[str, int]],
+        *,
+        revisions: Optional[Dict[str, Dict[str, int]]] = None,
+    ) -> bool:
+        changed = False
+        for window_name, values in windows.items():
+            controls = self._windows.get(window_name, [])
+            by_name = {control.name: control for control in controls}
+            for control_name, new_value in values.items():
+                control = by_name.get(control_name)
+                if control is None:
+                    continue
+                if revisions is not None:
+                    revision = revisions.get(window_name, {}).get(control_name)
+                    if revision is None or revision < control.value_revision:
+                        continue
+                    control.value_revision = revision
                 if new_value != control.value:
                     control.value = new_value
                     changed = True
@@ -274,6 +546,10 @@ class HmUiProcess:
             "title": self.title,
             "subtitle": "Runtime tracking, stitch, and camera controls",
             "preview_path": str(self.preview_path),
+            "action_ack_path": str(self.action_ack_path),
+            "previews": [
+                {"name": name, "path": str(path)} for name, path in self.preview_paths.items()
+            ],
             "windows": [
                 {
                     "name": window_name,
@@ -283,6 +559,10 @@ class HmUiProcess:
                             "max_value": control.max_value,
                             "value": control.value,
                             "default_value": control.default_value,
+                            "system_default_value": control.system_default_value,
+                            "group": control.group,
+                            "view": control.view,
+                            "value_revision": control.value_revision,
                         }
                         for control in controls
                     ],
@@ -300,6 +580,12 @@ class HmUiProcess:
                 window_name: {control.name: control.value for control in controls}
                 for window_name, controls in self._windows.items()
             },
+            "control_revisions": {
+                window_name: {control.name: control.value_revision for control in controls}
+                for window_name, controls in self._windows.items()
+            },
+            "selected_preview": self._selected_preview_name,
+            "actions": [],
             "last_action": None,
         }
         self._write_json_atomic(self.state_path, payload)
@@ -319,6 +605,32 @@ class HmUiProcess:
             if control.name == control_name:
                 return control
         raise KeyError(control_name)
+
+    @staticmethod
+    def _control_location(window_name: str, control_name: str) -> Tuple[str, str]:
+        """Keep controls that affect different rendered views in separate tabs."""
+        lower_window = window_name.lower()
+        if "left" in lower_window and "color" in lower_window:
+            return "Stitched", "Left Input Color"
+        if "right" in lower_window and "color" in lower_window:
+            return "Stitched", "Right Input Color"
+        if "color" in lower_window:
+            view = "Stitched" if "stitched" in lower_window else "Final"
+            return view, f"{view} Color"
+        if control_name == "Stitch_Rotate_Degrees" or "stitch" in lower_window:
+            return "Stitched", "Alignment"
+        if control_name.startswith(("Overshoot_", "Post_Nonstop_")):
+            return "Final", "Breakaway Tracking"
+        if "Fixed_Edge_Rotation" in control_name:
+            return "Final", "Perspective Rotation"
+        if control_name.startswith(("Max_Speed_", "Max_Accel_", "Apply_To_")):
+            return "Final", "Motion Limits"
+        return "Final", "Play Tracking"
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+        return slug or "view"
 
     @staticmethod
     def _clamp(value: int, max_value: int) -> int:
@@ -377,7 +689,7 @@ class HmUiProcess:
 
 
 class HmUiDialog:
-    """CameraControlDialog-compatible handle backed by the hm-ui sidecar."""
+    """Handle for one control group backed by the hm-ui sidecar."""
 
     def __init__(
         self,
@@ -400,7 +712,7 @@ class HmUiDialog:
         self._manager.add_slider(self.window_name, name, max_value, initial_value)
 
     def get_value(self, name: str) -> int:
-        return self._manager.get_value(self.window_name, name)
+        return self._manager.get_value(self.window_name, name, poll=False)
 
     def set_value(self, name: str, value: int, *, notify: bool = True) -> None:
         changed = self._manager.set_value(self.window_name, name, value, notify=notify)
@@ -408,7 +720,8 @@ class HmUiDialog:
             self._on_change(value)
 
     def show(self) -> None:
-        if self._manager.poll() and self._on_change is not None:
+        self._manager.poll()
+        if self._manager.last_poll_values_changed and self._on_change is not None:
             self._on_change(0)
         if self._manager.closed:
             raise RuntimeError("hm-ui was closed")

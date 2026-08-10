@@ -1661,13 +1661,13 @@ class hm_opts(object):
             "--camera-ui",
             default=0,
             type=int,
-            help="Enable runtime camera braking UI",
+            help="Enable the Rust runtime camera UI",
         )
         ui.add_argument(
             "--camera-ui-backend",
-            default=None,
-            choices=("opencv", "rust"),
-            help="Runtime camera UI backend. Use 'rust' to launch hm-ui.",
+            default="rust",
+            choices=("rust",),
+            help=argparse.SUPPRESS,
         )
         return hm_opts.finalize_parser(parser)
 
@@ -2291,7 +2291,7 @@ class hm_opts(object):
             explicit_arg_names=explicit_arg_names,
         )
         hm_opts.apply_implied_arg_mappings(opt)
-        if int(opt.camera_ui or 0) and (opt.camera_ui_backend or "").lower() == "rust":
+        if int(opt.camera_ui or 0):
             opt.show_image = True
             if isinstance(opt.game_config, dict):
                 normalize_runtime_config(opt.game_config)

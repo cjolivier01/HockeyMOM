@@ -52,6 +52,38 @@ requires_cuda = pytest.mark.skipif(
 )
 
 
+@requires_torch
+def should_allow_terminal_stitch_ui_in_cuda_graph_pipeline(tmp_path):
+    graph_cfg = {
+        "pipeline": {"cuda_graph": True},
+        "plugins": {
+            "source": {
+                "class": f"{__name__}.StaticContextSourcePlugin",
+                "params": {
+                    "x": torch.zeros(1),
+                    "img": torch.zeros((1, 8, 8, 3), dtype=torch.uint8),
+                    "data_samples": None,
+                    "work_dir": str(tmp_path),
+                },
+            },
+            "video_out_prep": {
+                "class": "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutPrepPlugin",
+                "depends": ["source"],
+                "params": {"skip_final_save": True},
+            },
+            "stitch_ui": {
+                "class": "hmlib.aspen.plugins.stitch_ui_plugin.StitchUiPlugin",
+                "depends": ["video_out_prep"],
+                "params": {},
+            },
+        },
+    }
+
+    net = AspenNet("terminal_stitch_ui", graph_cfg, shared={"camera_ui": 0})
+
+    assert net.shared["aspen_cuda_graph_deferred_plugins"] == ["stitch_ui"]
+
+
 class GraphableAffinePlugin(Plugin):  # type: ignore[misc]
     def __init__(self, scale: float, bias: float, enabled: bool = True):
         super().__init__(enabled=enabled)

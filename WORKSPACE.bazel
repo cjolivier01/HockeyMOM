@@ -2,6 +2,10 @@ workspace(
     name="hockeymom",
 )
 
+load("//tools/packaging/wheel:ubuntu_glibc_repository.bzl", "ubuntu_glibc_repository")
+
+ubuntu_glibc_repository(name = "ubuntu2204_glibc")
+
 # Make secrets available for build and publish. These should be set on the host.
 load("//tools/environment:defs.bzl", "environment")
 environment(

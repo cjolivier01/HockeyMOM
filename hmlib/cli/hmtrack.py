@@ -1949,6 +1949,11 @@ def _main(args, num_gpu):
             else:
                 use_aspen_stitching = bool(aspen_stitching_cli)
             if is_stitching(args.input_video):
+                if args.camera_ui and not use_aspen_stitching:
+                    raise ValueError(
+                        "--camera-ui requires Aspen stitching for multi-camera input; "
+                        "remove --no-aspen-stitching"
+                    )
                 project_file_name = "hm_project.pto"
 
                 game_videos = {}

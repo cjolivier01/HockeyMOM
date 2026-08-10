@@ -96,3 +96,45 @@ def should_clamp_apply_camera_output_height_from_game_config(monkeypatch):
     assert plugin._video_frame_cfg is not None
     assert plugin._video_frame_cfg["output_frame_width"] == 10
     assert plugin._video_frame_cfg["output_frame_height"] == 6
+
+
+@requires_torch
+def should_refresh_fixed_edge_rotation_angle_from_runtime_config(monkeypatch):
+    _install_mmcv_transforms_stub(monkeypatch)
+    from hmlib.camera import apply_camera_plugin as apply_camera_module
+
+    class HmPerspectiveRotation:
+        def __init__(self) -> None:
+            self.values = []
+
+        def set_fixed_edge_rotation_angle(self, value) -> None:
+            self.values.append(value)
+
+    perspective = HmPerspectiveRotation()
+
+    class RuntimeCompose:
+        def __init__(self, _pipeline) -> None:
+            self.transforms = [perspective]
+
+        def __iter__(self):
+            return iter(self.transforms)
+
+        def __call__(self, data):
+            return data
+
+    monkeypatch.setattr(apply_camera_module, "Compose", RuntimeCompose)
+    game_config = {"rink": {"camera": {"fixed_edge_rotation_angle": 12.5}}}
+    plugin = apply_camera_module.ApplyCameraPlugin(
+        video_out_pipeline=[{"type": "HmPerspectiveRotation"}],
+        crop_output_image=False,
+    )
+    context = {
+        "img": torch.zeros((1, 9, 15, 3), dtype=torch.uint8),
+        "shared": {"game_config": game_config},
+    }
+
+    plugin(context)
+    game_config["rink"]["camera"]["fixed_edge_rotation_angle"] = [15.0, 35.0]
+    plugin(context)
+
+    assert perspective.values == [12.5, [15.0, 35.0]]

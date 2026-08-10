@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from hmlib.builder import HM
 from hmlib.config import get_nested_value, normalize_runtime_config
+from hmlib.log import logger
 from hmlib.ui.shower import Shower
 
 from .base import Plugin
@@ -72,9 +73,14 @@ class VideoPreviewPlugin(Plugin):
         cfg = cfg or {}
         normalize_runtime_config(cfg)
         hm_ui_preview_active = bool(shared_cfg.get("hm_ui_preview_active"))
+        hm_ui_owns_local_preview = hm_ui_preview_active or bool(shared_cfg.get("camera_ui"))
 
         if self._shower is not None:
-            if self._local_display_suppressed_for_hm_ui and not hm_ui_preview_active:
+            if hm_ui_owns_local_preview and not self._local_display_suppressed_for_hm_ui:
+                self._shower.close()
+                self._shower = None
+                self._progress_bar_callback_installed = False
+            elif self._local_display_suppressed_for_hm_ui and not hm_ui_owns_local_preview:
                 self._shower.close()
                 self._shower = None
                 self._local_display_suppressed_for_hm_ui = False
@@ -85,8 +91,8 @@ class VideoPreviewPlugin(Plugin):
         show_image, show_youtube = self._resolve_preview_enabled(cfg)
         if not show_image and not show_youtube:
             return
-        effective_show_image = show_image and not hm_ui_preview_active
-        self._local_display_suppressed_for_hm_ui = show_image and hm_ui_preview_active
+        effective_show_image = show_image and not hm_ui_owns_local_preview
+        self._local_display_suppressed_for_hm_ui = show_image and hm_ui_owns_local_preview
         if not effective_show_image and not show_youtube:
             return
 
@@ -213,10 +219,18 @@ class VideoPreviewPlugin(Plugin):
         with self.profile_scope("video_preview.forward"):
             with self.profile_scope("video_preview.ensure_initialized"):
                 self._ensure_initialized(context)
-            if self._shower is None:
-                return {}
             img = context.get("img")
             if img is None:
+                return {}
+            shared = context.get("shared", {})
+            hm_ui_process = shared.get("hm_ui_process") if isinstance(shared, dict) else None
+            publish_preview = getattr(hm_ui_process, "publish_preview", None)
+            if callable(publish_preview):
+                try:
+                    publish_preview(img, name="Final")
+                except (OSError, RuntimeError, TypeError, ValueError) as ex:
+                    logger.warning("Failed to publish final hm-ui preview frame: %s", ex)
+            if self._shower is None:
                 return {}
             with self.profile_scope("video_preview.enqueue"):
                 if getattr(img, "ndim", None) == 4:
