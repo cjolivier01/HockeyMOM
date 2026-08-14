@@ -1,5 +1,6 @@
 exports_files(
     [
+        ".bazel_setup.sh",
         "Pipfile",
         "Pipfile.lock",
         "pyproject.toml",

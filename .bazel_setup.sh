@@ -138,6 +138,30 @@ normalize_cuda_arch_for_rules_cuda() {
   return 1
 }
 
+find_nvcc() {
+  local candidate cuda_root
+
+  if [ -n "${NVCC:-}" ] && [ -x "${NVCC}" ]; then
+    printf '%s\n' "${NVCC}"
+    return 0
+  fi
+
+  candidate="$(command -v nvcc 2>/dev/null || true)"
+  if [ -n "${candidate}" ]; then
+    printf '%s\n' "${candidate}"
+    return 0
+  fi
+
+  for cuda_root in "${CUDA_HOME:-}" "${CUDA_PATH:-}" /usr/local/cuda /opt/cuda; do
+    if [ -n "${cuda_root}" ] && [ -x "${cuda_root}/bin/nvcc" ]; then
+      printf '%s\n' "${cuda_root}/bin/nvcc"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 detect_cuda_archs_from_nvidia_smi() {
   command -v nvidia-smi >/dev/null 2>&1 || return 1
 
@@ -159,9 +183,11 @@ detect_cuda_archs_from_nvidia_smi() {
 }
 
 detect_cuda_archs_from_nvcc() {
-  command -v nvcc >/dev/null 2>&1 || return 1
+  local nvcc_bin
 
-  nvcc --list-gpu-code 2>/dev/null \
+  nvcc_bin="$(find_nvcc)" || return 1
+
+  "${nvcc_bin}" --list-gpu-code 2>/dev/null \
     | while IFS= read -r arch; do
         normalize_cuda_arch_for_rules_cuda "$arch" || true
       done \
@@ -169,8 +195,44 @@ detect_cuda_archs_from_nvcc() {
     | paste -sd ';' -
 }
 
+filter_cuda_archs_by_supported() {
+  local requested="$1"
+  local supported="$2"
+
+  printf '%s\n' "$requested" \
+    | tr ';' '\n' \
+    | awk -v supported="$supported" '
+      BEGIN {
+        supported_count = split(supported, supported_archs, ";")
+        for (i = 1; i <= supported_count; i++) {
+          is_supported[supported_archs[i]] = 1
+        }
+      }
+      NF && is_supported[$0] && !seen[$0]++ { print }
+    ' \
+    | paste -sd ';' -
+}
+
+filter_cuda_archs_by_unsupported() {
+  local requested="$1"
+  local supported="$2"
+
+  printf '%s\n' "$requested" \
+    | tr ';' '\n' \
+    | awk -v supported="$supported" '
+      BEGIN {
+        supported_count = split(supported, supported_archs, ";")
+        for (i = 1; i <= supported_count; i++) {
+          is_supported[supported_archs[i]] = 1
+        }
+      }
+      NF && !is_supported[$0] && !seen[$0]++ { print }
+    ' \
+    | paste -sd ';' -
+}
+
 detect_cuda_bazel_archs() {
-  local archs=""
+  local archs="" supported_archs="" filtered_archs="" unsupported_archs=""
 
   if [ -n "${CUDA_BAZEL_ARCHS:-}" ]; then
     printf '%s\n' "$CUDA_BAZEL_ARCHS"
@@ -179,7 +241,26 @@ detect_cuda_bazel_archs() {
 
   archs="$(detect_cuda_archs_from_nvidia_smi)" || true
   if [ -n "$archs" ]; then
-    printf '%s\n' "$archs"
+    supported_archs="$(detect_cuda_archs_from_nvcc)" || true
+    if [ -z "$supported_archs" ]; then
+      printf '%s\n' "$archs"
+      return 0
+    fi
+
+    filtered_archs="$(filter_cuda_archs_by_supported "$archs" "$supported_archs")"
+    if [ -n "$filtered_archs" ]; then
+      unsupported_archs="$(filter_cuda_archs_by_unsupported "$archs" "$supported_archs")"
+      if [ -n "$unsupported_archs" ]; then
+        printf '%s\n' \
+          "Warning: CUDA compiler does not support detected GPU arch(s): ${unsupported_archs}; using ${filtered_archs}." >&2
+      fi
+      printf '%s\n' "$filtered_archs"
+      return 0
+    fi
+
+    printf '%s\n' \
+      "Warning: CUDA compiler supports none of detected GPU arch(s): ${archs}; using compiler-supported arch(s): ${supported_archs}. Binaries may not run CUDA kernels on the detected GPU(s)." >&2
+    printf '%s\n' "$supported_archs"
     return 0
   fi
 

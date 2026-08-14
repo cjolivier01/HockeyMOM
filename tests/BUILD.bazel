@@ -24,6 +24,14 @@ sh_test(
     tags = ["manual"],
 )
 
+sh_test(
+    name = "test_bazel_setup_cuda_archs",
+    srcs = ["test_bazel_setup_cuda_archs.sh"],
+    data = [
+        "//:.bazel_setup.sh",
+    ],
+)
+
 py_test(
     name="test_unified_config",
     srcs=["test_unified_config.py"],
