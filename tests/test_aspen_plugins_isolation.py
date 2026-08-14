@@ -1060,6 +1060,45 @@ def _case_video_preview(monkeypatch, _tmp_path: Path, cuda_graph_enabled: bool =
     plugin.finalize()
     assert FakeShower.instances[0].closed is True
 
+    FakeShower.instances.clear()
+    plugin = VideoPreviewPlugin()
+    published = []
+    publisher = SimpleNamespace(publish_preview=lambda img, name: published.append((img, name)))
+    out = plugin(
+        {
+            "img": torch.zeros((1, 8, 8, 3), dtype=torch.uint8),
+            "fps": 30.0,
+            "shared": {
+                "game_config": {"video_out": {"show_image": True}},
+                "hm_ui_preview_active": True,
+                "hm_ui_process": publisher,
+            },
+        }
+    )
+    assert out == {}
+    assert FakeShower.instances == []
+    assert len(published) == 1
+    assert published[0][1] == "Final"
+
+
+def _case_stitch_ui(monkeypatch, _tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
+    from hmlib.aspen.plugins.stitch_ui_plugin import StitchUiPlugin
+
+    plugin = StitchUiPlugin()
+    _maybe_enable_cuda_graph(plugin, cuda_graph_enabled)
+    img = torch.zeros((1, 8, 8, 3), dtype=torch.uint8)
+    out = plugin(
+        {
+            "img": img,
+            "shared": {
+                "camera_ui": 0,
+                "game_config": {},
+            },
+        }
+    )
+    _assert_tensor_close(out["img"], img)
+    plugin.finalize()
+
 
 def _case_apply_camera(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
     from hmlib.camera.apply_camera_plugin import ApplyCameraPlugin
@@ -1116,6 +1155,7 @@ PLUGIN_CASES: dict[str, Callable[[Any, Path, bool], None]] = {
     "hmlib.aspen.plugins.save_plugins.SaveActionsPlugin": _case_save_actions,
     "hmlib.aspen.plugins.save_plugins.SaveCameraPlugin": _case_save_camera,
     "hmlib.aspen.plugins.stitching_plugin.StitchingPlugin": _case_stitching,
+    "hmlib.aspen.plugins.stitch_ui_plugin.StitchUiPlugin": _case_stitch_ui,
     "hmlib.aspen.plugins.tracker_plugin.TrackerPlugin": _case_tracker,
     "hmlib.aspen.plugins.video_out_prep_plugin.VideoOutPrepPlugin": _case_video_out_prep,
     "hmlib.aspen.plugins.video_preview_plugin.VideoPreviewPlugin": _case_video_preview,

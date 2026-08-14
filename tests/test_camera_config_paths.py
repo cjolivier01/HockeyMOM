@@ -87,7 +87,7 @@ def should_store_camera_color_only_under_rink_level():
         plot_jersey_numbers=False,
         plot_actions=False,
         plot_moving_boxes=False,
-        camera_ui=1,
+        camera_ui=0,
         camera_controller="rule",
         camera_model=None,
         camera_window=8,

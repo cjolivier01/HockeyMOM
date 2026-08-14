@@ -716,26 +716,27 @@ class hm_opts(object):
             dest="detector_trt_engine",
             type=str,
             default=None,
-            help="Path to save/load the detector TensorRT engine (defaults under output_workdirs/<GAME_ID>/detector.engine).",
+            help="TensorRT detector cache namespace (defaults under output_workdirs/<GAME_ID>/detector.engine).",
         )
         trt_det.add_argument(
             "--detector-trt-fp16",
             dest="detector_trt_fp16",
-            action="store_true",
-            help="Build TensorRT detector engine in FP16 mode if supported.",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Build the TensorRT detector in FP16 mode (default: enabled).",
         )
         trt_det.add_argument(
             "--detector-trt-int8",
             dest="detector_trt_int8",
             action="store_true",
-            help="Build TensorRT detector engine in INT8 mode with calibration frames.",
+            help="Legacy compatibility flag; unsupported by the Torch-TensorRT path, which falls back to PyTorch.",
         )
         trt_det.add_argument(
             "--detector-trt-calib-frames",
             dest="detector_trt_calib_frames",
             type=int,
             default=200,
-            help="Number of early frames to collect for TensorRT INT8 calibration (default: 200).",
+            help="Deprecated legacy INT8 calibration-frame count (ignored by Torch-TensorRT).",
         )
         trt_det.add_argument(
             "--detector-trt-force-build",
@@ -798,26 +799,34 @@ class hm_opts(object):
             dest="pose_trt_engine",
             type=str,
             default=None,
-            help="Path to save/load the pose TensorRT engine (defaults under output_workdirs/<GAME_ID>/pose.engine).",
+            help="TensorRT pose cache namespace (defaults under output_workdirs/<GAME_ID>/pose.engine).",
         )
         trt_pose.add_argument(
             "--pose-trt-fp16",
             dest="pose_trt_fp16",
-            action="store_true",
-            help="Build TensorRT pose engine in FP16 mode if supported.",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Build the TensorRT pose model in FP16 mode (default: enabled).",
         )
         trt_pose.add_argument(
             "--pose-trt-int8",
             dest="pose_trt_int8",
             action="store_true",
-            help="Build TensorRT pose engine in INT8 mode with calibration frames.",
+            help="Legacy compatibility flag; unsupported by the Torch-TensorRT path, which falls back to PyTorch.",
         )
         trt_pose.add_argument(
             "--pose-trt-calib-frames",
             dest="pose_trt_calib_frames",
             type=int,
             default=200,
-            help="Number of early frames to collect for TensorRT INT8 calibration for pose (default: 200).",
+            help="Deprecated legacy INT8 calibration-frame count (ignored by Torch-TensorRT).",
+        )
+        trt_pose.add_argument(
+            "--pose-trt-batch-size",
+            dest="pose_trt_batch_size",
+            type=int,
+            default=32,
+            help="Static TensorRT pose batch size; larger inputs are chunked and tails padded (default: 32).",
         )
         trt_pose.add_argument(
             "--pose-trt-force-build",
@@ -1652,7 +1661,13 @@ class hm_opts(object):
             "--camera-ui",
             default=0,
             type=int,
-            help="Enable runtime camera braking UI (OpenCV trackbars)",
+            help="Enable the Rust runtime camera UI",
+        )
+        ui.add_argument(
+            "--camera-ui-backend",
+            default="rust",
+            choices=("rust",),
+            help=argparse.SUPPRESS,
         )
         return hm_opts.finalize_parser(parser)
 
@@ -2276,6 +2291,11 @@ class hm_opts(object):
             explicit_arg_names=explicit_arg_names,
         )
         hm_opts.apply_implied_arg_mappings(opt)
+        if int(opt.camera_ui or 0):
+            opt.show_image = True
+            if isinstance(opt.game_config, dict):
+                normalize_runtime_config(opt.game_config)
+                set_nested_value(opt.game_config, "video_out.show_image", True)
 
         return opt
 

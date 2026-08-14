@@ -1,0 +1,7 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+sh_binary(
+    name = "validate_elf_arch",
+    srcs = ["validate_elf_arch.sh"],
+    visibility = ["//visibility:public"],
+)

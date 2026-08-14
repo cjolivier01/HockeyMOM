@@ -43,12 +43,6 @@ from hmlib.video.video_out import VideoOutput
 from hmlib.video.video_stream import VideoStreamReader, VideoStreamWriter
 from hmlib.vis.pt_visualization import draw_box
 
-try:
-    import torch2trt
-except Exception:
-    torch2trt = None
-
-
 ROOT_DIR = os.getcwd()
 
 from hmlib.log import get_logger
@@ -568,8 +562,6 @@ class SmartRemapperBlender(torch.nn.Module):
         self._device = device
         self._overlapping_width = None
         self._empty_image_pixel_value: int = 0
-        self._use_trt: bool = False
-        self._trt_blender: Optional[torch2trt.TRTModule] = None
         if self._minimize_blend:
             width_1 = self._remapper_1.width
             x2 = self._canvas_info.positions[1].x
@@ -796,26 +788,7 @@ class SmartRemapperBlender(torch.nn.Module):
                 )
             )
 
-        if not self._use_trt:
-            blended_img = self._blender.forward(**fwd_args)
-        else:
-            if self._trt_blender is None:
-                # shapes: List[Any] = []
-                values: List[torch.Tensor] = [
-                    fwd_args["image_1"],
-                    fwd_args["alpha_mask_1"],
-                    fwd_args["image_2"],
-                    fwd_args["alpha_mask_2"],
-                ]
-                self._trt_blender: torch2trt.TRTModule = torch2trt.torch2trt(
-                    self._blender, values, fp16_mode=False, max_workspace_size=1 << 25
-                )
-            blended_img = self._trt_blender(
-                fwd_args["image_1"],
-                fwd_args["alpha_mask_1"],
-                fwd_args["image_2"],
-                fwd_args["alpha_mask_2"],
-            )
+        blended_img = self._blender.forward(**fwd_args)
 
         if self._minimize_blend:
             canvas[

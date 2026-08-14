@@ -24,11 +24,6 @@ def _build_args(*, network: str | None) -> argparse.Namespace:
         username="colivier",
         uid=1000,
         gid=1000,
-        cuda_base="nvidia/cuda:12.4.1-devel-ubuntu22.04",
-        torch_index_url="https://download.pytorch.org/whl/cu128",
-        torch_version="2.7.1+cu128",
-        torchvision_version="0.22.1+cu128",
-        torchaudio_version="2.7.1+cu128",
     )
 
 

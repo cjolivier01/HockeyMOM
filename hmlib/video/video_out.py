@@ -20,11 +20,10 @@ import torch
 import torch.nn.functional as F
 
 from hmlib.log import logger
-from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.ui.shower import Shower
 from hmlib.utils import MeanTracker
+from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.utils.gpu import get_gpu_capabilities, unwrap_tensor, wrap_tensor
-from hmlib.utils.torch_backend import is_rocm_backend
 from hmlib.utils.image import (
     image_height,
     image_width,
@@ -35,6 +34,7 @@ from hmlib.utils.image import (
 )
 from hmlib.utils.path import add_suffix_to_filename
 from hmlib.utils.progress_bar import ProgressBar
+from hmlib.utils.torch_backend import is_rocm_backend
 from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
 
 from .py_amd_codec import PyAmdVideoCodec

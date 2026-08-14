@@ -5,7 +5,7 @@ from __future__ import absolute_import, division, print_function
 import copy
 import csv
 import os
-import sys
+import time
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -31,6 +31,7 @@ from hmlib.camera.camera import HockeyMOM
 from hmlib.camera.clusters import ClusterMan
 from hmlib.camera.moving_box import MovingBox
 from hmlib.config import (
+    get_config,
     get_game_config_private,
     get_nested_value,
     normalize_runtime_config,
@@ -53,7 +54,7 @@ from .camera_transformer import (
     build_frame_features,
     unpack_checkpoint,
 )
-from .camera_ui import CameraControlDialog
+from .hm_ui_bridge import HmUiDialog, HmUiProcess
 from .living_box import PyLivingBox, from_bbox, to_bbox
 
 _CPP_BOXES: bool = True
@@ -63,6 +64,8 @@ _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
 # _CPP_PLAYTRACKER: bool = False and _CPP_BOXES
 
 _MISSING = object()
+_UI_ACTION_RETRY_INITIAL_SECONDS = 0.5
+_UI_ACTION_RETRY_MAX_SECONDS = 5.0
 _COLOR_TRACKBARS = {
     "White_Balance_Kelvin_Enable",
     "White_Balance_Kelvin_Temperature",
@@ -80,12 +83,7 @@ _EXPOSURE_EV_X10_MIN: int = -40
 _EXPOSURE_EV_X10_MAX: int = 40
 _EXPOSURE_EV_X10_SLIDER_MAX: int = _EXPOSURE_EV_X10_MAX - _EXPOSURE_EV_X10_MIN  # 80
 _EXPOSURE_EV_X10_SLIDER_ZERO: int = -_EXPOSURE_EV_X10_MIN  # 40 -> 0.0 EV
-
-
-def _opencv_highgui_available() -> bool:
-    if os.name == "nt":
-        return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+_FIXED_EDGE_ROTATION_X10_MAX: int = 900
 
 
 def _load_cluster_centroids_csv(path: Optional[str]) -> Optional[torch.Tensor]:
@@ -241,7 +239,7 @@ class PlayTracker(torch.nn.Module):
         @param plot_speed: Enable velocity/acceleration overlays.
         @param plot_jersey_numbers: Enable jersey number overlays.
         @param plot_actions: Enable action overlays.
-        @param camera_ui: Enable camera UI windows (0/1).
+        @param camera_ui: Enable the Rust camera UI (0/1).
         @param camera_controller: Camera controller mode ('rule'/'transformer').
         @param camera_model: Optional camera transformer checkpoint path.
         @param camera_window: Transformer time window length.
@@ -255,7 +253,21 @@ class PlayTracker(torch.nn.Module):
         """
         super(PlayTracker, self).__init__()
         self._game_config: Dict[str, Any] = game_config
+        self._open_game_config: Dict[str, Any] = copy.deepcopy(game_config)
         self._game_id: Optional[str] = game_id
+        self._system_game_config: Dict[str, Any] = copy.deepcopy(game_config)
+        if camera_ui and game_id:
+            try:
+                self._system_game_config = get_config(
+                    game_id=game_id,
+                    ignore_private_config=True,
+                )
+            except (OSError, RuntimeError, ValueError, KeyError) as ex:
+                logger.warning(
+                    "Could not load system camera defaults for %s; using open-time values: %s",
+                    game_id,
+                    ex,
+                )
         self._cam_ignore_largest: bool = bool(cam_ignore_largest)
         self._no_wide_start: bool = bool(no_wide_start)
         self._debug_play_tracker: bool = bool(debug_play_tracker)
@@ -292,6 +304,7 @@ class PlayTracker(torch.nn.Module):
         self._original_clip_box = original_clip_box
         self._progress_bar = progress_bar
         self._camera_ui_enabled = bool(camera_ui)
+        self._hm_ui_process: Optional[HmUiProcess] = None
         self._ui_window_name = "Tracker Controls"
         self._ui_inited = False
         self._ui_color_window_name = "Tracker Controls (Color)"
@@ -302,8 +315,11 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_right_inited = False
         # Per-window slider defaults: {window_name: {slider_name: default_value}}
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
-        self._ui_dialogs: Dict[str, CameraControlDialog] = {}
+        self._ui_dialogs: Dict[str, HmUiDialog] = {}
         self._ui_controls_dirty = True
+        self._ui_action_retry_after_monotonic = 0.0
+        self._ui_action_retry_delay_seconds = 0.0
+        self._fixed_edge_rotation_last_sliders: Tuple[int, int] = (0, 0)
         self._stitch_rotation_controller = stitch_rotation_controller
         self._force_stitching: bool = bool(force_stitching)
         self._stitch_slider_enabled = False
@@ -540,8 +556,8 @@ class PlayTracker(torch.nn.Module):
                         int(self._require_breakaway_value("post_nonstop_stop_delay_count"))
                     )
                 )
-            except Exception:
-                pass
+            except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+                logger.warning("Failed to read live stitch rotation: %s", ex)
 
             # If we are not using the C++ PlayTracker, or if the camera controller is external
             # (e.g. transformer/GPT trunks), initialize Python-side movers without creating the C++ PlayTracker.
@@ -755,10 +771,7 @@ class PlayTracker(torch.nn.Module):
             )
 
         if self._camera_ui_enabled:
-            if _opencv_highgui_available():
-                self._init_ui_controls()
-            else:
-                self._camera_ui_enabled = False
+            self._init_ui_controls()
 
         cm_path = camera_model
         if self._camera_controller == "transformer" and cm_path:
@@ -1570,6 +1583,7 @@ class PlayTracker(torch.nn.Module):
         img = wrap_tensor(img)
         img._verbose = True
         results["img"] = img
+        self._publish_hm_ui_preview(img)
 
         return results
 
@@ -1612,8 +1626,17 @@ class PlayTracker(torch.nn.Module):
         *,
         initial_size: Tuple[int, int],
         position: Optional[Tuple[int, int]] = None,
-    ) -> CameraControlDialog:
-        dialog = CameraControlDialog(
+    ):
+        if self._hm_ui_process is None:
+            title = "HM UI"
+            if self._game_id:
+                title = f"HM UI - {self._game_id}"
+            self._hm_ui_process = HmUiProcess(
+                title=title,
+                preview_names=("Stitched", "Final"),
+            )
+        dialog = HmUiDialog(
+            self._hm_ui_process,
             window_name,
             on_change=self._on_ui_control_changed,
             initial_size=initial_size,
@@ -1637,8 +1660,38 @@ class PlayTracker(torch.nn.Module):
         self._ui_dialogs[window_name].set_value(name, value, notify=notify)
 
     def _render_ui_dialogs(self) -> None:
-        for dialog in self._ui_dialogs.values():
-            dialog.show()
+        if self._hm_ui_process is None:
+            return
+        self._hm_ui_process.poll()
+        if self._hm_ui_process.last_poll_values_changed:
+            self._on_ui_control_changed(0)
+        if self._hm_ui_process.closed:
+            raise RuntimeError("hm-ui was closed")
+
+    def _publish_hm_ui_preview(self, img) -> None:
+        if not self._camera_ui_enabled or self._hm_ui_process is None:
+            return
+        try:
+            self._hm_ui_process.publish_preview(img, name="Stitched")
+        except Exception as ex:
+            logger.warning("Failed to publish hm-ui preview frame: %s", ex)
+
+    def close_ui(self) -> None:
+        if self._hm_ui_process is not None:
+            self._hm_ui_process.close()
+            self._hm_ui_process = None
+
+    def hm_ui_preview_active(self) -> bool:
+        return (
+            self._camera_ui_enabled
+            and self._hm_ui_process is not None
+            and not self._hm_ui_process.closed
+        )
+
+    def hm_ui_process(self) -> Optional[HmUiProcess]:
+        if not self.hm_ui_preview_active():
+            return None
+        return self._hm_ui_process
 
     def _stitch_deg_to_slider(self, degrees: float) -> int:
         """Convert signed degrees (-90..+90) to slider position (left=positive)."""
@@ -1648,6 +1701,75 @@ class PlayTracker(torch.nn.Module):
     def _slider_to_stitch_deg(self, position: int) -> float:
         """Convert slider position to signed degrees (-90..+90), left=positive."""
         return float(90 - position)
+
+    def _fixed_edge_rotation_slider_defaults(
+        self, config: Optional[Dict[str, Any]] = None
+    ) -> Tuple[int, int, int]:
+        source_config = self._game_config if config is None else config
+        value = get_nested_value(source_config, "rink.camera.fixed_edge_rotation_angle", 0.0)
+        linked = 1
+        if isinstance(value, (list, tuple)):
+            if len(value) != 2:
+                logger.warning(
+                    "Invalid fixed_edge_rotation_angle %r; expected one value or [left, right]",
+                    value,
+                )
+                value = (0.0, 0.0)
+            linked = 0
+            left, right = value
+        else:
+            left = right = value
+        try:
+            left_x10 = int(max(0, min(_FIXED_EDGE_ROTATION_X10_MAX, round(float(left) * 10.0))))
+            right_x10 = int(max(0, min(_FIXED_EDGE_ROTATION_X10_MAX, round(float(right) * 10.0))))
+        except (TypeError, ValueError):
+            logger.warning("Invalid fixed_edge_rotation_angle value: %r", value)
+            left_x10 = right_x10 = 0
+        return linked, left_x10, right_x10
+
+    def _apply_fixed_edge_rotation_controls(self) -> Union[float, List[float]]:
+        fixed_linked = bool(
+            self._ui_slider_value(
+                self._ui_window_name,
+                "Link_Fixed_Edge_Rotation_Left_Right",
+            )
+        )
+        fixed_left_x10 = self._ui_slider_value(
+            self._ui_window_name,
+            "Left_Fixed_Edge_Rotation_Angle_x10",
+        )
+        fixed_right_x10 = self._ui_slider_value(
+            self._ui_window_name,
+            "Right_Fixed_Edge_Rotation_Angle_x10",
+        )
+        previous_left_x10, previous_right_x10 = self._fixed_edge_rotation_last_sliders
+        if fixed_linked:
+            if fixed_right_x10 != previous_right_x10 and fixed_left_x10 == previous_left_x10:
+                fixed_left_x10 = fixed_right_x10
+            else:
+                fixed_right_x10 = fixed_left_x10
+            self._set_ui_slider_value(
+                self._ui_window_name,
+                "Left_Fixed_Edge_Rotation_Angle_x10",
+                fixed_left_x10,
+            )
+            self._set_ui_slider_value(
+                self._ui_window_name,
+                "Right_Fixed_Edge_Rotation_Angle_x10",
+                fixed_right_x10,
+            )
+            fixed_edge_rotation_angle: Union[float, List[float]] = float(fixed_left_x10) / 10.0
+        else:
+            fixed_edge_rotation_angle = [
+                float(fixed_left_x10) / 10.0,
+                float(fixed_right_x10) / 10.0,
+            ]
+        self._fixed_edge_rotation_last_sliders = (fixed_left_x10, fixed_right_x10)
+        self._set_ui_config_value(
+            ("rink", "camera", "fixed_edge_rotation_angle"),
+            fixed_edge_rotation_angle,
+        )
+        return fixed_edge_rotation_angle
 
     def _current_stitch_rotation_degrees(self) -> Optional[float]:
         """Read the current post-stitch rotation from controller or config."""
@@ -1665,7 +1787,8 @@ class PlayTracker(torch.nn.Module):
                 pass
         try:
             return get_nested_value(self._game_config, "stitching.post_stitch_rotate_degrees")
-        except Exception:
+        except (KeyError, TypeError, ValueError) as ex:
+            logger.warning("Failed to read stitch rotation from runtime config: %s", ex)
             return None
 
     def _set_stitch_rotation_degrees(self, degrees: Optional[float]) -> None:
@@ -1678,8 +1801,8 @@ class PlayTracker(torch.nn.Module):
                     setter(degrees)
                 else:
                     setattr(ctrl, "post_stitch_rotate_degrees", degrees)
-            except Exception:
-                pass
+            except (AttributeError, RuntimeError, TypeError, ValueError) as ex:
+                logger.warning("Failed to apply live stitch rotation: %s", ex)
         self._set_config_value(
             self._game_config,
             ("stitching", "post_stitch_rotate_degrees"),
@@ -1729,8 +1852,8 @@ class PlayTracker(torch.nn.Module):
                 defaults["White_Balance_Blue_Gain_x100"] = int(
                     max(1.0, min(300.0, float(b) * 100.0))
                 )
-            except Exception:
-                pass
+            except (TypeError, ValueError) as ex:
+                logger.warning("Invalid camera white balance gains %r: %s", wb, ex)
         if "exposure_ev" in color_cfg:
             defaults["Exposure_EV_x10"] = self._exposure_ev_to_slider(color_cfg.get("exposure_ev"))
         for cfg_key, slider_key in (
@@ -1742,40 +1865,43 @@ class PlayTracker(torch.nn.Module):
                 try:
                     val = color_cfg[cfg_key]
                     defaults[slider_key] = int(max(1.0, min(300.0, float(val) * 100.0)))
-                except Exception:
-                    pass
+                except (TypeError, ValueError) as ex:
+                    logger.warning("Invalid camera color value %s=%r: %s", cfg_key, val, ex)
         return defaults
 
-    def _color_slider_defaults(self) -> Dict[str, int]:
+    def _color_slider_defaults(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
         # Global stitched camera color defaults from top-level + rink camera.
+        source_config = self._game_config if config is None else config
         try:
             base_cfg: Dict[str, Any] = {}
-            top_camera = (
-                self._game_config.get("camera", {}) if isinstance(self._game_config, dict) else {}
-            )
+            top_camera = source_config.get("camera", {}) if isinstance(source_config, dict) else {}
             if isinstance(top_camera, dict):
                 base_cfg.update(top_camera.get("color", {}) or top_camera)
-            rink_camera = self._game_config.get("rink", {}).get("camera", {})  # type: ignore[assignment]
+            rink_camera = source_config.get("rink", {}).get("camera", {})  # type: ignore[assignment]
             if isinstance(rink_camera, dict):
                 base_cfg.update(rink_camera.get("color", {}) or rink_camera)
             color_cfg = base_cfg
-        except Exception:
+        except Exception as ex:
+            logger.warning("Failed to read camera color defaults: %s", ex)
             color_cfg = {}
         return self._base_color_slider_defaults(color_cfg)
 
-    def _stitch_side_color_defaults(self, side: str) -> Dict[str, int]:
+    def _stitch_side_color_defaults(
+        self, side: str, config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, int]:
         # Per-side stitching defaults under stitching.<side>.color (if present).
+        source_config = self._game_config if config is None else config
         cfg: Dict[str, Any] = {}
         try:
-            if isinstance(self._game_config, dict):
-                stitching = self._game_config.get("stitching", {})
+            if isinstance(source_config, dict):
+                stitching = source_config.get("stitching", {})
                 side_cfg = stitching.get(side, {}) if isinstance(stitching, dict) else {}
                 if isinstance(side_cfg, dict):
                     color_sub = side_cfg.get("color", {}) or side_cfg
                     if isinstance(color_sub, dict):
                         cfg.update(color_sub)
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.warning("Failed to read %s stitch color defaults: %s", side, ex)
         return self._base_color_slider_defaults(cfg)
 
     def _set_ui_color_value_at_prefixes(
@@ -1880,6 +2006,21 @@ class PlayTracker(torch.nn.Module):
                 except Exception as ex:
                     logger.warning("Failed to initialize stitch rotation camera UI control: %s", ex)
                     self._stitch_slider_enabled = False
+            fixed_linked, fixed_left_x10, fixed_right_x10 = (
+                self._fixed_edge_rotation_slider_defaults()
+            )
+            tb("Link_Fixed_Edge_Rotation_Left_Right", 1, fixed_linked)
+            tb(
+                "Left_Fixed_Edge_Rotation_Angle_x10",
+                _FIXED_EDGE_ROTATION_X10_MAX,
+                fixed_left_x10,
+            )
+            tb(
+                "Right_Fixed_Edge_Rotation_Angle_x10",
+                _FIXED_EDGE_ROTATION_X10_MAX,
+                fixed_right_x10,
+            )
+            self._fixed_edge_rotation_last_sliders = (fixed_left_x10, fixed_right_x10)
             # Speeds/accels (scale sliders by x10 to allow decimals)
             camera_cfg = self._camera_cfg()
             msx = int(10 * self._camera_base_speed_x * float(camera_cfg["max_speed_ratio_x"]))
@@ -1902,6 +2043,9 @@ class PlayTracker(torch.nn.Module):
                 Time_To_Dest_Speed_Limit_Frames=ttg,
                 Apply_To_Fast_Box=0,
                 Apply_To_Follower_Box=1,
+                Link_Fixed_Edge_Rotation_Left_Right=fixed_linked,
+                Left_Fixed_Edge_Rotation_Angle_x10=fixed_left_x10,
+                Right_Fixed_Edge_Rotation_Angle_x10=fixed_right_x10,
                 Max_Speed_X_x10=msx,
                 Max_Speed_Y_x10=msy,
                 Max_Accel_X_x10=maxx,
@@ -2052,12 +2196,104 @@ class PlayTracker(torch.nn.Module):
                 except Exception as ex:
                     logger.warning("Failed to initialize right camera color UI controls: %s", ex)
                     self._ui_color_right_inited = False
-        except Exception:
-            import traceback
+            self._publish_ui_system_defaults()
+        except Exception as ex:
+            try:
+                self.close_ui()
+            except (OSError, RuntimeError) as close_ex:
+                logger.warning("Failed to clean up partially initialized camera UI: %s", close_ex)
+            self._ui_dialogs.clear()
+            self._ui_inited = False
+            self._ui_color_inited = False
+            self._ui_color_left_inited = False
+            self._ui_color_right_inited = False
+            raise RuntimeError("Failed to initialize camera UI controls") from ex
 
-            traceback.print_exc()
-            print("Failed to initialize camera UI controls.", file=sys.stderr)
-            self._camera_ui_enabled = False
+    def _publish_ui_system_defaults(self) -> None:
+        if self._hm_ui_process is None:
+            return
+
+        defaults = copy.deepcopy(self._ui_defaults)
+        camera_cfg = get_nested_value(self._system_game_config, "rink.camera", {}) or {}
+        breakaway_cfg = camera_cfg.get("breakaway_detection", {})
+        main = defaults.get(self._ui_window_name, {})
+
+        def _replace(name: str, value: Any, converter=int) -> None:
+            if name not in main or value is None:
+                return
+            try:
+                main[name] = converter(value)
+            except (TypeError, ValueError):
+                logger.warning("Invalid system default for camera UI control %s: %r", name, value)
+
+        _replace("Stop_Direction_Change_Delay_Frames", camera_cfg.get("stop_on_dir_change_delay"))
+        _replace(
+            "Cancel_Stop_On_Opposite_Direction",
+            camera_cfg.get("cancel_stop_on_opposite_dir"),
+            lambda value: int(bool(value)),
+        )
+        _replace("Stop_Cancel_Hysteresis_Frames", camera_cfg.get("stop_cancel_hysteresis_frames"))
+        _replace("Stop_Delay_Cooldown_Frames", camera_cfg.get("stop_delay_cooldown_frames"))
+        _replace("Overshoot_Stop_Delay_Frames", breakaway_cfg.get("overshoot_stop_delay_count"))
+        _replace(
+            "Post_Nonstop_Stop_Delay_Frames",
+            breakaway_cfg.get("post_nonstop_stop_delay_count"),
+        )
+        _replace(
+            "Overshoot_Speed_Ratio_x100",
+            breakaway_cfg.get("overshoot_scale_speed_ratio"),
+            lambda value: int(round(float(value) * 100.0)),
+        )
+        _replace(
+            "Time_To_Dest_Speed_Limit_Frames", camera_cfg.get("time_to_dest_speed_limit_frames")
+        )
+        _replace(
+            "Max_Speed_X_x10",
+            camera_cfg.get("max_speed_ratio_x"),
+            lambda value: int(round(10.0 * self._camera_base_speed_x * float(value))),
+        )
+        _replace(
+            "Max_Speed_Y_x10",
+            camera_cfg.get("max_speed_ratio_y"),
+            lambda value: int(round(10.0 * self._camera_base_speed_y * float(value))),
+        )
+        _replace(
+            "Max_Accel_X_x10",
+            camera_cfg.get("max_accel_ratio_x"),
+            lambda value: int(round(10.0 * self._camera_base_accel_x * float(value))),
+        )
+        _replace(
+            "Max_Accel_Y_x10",
+            camera_cfg.get("max_accel_ratio_y"),
+            lambda value: int(round(10.0 * self._camera_base_accel_y * float(value))),
+        )
+        if "Stitch_Rotate_Degrees" in main:
+            rotation = get_nested_value(
+                self._system_game_config,
+                "stitching.post_stitch_rotate_degrees",
+                0.0,
+            )
+            main["Stitch_Rotate_Degrees"] = self._stitch_deg_to_slider(rotation or 0.0)
+        fixed_linked, fixed_left_x10, fixed_right_x10 = self._fixed_edge_rotation_slider_defaults(
+            self._system_game_config
+        )
+        main["Link_Fixed_Edge_Rotation_Left_Right"] = fixed_linked
+        main["Left_Fixed_Edge_Rotation_Angle_x10"] = fixed_left_x10
+        main["Right_Fixed_Edge_Rotation_Angle_x10"] = fixed_right_x10
+
+        if self._ui_color_window_name in defaults:
+            defaults[self._ui_color_window_name] = self._color_slider_defaults(
+                self._system_game_config
+            )
+        if self._ui_color_left_window_name in defaults:
+            defaults[self._ui_color_left_window_name] = self._stitch_side_color_defaults(
+                "left", self._system_game_config
+            )
+        if self._ui_color_right_window_name in defaults:
+            defaults[self._ui_color_right_window_name] = self._stitch_side_color_defaults(
+                "right", self._system_game_config
+            )
+        self._hm_ui_process.set_system_defaults(defaults)
 
     def _apply_ui_controls(self):
         if not self._camera_ui_enabled or not self._ui_inited:
@@ -2067,14 +2303,82 @@ class PlayTracker(torch.nn.Module):
         except Exception as ex:
             logger.warning("Failed to render camera UI controls: %s", ex)
             self._camera_ui_enabled = False
+            try:
+                self.close_ui()
+            except (OSError, RuntimeError) as close_ex:
+                logger.warning("Failed to close disabled camera UI: %s", close_ex)
             return
+        process = self._hm_ui_process
+        if process is None:
+            return
+        controls_changed = self._ui_controls_dirty
+        rust_controls_changed = process.last_poll_values_changed
+        final_values = process.control_values()
+        events = process.consume_action_events(poll=False)
+        runtime_values = None
+        retry_now = time.monotonic()
+        retry_deferred = bool(events) and retry_now < self._ui_action_retry_after_monotonic
+        if not events:
+            self._ui_action_retry_after_monotonic = 0.0
+            self._ui_action_retry_delay_seconds = 0.0
         try:
-            # Still poll keyboard every frame for responsiveness
-            self._handle_ui_keyboard()
-        except Exception:
-            pass
-        if not self._ui_controls_dirty:
-            return
+            if retry_deferred:
+                if rust_controls_changed and not self._apply_current_ui_control_values():
+                    raise RuntimeError("Failed to apply deferred camera UI values")
+            else:
+                for event in events:
+                    process.apply_control_values(
+                        final_values if event.values is None else event.values
+                    )
+                    event_values = process.control_values()
+                    if event.kind == "reset-system":
+                        if not self._apply_current_ui_control_values():
+                            raise RuntimeError("Failed to apply system-reset camera UI values")
+                        self._restore_ui_managed_config(self._system_game_config)
+                        runtime_values = event_values
+                    elif event.kind == "reset-open":
+                        if not self._apply_current_ui_control_values():
+                            raise RuntimeError("Failed to apply open-reset camera UI values")
+                        self._restore_ui_managed_config(self._open_game_config)
+                        runtime_values = event_values
+                    elif event.kind == "save":
+                        if event_values != runtime_values:
+                            if not self._apply_current_ui_control_values():
+                                raise RuntimeError("Failed to apply saved camera UI values")
+                            runtime_values = event_values
+                        if not self._save_ui_config():
+                            raise RuntimeError("Failed to save camera UI values")
+                process.apply_control_values(final_values, publish=bool(events))
+                if (controls_changed or events) and final_values != runtime_values:
+                    if not self._apply_current_ui_control_values():
+                        raise RuntimeError("Failed to apply final camera UI values")
+                if events:
+                    process.acknowledge_action_events(max(event.seq for event in events))
+                    self._ui_action_retry_after_monotonic = 0.0
+                    self._ui_action_retry_delay_seconds = 0.0
+        except (OSError, RuntimeError, TypeError, ValueError, KeyError) as ex:
+            self._ui_controls_dirty = True
+            delay = (
+                _UI_ACTION_RETRY_INITIAL_SECONDS
+                if self._ui_action_retry_delay_seconds <= 0.0
+                else min(
+                    _UI_ACTION_RETRY_MAX_SECONDS,
+                    self._ui_action_retry_delay_seconds * 2.0,
+                )
+            )
+            self._ui_action_retry_delay_seconds = delay
+            self._ui_action_retry_after_monotonic = retry_now + delay
+            logger.warning("Failed to replay camera UI actions; retrying in %.1fs: %s", delay, ex)
+            try:
+                process.apply_control_values(final_values, publish=bool(events))
+                if final_values != runtime_values:
+                    if not self._apply_current_ui_control_values():
+                        raise RuntimeError("Failed to restore final camera UI values")
+                    self._restore_final_ui_reset_config(events, final_values)
+            except (OSError, RuntimeError, TypeError, ValueError, KeyError) as restore_ex:
+                logger.warning("Failed to restore final camera UI values: %s", restore_ex)
+
+    def _apply_current_ui_control_values(self) -> bool:
         try:
             self._ui_controls_dirty = False
             # Read scalable camera controls.
@@ -2176,6 +2480,7 @@ class PlayTracker(torch.nn.Module):
             msy = self._ui_slider_value(self._ui_window_name, "Max_Speed_Y_x10") / 10.0
             maxx = self._ui_slider_value(self._ui_window_name, "Max_Accel_X_x10") / 10.0
             maxy = self._ui_slider_value(self._ui_window_name, "Max_Accel_Y_x10") / 10.0
+            self._apply_fixed_edge_rotation_controls()
             if self._camera_base_speed_x > 0:
                 self._set_ui_config_value(
                     ("rink", "camera", "max_speed_ratio_x"),
@@ -2249,13 +2554,15 @@ class PlayTracker(torch.nn.Module):
                         )
                         lb.set_translation_constraints(msx, msy, maxx, maxy)
                     self._playtracker.set_breakaway_braking(int(ov_delay_scaled), ov_scal)
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.warning("Failed to apply camera UI values to C++ play tracker: %s", ex)
             # For Python-only breakaway values, we read from self._game_config in calculate_breakaway
+            return True
         except Exception as ex:
             # If we failed to read UI, try again next frame
             self._ui_controls_dirty = True
             logger.warning("Failed to read/apply camera UI controls: %s", ex)
+            return False
 
     def _draw_ui_overlay(self, img):
         if not self._camera_ui_enabled or not self._ui_inited:
@@ -2264,11 +2571,8 @@ class PlayTracker(torch.nn.Module):
             camera_cfg = self._camera_cfg()
             bkd = self._breakaway_cfg()
             # Show current panorama rotate degrees if set
-            try:
-                rot_deg = self._current_stitch_rotation_degrees()
-                rot_text = f" Rot={float(rot_deg):+.1f}deg" if rot_deg is not None else ""
-            except Exception:
-                rot_text = ""
+            rot_deg = self._current_stitch_rotation_degrees()
+            rot_text = f" Rot={float(rot_deg):+.1f}deg" if rot_deg is not None else ""
             text = (
                 f"DirChangeDelay={camera_cfg['stop_on_dir_change_delay']} "
                 f"CancelOpposite={int(bool(camera_cfg['cancel_stop_on_opposite_dir']))} "
@@ -2288,46 +2592,19 @@ class PlayTracker(torch.nn.Module):
                 (0, 255, 0),
                 thickness=2,
             )
-            # Key help
+            # Rust UI help
             img = vis.plot_text(
                 img,
-                "[R]eset  [S]ave",
+                "Use HM UI to reset or save",
                 (20, 70),
                 cv2.FONT_HERSHEY_PLAIN,
                 2,
                 (255, 255, 255),
                 thickness=2,
             )
-            self._handle_ui_keyboard()
-        except Exception:
-            pass
-        return img
-
-    def _handle_ui_keyboard(self):
-        if not self._camera_ui_enabled or not self._ui_inited:
-            return
-        try:
-            k = cv2.waitKey(1) & 0xFF
-            if k == ord("r") or k == ord("R"):
-                self._reset_ui_controls()
-            elif k == ord("s") or k == ord("S"):
-                self._save_ui_config()
-        except Exception:
-            pass
-
-    def _reset_ui_controls(self):
-        if not self._camera_ui_enabled or not self._ui_inited:
-            return
-        try:
-            for win, sliders in self._ui_defaults.items():
-                for name, val in sliders.items():
-                    try:
-                        self._set_ui_slider_value(win, name, int(val))
-                    except KeyError as ex:
-                        logger.warning("Failed to reset camera UI slider %s.%s: %s", win, name, ex)
-            self._ui_controls_dirty = True
         except Exception as ex:
-            logger.warning("Failed to reset camera UI controls: %s", ex)
+            logger.warning("Failed to draw camera UI status overlay: %s", ex)
+        return img
 
     def _values_equal(self, a, b) -> bool:
         if a is _MISSING or b is _MISSING:
@@ -2487,7 +2764,11 @@ class PlayTracker(torch.nn.Module):
         self._set_config_value(self._game_config, path, value, mark_dirty=True)
 
     def _get_config_path_value(self, path: Tuple[str, ...]):
-        cur: Any = self._game_config
+        return self._get_path_value(self._game_config, path)
+
+    @staticmethod
+    def _get_path_value(config: Dict[str, Any], path: Tuple[str, ...]):
+        cur: Any = config
         for key in path:
             if not isinstance(cur, dict) or key not in cur:
                 return _MISSING
@@ -2500,14 +2781,89 @@ class PlayTracker(torch.nn.Module):
     def _delete_priv_path(self, priv: Dict[str, Any], path: Tuple[str, ...]) -> bool:
         return self._set_config_value(priv, path, _MISSING, mark_dirty=False, cleanup_empty=True)
 
-    def _save_ui_config(self):
+    def _ui_managed_config_paths(self) -> Set[Tuple[str, ...]]:
+        paths: Set[Tuple[str, ...]] = set()
+        if self._ui_inited:
+            paths.update(
+                {
+                    ("rink", "camera", "stop_on_dir_change_delay"),
+                    ("rink", "camera", "cancel_stop_on_opposite_dir"),
+                    ("rink", "camera", "stop_cancel_hysteresis_frames"),
+                    ("rink", "camera", "stop_delay_cooldown_frames"),
+                    ("rink", "camera", "time_to_dest_speed_limit_frames"),
+                    ("rink", "camera", "max_speed_ratio_x"),
+                    ("rink", "camera", "max_speed_ratio_y"),
+                    ("rink", "camera", "max_accel_ratio_x"),
+                    ("rink", "camera", "max_accel_ratio_y"),
+                    ("rink", "camera", "fixed_edge_rotation_angle"),
+                    (
+                        "rink",
+                        "camera",
+                        "breakaway_detection",
+                        "overshoot_stop_delay_count",
+                    ),
+                    (
+                        "rink",
+                        "camera",
+                        "breakaway_detection",
+                        "post_nonstop_stop_delay_count",
+                    ),
+                    (
+                        "rink",
+                        "camera",
+                        "breakaway_detection",
+                        "overshoot_scale_speed_ratio",
+                    ),
+                }
+            )
+        if self._stitch_slider_enabled:
+            paths.add(("stitching", "post_stitch_rotate_degrees"))
+        color_keys = {
+            "white_balance",
+            "white_balance_temp",
+            "brightness",
+            "exposure_ev",
+            "contrast",
+            "gamma",
+        }
+        if self._ui_color_inited:
+            paths.update(("rink", "camera", "color", key) for key in color_keys)
+        if self._ui_color_left_inited:
+            paths.update(("stitching", "left", "color", key) for key in color_keys)
+        if self._ui_color_right_inited:
+            paths.update(("stitching", "right", "color", key) for key in color_keys)
+        return paths
+
+    def _restore_ui_managed_config(self, source: Dict[str, Any]) -> None:
+        for path in self._ui_managed_config_paths():
+            self._set_ui_config_value(path, self._get_path_value(source, path))
+        stitch_path = ("stitching", "post_stitch_rotate_degrees")
+        stitch_value = self._get_path_value(source, stitch_path)
+        if stitch_value is not _MISSING and self._stitch_slider_enabled:
+            self._set_stitch_rotation_degrees(float(stitch_value))
+
+    def _restore_final_ui_reset_config(
+        self,
+        events: List[Any],
+        final_values: Dict[str, Dict[str, int]],
+    ) -> None:
+        for event in reversed(events):
+            event_values = final_values if event.values is None else event.values
+            if event_values != final_values:
+                continue
+            if event.kind == "reset-system":
+                self._restore_ui_managed_config(self._system_game_config)
+                return
+            if event.kind == "reset-open":
+                self._restore_ui_managed_config(self._open_game_config)
+                return
+
+    def _save_ui_config(self) -> bool:
         # Save current game_config to private config.yaml if game_id is present
         try:
             game_id = self._game_id
             if not game_id:
-                return
-            if not self._ui_dirty_paths:
-                return
+                return True
             priv = get_game_config_private(game_id=game_id) or {}
             normalize_runtime_config(priv)
 
@@ -2539,21 +2895,28 @@ class PlayTracker(torch.nn.Module):
                     ):
                         try:
                             self._delete_priv_path(priv, path)
-                        except Exception:
-                            pass
+                        except (KeyError, TypeError, ValueError) as ex:
+                            logger.warning(
+                                "Failed to clear stale private camera geometry at %s: %s",
+                                ".".join(path),
+                                ex,
+                            )
 
             dirty = False
-            for path in list(self._ui_dirty_paths):
+            for path in self._ui_managed_config_paths() | self._ui_dirty_paths:
                 current_value = self._get_config_path_value(path)
-                if current_value is _MISSING:
+                system_value = self._get_path_value(self._system_game_config, path)
+                if current_value is _MISSING or self._values_equal(current_value, system_value):
                     dirty |= self._delete_priv_path(priv, path)
                 else:
                     dirty |= self._set_priv_path(priv, path, current_value)
             if dirty:
                 save_private_config(game_id=game_id, data=priv, verbose=True)
             self._ui_dirty_paths.clear()
+            return True
         except Exception:
-            pass
+            logger.exception("Failed to save camera UI values to private config")
+            return False
 
     def calculate_breakaway(
         self,

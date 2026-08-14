@@ -172,6 +172,17 @@ py_test(
 )
 
 sh_test(
+    name = "test_torch_tensorrt_runtime",
+    srcs = ["test_torch_tensorrt_runtime.sh"],
+    data = [
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_torch_tensorrt_runtime.py",
+    ],
+)
+
+sh_test(
     name="test_headless_preview_runtime",
     srcs=["test_headless_preview_runtime.sh"],
     data=[
@@ -259,4 +270,119 @@ sh_test(
         "test_mot_video_prefetch.py",
     ],
     tags = ["manual"],
+)
+
+sh_test(
+    name="test_camera_ui_flag",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_camera_ui_flag.py",
+        "cv2",
+        "mmengine",
+        "networkx",
+        "numpy",
+        "pytest",
+        "torch",
+        "yaml",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_camera_ui_flag.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
+sh_test(
+    name="test_hm_ui_bridge",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_hm_ui_bridge.py",
+        "cv2",
+        "numpy",
+        "pytest",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_hm_ui_bridge.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
+sh_test(
+    name="test_stitch_ui_plugin",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_stitch_ui_plugin.py",
+        "cv2",
+        "mmengine",
+        "networkx",
+        "numpy",
+        "pytest",
+        "torch",
+        "yaml",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_stitch_ui_plugin.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
+sh_test(
+    name="test_stitch_aspen_pipeline",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_stitch_aspen_pipeline.py",
+        "networkx",
+        "pytest",
+        "torch",
+        "yaml",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:config_data_files",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_stitch_aspen_pipeline.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
+sh_test(
+    name="test_apply_camera_plugin_dimensions",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_apply_camera_plugin_dimensions.py",
+        "mmcv",
+        "pytest",
+        "torch",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_apply_camera_plugin_dimensions.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
 )

@@ -69,6 +69,7 @@ class ApplyCameraPlugin(Plugin):
         self._pipeline_cfg = video_out_pipeline or {}
         self._pipeline: Optional[Compose] = None
         self._color_adjust_tf = None
+        self._perspective_rotation_tf = None
         self._video_frame_cfg: Optional[Dict[str, Any]] = None
         self._end_zones: Optional[EndZones] = None
         self._game_config: Optional[Dict[str, Any]] = None
@@ -277,11 +278,7 @@ class ApplyCameraPlugin(Plugin):
                             self._color_adjust_tf = tf
                             break
                 if self._color_adjust_tf is not None and self._game_config is not None:
-                    cam = None
-                    try:
-                        cam = self._game_config.get("rink", {}).get("camera", {})
-                    except Exception:
-                        cam = None
+                    cam = self._game_config.get("rink", {}).get("camera", {})
                     if isinstance(cam, dict):
                         color = cam.get("color", {}) or {}
                         wb = color.get("white_balance", cam.get("white_balance"))
@@ -298,37 +295,59 @@ class ApplyCameraPlugin(Plugin):
                                 self._color_adjust_tf.white_balance = (
                                     self._color_adjust_tf._gains_from_kelvin(wbk)
                                 )
-                            except Exception:
-                                pass
+                            except (TypeError, ValueError) as ex:
+                                logger.warning("Invalid runtime white_balance_temp %r: %s", wbk, ex)
                         elif wb is not None:
                             try:
                                 if isinstance(wb, (list, tuple)) and len(wb) == 3:
                                     self._color_adjust_tf.white_balance = [float(x) for x in wb]
-                            except Exception:
-                                pass
+                            except (TypeError, ValueError) as ex:
+                                logger.warning("Invalid runtime white_balance %r: %s", wb, ex)
                         if bright is not None:
                             try:
                                 self._color_adjust_tf.brightness = float(bright)
-                            except Exception:
-                                pass
+                            except (TypeError, ValueError) as ex:
+                                logger.warning("Invalid runtime brightness %r: %s", bright, ex)
                         if exposure_ev is not None:
                             try:
                                 self._color_adjust_tf.exposure_ev = float(exposure_ev)
-                            except Exception:
-                                pass
+                            except (TypeError, ValueError) as ex:
+                                logger.warning(
+                                    "Invalid runtime exposure_ev %r: %s", exposure_ev, ex
+                                )
                         if contr is not None:
                             try:
                                 self._color_adjust_tf.contrast = float(contr)
-                            except Exception:
-                                pass
+                            except (TypeError, ValueError) as ex:
+                                logger.warning("Invalid runtime contrast %r: %s", contr, ex)
                         if gamma is not None:
                             try:
                                 self._color_adjust_tf.gamma = float(gamma)
-                            except Exception:
-                                pass
-            except Exception:
-                # Non-fatal if color transform not found
-                pass
+                            except (TypeError, ValueError) as ex:
+                                logger.warning("Invalid runtime gamma %r: %s", gamma, ex)
+            except (AttributeError, KeyError, TypeError, ValueError) as ex:
+                logger.warning("Failed to refresh runtime camera color controls: %s", ex)
+
+            if self._perspective_rotation_tf is None:
+                for transform in getattr(self._pipeline, "transforms", []):
+                    if transform.__class__.__name__ == "HmPerspectiveRotation":
+                        self._perspective_rotation_tf = transform
+                        break
+            if self._perspective_rotation_tf is not None and self._game_config is not None:
+                angle = get_nested_value(
+                    self._game_config,
+                    "rink.camera.fixed_edge_rotation_angle",
+                    None,
+                )
+                if angle is not None:
+                    try:
+                        self._perspective_rotation_tf.set_fixed_edge_rotation_angle(angle)
+                    except (TypeError, ValueError) as ex:
+                        logger.warning(
+                            "Invalid runtime rink.camera.fixed_edge_rotation_angle %r: %s",
+                            angle,
+                            ex,
+                        )
 
             pipeline_inputs: Dict[str, Any] = {
                 "img": img,

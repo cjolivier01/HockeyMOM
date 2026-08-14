@@ -14,11 +14,9 @@ Options are passed to: scripts/hm_cuda_container.py build
 Common options:
   --tag TAG                     Docker image tag (default: env/tag if present)
   --network default|host|none    Build network mode
-  --cuda-base IMAGE             Base image (default: nvidia/cuda:12.4.1-devel-ubuntu22.04)
-  --torch-index-url URL
-  --torch-version VERSION
-  --torchvision-version VERSION
-  --torchaudio-version VERSION
+
+The CUDA, PyTorch, and TensorRT versions are pinned together in the Dockerfile
+because their binary interfaces must match.
 
 Examples:
   ./DockerBuild.sh

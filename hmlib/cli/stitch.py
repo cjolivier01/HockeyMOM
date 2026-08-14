@@ -559,22 +559,22 @@ def stitch_videos(
     configure_only: bool = False,
     lowmem: bool = False,
     post_stitch_rotate_degrees: Optional[float] = None,
+    camera_ui: int = 0,
     args: Optional[argparse.Namespace] = None,
 ):
-    from hmlib.config import get_clip_box
+    from hmlib.config import (
+        get_clip_box,
+        get_config,
+        load_yaml_files_ordered,
+        normalize_runtime_config,
+        resolve_global_refs,
+    )
     from hmlib.tracking_utils.timer import Timer
     from hmlib.ui import Shower
     from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
     from hmlib.utils.image import image_height, image_width, resize_image
     from hmlib.utils.progress_bar import ProgressBar, ScrollOutput, convert_hms_to_seconds
     from hmlib.video.video_stream import MAX_NEVC_VIDEO_WIDTH
-
-    from hmlib.config import (
-        get_config,
-        load_yaml_files_ordered,
-        normalize_runtime_config,
-        resolve_global_refs,
-    )
 
     AspenNet = globals().get("AspenNet")
     if AspenNet is None:
@@ -719,6 +719,8 @@ def stitch_videos(
         )
         if args is not None and getattr(args, "aspen_stitching", None) is not None:
             use_aspen_stitching = bool(getattr(args, "aspen_stitching"))
+        if camera_ui and not use_aspen_stitching:
+            raise ValueError("--camera-ui requires Aspen stitching; remove --no-aspen-stitching")
         if use_aspen_stitching and lowmem:
             _apply_stitch_buffering_defaults(aspen_cfg_all, args)
 
@@ -902,6 +904,10 @@ def stitch_videos(
         # parameters (output path, skip-final-save, frame dumping).
         aspen_graph_cfg: Dict[str, Any] = aspen_cfg_all.get("aspen", {}) or {}
         plugins_cfg: Dict[str, Any] = aspen_graph_cfg.get("plugins", {}) or {}
+        if not camera_ui:
+            # Avoid a worker/queue handoff for a host-side UI sink that cannot
+            # do useful work when the camera UI is disabled.
+            plugins_cfg.pop("stitch_ui", None)
         video_out_prep_spec: Dict[str, Any] = plugins_cfg.get("video_out_prep", {}) or {}
         video_out_prep_params: Dict[str, Any] = video_out_prep_spec.get("params", {}) or {}
         video_out_spec: Dict[str, Any] = plugins_cfg.get("video_out", {}) or {}
@@ -949,6 +955,7 @@ def stitch_videos(
             aspen_shared["game_config"] = getattr(args, "game_config", None)
             aspen_shared["game_dir"] = dir_name
             aspen_shared["output_label"] = output_label
+            aspen_shared["camera_ui"] = int(camera_ui)
         aspen_name = game_id or "stitch"
         aspen_net = AspenNet(aspen_name, aspen_graph_cfg, shared=aspen_shared)
         aspen_net = aspen_net.to(encoder_device)
@@ -1189,6 +1196,7 @@ def _main(args) -> None:
             configure_only=args.configure_only,
             lowmem=gpu_allocator.is_single_lowmem_gpu(),
             post_stitch_rotate_degrees=getattr(args, "stitch_rotate_degrees", None),
+            camera_ui=int(args.camera_ui or 0),
             args=args,
         )
 

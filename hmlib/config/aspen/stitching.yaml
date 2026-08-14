@@ -51,6 +51,15 @@ aspen:
         output_width: GLOBAL.video_out.output_width
         output_height: GLOBAL.video_out.output_height
 
+    # Host-side UI work must remain a terminal CUDA-graph sink. Publishing the
+    # prepared image also makes the preview match the encoded stitched output,
+    # including rink.camera.color adjustments applied above.
+    stitch_ui:
+      class: hmlib.aspen.plugins.stitch_ui_plugin.StitchUiPlugin
+      depends: [video_out_prep]
+      enabled: true
+      params: {}
+
     video_out:
       class: hmlib.aspen.plugins.video_out_plugin.VideoOutPlugin
       depends: [video_out_prep]

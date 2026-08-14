@@ -665,7 +665,9 @@ def configure_stitching(
                 longest_dimension = max(canvas_width, canvas_height)
                 if longest_dimension > max_output_dimension:
                     current_scale = output_scale if output_scale else 1.0
-                    output_scale = current_scale * (float(max_output_dimension) / float(longest_dimension))
+                    output_scale = current_scale * (
+                        float(max_output_dimension) / float(longest_dimension)
+                    )
                     print(
                         "Scaling Hugin canvas from "
                         f"{canvas_width}x{canvas_height} to fit max dimension "
@@ -715,7 +717,11 @@ def configure_stitching(
                 )
 
             current_scale = output_scale if output_scale else 1.0
-            output_scale = current_scale * (float(max_output_dimension) / float(longest_mapping_dimension)) * 0.999
+            output_scale = (
+                current_scale
+                * (float(max_output_dimension) / float(longest_mapping_dimension))
+                * 0.999
+            )
             print(
                 "Generated mapping canvas "
                 f"{mapping_width}x{mapping_height} exceeds max dimension "

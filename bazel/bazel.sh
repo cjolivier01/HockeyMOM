@@ -2,6 +2,27 @@
 set -e
 
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+REPO_ROOT="$(realpath "${SCRIPT_DIR}/..")"
+
+find_bazel_workspace_root() {
+  local directory
+
+  directory="$(pwd -P)"
+  while true; do
+    if [[ -f "${directory}/MODULE.bazel" ||
+          -f "${directory}/REPO.bazel" ||
+          -f "${directory}/WORKSPACE.bazel" ||
+          -f "${directory}/WORKSPACE" ]]; then
+      printf '%s\n' "${directory}"
+      return
+    fi
+
+    if [[ "${directory}" == "/" ]]; then
+      return
+    fi
+    directory="$(dirname "${directory}")"
+  done
+}
 
 source "${SCRIPT_DIR}/../.bazel_setup.sh"
 
@@ -19,8 +40,9 @@ fi
 # pybind11_bazel's python_configure looks for this env var.
 export PYTHON_BIN_PATH
 
-case "${1:-}" in
-  build|coverage|run|test)
+BAZEL_WORKSPACE_ROOT="$(find_bazel_workspace_root)"
+case "${1:-}:${BAZEL_WORKSPACE_ROOT}" in
+  build:"${REPO_ROOT}"|coverage:"${REPO_ROOT}"|run:"${REPO_ROOT}"|test:"${REPO_ROOT}")
     CUDA_BAZEL_ARCHS="$(detect_cuda_bazel_archs)"
     export CUDA_BAZEL_ARCHS
     BAZEL_FLAGS="${BAZEL_FLAGS} --@rules_cuda//cuda:archs=${CUDA_BAZEL_ARCHS}"

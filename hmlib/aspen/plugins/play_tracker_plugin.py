@@ -87,6 +87,15 @@ class PlayTrackerPlugin(Plugin):
         self._cluster_centroids_path = cluster_centroids_path
         self._save_cluster_centroids = bool(save_cluster_centroids)
 
+    def _update_hm_ui_preview_status(self, context: Dict[str, Any]) -> None:
+        shared = context.get("shared") if isinstance(context, dict) else None
+        if not isinstance(shared, dict) or self._play_tracker is None:
+            return
+        status_fn = getattr(self._play_tracker, "hm_ui_preview_active", None)
+        shared["hm_ui_preview_active"] = bool(status_fn()) if callable(status_fn) else False
+        process_fn = getattr(self._play_tracker, "hm_ui_process", None)
+        shared["hm_ui_process"] = process_fn() if callable(process_fn) else None
+
     # region helpers
     @staticmethod
     def _calc_seed_play_box(results: Dict[str, Any]) -> torch.Tensor:
@@ -242,6 +251,14 @@ class PlayTrackerPlugin(Plugin):
             or bool(shared.get("save_cluster_centroids", False)),
         )
         self._play_tracker.eval()
+        self._update_hm_ui_preview_status(context)
+
+    def finalize(self) -> None:
+        if self._play_tracker is None:
+            return
+        closer = getattr(self._play_tracker, "close_ui", None)
+        if callable(closer):
+            closer()
 
     # endregion
 
@@ -282,6 +299,7 @@ class PlayTrackerPlugin(Plugin):
         assert self._play_tracker is not None
         with torch.no_grad():
             out = self._play_tracker.forward(results=results)
+        self._update_hm_ui_preview_status(context)
         # Surface current play_box for downstream video out sizing
         try:
             out["play_box"] = self._play_tracker.play_box

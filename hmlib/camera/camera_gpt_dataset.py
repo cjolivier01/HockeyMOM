@@ -419,9 +419,9 @@ class CameraPanZoomGPTIterableDataset(IterableDataset):
         except Exception as ex:
             raise RuntimeError(f"Failed to load camera GPT CSVs for game {game_id!r}") from ex
         if len(loaded.frames) < self._seq_len:
-            self._unusable_reasons[game_id] = (
-                f"only {len(loaded.frames)} usable frames for seq_len={self._seq_len}"
-            )
+            self._unusable_reasons[
+                game_id
+            ] = f"only {len(loaded.frames)} usable frames for seq_len={self._seq_len}"
             return None
         self._unusable_reasons.pop(game_id, None)
         self._cache[game_id] = loaded

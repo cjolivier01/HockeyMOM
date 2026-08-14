@@ -339,7 +339,7 @@ def run_mmtrack(
                     # Full game config and CLI-derived initial args for plugins
                     game_config=config.get("game_config"),
                     initial_args=config.get("initial_args"),
-                    # Runtime camera braking UI toggle (OpenCV trackbars) for PlayTrackerPlugin
+                    # Runtime camera UI toggle for PlayTrackerPlugin
                     camera_ui=int(initial_args.get("camera_ui") or config.get("camera_ui") or 0),
                     # Optional stitching rotation controller (e.g., StitchDataset instance)
                     stitch_rotation_controller=config.get("stitch_rotation_controller"),

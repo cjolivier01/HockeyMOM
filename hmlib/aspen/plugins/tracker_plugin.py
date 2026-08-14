@@ -7,11 +7,8 @@ from mmengine.structures import InstanceData
 
 from hmlib.constants import WIDTH_NORMALIZATION_SIZE
 from hmlib.log import get_logger
-from hmlib.utils.hockeymom_compat import (
-    HmByteTrackConfig,
-    HmTrackerPredictionMode,
-)
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
+from hmlib.utils.hockeymom_compat import HmByteTrackConfig, HmTrackerPredictionMode
 
 from .base import Plugin
 

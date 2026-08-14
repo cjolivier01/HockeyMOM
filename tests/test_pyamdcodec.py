@@ -153,6 +153,7 @@ def should_preserve_rtmp_output_url_in_encoder_cmd(monkeypatch):
 
 
 def should_report_decoder_unavailable_without_ffmpeg(monkeypatch):
+    _require_torch()
     _ensure_repo_on_path()
     from hmlib.video import py_amd_codec as amd_codec
 

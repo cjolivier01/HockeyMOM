@@ -24,8 +24,8 @@ import hmlib
 from hmlib.config import (
     get_clip_box,
     get_config,
-    get_game_dir,
     get_game_config_private,
+    get_game_dir,
     get_nested_value,
     load_config_file,
     normalize_runtime_config,
@@ -33,7 +33,6 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.hm_opts import _get_baseline_runtime_config, copy_opts, hm_opts
-
 from hmlib.log import get_root_logger, logger
 from hmlib.utils.path import (
     add_game_id_prefix_to_filename,
@@ -1495,11 +1494,11 @@ class _StitchRotationController:
 
 
 def _main(args, num_gpu):
+    from mmcv.transforms import Compose
+
     import hmlib.hm_transforms  # noqa: F401
     import hmlib.tracking_utils.segm_boundaries  # noqa: F401
     import hmlib.transforms  # noqa: F401
-    from mmcv.transforms import Compose
-
     from hmlib.camera.camera import should_unsharp_mask_camera
     from hmlib.datasets.dataframe import find_latest_dataframe_file
     from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
@@ -1719,9 +1718,9 @@ def _main(args, num_gpu):
                     onnx_cfg["calib_frames"] = int(args.detector_onnx_calib_frames or 0)
                     # Mirror NMS configuration for ONNX-backed detectors so the
                     # same DetectorNMS path can be used.
-                    onnx_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
-                    onnx_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
-                    onnx_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
+                    onnx_cfg["nms_backend"] = args.detector_nms_backend
+                    onnx_cfg["nms_test"] = bool(args.detector_nms_test)
+                    onnx_cfg["nms_plugin"] = args.detector_trt_nms_plugin
                     df_params["onnx"] = onnx_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -1744,14 +1743,12 @@ def _main(args, num_gpu):
                     trt_cfg["force_build"] = bool(args.detector_trt_force_build)
                     trt_cfg["fp16"] = bool(args.detector_trt_fp16)
                     # INT8 options
-                    trt_cfg["int8"] = bool(getattr(args, "detector_trt_int8", False))
-                    trt_cfg["calib_frames"] = int(
-                        getattr(args, "detector_trt_calib_frames", 0) or 0
-                    )
+                    trt_cfg["int8"] = bool(args.detector_trt_int8)
+                    trt_cfg["calib_frames"] = int(args.detector_trt_calib_frames or 0)
                     # NMS backend selection for TensorRT detector
-                    trt_cfg["nms_backend"] = getattr(args, "detector_nms_backend", "trt")
-                    trt_cfg["nms_test"] = bool(getattr(args, "detector_nms_test", False))
-                    trt_cfg["nms_plugin"] = getattr(args, "detector_trt_nms_plugin", "batched")
+                    trt_cfg["nms_backend"] = args.detector_nms_backend
+                    trt_cfg["nms_test"] = bool(args.detector_nms_test)
+                    trt_cfg["nms_plugin"] = args.detector_trt_nms_plugin
                     df_params["trt"] = trt_cfg
                     df["params"] = df_params
                     trunks_cfg["detector_factory"] = df
@@ -1798,8 +1795,9 @@ def _main(args, num_gpu):
                     ptrt_cfg["force_build"] = bool(args.pose_trt_force_build)
                     ptrt_cfg["fp16"] = bool(args.pose_trt_fp16)
                     # INT8 options
-                    ptrt_cfg["int8"] = bool(getattr(args, "pose_trt_int8", False))
-                    ptrt_cfg["calib_frames"] = int(getattr(args, "pose_trt_calib_frames", 0) or 0)
+                    ptrt_cfg["int8"] = bool(args.pose_trt_int8)
+                    ptrt_cfg["calib_frames"] = int(args.pose_trt_calib_frames or 0)
+                    ptrt_cfg["batch_size"] = int(args.pose_trt_batch_size)
                     pf_params["trt"] = ptrt_cfg
                     pf["params"] = pf_params
                     trunks_cfg["pose_factory"] = pf
@@ -1951,6 +1949,11 @@ def _main(args, num_gpu):
             else:
                 use_aspen_stitching = bool(aspen_stitching_cli)
             if is_stitching(args.input_video):
+                if args.camera_ui and not use_aspen_stitching:
+                    raise ValueError(
+                        "--camera-ui requires Aspen stitching for multi-camera input; "
+                        "remove --no-aspen-stitching"
+                    )
                 project_file_name = "hm_project.pto"
 
                 game_videos = {}

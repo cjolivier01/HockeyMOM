@@ -47,7 +47,7 @@ class HmPerspectiveRotation:
         self._enabled = enabled
         self._pre_clip = pre_clip
         self._dtype = dtype
-        self._fixed_edge_rotation_angle = fixed_edge_rotation_angle
+        self.set_fixed_edge_rotation_angle(fixed_edge_rotation_angle)
         self._image_label = image_label
         self._bbox_label = bbox_label
         self._fixed_crop_half_width = fixed_crop_half_width
@@ -56,8 +56,23 @@ class HmPerspectiveRotation:
         self._zero_uint8 = None
         self._crop_half_width: Optional[float] = None
 
+    def set_fixed_edge_rotation_angle(self, value: Union[float, Tuple[float, float]]) -> None:
+        """Update the live left/right edge rotation angles."""
+        if isinstance(value, (list, tuple)):
+            if len(value) != 2:
+                raise ValueError("fixed_edge_rotation_angle requires exactly two side values")
+            self._fixed_edge_rotation_angle = (float(value[0]), float(value[1]))
+        else:
+            self._fixed_edge_rotation_angle = float(value)
+
+    def _rotation_disabled(self) -> bool:
+        value = self._fixed_edge_rotation_angle
+        if isinstance(value, (list, tuple)):
+            return all(float(item) == 0.0 for item in value)
+        return float(value) == 0.0
+
     def __call__(self, results):
-        if not self._enabled or self._fixed_edge_rotation_angle == 0:
+        if not self._enabled or self._rotation_disabled():
             return results
         online_im = results.pop(self._image_label)
         current_box = results.pop(self._bbox_label)
@@ -97,9 +112,9 @@ class HmPerspectiveRotation:
             if isinstance(fixed_edge_rotation_angle, (list, tuple)):
                 assert len(fixed_edge_rotation_angle) == 2
                 if rotation_point[0] < src_image_width // 2:
-                    fixed_edge_rotation_angle = int(self._fixed_edge_rotation_angle[0])
+                    fixed_edge_rotation_angle = float(self._fixed_edge_rotation_angle[0])
                 else:
-                    fixed_edge_rotation_angle = int(self._fixed_edge_rotation_angle[1])
+                    fixed_edge_rotation_angle = float(self._fixed_edge_rotation_angle[1])
 
             angle = fixed_edge_rotation_angle - fixed_edge_rotation_angle * gaussian
             angle *= mult
