@@ -1,0 +1,4 @@
+tensorrt==10.15.1.29; python_version < "3.14"
+tensorrt==11.2.1.2; python_version >= "3.14"
+torch-tensorrt==2.11.0+cu130; python_version < "3.14"
+
