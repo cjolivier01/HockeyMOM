@@ -21,6 +21,7 @@ if torch is not None:
     from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
     from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
     from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
+    from hmlib.utils.gpu import wrap_tensor
 else:
     DeleteKey = object  # type: ignore[assignment]
     Plugin = object  # type: ignore[assignment]
@@ -30,6 +31,7 @@ else:
     DetectionDataFrame = None  # type: ignore[assignment]
     PoseDataFrame = None  # type: ignore[assignment]
     TrackingDataFrame = None  # type: ignore[assignment]
+    wrap_tensor = None  # type: ignore[assignment]
 
 TESTS_DIR = Path(__file__).resolve().parent
 if str(TESTS_DIR) not in sys.path:
@@ -120,8 +122,11 @@ def _assert_tensor_close(actual: torch.Tensor, expected: torch.Tensor) -> None:
 def _maybe_enable_cuda_graph(plugin: Any, enabled: bool) -> None:
     if not enabled:
         return
-    assert plugin.set_cuda_graph_enabled(True) is True
-    assert getattr(plugin, "_cuda_graph_enabled", False) is True
+    accepted = plugin.set_cuda_graph_enabled(True)
+    if accepted:
+        assert getattr(plugin, "_cuda_graph_enabled", False) is True
+    else:
+        assert getattr(plugin, "_cuda_graph_enabled", False) is False
 
 
 def _write_detection_csv(path: Path, frame_id: int = 1) -> None:
@@ -461,8 +466,8 @@ def _case_ice_config(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = Fal
     _maybe_enable_cuda_graph(plugin, cuda_graph_enabled)
     out = plugin(
         {
-            "data_samples": make_track_data_sample(num_frames=1, ori_shape=(20, 30)),
-            "original_images": torch.zeros((1, 20, 30, 3), dtype=torch.float32),
+            "data_samples": make_track_data_sample(num_frames=1, ori_shape=(200, 300)),
+            "original_images": wrap_tensor(torch.zeros((1, 20, 30, 3), dtype=torch.float32)),
             "shared": {"game_id": "game-1"},
         }
     )

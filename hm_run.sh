@@ -28,8 +28,10 @@ if [ -d "$(pwd)/src" ]; then
 fi
 
 # MMCV is installed as a compiled package. Adding openmm/mmcv here shadows that
-# package with the source tree, where mmcv._ext is not installed.
-OPENMM_PYTHONPATH="$(pwd)/openmm/mmengine:$(pwd)/openmm/mmeval:$(pwd)/openmm/mmdetection:$(pwd)/openmm/mmpose"
+# package with the source tree, where mmcv._ext is not installed. The remaining
+# vendored OpenMMLab packages are pure Python and are expected to be imported
+# from source during local runs.
+OPENMM_PYTHONPATH="$(pwd)/openmm/mmengine:$(pwd)/openmm/mmeval:$(pwd)/openmm/mmdetection:$(pwd)/openmm/mmpose:$(pwd)/openmm/mmocr:$(pwd)/openmm/mmsegmentation:$(pwd)/openmm/mmpretrain:$(pwd)/openmm/mmyolo:$(pwd)/openmm/mmaction2:$(pwd)/openmm/mmhuman3d:$(pwd)/openmm/mmrotate"
 PYTHON_SITE_PACKAGES="$("${CONDA_PREFIX}/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
 NATIVE_LIBRARY_PATH="${CONDA_PREFIX}/lib:${CONDA_PREFIX}/lib/hugin:${PYTHON_SITE_PACKAGES}/torch/lib:${PYTHON_SITE_PACKAGES}/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}"
 set -x

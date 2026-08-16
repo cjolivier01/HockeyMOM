@@ -509,16 +509,20 @@ def get_device_to_use_for_rink(
 
 def configure_ice_rink_mask(
     game_id: str,
-    expected_shape: torch.Size,
+    expected_shape: Optional[torch.Size],
     device: Optional[torch.device] = None,
     force: bool = False,
     show: bool = False,
     image: torch.Tensor = None,
     scale: Optional[float] = None,
 ) -> Optional[torch.Tensor]:
+    if expected_shape is None and image is not None:
+        expected_shape = torch.Size((image_height(image), image_width(image)))
     if not force:
         combined_mask_profile = load_rink_combined_mask(game_id=game_id)
         if combined_mask_profile:
+            if expected_shape is None:
+                return combined_mask_profile
             combined_mask = combined_mask_profile["combined_mask"]
             mask_w = image_width(combined_mask)
             mask_h = image_height(combined_mask)
@@ -544,7 +548,21 @@ def configure_ice_rink_mask(
         raise AttributeError(f"Could not determine game dir for game_id={game_id}")
     image_file: Path = Path(game_dir) / "s.png"
     image_frame: Optional[torch.Tensor] = None
-    if not image_file.exists():
+    if image is not None:
+        image_frame = image
+        if isinstance(image_frame, StreamTensorBase):
+            image_frame = image_frame.get()
+        if isinstance(image_frame, torch.Tensor) and image_frame.ndim == 4:
+            image_frame = image_frame[0]
+        if expected_shape is not None:
+            assert image_width(image_frame) == expected_shape[-1]
+            assert image_height(image_frame) == expected_shape[-2]
+        if device is not None and image_frame.device != device:
+            # Just synchronize everyone since this only happens once
+            if image_frame.is_cuda and device.type == "cuda":
+                torch.cuda.synchronize()
+            image_frame = image_frame.to(device)
+    elif not image_file.exists():
         if image is None:
             raise AttributeError(f"Could not find stitched frame image: {image_file}")
         assert image_width(image) == expected_shape[-1]
@@ -560,7 +578,9 @@ def configure_ice_rink_mask(
             image_frame = image_frame.to(device)
     else:
         image_frame = _get_first_frame(image_file)
-    if expected_shape is not None:
+    if expected_shape is None:
+        expected_shape = torch.Size((image_height(image_frame), image_width(image_frame)))
+    else:
         assert image_height(image_frame) == expected_shape[0]
         assert image_width(image_frame) == expected_shape[1]
 

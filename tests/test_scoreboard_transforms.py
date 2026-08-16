@@ -11,6 +11,7 @@ def _scoreboard_game_config() -> Dict[str, Any]:
     return {
         "rink": {
             "scoreboard": {
+                "perspective_polygon": [[10, 10], [20, 10], [20, 20], [10, 20]],
                 "projected_width": "%10",
                 "projected_height": "%20",
             }
@@ -87,3 +88,33 @@ def should_fallback_to_current_frame_when_stitched_reference_is_missing(monkeypa
         [3, 4],
         [1, 4],
     ]
+
+
+def should_skip_interactive_scoreboard_setup_when_polygon_is_missing(monkeypatch, caplog):
+    monkeypatch.setattr(
+        "hmlib.transforms.scoreboard_transforms.configure_scoreboard",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("scoreboard selector should not be launched")
+        ),
+    )
+    monkeypatch.setattr(
+        "hmlib.transforms.scoreboard_transforms.get_config",
+        lambda game_id: {
+            "rink": {
+                "scoreboard": {
+                    "projected_width": "%10",
+                    "projected_height": "%20",
+                }
+            }
+        },
+    )
+
+    transform = HmConfigureScoreboard(game_id="test-game")
+    results = {"img": torch.zeros((1, 4, 4, 3), dtype=torch.uint8)}
+
+    with caplog.at_level("WARNING"):
+        configured = transform(results)
+
+    assert configured is results
+    assert "scoreboard_cfg" not in configured
+    assert "skipping scoreboard capture for this run" in caplog.text

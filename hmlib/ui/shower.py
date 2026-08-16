@@ -46,6 +46,17 @@ from .show import cv2_has_opengl, show_gpu_tensor
 # from .tk import get_tk_root
 
 
+def _is_rocm_runtime() -> bool:
+    try:
+        return bool(getattr(torch.version, "hip", None))
+    except Exception:
+        return False
+
+
+def _native_cuda_preview_available() -> bool:
+    return show_cuda_tensor is not None and not _is_rocm_runtime()
+
+
 class ImageDisplayer:
     def __init__(self, master):
         self.master = master
@@ -118,6 +129,7 @@ class Shower:
         self._has_local_display = has_local_display()
         self._enable_local_display = self._requested_local_display and self._has_local_display
         self._always_stream = bool(always_stream)
+        self._native_cuda_preview = _native_cuda_preview_available()
         self._headless_preview: Optional[BrowserPreviewServer] = None
         self._show_youtube = bool(show_youtube)
         self._youtube_publish_failed = False
@@ -148,6 +160,11 @@ class Shower:
                 profiler=self._profiler,
             )
         self._logger = logger if logger is not None else get_root_logger()
+        if self._enable_local_display and _is_rocm_runtime():
+            self._logger.warning(
+                "ROCm local preview is using the CPU OpenCV display path because native "
+                "CUDA/OpenGL preview interop is unavailable on this runtime."
+            )
         self._q = create_queue(mp=False)
         self._thread = threading.Thread(target=self._worker)
         self._thread.start()
@@ -223,6 +240,7 @@ class Shower:
                     else:
                         if (
                             isinstance(s_img, torch.Tensor)
+                            and self._native_cuda_preview
                             and self._cv2_has_opengl_support
                             and s_img.device.type == "cuda"
                         ):
@@ -232,7 +250,7 @@ class Shower:
                             if (
                                 isinstance(s_img, torch.Tensor)
                                 and self._allow_gpu_gl
-                                and show_cuda_tensor is not None
+                                and self._native_cuda_preview
                                 and s_img.device.type == "cuda"
                             ):
                                 s_img = make_visible_image(

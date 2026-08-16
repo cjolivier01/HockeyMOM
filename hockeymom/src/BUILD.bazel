@@ -31,6 +31,7 @@ pybind_extension(
     "@hm-cupano//src/pano:cuda_pano",
     "@hm-cupano//src/pano:cuda_pano_n",
     "@jetson-utils//cuda:colorspace_lib",
+    "@jetson-utils//cuda:cuda_point_cloud_lib",
   ],
   copts = [
     "-DNO_CPP_BLENDING=1",

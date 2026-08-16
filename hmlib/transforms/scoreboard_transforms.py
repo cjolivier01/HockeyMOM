@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional, Union
 
 import torch
@@ -20,8 +21,10 @@ class HmConfigureScoreboard:
     def __init__(
         self,
         game_id: Optional[str] = None,
+        allow_interactive_setup: bool = False,
     ):
         self._game_id = game_id
+        self._allow_interactive_setup = bool(allow_interactive_setup)
         self._scoreboard_config = None
         self._configured = False
 
@@ -30,6 +33,18 @@ class HmConfigureScoreboard:
             self._game_id = results.get("game_id", None)
         if self._game_id and not self._configured:
             self._configured = True
+            game_config = get_config(game_id=self._game_id)
+            current_scoreboard = get_nested_value(
+                game_config, "rink.scoreboard.perspective_polygon"
+            )
+            if current_scoreboard is None and not self._allow_interactive_setup:
+                logging.warning(
+                    "No scoreboard perspective polygon configured for %s; "
+                    "skipping scoreboard capture for this run. Run the scoreboard "
+                    "selector separately to enable scoreboard extraction.",
+                    self._game_id,
+                )
+                return results
             try:
                 scoreboard_points = configure_scoreboard(game_id=self._game_id)
             except FileNotFoundError:
@@ -40,7 +55,6 @@ class HmConfigureScoreboard:
                 scoreboard_points is not None
                 and torch.sum(torch.tensor(scoreboard_points, dtype=torch.float)).item() != 0
             ):
-                game_config = get_config(game_id=self._game_id)
                 if game_config:
                     clip_box = get_clip_box(game_id=self._game_id)
                     if clip_box:
