@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Union
+import logging
+from typing import Any
 
 import torch
 from mmengine.registry import TRANSFORMS
@@ -8,28 +9,51 @@ from hmlib.scoreboard.scoreboard import Scoreboard
 from hmlib.scoreboard.selector import configure_scoreboard
 from hmlib.utils.image import make_channels_last
 
+logger = logging.getLogger(__name__)
 
-def _try_pop(d: Dict[str, Any], k: str) -> Union[Any, None]:
+
+def _try_pop(d: dict[str, Any], k: str) -> Any | None:
     if k in d:
         return d.pop(k)
     return None
+
+
+def _is_rocm_runtime() -> bool:
+    return bool(getattr(torch.version, "hip", None))
 
 
 @TRANSFORMS.register_module()
 class HmConfigureScoreboard:
     def __init__(
         self,
-        game_id: Optional[str] = None,
+        game_id: str | None = None,
+        allow_interactive_setup: bool | None = None,
     ):
         self._game_id = game_id
+        if allow_interactive_setup is None:
+            self._allow_interactive_setup = not _is_rocm_runtime()
+        else:
+            self._allow_interactive_setup = bool(allow_interactive_setup)
         self._scoreboard_config = None
         self._configured = False
 
-    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, results: dict[str, Any]) -> dict[str, Any]:
         if self._game_id is None:
             self._game_id = results.get("game_id", None)
         if self._game_id and not self._configured:
             self._configured = True
+            game_config = get_config(game_id=self._game_id)
+            current_scoreboard = get_nested_value(
+                game_config, "rink.scoreboard.perspective_polygon"
+            )
+            if current_scoreboard is None and not self._allow_interactive_setup:
+                logger.warning(
+                    "No scoreboard perspective polygon configured for %s; "
+                    "skipping scoreboard capture for this run. Run the scoreboard "
+                    "selector separately to enable scoreboard extraction.",
+                    self._game_id,
+                )
+                return results
             try:
                 scoreboard_points = configure_scoreboard(game_id=self._game_id)
             except FileNotFoundError:
@@ -39,22 +63,21 @@ class HmConfigureScoreboard:
             if (
                 scoreboard_points is not None
                 and torch.sum(torch.tensor(scoreboard_points, dtype=torch.float)).item() != 0
+                and game_config
             ):
-                game_config = get_config(game_id=self._game_id)
-                if game_config:
-                    clip_box = get_clip_box(game_id=self._game_id)
-                    if clip_box:
-                        scoreboard_points[0] += clip_box[0]
-                        scoreboard_points[2] += clip_box[0]
-                        scoreboard_points[1] += clip_box[1]
-                        scoreboard_points[3] += clip_box[1]
-                    self._scoreboard_config: Dict[str, Any] = dict(
-                        scoreboard_points=scoreboard_points,
-                        dest_width=get_nested_value(game_config, "rink.scoreboard.projected_width"),
-                        dest_height=get_nested_value(
-                            game_config, "rink.scoreboard.projected_height"
-                        ),
-                    )
+                clip_box = get_clip_box(game_id=self._game_id)
+                if clip_box:
+                    scoreboard_points[0] += clip_box[0]
+                    scoreboard_points[2] += clip_box[0]
+                    scoreboard_points[1] += clip_box[1]
+                    scoreboard_points[3] += clip_box[1]
+                self._scoreboard_config: dict[str, Any] = {
+                    "scoreboard_points": scoreboard_points,
+                    "dest_width": get_nested_value(game_config, "rink.scoreboard.projected_width"),
+                    "dest_height": get_nested_value(
+                        game_config, "rink.scoreboard.projected_height"
+                    ),
+                }
         if self._scoreboard_config:
             results["scoreboard_cfg"] = self._scoreboard_config
 
@@ -70,7 +93,7 @@ class HmCaptureScoreboard:
         self._scoreboard = None
         self._scoreboard_scale = scoreboard_scale
 
-    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, results: dict[str, Any]) -> dict[str, Any]:
         scoreboard = results.get("scoreboard_cfg")
         if not scoreboard:
             return results
@@ -109,12 +132,12 @@ class HmCaptureScoreboard:
 
 @TRANSFORMS.register_module()
 class HmRenderScoreboard:
-    def __init__(self, image_labels: List[str]):
+    def __init__(self, image_labels: list[str]):
         self._image_labels = image_labels
-        self._scoreboard_width: Optional[int] = None
-        self._scoreboard_height: Optional[int] = None
+        self._scoreboard_width: int | None = None
+        self._scoreboard_height: int | None = None
 
-    def __call__(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, results: dict[str, Any]) -> dict[str, Any]:
         scoreboard_img = _try_pop(results, "scoreboard_img")
         if scoreboard_img is None:
             return results

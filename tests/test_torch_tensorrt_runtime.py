@@ -514,6 +514,84 @@ def should_run_detector_backbone_and_head_as_one_batch(monkeypatch, tmp_path) ->
     assert nms.batch_sizes == [(3, 3)]
 
 
+def should_resolve_rocm_detector_backends_to_head(monkeypatch) -> None:
+    from hmlib.aspen.plugins import detector_factory_plugin
+
+    monkeypatch.setattr(detector_factory_plugin, "_is_rocm_runtime", lambda: True)
+    monkeypatch.setattr(detector_factory_plugin, "_runtime_supports_tensorrt", lambda: False)
+    monkeypatch.setattr(detector_factory_plugin, "_runtime_supports_torchvision_nms", lambda: False)
+
+    assert (
+        detector_factory_plugin._resolve_detector_nms_backend("trt", owner="test detector wrapper")
+        == "head"
+    )
+    assert (
+        detector_factory_plugin._resolve_detector_nms_backend(
+            "torchvision", owner="test detector wrapper"
+        )
+        == "head"
+    )
+    assert (
+        detector_factory_plugin._resolve_detector_nms_backend("head", owner="test detector wrapper")
+        == "head"
+    )
+
+
+def should_skip_trt_detector_wrapper_on_rocm(monkeypatch) -> None:
+    from hmlib.aspen.plugins import detector_factory_plugin
+
+    monkeypatch.setattr(detector_factory_plugin, "_is_rocm_runtime", lambda: True)
+    monkeypatch.setattr(detector_factory_plugin, "_runtime_supports_tensorrt", lambda: False)
+    monkeypatch.setattr(detector_factory_plugin, "_runtime_supports_torchvision_nms", lambda: False)
+
+    created = {}
+
+    class YOLOXHead:
+        pass
+
+    class _Model(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.bbox_head = YOLOXHead()
+
+    class _FakeTorchWrapper:
+        def __init__(
+            self,
+            *,
+            model,
+            profiler,
+            nms_backend,
+            nms_test,
+            nms_plugin,
+            cuda_graph,
+        ) -> None:
+            created["model"] = model
+            created["profiler"] = profiler
+            created["nms_backend"] = nms_backend
+            created["nms_test"] = nms_test
+            created["nms_plugin"] = nms_plugin
+            created["cuda_graph"] = cuda_graph
+
+    def _unexpected_trt_wrapper(*_args, **_kwargs):
+        raise AssertionError("TRT detector wrapper should not be created on ROCm")
+
+    monkeypatch.setattr(detector_factory_plugin, "_TrtDetectorWrapper", _unexpected_trt_wrapper)
+    monkeypatch.setattr(detector_factory_plugin, "_TorchDetectorWrapper", _FakeTorchWrapper)
+
+    plugin = detector_factory_plugin.DetectorFactoryPlugin(
+        detector={"type": "FakeDetector"},
+        trt={"enable": True, "nms_backend": "trt"},
+        nms_backend="trt",
+    )
+    plugin._model = _Model()
+
+    result = plugin.forward({})
+
+    assert isinstance(result["detector_model"], _FakeTorchWrapper)
+    assert created["model"] is plugin._model
+    assert created["nms_backend"] == "head"
+
+
 def should_surface_pose_compile_failure_and_use_pytorch_split_path(monkeypatch, tmp_path) -> None:
     from hmlib.aspen.plugins import pose_factory_plugin
 

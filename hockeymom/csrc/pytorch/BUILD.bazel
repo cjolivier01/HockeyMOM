@@ -62,22 +62,20 @@ genrule(
     outs = ["libbytetrack_cuda_kernels_hip.a"],
     cmd = """
 set -e
-HIPCC="$$(command -v hipcc)"
-if [ -z "$${HIPCC}" ]; then
-  echo "hipcc was not found on PATH" >&2
-  exit 1
-fi
+HIPCC="$(location @rocm_sdk_includes//:hipcc)"
 OBJ="$(@D)/bytetrack_cuda_kernels.o"
 "$${HIPCC}" -c --std=c++17 -fPIC -O2 -D__HIP_PLATFORM_AMD__ -DJETSON_USE_HIP \
   -DC10_CUDA_NO_CMAKE_CONFIGURE_FILE \
   -I. \
   -Iexternal/libtorch/include \
   -Iexternal/libtorch/include/torch/csrc/api/include \
+  -Iexternal/rocm_sdk_includes/include \
   -Iexternal/jetson-utils/cuda \
   $(location bytetrack_cuda_kernels.cu) -o "$${OBJ}"
 ar rcs "$@" "$${OBJ}"
 """,
     tags = ["no-sandbox"],
+    tools = ["@rocm_sdk_includes//:hipcc"],
     target_compatible_with = select({
         "//bazel:torch_backend_rocm": [],
         "//conditions:default": ["@platforms//:incompatible"],

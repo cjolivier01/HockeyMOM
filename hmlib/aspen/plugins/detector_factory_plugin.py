@@ -8,12 +8,65 @@ import torch
 from mmengine.structures import InstanceData
 
 from hmlib.config import prepend_root_dir
+from hmlib.log import get_logger
 from hmlib.utils.cuda_graph import CudaGraphCallable
 from hmlib.utils.nms import DetectorNMS
 from hmlib.utils.numpy_pickle_compat import numpy2_pickle_compat
 from hmlib.utils.torch_tensorrt_runtime import compile_torch_tensorrt
 
 from .base import Plugin
+
+logger = get_logger(__name__)
+
+
+def _is_rocm_runtime() -> bool:
+    """Return True when running on a HIP/ROCm PyTorch build."""
+    try:
+        return bool(getattr(torch.version, "hip", None))
+    except Exception:
+        return False
+
+
+def _runtime_supports_tensorrt() -> bool:
+    """TensorRT is only supported on NVIDIA CUDA builds, not ROCm."""
+    try:
+        return not _is_rocm_runtime() and bool(getattr(torch.version, "cuda", None))
+    except Exception:
+        return False
+
+
+def _runtime_supports_torchvision_nms() -> bool:
+    """ROCm currently segfaults in torchvision.ops.nms for this detector path."""
+    return not _is_rocm_runtime()
+
+
+def _resolve_detector_nms_backend(requested_backend: str, *, owner: str) -> str:
+    """Resolve detector NMS to a backend that is valid for the active runtime."""
+    backend = str(requested_backend or "trt").lower()
+    if backend == "trt" and not _runtime_supports_tensorrt():
+        runtime = "ROCm/HIP" if _is_rocm_runtime() else "non-CUDA"
+        logger.warning(
+            "%s requested TensorRT NMS on a %s runtime; using bbox-head NMS instead.",
+            owner,
+            runtime,
+        )
+        return "head"
+    if backend == "torchvision" and not _runtime_supports_torchvision_nms():
+        logger.warning(
+            "%s requested torchvision NMS on ROCm/HIP; using bbox-head NMS instead "
+            "because torchvision.ops.nms is unstable on this runtime.",
+            owner,
+        )
+        return "head"
+    return backend
+
+
+def _detector_nms_compare_backends(primary_backend: str, nms_test: bool) -> List[str]:
+    if not nms_test:
+        return []
+    if primary_backend == "trt" and _runtime_supports_torchvision_nms():
+        return ["torchvision"]
+    return []
 
 
 def _strip_static_padding(instances: InstanceData, strip: bool) -> InstanceData:
@@ -111,10 +164,13 @@ class DetectorFactoryPlugin(Plugin):
         if static_detections:
             self._static_detections.update(static_detections)
         # Unified NMS configuration shared across all detector backends.
-        self._nms_backend: str = str(nms_backend or "trt").lower()
+        self._nms_backend: str = _resolve_detector_nms_backend(
+            nms_backend, owner="DetectorFactoryPlugin"
+        )
         self._nms_test: bool = bool(nms_test)
         self._nms_plugin: str = str(nms_plugin or "efficient")
         self._cuda_graph_enabled: bool = bool(cuda_graph)
+        self._logged_trt_unavailable: bool = False
         # Optional cached wrapper for pure-PyTorch YOLOX detectors so we don't
         # rebuild the wrapper on every forward().
         self._torch_wrapper: Optional[_TorchDetectorWrapper] = None
@@ -229,7 +285,16 @@ class DetectorFactoryPlugin(Plugin):
             detector_model: Any = self._model
 
             # Prefer TensorRT backbone+neck when explicitly enabled.
-            use_trt = bool(self._trt_cfg.get("enable", False))
+            use_trt_requested = bool(self._trt_cfg.get("enable", False))
+            use_trt = use_trt_requested and _runtime_supports_tensorrt()
+            if use_trt_requested and not use_trt and not self._logged_trt_unavailable:
+                runtime = "ROCm/HIP" if _is_rocm_runtime() else "non-CUDA"
+                logger.warning(
+                    "TensorRT detector path is enabled, but TensorRT is unavailable on this %s "
+                    "runtime; using the PyTorch detector path instead.",
+                    runtime,
+                )
+                self._logged_trt_unavailable = True
             if use_trt:
                 if self._trt_wrapper is None:
                     try:
@@ -244,17 +309,16 @@ class DetectorFactoryPlugin(Plugin):
                             int8=bool(self._trt_cfg.get("int8", False)),
                             calib_frames=int(self._trt_cfg.get("calib_frames", 0)),
                             profiler=self._profiler,
-                            nms_backend=str(self._trt_cfg.get("nms_backend", self._nms_backend)),
+                            nms_backend=_resolve_detector_nms_backend(
+                                str(self._trt_cfg.get("nms_backend", self._nms_backend)),
+                                owner="TensorRT detector wrapper",
+                            ),
                             nms_test=bool(self._trt_cfg.get("nms_test", self._nms_test)),
                             nms_plugin=str(self._trt_cfg.get("nms_plugin", self._nms_plugin)),
                         )
                     except Exception as ex:
                         # Fall back to next option if TRT init fails
-                        from hmlib.log import get_logger
-
-                        get_logger(__name__).warning(
-                            "Failed to initialize TensorRT detector wrapper: %s", ex
-                        )
+                        logger.warning("Failed to initialize TensorRT detector wrapper: %s", ex)
                         self._trt_wrapper = None
                 if self._trt_wrapper is not None:
                     detector_model = self._trt_wrapper
@@ -273,19 +337,16 @@ class DetectorFactoryPlugin(Plugin):
                                 calib_frames=int(self._onnx_cfg.get("calib_frames", 0)),
                                 game_id=str(context.get("game_id", "")),
                                 profiler=self._profiler,
-                                nms_backend=str(
-                                    self._onnx_cfg.get("nms_backend", self._nms_backend)
+                                nms_backend=_resolve_detector_nms_backend(
+                                    str(self._onnx_cfg.get("nms_backend", self._nms_backend)),
+                                    owner="ONNX detector wrapper",
                                 ),
                                 nms_test=bool(self._onnx_cfg.get("nms_test", self._nms_test)),
                                 nms_plugin=str(self._onnx_cfg.get("nms_plugin", self._nms_plugin)),
                             )
                         except Exception as ex:
                             # Fall back to PyTorch if ONNX init fails
-                            from hmlib.log import get_logger
-
-                            get_logger(__name__).warning(
-                                "Failed to initialize ONNX detector wrapper: %s", ex
-                            )
+                            logger.warning("Failed to initialize ONNX detector wrapper: %s", ex)
                             self._onnx_wrapper = None
                     if self._onnx_wrapper is not None:
                         detector_model = self._onnx_wrapper
@@ -400,12 +461,12 @@ class _OnnxDetectorWrapper(_ProfilerMixin):
         self._quantized_path: Optional[str] = None
         self._use_cuda = False
         # NMS configuration and dispatcher (mirrors TensorRT wrapper).
-        self._nms_backend: str = str(nms_backend or "trt").lower()
+        self._nms_backend: str = _resolve_detector_nms_backend(
+            nms_backend, owner="ONNX detector wrapper"
+        )
         self._nms_test: bool = bool(nms_test)
         self._nms_plugin: str = str(nms_plugin or "efficient")
-        compare_backends: List[str] = []
-        if self._nms_test and self._nms_backend == "trt":
-            compare_backends.append("torchvision")
+        compare_backends = _detector_nms_compare_backends(self._nms_backend, self._nms_test)
         self._nms = DetectorNMS(
             bbox_head=getattr(model, "bbox_head", model),
             backend=self._nms_backend,
@@ -725,12 +786,12 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._swap_rgb = False
         self._pass: int = 0
         self._trt_disabled_reason: Optional[str] = None
-        self._nms_backend: str = str(nms_backend or "trt")
+        self._nms_backend: str = _resolve_detector_nms_backend(
+            nms_backend, owner="TensorRT detector wrapper"
+        )
         self._nms_test: bool = bool(nms_test)
         self._nms_plugin: str = str(nms_plugin or "efficient")
-        compare_backends: List[str] = []
-        if self._nms_test and self._nms_backend.lower() == "trt":
-            compare_backends.append("torchvision")
+        compare_backends = _detector_nms_compare_backends(self._nms_backend.lower(), self._nms_test)
         # Centralized NMS dispatcher; handles 'trt', 'torchvision', and 'head'.
         self._nms = DetectorNMS(
             bbox_head=getattr(model, "bbox_head", model),
@@ -771,9 +832,7 @@ class _TrtDetectorWrapper(_ProfilerMixin):
                 rgb_to_bgr = bool(getattr(dp, "rgb_to_bgr", False))
                 self._swap_rgb = bool(bgr_to_rgb or rgb_to_bgr)
         except Exception as exc:
-            from hmlib.log import get_logger
-
-            get_logger(__name__).warning(
+            logger.warning(
                 "Could not read detector preprocessing metadata; TensorRT inputs "
                 "will not be normalized by the wrapper: %s",
                 exc,
@@ -899,16 +958,16 @@ class _TrtDetectorWrapper(_ProfilerMixin):
         self._trt_disabled_reason = str(exc)
         self._trt_module = None
         if self._nms_backend.lower() == "trt":
-            self._nms_backend = "torchvision"
+            self._nms_backend = _resolve_detector_nms_backend(
+                "torchvision", owner="TensorRT detector wrapper fallback"
+            )
             self._nms = DetectorNMS(
                 bbox_head=getattr(self.model, "bbox_head", self.model),
                 backend=self._nms_backend,
                 compare_backends=[],
                 trt_plugin=self._nms_plugin,
             )
-        from hmlib.log import get_logger
-
-        get_logger(__name__).warning(
+        logger.warning(
             "Disabling TensorRT detector path and falling back to PyTorch backbone/neck "
             "with %s NMS: %s",
             self._nms_backend,
@@ -936,15 +995,15 @@ class _TorchDetectorWrapper(_ProfilerMixin):
     ):
         super().__init__(profiler=profiler, label="torch_predictor")
         self.model = model
-        self._nms_backend: str = str(nms_backend or "trt").lower()
+        self._nms_backend: str = _resolve_detector_nms_backend(
+            nms_backend, owner="PyTorch detector wrapper"
+        )
         self._nms_test: bool = bool(nms_test)
         self._nms_plugin: str = str(nms_plugin or "efficient")
         self._cuda_graph_enabled: bool = bool(cuda_graph)
         self._cg: Optional[CudaGraphCallable] = None
         self._cg_device: Optional[torch.device] = None
-        compare_backends: List[str] = []
-        if self._nms_test and self._nms_backend == "trt":
-            compare_backends.append("torchvision")
+        compare_backends = _detector_nms_compare_backends(self._nms_backend, self._nms_test)
         self._nms = DetectorNMS(
             bbox_head=getattr(model, "bbox_head", model),
             backend=self._nms_backend,

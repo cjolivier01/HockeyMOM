@@ -33,10 +33,11 @@ distclean expunge:
 	bazel/bazel.sh clean --expunge
 
 develop: hm-ui
-	@if command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
+	@. ./.bazel_setup.sh >/dev/null 2>&1; \
+	if [ "$${TORCH_BACKEND}" = "rocm" ] || command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
 		bazel/bazel.sh run --config=release //hockeymom:link_ext; \
 	else \
-		echo "Skipping hockeymom native extension link: CUDA toolkit not found"; \
+		echo "Skipping hockeymom native extension link: neither ROCm nor CUDA toolkit/backend detected"; \
 	fi
 	bazel/bazel.sh run --config=release //hmlib:develop -- --workspace=$(TOPDIR)
 
@@ -63,7 +64,7 @@ print_targets:
 		'' \
 		'Developer Workflow' \
 		'------------------' \
-		'develop      Builds hm-ui, refreshes hockeymom extension symlinks when CUDA is available, then installs hmlib for development.' \
+		'develop      Builds hm-ui, refreshes hockeymom extension symlinks when the active backend is ROCm or CUDA is available, then installs hmlib for development.' \
 		'hmtrack-rust-ui  Build hm-ui, then run hmtrack with the Rust camera UI. Pass hmtrack args with ARGS="--game-id chicago-3 ...".' \
 		'test         Runs the release-configured Bazel test suite; use to verify regressions before submitting or tagging builds.' \
 		'wheel        Builds release wheels for hockeymom and hmlib; run when you need distributable Python packages.' \

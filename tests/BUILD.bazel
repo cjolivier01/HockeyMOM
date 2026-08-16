@@ -227,6 +227,18 @@ pytest_test(
     ],
 )
 
+sh_test(
+    name="test_ice_rink_config_plugin",
+    srcs=["test_ice_rink_config_plugin.sh"],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "aspen_plugin_harness.py",
+        "python_runtime.sh",
+        "test_ice_rink_config_plugin.py",
+    ],
+)
+
 pytest_test(
     name="test_aspen_cuda_graph_pipeline",
     srcs=["test_aspen_cuda_graph_pipeline.py"],
@@ -237,6 +249,28 @@ pytest_test(
     deps=[
         "//hmlib:hmlib.lib",
         requirement("pytest"),
+    ],
+)
+
+sh_test(
+    name="test_scoreboard_transforms",
+    srcs=["test_scoreboard_transforms.sh"],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_scoreboard_transforms.py",
+    ],
+)
+
+sh_test(
+    name="test_shower_rocm_preview",
+    srcs=["test_shower_rocm_preview.sh"],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_shower_rocm_preview.py",
     ],
 )
 

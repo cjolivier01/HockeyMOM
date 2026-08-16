@@ -383,25 +383,24 @@ class IceRinkSegmConfigPlugin(Plugin):
             from hmlib.segm.ice_rink import configure_ice_rink_mask
 
             game_id = context.get("game_id") or context.get("shared", {}).get("game_id")
-            # Prefer original_images if available (channels-last), fallback to detection image
+            # Prefer the live stitched frame. Detector inputs may be resized for
+            # inference and are not suitable for rink-profile geometry.
             img = context.get("original_images")
             if img is None:
-                img = context.get("img") or context.get("inputs")
+                img = context.get("img")
+            img = unwrap_tensor(img)
             # Use first frame
             if isinstance(img, torch.Tensor) and img.ndim >= 3:
-                frame0 = img[0]
+                frame0 = img[0] if img.ndim >= 4 else img
             else:
                 frame0 = None
-            # Try to get expected original shape from metainfo
-            meta0 = track_data_sample[0].metainfo
-            exp_shape = meta0.get("ori_shape") if isinstance(meta0, dict) else None
-            if exp_shape is None and isinstance(frame0, torch.Tensor):
-                # HxWxC or CxHxW both ok; configure_ice_rink_mask uses expected_shape and image
-                if frame0.ndim == 3:
-                    if frame0.shape[-1] in (3, 4):
-                        exp_shape = torch.Size(frame0.shape[:2])
-                    else:
-                        exp_shape = torch.Size(frame0.shape[-2:])
+            exp_shape = None
+            if isinstance(frame0, torch.Tensor) and frame0.ndim == 3:
+                # Prefer the actual stitched-frame geometry when it is available.
+                if frame0.shape[-1] in (3, 4):
+                    exp_shape = torch.Size(frame0.shape[:2])
+                else:
+                    exp_shape = torch.Size(frame0.shape[-2:])
             self._rink_profile = configure_ice_rink_mask(
                 game_id=game_id,
                 # device=device if isinstance(device, torch.device) else torch.device("cpu"),

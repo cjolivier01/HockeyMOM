@@ -28,6 +28,20 @@ ENTRY_POINTS = {
     "hmcamera_annotate": "hmlib.cli.camera_annotate:main",
 }
 
+LOCAL_EDITABLE_PACKAGES = (
+    "openmm/mmengine",
+    "openmm/mmeval",
+    "openmm/mmdetection",
+    "openmm/mmpose",
+    "openmm/mmocr",
+    "openmm/mmsegmentation",
+    "openmm/mmpretrain",
+    "openmm/mmyolo",
+    "openmm/mmaction2",
+    "xmodels/LightGlue",
+    "xmodels/str/parseq",
+)
+
 
 logger = logging.getLogger(__name__)
 if not logging.getLogger().handlers:
@@ -55,8 +69,7 @@ def _write_pth(site_packages: Path, workspace_root: Path) -> Path:
 def _write_script(scripts_dir: Path, name: str, target: str) -> Path:
     module_name, func_name = target.split(":")
     script_path = scripts_dir / name
-    script_body = dedent(
-        f"""\
+    script_body = dedent(f"""\
         #!{sys.executable}
         import sys
         from importlib import import_module
@@ -70,15 +83,24 @@ def _write_script(scripts_dir: Path, name: str, target: str) -> Path:
 
         if __name__ == "__main__":
             sys.exit(_main())
-        """
-    )
+        """)
     script_path.write_text(script_body, encoding="utf-8")
     script_path.chmod(0o755)
     return script_path
 
 
+def _install_editable_package(python: str, package_root: Path, *, no_deps: bool) -> int:
+    cmd = [python, "-m", "pip", "install", "-e", str(package_root)]
+    if no_deps:
+        cmd.insert(4, "--no-deps")
+    logger.info("Running %s", " ".join(cmd))
+    return subprocess.call(cmd, cwd=package_root)
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Install hm Python packages in develop/editable mode.")
+    parser = argparse.ArgumentParser(
+        description="Install hm Python packages in develop/editable mode."
+    )
     parser.add_argument(
         "--workspace",
         type=Path,
@@ -99,9 +121,15 @@ def main() -> int:
 
     workspace_root = (args.workspace or _find_workspace_root()).resolve()
     if not args.legacy_pth:
-        cmd = [args.python, "-m", "pip", "install", "-e", str(workspace_root)]
-        logger.info("Running %s", " ".join(cmd))
-        return subprocess.call(cmd, cwd=workspace_root)
+        status = _install_editable_package(args.python, workspace_root, no_deps=False)
+        if status != 0:
+            return status
+        for rel_path in LOCAL_EDITABLE_PACKAGES:
+            package_root = workspace_root / rel_path
+            status = _install_editable_package(args.python, package_root, no_deps=True)
+            if status != 0:
+                return status
+        return 0
 
     site_packages = Path(sysconfig.get_paths()["purelib"])
     scripts_dir = Path(sysconfig.get_paths()["scripts"])
