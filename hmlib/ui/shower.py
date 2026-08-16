@@ -12,7 +12,7 @@ import threading
 import time
 import tkinter as tk
 from collections import OrderedDict
-from typing import Any, Optional, Union
+from typing import Any
 
 from hmlib.ui.display_env import sanitize_display_env_for_cv2
 
@@ -38,7 +38,7 @@ from hmlib.utils.image import make_channels_last, make_visible_image
 
 try:
     from hockeymom.core import show_cuda_tensor
-except Exception:  # pragma: no cover - optional native extension
+except ImportError:  # pragma: no cover - optional native extension
     show_cuda_tensor = None
 
 from .show import cv2_has_opengl, show_gpu_tensor
@@ -47,14 +47,15 @@ from .show import cv2_has_opengl, show_gpu_tensor
 
 
 def _is_rocm_runtime() -> bool:
-    try:
-        return bool(getattr(torch.version, "hip", None))
-    except Exception:
-        return False
+    return bool(getattr(torch.version, "hip", None))
 
 
 def _native_cuda_preview_available() -> bool:
     return show_cuda_tensor is not None and not _is_rocm_runtime()
+
+
+def _opencv_cuda_preview_available() -> bool:
+    return not _is_rocm_runtime()
 
 
 class ImageDisplayer:
@@ -84,9 +85,9 @@ class Shower:
     def __init__(
         self,
         label: str,
-        show_scaled: Optional[float] = None,
+        show_scaled: float | None = None,
         max_size: int = 1,
-        fps: Union[float, None] = None,
+        fps: float | None = None,
         cache_on_cpu: bool = False,
         logger=None,
         use_tk: bool = False,
@@ -98,8 +99,8 @@ class Shower:
         drop_oldest_when_full: bool = False,
         enable_local_display: bool = True,
         show_youtube: bool = False,
-        youtube_stream_url: Optional[str] = None,
-        youtube_stream_key: Optional[str] = None,
+        youtube_stream_url: str | None = None,
+        youtube_stream_key: str | None = None,
         headless_preview_host: str = "0.0.0.0",
         headless_preview_port: int = 0,
         always_stream: bool = False,
@@ -115,6 +116,7 @@ class Shower:
         if self._fps is not None:
             self._label += " (" + str(self._fps) + " fps)"
         self._cv2_has_opengl_support = cv2_has_opengl()
+        self._opencv_cuda_preview = _opencv_cuda_preview_available()
         self._step: int = step
         self._iter: int = 0
         self._next_frame_time = None
@@ -124,13 +126,13 @@ class Shower:
         self._tk_displayer = None
         # Holds a ref to a displayed tensor so the memory pointer is valid
         self._hold_tensor_ref = hold_tensor_ref
-        self._displayed_tensor: Optional[torch.Tensor] = None
+        self._displayed_tensor: torch.Tensor | None = None
         self._requested_local_display = bool(enable_local_display)
         self._has_local_display = has_local_display()
         self._enable_local_display = self._requested_local_display and self._has_local_display
         self._always_stream = bool(always_stream)
         self._native_cuda_preview = _native_cuda_preview_available()
-        self._headless_preview: Optional[BrowserPreviewServer] = None
+        self._headless_preview: BrowserPreviewServer | None = None
         self._show_youtube = bool(show_youtube)
         self._youtube_publish_failed = False
         self._youtube_stream_url = (
@@ -140,7 +142,7 @@ class Shower:
         )
         if self._show_youtube and self._youtube_stream_url is not None:
             validate_youtube_stream_url(self._youtube_stream_url)
-        self._youtube_publisher: Optional[FFmpegLivePublisher] = (
+        self._youtube_publisher: FFmpegLivePublisher | None = (
             FFmpegLivePublisher(
                 output_url=self._youtube_stream_url,
                 label=self._label,
@@ -191,7 +193,7 @@ class Shower:
             return prof.rf(name)
         return contextlib.nullcontext()
 
-    def _do_show(self, img: Union[torch.Tensor, np.ndarray]):
+    def _do_show(self, img: torch.Tensor | np.ndarray):
         with self._prof_ctx("shower._do_show"), cuda_stream_scope(self._stream):
             if self._use_tk and self._tk_displayer is None:
                 # root = get_tk_root()
@@ -219,7 +221,7 @@ class Shower:
                             self._youtube_publisher.write_frame(
                                 s_img, show_scaled=self._show_scaled
                             )
-                    except Exception as exc:
+                    except (BrokenPipeError, OSError, RuntimeError, ValueError) as exc:
                         if not self._youtube_publish_failed:
                             self._logger.warning(
                                 "Live preview publish stopped for %s: %s",
@@ -229,8 +231,13 @@ class Shower:
                             self._youtube_publish_failed = True
                         try:
                             self._youtube_publisher.close()
-                        except Exception:
-                            pass
+                        except (BrokenPipeError, OSError, RuntimeError) as close_exc:
+                            self._logger.debug(
+                                "Ignoring live preview close failure for %s after publisher "
+                                "error: %s",
+                                self._label,
+                                close_exc,
+                            )
                         self._youtube_publisher = None
                 if not self._enable_local_display:
                     continue
@@ -240,7 +247,7 @@ class Shower:
                     else:
                         if (
                             isinstance(s_img, torch.Tensor)
-                            and self._native_cuda_preview
+                            and self._opencv_cuda_preview
                             and self._cv2_has_opengl_support
                             and s_img.device.type == "cuda"
                         ):
@@ -337,7 +344,7 @@ class Shower:
             # Keep preview copies off the compute streams once producer work is ready.
             self._stream = torch.cuda.Stream(device, priority=-1)
 
-    def show(self, img: Union[torch.Tensor, np.ndarray, StreamTensorBase], clone: bool = True):
+    def show(self, img: torch.Tensor | np.ndarray | StreamTensorBase, clone: bool = True):
         self._iter += 1
         if self._iter % self._step != 0:
             return

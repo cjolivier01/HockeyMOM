@@ -19,6 +19,14 @@ def should_report_native_cuda_preview_available_without_rocm(monkeypatch) -> Non
     assert shower_module._native_cuda_preview_available() is True
 
 
+def should_report_opencv_cuda_preview_available_without_hockeymom_extension(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(shower_module, "_is_rocm_runtime", lambda: False)
+
+    assert shower_module._opencv_cuda_preview_available() is True
+
+
 def should_warn_once_when_local_preview_runs_on_rocm(monkeypatch) -> None:
     monkeypatch.setattr(shower_module, "_is_rocm_runtime", lambda: True)
     monkeypatch.setattr(shower_module, "_native_cuda_preview_available", lambda: False)
