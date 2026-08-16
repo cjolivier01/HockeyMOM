@@ -70,6 +70,30 @@ else:
 ' 2>/dev/null || true
 }
 
+die_bazel_setup() {
+  printf '%s\n' "$*" >&2
+  return 1 2>/dev/null || exit 1
+}
+
+validate_forced_torch_backend() {
+  local forced="$1"
+  local detected="$2"
+
+  case "$forced" in
+    rocm|cuda|cpu)
+      ;;
+    *)
+      die_bazel_setup \
+        "HM_FORCE_TORCH_BACKEND must be one of: rocm, cuda, cpu (got '${forced}')."
+      ;;
+  esac
+
+  if [ -n "${detected}" ] && [ "${detected}" != "${forced}" ]; then
+    die_bazel_setup \
+      "HM_FORCE_TORCH_BACKEND=${forced} but detected torch backend ${detected}. Activate a matching environment or unset HM_FORCE_TORCH_BACKEND."
+  fi
+}
+
 RESOLVED_CONDA_PREFIX="$(resolve_conda_prefix || true)"
 if [ -n "${RESOLVED_CONDA_PREFIX}" ]; then
   export CONDA_PREFIX="${RESOLVED_CONDA_PREFIX}"
@@ -102,7 +126,16 @@ fi
 
 BAZEL_FLAGS="--action_env=PATH=${LOGIN_PATH} --repo_env=PATH=${LOGIN_PATH}"
 
-TORCH_BACKEND="$(resolve_torch_backend | tr -d '\n' || true)"
+DETECTED_TORCH_BACKEND="$(resolve_torch_backend | tr -d '\n' || true)"
+FORCED_TORCH_BACKEND="${HM_FORCE_TORCH_BACKEND:-}"
+
+if [ -n "${FORCED_TORCH_BACKEND}" ]; then
+  validate_forced_torch_backend "${FORCED_TORCH_BACKEND}" "${DETECTED_TORCH_BACKEND}"
+  TORCH_BACKEND="${FORCED_TORCH_BACKEND}"
+else
+  TORCH_BACKEND="${DETECTED_TORCH_BACKEND}"
+fi
+
 if [ -n "${TORCH_BACKEND}" ]; then
   BAZEL_FLAGS="${BAZEL_FLAGS} --define=torch_backend=${TORCH_BACKEND}"
 fi
