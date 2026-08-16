@@ -95,8 +95,8 @@ sh_test(
         "test_bytetrack_cuda.py",
     ],
     target_compatible_with = select({
-        "//bazel:torch_backend_rocm": ["@platforms//:incompatible"],
-        "//conditions:default": [],
+        "//bazel:torch_backend_cuda": [],
+        "//conditions:default": ["@platforms//:incompatible"],
     }),
 )
 

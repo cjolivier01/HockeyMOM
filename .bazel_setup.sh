@@ -88,10 +88,64 @@ validate_forced_torch_backend() {
       ;;
   esac
 
-  if [ -n "${detected}" ] && [ "${detected}" != "${forced}" ]; then
+  if [ -z "${detected}" ]; then
+    die_bazel_setup \
+      "HM_FORCE_TORCH_BACKEND=${forced} but the torch backend could not be detected. Activate a matching environment or unset HM_FORCE_TORCH_BACKEND."
+  fi
+
+  if [ "${detected}" != "${forced}" ]; then
     die_bazel_setup \
       "HM_FORCE_TORCH_BACKEND=${forced} but detected torch backend ${detected}. Activate a matching environment or unset HM_FORCE_TORCH_BACKEND."
   fi
+}
+
+valid_rocm_root() {
+  local root="$1"
+  local candidate=""
+
+  [ -n "${root}" ] || return 1
+  [ -x "${root}/bin/hipcc" ] || return 1
+  [ -f "${root}/include/hip/hip_runtime.h" ] || return 1
+
+  for candidate in \
+    "${root}/lib/libamdhip64.so" \
+    "${root}/lib64/libamdhip64.so" \
+    "${root}"/lib/libamdhip64.so.* \
+    "${root}"/lib64/libamdhip64.so.*
+  do
+    [ -f "${candidate}" ] && return 0
+  done
+
+  return 1
+}
+
+detect_rocm_path() {
+  local candidate=""
+
+  for candidate in "${ROCM_PATH:-}" "${HIP_PATH:-}"; do
+    [ -n "${candidate}" ] || continue
+    valid_rocm_root "${candidate}" && {
+      printf '%s\n' "${candidate}"
+      return 0
+    }
+  done
+
+  if command -v hipcc >/dev/null 2>&1; then
+    candidate="$(dirname "$(dirname "$(readlink -f "$(command -v hipcc)")")")"
+    valid_rocm_root "${candidate}" && {
+      printf '%s\n' "${candidate}"
+      return 0
+    }
+  fi
+
+  for candidate in /opt/rocm /opt/rocm-*; do
+    valid_rocm_root "${candidate}" && {
+      printf '%s\n' "${candidate}"
+      return 0
+    }
+  done
+
+  return 1
 }
 
 RESOLVED_CONDA_PREFIX="$(resolve_conda_prefix || true)"
@@ -117,8 +171,18 @@ if [ ! -z "${CONDA_PREFIX}" ]; then
 fi
 
 if [ -e "${HOME}/.profile" ]; then
+  restore_nounset=0
+  case "$-" in
+    *u*)
+      restore_nounset=1
+      set +u
+      ;;
+  esac
   PATH="${LOGIN_PATH}"
   source "${HOME}/.profile"
+  if [ "${restore_nounset}" -eq 1 ]; then
+    set -u
+  fi
   LOGIN_PATH="${PATH}"
 fi
 
@@ -130,7 +194,7 @@ DETECTED_TORCH_BACKEND="$(resolve_torch_backend | tr -d '\n' || true)"
 FORCED_TORCH_BACKEND="${HM_FORCE_TORCH_BACKEND:-}"
 
 if [ -n "${FORCED_TORCH_BACKEND}" ]; then
-  validate_forced_torch_backend "${FORCED_TORCH_BACKEND}" "${DETECTED_TORCH_BACKEND}"
+  validate_forced_torch_backend "${FORCED_TORCH_BACKEND}" "${DETECTED_TORCH_BACKEND}" || return 1 2>/dev/null || exit 1
   TORCH_BACKEND="${FORCED_TORCH_BACKEND}"
 else
   TORCH_BACKEND="${DETECTED_TORCH_BACKEND}"
@@ -140,6 +204,14 @@ if [ -n "${TORCH_BACKEND}" ]; then
   BAZEL_FLAGS="${BAZEL_FLAGS} --define=torch_backend=${TORCH_BACKEND}"
 fi
 if [ "${TORCH_BACKEND}" = "rocm" ]; then
+  ROCM_ROOT="$(detect_rocm_path || true)"
+  if [ -n "${ROCM_ROOT}" ]; then
+    export ROCM_PATH="${ROCM_ROOT}"
+    export HIP_PATH="${ROCM_ROOT}"
+    LOGIN_PATH="${ROCM_ROOT}/bin:${LOGIN_PATH}"
+    BAZEL_FLAGS="${BAZEL_FLAGS} --repo_env=ROCM_PATH=${ROCM_ROOT} --repo_env=HIP_PATH=${ROCM_ROOT}"
+    BAZEL_FLAGS="${BAZEL_FLAGS} --action_env=ROCM_PATH=${ROCM_ROOT} --action_env=HIP_PATH=${ROCM_ROOT}"
+  fi
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   BAZEL_FLAGS="${BAZEL_FLAGS} --define=backend=hip --define=jetson_use_hip=true --repo_env=GPU_BACKEND=rocm"
   for sibling_repo in hm-cupano jetson-utils; do

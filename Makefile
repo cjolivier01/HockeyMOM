@@ -1,4 +1,6 @@
 
+SHELL := /bin/bash
+
 PRE_RUN="source .bazel_setup.sh"
 
 TOPDIR=$(shell pwd)
@@ -11,7 +13,8 @@ all: print_targets
 	test test-rocm test-cuda docs clean distclean expunge hm-ui hmtrack-rust-ui
 
 define run_bazel_with_backend
-	@if [ -n "$(1)" ]; then \
+	@set -euo pipefail; \
+	if [ -n "$(1)" ]; then \
 		export HM_FORCE_TORCH_BACKEND="$(1)"; \
 	else \
 		unset HM_FORCE_TORCH_BACKEND; \
@@ -20,12 +23,13 @@ define run_bazel_with_backend
 endef
 
 define run_develop_with_backend
-	@if [ -n "$(1)" ]; then \
+	@set -euo pipefail; \
+	if [ -n "$(1)" ]; then \
 		export HM_FORCE_TORCH_BACKEND="$(1)"; \
 	else \
 		unset HM_FORCE_TORCH_BACKEND; \
 	fi; \
-	. ./.bazel_setup.sh >/dev/null 2>&1; \
+	source ./.bazel_setup.sh; \
 	if [ "$${TORCH_BACKEND}" = "rocm" ] || [ "$${TORCH_BACKEND}" = "cuda" ] || command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
 		$(BAZEL) run --config=release //hockeymom:link_ext; \
 	else \
