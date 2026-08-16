@@ -1,51 +1,108 @@
 
+SHELL := /bin/bash
+
 PRE_RUN="source .bazel_setup.sh"
 
 TOPDIR=$(shell pwd)
+BAZEL=bazel/bazel.sh
 
 all: print_targets
 
-.PHONY: print_targets perf debug develop wheel docs test clean distclean expunge hm-ui hmtrack-rust-ui
+.PHONY: print_targets perf perf-rocm perf-cuda debug debug-rocm debug-cuda \
+	develop develop-rocm develop-cuda wheel wheel-rocm wheel-cuda \
+	test test-rocm test-cuda docs clean distclean expunge hm-ui hmtrack-rust-ui
 
-hm-ui:
-	bazel/bazel.sh build --config=release //hm-ui:hm-ui
+define run_bazel_with_backend
+	@set -euo pipefail; \
+	if [ -n "$(1)" ]; then \
+		export HM_FORCE_TORCH_BACKEND="$(1)"; \
+	else \
+		unset HM_FORCE_TORCH_BACKEND; \
+	fi; \
+	$(BAZEL) $(2)
+endef
 
-perf:
-	bazel/bazel.sh build --config=release //...
-
-debug:
-	bazel/bazel.sh build --config=debug //...
-
-test:
-	bazel/bazel.sh test --config=release //...
-
-wheel:
-	bazel/bazel.sh run --config=release //hockeymom:bdist_wheel 
-	bazel/bazel.sh run --config=release //hmlib:bdist_wheel
-
-docs:
-	bazel/bazel.sh build //:all_doxygen_docs
-
-clean:
-	bazel/bazel.sh clean
-
-distclean expunge:
-	bazel/bazel.sh clean --expunge
-
-develop: hm-ui
-	@. ./.bazel_setup.sh >/dev/null 2>&1; \
-	if [ "$${TORCH_BACKEND}" = "rocm" ] || command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
-		bazel/bazel.sh run --config=release //hockeymom:link_ext; \
+define run_develop_with_backend
+	@set -euo pipefail; \
+	if [ -n "$(1)" ]; then \
+		export HM_FORCE_TORCH_BACKEND="$(1)"; \
+	else \
+		unset HM_FORCE_TORCH_BACKEND; \
+	fi; \
+	source ./.bazel_setup.sh; \
+	if [ "$${TORCH_BACKEND}" = "rocm" ] || [ "$${TORCH_BACKEND}" = "cuda" ] || command -v nvcc >/dev/null 2>&1 || [ -f /usr/local/cuda/include/cuda_runtime.h ]; then \
+		$(BAZEL) run --config=release //hockeymom:link_ext; \
 	else \
 		echo "Skipping hockeymom native extension link: neither ROCm nor CUDA toolkit/backend detected"; \
-	fi
-	bazel/bazel.sh run --config=release //hmlib:develop -- --workspace=$(TOPDIR)
+	fi; \
+	$(BAZEL) run --config=release //hmlib:develop -- --workspace=$(TOPDIR)
+endef
+
+hm-ui:
+	$(BAZEL) build --config=release //hm-ui:hm-ui
+
+perf:
+	$(call run_bazel_with_backend,,build --config=release //...)
+
+perf-rocm:
+	$(call run_bazel_with_backend,rocm,build --config=release //...)
+
+perf-cuda:
+	$(call run_bazel_with_backend,cuda,build --config=release //...)
+
+debug:
+	$(call run_bazel_with_backend,,build --config=debug //...)
+
+debug-rocm:
+	$(call run_bazel_with_backend,rocm,build --config=debug //...)
+
+debug-cuda:
+	$(call run_bazel_with_backend,cuda,build --config=debug //...)
+
+test:
+	$(call run_bazel_with_backend,,test --config=release //...)
+
+test-rocm:
+	$(call run_bazel_with_backend,rocm,test --config=release //...)
+
+test-cuda:
+	$(call run_bazel_with_backend,cuda,test --config=release //...)
+
+wheel:
+	$(call run_bazel_with_backend,,run --config=release //hockeymom:bdist_wheel)
+	$(call run_bazel_with_backend,,run --config=release //hmlib:bdist_wheel)
+
+wheel-rocm:
+	$(call run_bazel_with_backend,rocm,run --config=release //hockeymom:bdist_wheel)
+	$(call run_bazel_with_backend,rocm,run --config=release //hmlib:bdist_wheel)
+
+wheel-cuda:
+	$(call run_bazel_with_backend,cuda,run --config=release //hockeymom:bdist_wheel)
+	$(call run_bazel_with_backend,cuda,run --config=release //hmlib:bdist_wheel)
+
+docs:
+	$(BAZEL) build //:all_doxygen_docs
+
+clean:
+	$(BAZEL) clean
+
+distclean expunge:
+	$(BAZEL) clean --expunge
+
+develop: hm-ui
+	$(call run_develop_with_backend,)
+
+develop-rocm: hm-ui
+	$(call run_develop_with_backend,rocm)
+
+develop-cuda: hm-ui
+	$(call run_develop_with_backend,cuda)
 
 hmtrack-rust-ui: hm-ui
 	HM_UI_BIN=$(TOPDIR)/bazel-bin/hm-ui/hm-ui-bin PYTHONPATH=$(TOPDIR) python hmlib/cli/hmtrack.py --camera-ui=1 $(ARGS)
 
 deps:
-	cd external/hugin && $(TOPDIR)/bazel/bazel.sh run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
+	cd external/hugin && $(TOPDIR)/$(BAZEL) run --config=release //:install_tree -- --prefix=$(CONDA_PREFIX)
 	cd -
 	touch .hugin_built
 print_targets:
@@ -55,8 +112,12 @@ print_targets:
 		'Build Outputs' \
 		'-------------' \
 		'hm-ui        Build the Rust hm-ui sidecar binary used by --camera-ui=1.' \
-		'perf         Build every Bazel target with --config=release; use for optimized binaries before packaging or deploying.' \
-		'debug        Build every Bazel target with --config=debug; use while iterating locally when you need symbols and asserts.' \
+		'perf         Build every Bazel target with --config=release using the auto-detected torch backend.' \
+		'perf-rocm    Build every Bazel target with --config=release while forcing the ROCm torch backend.' \
+		'perf-cuda    Build every Bazel target with --config=release while forcing the CUDA torch backend.' \
+		'debug        Build every Bazel target with --config=debug using the auto-detected torch backend.' \
+		'debug-rocm   Build every Bazel target with --config=debug while forcing the ROCm torch backend.' \
+		'debug-cuda   Build every Bazel target with --config=debug while forcing the CUDA torch backend.' \
 		'' \
 		'Documentation' \
 		'--------------' \
@@ -64,10 +125,16 @@ print_targets:
 		'' \
 		'Developer Workflow' \
 		'------------------' \
-		'develop      Builds hm-ui, refreshes hockeymom extension symlinks when the active backend is ROCm or CUDA is available, then installs hmlib for development.' \
+		'develop      Builds hm-ui, refreshes hockeymom extension symlinks when the detected backend is ROCm or CUDA, then installs hmlib for development.' \
+		'develop-rocm Same as develop, but forces the ROCm torch backend.' \
+		'develop-cuda Same as develop, but forces the CUDA torch backend.' \
 		'hmtrack-rust-ui  Build hm-ui, then run hmtrack with the Rust camera UI. Pass hmtrack args with ARGS="--game-id chicago-3 ...".' \
-		'test         Runs the release-configured Bazel test suite; use to verify regressions before submitting or tagging builds.' \
-		'wheel        Builds release wheels for hockeymom and hmlib; run when you need distributable Python packages.' \
+		'test         Runs the release-configured Bazel test suite using the auto-detected torch backend.' \
+		'test-rocm    Runs the release-configured Bazel test suite while forcing the ROCm torch backend.' \
+		'test-cuda    Runs the release-configured Bazel test suite while forcing the CUDA torch backend.' \
+		'wheel        Builds release wheels for hockeymom and hmlib using the auto-detected torch backend.' \
+		'wheel-rocm   Builds release wheels for hockeymom and hmlib while forcing the ROCm torch backend.' \
+		'wheel-cuda   Builds release wheels for hockeymom and hmlib while forcing the CUDA torch backend.' \
 		'' \
 		'Maintenance & Cleanup' \
 		'---------------------' \
@@ -81,4 +148,6 @@ print_targets:
 		'' \
 		'Meta' \
 		'----' \
+		'Explicit backend targets require a matching PyTorch environment; the helper will fail fast if the forced backend disagrees with the detected torch build.' \
+		'' \
 		'print_targets  Shows this help text.'

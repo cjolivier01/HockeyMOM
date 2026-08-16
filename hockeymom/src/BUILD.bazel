@@ -15,6 +15,13 @@ ROCM_COMPAT_COPTS = select({
     "//conditions:default": [],
 })
 
+ROCM_POINT_CLOUD_DEPS = select({
+    "//bazel:torch_backend_rocm": [
+        "@jetson-utils//cuda:hip_cuda_point_cloud_lib",
+    ],
+    "//conditions:default": [],
+})
+
 pybind_extension(
   name = "_hockeymom",
   srcs = [
@@ -31,6 +38,7 @@ pybind_extension(
     "@hm-cupano//src/pano:cuda_pano",
     "@hm-cupano//src/pano:cuda_pano_n",
     "@jetson-utils//cuda:colorspace_lib",
+  ] + ROCM_POINT_CLOUD_DEPS + [
     "@jetson-utils//cuda:cuda_point_cloud_lib",
   ],
   copts = [

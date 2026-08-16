@@ -1,14 +1,32 @@
-import sys
+import os
 import unittest
 
 try:
     import torch
-except Exception:
-    torch = None
+except ImportError:
+    raise RuntimeError("torch is required for the HockeyMOM GPU runtime tests")
 
-if torch is None or not torch.cuda.is_available():
-    print("SKIP: torch with CUDA not available", file=sys.stderr)
-    raise SystemExit(0)
+from hmlib.utils.torch_backend import torch_backend
+
+if not torch.cuda.is_available():
+    raise RuntimeError(
+        "torch.cuda.is_available() is false; the HockeyMOM GPU runtime tests require a usable GPU backend"
+    )
+
+EXPECTED_BACKEND = os.environ.get("HM_TEST_EXPECT_TORCH_BACKEND")
+if EXPECTED_BACKEND is None:
+    raise RuntimeError("HM_TEST_EXPECT_TORCH_BACKEND must be set for the GPU runtime tests")
+
+ACTIVE_BACKEND = torch_backend()
+
+if ACTIVE_BACKEND != EXPECTED_BACKEND:
+    raise RuntimeError(f"expected torch backend {EXPECTED_BACKEND}, got {ACTIVE_BACKEND}")
+
+GPU_TRACKING_RUNTIME_ERROR = None
+try:
+    torch.linalg.cholesky(torch.eye(2, dtype=torch.float32, device="cuda"))
+except RuntimeError as exc:
+    GPU_TRACKING_RUNTIME_ERROR = str(exc)
 
 from hockeymom.core import HmByteTrackConfig, HmByteTrackerCuda, HmByteTrackerCudaStatic, HmTracker
 
@@ -47,9 +65,28 @@ def _make_padded_data(
     }
 
 
-@unittest.skipUnless(torch.cuda.is_available(), "CUDA not available")
-class ByteTrackCudaTest(unittest.TestCase):
-    def test_cuda_tracker_matches_cpu(self):
+class ByteTrackGpuBackendTest(unittest.TestCase):
+    def test_expected_backend_matches_runtime(self):
+        self.assertIn(ACTIVE_BACKEND, {"cuda", "rocm"})
+        self.assertEqual(ACTIVE_BACKEND, EXPECTED_BACKEND)
+        self.assertTrue(torch.cuda.is_available())
+
+        if ACTIVE_BACKEND == "rocm":
+            self.assertIsNotNone(getattr(torch.version, "hip", None))
+            self.assertFalse(bool(getattr(torch.version, "cuda", None)))
+        else:
+            self.assertTrue(bool(getattr(torch.version, "cuda", None)))
+            self.assertFalse(bool(getattr(torch.version, "hip", None)))
+
+    def test_gpu_tracking_runtime_supports_cholesky(self):
+        if GPU_TRACKING_RUNTIME_ERROR is not None:
+            self.fail(GPU_TRACKING_RUNTIME_ERROR)
+
+    @unittest.skipIf(
+        GPU_TRACKING_RUNTIME_ERROR is not None,
+        "torch GPU Cholesky unavailable in this runtime",
+    )
+    def test_gpu_tracker_matches_cpu(self):
         config = HmByteTrackConfig()
         cpu_tracker = HmTracker(config)
         gpu_tracker = HmByteTrackerCuda(config, device="cuda:0")
@@ -74,12 +111,19 @@ class ByteTrackCudaTest(unittest.TestCase):
             cpu_res = cpu_tracker.track(cpu_data.copy())
             gpu_res = gpu_tracker.track(gpu_data)
 
+            self.assertEqual(gpu_res["ids"].device.type, "cuda")
+            self.assertEqual(gpu_res["bboxes"].device.type, "cuda")
+            self.assertEqual(gpu_res["labels"].device.type, "cuda")
+            self.assertEqual(gpu_res["scores"].device.type, "cuda")
             self.assertTrue(torch.equal(cpu_res["ids"], gpu_res["ids"].cpu()))
             self.assertTrue(torch.allclose(cpu_res["bboxes"], gpu_res["bboxes"].cpu(), atol=1e-3))
             self.assertTrue(torch.allclose(cpu_res["scores"], gpu_res["scores"].cpu(), atol=1e-3))
 
 
-@unittest.skipUnless(torch.cuda.is_available(), "CUDA not available")
+@unittest.skipIf(
+    GPU_TRACKING_RUNTIME_ERROR is not None,
+    "torch GPU Cholesky unavailable in this runtime",
+)
 class ByteTrackCudaStaticTest(unittest.TestCase):
     def test_static_tracker_pads_outputs(self):
         config = HmByteTrackConfig()
@@ -114,6 +158,10 @@ class ByteTrackCudaStaticTest(unittest.TestCase):
             static_res = static_tracker.track(padded_data)
 
             num_tracks = int(static_res["num_tracks"].item())
+            self.assertEqual(static_res["ids"].device.type, "cuda")
+            self.assertEqual(static_res["bboxes"].device.type, "cuda")
+            self.assertEqual(static_res["labels"].device.type, "cuda")
+            self.assertEqual(static_res["scores"].device.type, "cuda")
             self.assertEqual(num_tracks, dyn_res["ids"].shape[0])
             self.assertEqual(static_res["ids"].shape[0], 8)
             self.assertEqual(static_res["bboxes"].shape[0], 8)

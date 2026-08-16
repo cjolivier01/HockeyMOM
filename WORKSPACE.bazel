@@ -235,7 +235,7 @@ local_rocm_repository(
 
 git_repository(
      name = "jetson-utils",
-    commit = "4d399e083db13df8a1fdc4778d1cf3653b981afd",
+    commit = "cd0f92e2436cbde7ddb8ca26818f4ee57156ee3c",
      remote = "https://github.com/cjolivier01/jetson-utils.git",
 )
 
