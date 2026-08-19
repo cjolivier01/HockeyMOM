@@ -89,10 +89,14 @@ def _write_script(scripts_dir: Path, name: str, target: str) -> Path:
     return script_path
 
 
-def _install_editable_package(python: str, package_root: Path, *, no_deps: bool) -> int:
+def _install_editable_package(
+    python: str, package_root: Path, *, no_deps: bool, no_build_isolation: bool = False
+) -> int:
     cmd = [python, "-m", "pip", "install", "-e", str(package_root)]
     if no_deps:
         cmd.insert(4, "--no-deps")
+    if no_build_isolation:
+        cmd.insert(4, "--no-build-isolation")
     logger.info("Running %s", " ".join(cmd))
     return subprocess.call(cmd, cwd=package_root)
 
@@ -126,7 +130,12 @@ def main() -> int:
             return status
         for rel_path in LOCAL_EDITABLE_PACKAGES:
             package_root = workspace_root / rel_path
-            status = _install_editable_package(args.python, package_root, no_deps=True)
+            status = _install_editable_package(
+                args.python,
+                package_root,
+                no_deps=True,
+                no_build_isolation=True,
+            )
             if status != 0:
                 return status
         return 0
