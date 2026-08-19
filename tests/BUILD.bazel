@@ -74,6 +74,31 @@ py_test(
     ],
 )
 
+sh_test(
+    name="test_orientation",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_orientation.py",
+        "cv2",
+        "mmengine",
+        "numpy",
+        "pytest",
+        "torch",
+        "yaml",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:wheel_data_files",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_orientation.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
 py_test(
     name="test_box_equivalence",
     srcs=["test_box_equivalence.py"],
