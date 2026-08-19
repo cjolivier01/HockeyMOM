@@ -1,6 +1,5 @@
 """Load enblend seam masks at their PNG-declared canvas position."""
 
-import math
 import struct
 import zlib
 from dataclasses import dataclass
@@ -161,21 +160,20 @@ def read_mapping_canvas_size(mapping_files: Sequence[PathLike]) -> tuple[int, in
             y_resolution = _tiff_tag_number(tags.get("YResolution"), 1.0)
             x_position = _tiff_tag_number(tags.get("XPosition"), 0.0)
             y_position = _tiff_tag_number(tags.get("YPosition"), 0.0)
-            placements.append(
-                (
-                    x_position * x_resolution,
-                    y_position * y_resolution,
-                    int(page.imagewidth),
-                    int(page.imagelength),
-                )
-            )
+            # Playback's get_image_geo_position() quantizes each absolute
+            # position before get_canvas_info() normalizes their common origin.
+            # Match that ordering so the seam and runtime canvases cannot differ
+            # by a pixel for fractional TIFF rationals.
+            x = int(x_position * x_resolution + 0.5)
+            y = int(y_position * y_resolution + 0.5)
+            placements.append((x, y, int(page.imagewidth), int(page.imagelength)))
 
     if not placements:
         raise ValueError("No Hugin mapping TIFFs were provided")
     min_x = min(x for x, _, _, _ in placements)
     min_y = min(y for _, y, _, _ in placements)
-    width = math.ceil(max(x - min_x + width for x, _, width, _ in placements))
-    height = math.ceil(max(y - min_y + height for _, y, _, height in placements))
+    width = max(x - min_x + width for x, _, width, _ in placements)
+    height = max(y - min_y + height for _, y, _, height in placements)
     if width <= 0 or height <= 0:
         raise ValueError("Hugin mapping TIFFs describe an invalid canvas")
     return width, height

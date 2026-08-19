@@ -108,20 +108,48 @@ def should_reject_a_corrupt_offset_chunk(tmp_path: Path) -> None:
 
 
 def should_read_the_common_canvas_from_positioned_mapping_tiffs(tmp_path: Path) -> None:
-    def write_mapping(path: Path, width: int, height: int, x: int, y: int) -> None:
+    def write_mapping(
+        path: Path,
+        width: int,
+        height: int,
+        x: tuple[int, int],
+        y: tuple[int, int],
+    ) -> None:
         tifffile.imwrite(
             path,
             np.zeros((height, width), dtype=np.uint8),
             resolution=(1, 1),
             extratags=[
-                (286, 5, 1, (x, 1), False),
-                (287, 5, 1, (y, 1), False),
+                (286, 5, 1, x, False),
+                (287, 5, 1, y, False),
             ],
         )
 
     left = tmp_path / "mapping_0000.tif"
     right = tmp_path / "mapping_0001.tif"
-    write_mapping(left, width=4, height=3, x=15, y=26)
-    write_mapping(right, width=5, height=4, x=18, y=24)
+    write_mapping(left, width=4, height=3, x=(15, 1), y=(26, 1))
+    write_mapping(right, width=5, height=4, x=(18, 1), y=(24, 1))
 
     assert read_mapping_canvas_size([left, right]) == (8, 5)
+
+
+def should_quantize_mapping_positions_before_normalizing_the_canvas(tmp_path: Path) -> None:
+    def write_mapping(path: Path, x: tuple[int, int]) -> None:
+        tifffile.imwrite(
+            path,
+            np.zeros((100, 200), dtype=np.uint8),
+            resolution=(1, 1),
+            extratags=[
+                (286, 5, 1, x, False),
+                (287, 5, 1, (0, 1), False),
+            ],
+        )
+
+    left = tmp_path / "mapping_0000.tif"
+    right = tmp_path / "mapping_0001.tif"
+    write_mapping(left, x=(106, 10))
+    write_mapping(right, x=(604, 10))
+
+    # Playback rounds the absolute positions to 11 and 60 before subtracting
+    # the common origin, giving a 49-pixel displacement and a 249-pixel canvas.
+    assert read_mapping_canvas_size([left, right]) == (249, 100)
