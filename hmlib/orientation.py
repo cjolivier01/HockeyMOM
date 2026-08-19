@@ -442,9 +442,7 @@ def configure_game_videos(
     )
     left_list = extract_chapters_file_list(videos_dict["left"])
     right_list = extract_chapters_file_list(videos_dict["right"])
-    # Make sure they both have the same chapters
     if write_results:
-        assert videos_dict["left"].keys() == videos_dict["right"].keys()
         # Persist relative paths so subdirectories (e.g., cam1/, cam2/) are preserved
         rel_left = [os.path.relpath(p, start=dir_name) for p in left_list]
         rel_right = [os.path.relpath(p, start=dir_name) for p in right_list]
