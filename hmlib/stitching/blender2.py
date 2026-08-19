@@ -10,6 +10,7 @@ import os
 import traceback
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import cv2
@@ -21,6 +22,7 @@ from hmlib.orientation import configure_game_videos
 from hmlib.stitching.configure_stitching import get_image_geo_position
 from hmlib.stitching.image_remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.laplacian_blend import LaplacianBlend, simple_make_full
+from hmlib.stitching.seam import load_canvas_seam_mask, read_mapping_canvas_size
 from hmlib.stitching.synchronize import synchronize_by_audio
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
@@ -333,11 +335,11 @@ def create_generic_seam_mask(img1_size, img2_size, pos1, pos2):
 def make_seam_and_xor_masks(
     dir_name: str,
     basename: str,
-    images_and_positions: List[ImageAndPos] = None,
+    images_and_positions: Optional[List[ImageAndPos]] = None,
     force: bool = False,
     use_enblend_tool: bool = True,
     # use_enblend_tool: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
     """Compute seam and XOR masks for a pair of mapping images.
 
     @param dir_name: Directory containing mapping TIFFs and seam files.
@@ -345,7 +347,7 @@ def make_seam_and_xor_masks(
     @param images_and_positions: Optional pre-loaded image/position structs.
     @param force: If True, regenerate even when seam file exists and is fresh.
     @param use_enblend_tool: If True, call external `enblend` for seam masks.
-    @return: Triplet ``(seam_tensor, xor_mask_tensor, xor_scaled_tensor)``.
+    @return: Pair ``(seam_tensor, xor_mask_tensor)``.
     """
     assert images_and_positions is None or len(images_and_positions) == 2
     seam_filename = os.path.join(dir_name, "seam_file.png")
@@ -404,7 +406,11 @@ def make_seam_and_xor_masks(
                 os.chdir(curr_dir)
 
     if os.path.exists(seam_filename):
-        seam_tensor = torch.from_numpy(cv2.imread(seam_filename, cv2.IMREAD_ANYDEPTH))
+        mapping_files = sorted(Path(dir_name).glob(f"{basename}????.tif"))
+        canvas_width, canvas_height = read_mapping_canvas_size(mapping_files)
+        seam_tensor = torch.from_numpy(
+            load_canvas_seam_mask(seam_filename, canvas_width, canvas_height)
+        )
 
     if False:
         seam_w = int(image_width(seam_tensor))

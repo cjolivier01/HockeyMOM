@@ -196,6 +196,28 @@ py_test(
     ],
 )
 
+sh_test(
+    name="test_seam_mask",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_seam_mask.py",
+        "cv2",
+        "numpy",
+        "pytest",
+        "tifffile",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_seam_mask.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
 py_test(
     name="test_jersey_tracker",
     srcs=["test_jersey_tracker.py"],
