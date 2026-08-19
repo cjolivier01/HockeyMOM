@@ -10,8 +10,10 @@ estimation and per-game synchronization into reusable functions.
 import logging
 import os
 import subprocess
+from contextlib import contextmanager
+import fcntl
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -36,6 +38,19 @@ logger = logging.getLogger(__name__)
 
 _STITCH_FRAME_TIME_PATH = ("stitching", "stitch_frame_time")
 _STITCH_FRAME_TIME_ALT_PATH = ("stitching", "stitch-frame-time")
+
+
+@contextmanager
+def _stitch_game_lock(game_dir: Union[str, Path]) -> Iterator[None]:
+    """Serialize mutation of shared stitching artifacts for one game."""
+    lock_path = Path(game_dir) / ".stitching.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _resolve_local_binary(executable: str) -> Optional[str]:
@@ -121,6 +136,22 @@ def is_older_than(file1: str, file2: str):
         return mtime2 < mtime1
     except OSError:
         return None
+
+
+def _stitch_project_is_complete(
+    project_file_path: Union[str, Path], autooptimiser_path: Union[str, Path]
+) -> bool:
+    """Return whether every artifact required to initialize stitching exists."""
+    project_path = Path(project_file_path)
+    game_dir = project_path.parent
+    required_paths = (
+        project_path,
+        Path(autooptimiser_path),
+        game_dir / "mapping_0000.tif",
+        game_dir / "mapping_0001.tif",
+        game_dir / "seam_file.png",
+    )
+    return all(path.is_file() for path in required_paths)
 
 
 def get_image_geo_position(tiff_image_file: str):
@@ -530,9 +561,9 @@ def build_stitching_project(
     hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
     assert autooptimiser_out != hm_project
-    if skip_if_exists and (
-        os.path.exists(project_file_path)
-        and os.path.exists(autooptimiser_out)
+    if (
+        skip_if_exists
+        and _stitch_project_is_complete(project_file_path, autooptimiser_out)
         and not is_older_than(project_file_path, autooptimiser_out)
     ):
         print(f"Project file already exists (skipping project creation): {autooptimiser_out}")
@@ -771,6 +802,42 @@ def configure_video_stitching(
     ignore_private_config: bool = False,
     game_config: Optional[Dict[str, Any]] = None,
 ):
+    """Configure stitching while serializing shared artifacts per game."""
+    with _stitch_game_lock(dir_name):
+        return _configure_video_stitching_locked(
+            dir_name=dir_name,
+            video_left=video_left,
+            video_right=video_right,
+            max_control_points=max_control_points,
+            project_file_name=project_file_name,
+            left_frame_offset=left_frame_offset,
+            right_frame_offset=right_frame_offset,
+            base_frame_offset=base_frame_offset,
+            audio_sync_seconds=audio_sync_seconds,
+            force=force,
+            game_id=game_id,
+            stitch_frame_time=stitch_frame_time,
+            ignore_private_config=ignore_private_config,
+            game_config=game_config,
+        )
+
+
+def _configure_video_stitching_locked(
+    dir_name: str,
+    video_left: str,
+    video_right: str,
+    max_control_points: int,
+    project_file_name: str = "hm_project.pto",
+    left_frame_offset: int = None,
+    right_frame_offset: int = None,
+    base_frame_offset: int = 0,
+    audio_sync_seconds: int = 15,
+    force: bool = False,
+    game_id: Optional[str] = None,
+    stitch_frame_time: Optional[str] = None,
+    ignore_private_config: bool = False,
+    game_config: Optional[Dict[str, Any]] = None,
+):
     """Configure a two-camera stitching project from game videos.
 
     Uses audio-based synchronization, frame extraction, optional per-side
@@ -818,8 +885,7 @@ def configure_video_stitching(
     autooptimiser_out: str = os.path.join(dir_name, "autooptimiser_out.pto")
     if (
         force
-        or not os.path.exists(pto_project_file)
-        or not os.path.exists(autooptimiser_out)
+        or not _stitch_project_is_complete(pto_project_file, autooptimiser_out)
         or (os.path.exists(pto_project_file) and is_older_than(pto_project_file, autooptimiser_out))
     ):
         left_image_file, right_image_file = extract_frames(
