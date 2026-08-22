@@ -154,6 +154,18 @@ class EnBlender(ImageBlender): ...  # may be None at runtime
 def compute_kmeans_clusters(
     data: torch.Tensor, k: int, max_iter: int = ...
 ) -> Tuple[torch.Tensor, torch.Tensor]: ...
+def create_homography_maps(
+    left_points: Sequence[Tuple[float, float]],
+    right_points: Sequence[Tuple[float, float]],
+    left_width: int,
+    left_height: int,
+    right_width: int,
+    right_height: int,
+    reprojection_threshold: float = ...,
+    confidence: float = ...,
+    max_iterations: int = ...,
+    max_output_dimension: int = ...,
+) -> dict[str, Any]: ...
 def show_cuda_tensor(
     label: str, img_cuda: torch.Tensor, wait: bool = ..., stream: Optional[int] = ...
 ) -> None: ...
@@ -190,6 +202,7 @@ __all__ = [
     "WHDims",
     "GrowShrink",
     "compute_kmeans_clusters",
+    "create_homography_maps",
     "bgr_to_i420_cuda",
     "show_cuda_tensor",
 ]

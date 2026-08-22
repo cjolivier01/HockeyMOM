@@ -101,6 +101,8 @@ stitching:
   control_points:
     m_kpts0: null
     m_kpts1: null
+  control_point_matcher: "superpoint-lightglue"
+  mapping_backend: "nona"
   offsets: null
   dir_name: null
   blend_mode: "laplacian"

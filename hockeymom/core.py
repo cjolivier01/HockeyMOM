@@ -91,6 +91,7 @@ def _preload_torch_shared_libraries() -> None:
 
 _preload_torch_shared_libraries()
 
+from . import _hockeymom as _native_hockeymom
 from ._hockeymom import (
     AllLivingBoxConfig,
     AspenGraphSampler,
@@ -139,6 +140,39 @@ except Exception:
 #     pass
 
 
+def create_homography_maps(
+    left_points,
+    right_points,
+    left_width,
+    left_height,
+    right_width,
+    right_height,
+    reprojection_threshold=3.0,
+    confidence=0.999,
+    max_iterations=10000,
+    max_output_dimension=0,
+):
+    """Call the native MAGSAC++ homography-map builder."""
+    native_function = getattr(_native_hockeymom, "create_homography_maps", None)
+    if native_function is None:
+        raise RuntimeError(
+            "The installed HockeyMOM extension does not provide "
+            "create_homography_maps; rebuild the native extension"
+        )
+    return native_function(
+        left_points,
+        right_points,
+        left_width,
+        left_height,
+        right_width,
+        right_height,
+        reprojection_threshold,
+        confidence,
+        max_iterations,
+        max_output_dimension,
+    )
+
+
 __all__ = [
     "ImageRemapper",
     "ImageBlender",
@@ -173,6 +207,7 @@ __all__ = [
     "WHDims",
     "GrowShrink",
     "compute_kmeans_clusters",
+    "create_homography_maps",
     "bgr_to_i420_cuda",
     "show_cuda_tensor",
 ]
@@ -205,6 +240,17 @@ _doc(
     @param interpolation: Interpolation mode ('nearest', 'bilinear', ...).
     @param batch_size: Number of images processed in parallel.
     @param device: 'cpu' or 'cuda:<idx>'.
+    """,
+)
+
+_doc(
+    create_homography_maps,
+    """Estimate a MAGSAC++ homography and build inverse panorama coordinate maps.
+
+    The right control points are mapped onto the left image. The returned
+    dictionary contains the robust inlier mask, panorama bounds, image
+    placements, and uint16 inverse X/Y maps compatible with HockeyMOM's
+    stitching remappers.
     """,
 )
 
