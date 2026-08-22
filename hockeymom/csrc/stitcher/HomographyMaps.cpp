@@ -1,0 +1,292 @@
+#include "hockeymom/csrc/stitcher/HomographyMaps.h"
+
+#include <opencv2/calib3d.hpp>
+#include <opencv2/core.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
+#include <string>
+
+namespace hm::stitcher {
+namespace {
+
+constexpr uint16_t kInvalidCoordinate = std::numeric_limits<uint16_t>::max();
+constexpr int kMaximumCoordinate = static_cast<int>(kInvalidCoordinate) - 1;
+constexpr int64_t kMaximumCanvasPixels = 100000000;
+constexpr double kIntegerBoundsTolerance = 1e-5;
+
+void validate_image_size(int width, int height, const char* label) {
+  if (width <= 0 || height <= 0) {
+    throw std::invalid_argument(
+        std::string(label) + " image dimensions must be positive");
+  }
+  if (width > kMaximumCoordinate || height > kMaximumCoordinate) {
+    throw std::invalid_argument(
+        std::string(label) +
+        " image dimensions exceed the 16-bit coordinate-map limit");
+  }
+}
+
+std::vector<cv::Point2d> to_cv_points(
+    const std::vector<std::array<double, 2>>& points,
+    const char* label) {
+  std::vector<cv::Point2d> result;
+  result.reserve(points.size());
+  for (const auto& point : points) {
+    if (!std::isfinite(point[0]) || !std::isfinite(point[1])) {
+      throw std::invalid_argument(
+          std::string(label) + " control points must be finite");
+    }
+    result.emplace_back(point[0], point[1]);
+  }
+  return result;
+}
+
+std::array<double, 9> to_array(const cv::Matx33d& matrix) {
+  std::array<double, 9> result{};
+  std::copy(matrix.val, matrix.val + result.size(), result.begin());
+  return result;
+}
+
+std::array<cv::Point2d, 4> transformed_corners(
+    const cv::Matx33d& homography,
+    int width,
+    int height) {
+  std::vector<cv::Point2d> source = {
+      {0.0, 0.0},
+      {static_cast<double>(width), 0.0},
+      {static_cast<double>(width), static_cast<double>(height)},
+      {0.0, static_cast<double>(height)},
+  };
+  std::vector<cv::Point2d> destination;
+  cv::perspectiveTransform(source, destination, cv::Mat(homography));
+  if (destination.size() != 4) {
+    throw std::runtime_error("OpenCV failed to transform image corners");
+  }
+  std::array<cv::Point2d, 4> result{};
+  std::copy(destination.begin(), destination.end(), result.begin());
+  for (const auto& point : result) {
+    if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+      throw std::runtime_error(
+          "MAGSAC++ produced a homography with non-finite image bounds");
+    }
+  }
+  return result;
+}
+
+struct Bounds {
+  double min_x{std::numeric_limits<double>::infinity()};
+  double min_y{std::numeric_limits<double>::infinity()};
+  double max_x{-std::numeric_limits<double>::infinity()};
+  double max_y{-std::numeric_limits<double>::infinity()};
+
+  void include(const std::array<cv::Point2d, 4>& points) {
+    for (const auto& point : points) {
+      min_x = std::min(min_x, point.x);
+      min_y = std::min(min_y, point.y);
+      max_x = std::max(max_x, point.x);
+      max_y = std::max(max_y, point.y);
+    }
+  }
+};
+
+HomographyImageMap make_image_map(
+    const cv::Matx33d& image_to_canvas,
+    int source_width,
+    int source_height,
+    int canvas_width,
+    int canvas_height) {
+  const auto corners =
+      transformed_corners(image_to_canvas, source_width, source_height);
+  Bounds bounds;
+  bounds.include(corners);
+
+  const int x0 = std::clamp(
+      static_cast<int>(std::floor(bounds.min_x + kIntegerBoundsTolerance)),
+      0,
+      canvas_width);
+  const int y0 = std::clamp(
+      static_cast<int>(std::floor(bounds.min_y + kIntegerBoundsTolerance)),
+      0,
+      canvas_height);
+  const int x1 = std::clamp(
+      static_cast<int>(std::ceil(bounds.max_x - kIntegerBoundsTolerance)),
+      0,
+      canvas_width);
+  const int y1 = std::clamp(
+      static_cast<int>(std::ceil(bounds.max_y - kIntegerBoundsTolerance)),
+      0,
+      canvas_height);
+  if (x1 <= x0 || y1 <= y0) {
+    throw std::runtime_error("Homography produced an empty image mapping");
+  }
+
+  HomographyImageMap result;
+  result.x_position = x0;
+  result.y_position = y0;
+  result.width = x1 - x0;
+  result.height = y1 - y0;
+  const auto pixel_count =
+      static_cast<size_t>(result.width) * static_cast<size_t>(result.height);
+  result.x_map.assign(pixel_count, kInvalidCoordinate);
+  result.y_map.assign(pixel_count, kInvalidCoordinate);
+
+  const cv::Matx33d canvas_to_image = image_to_canvas.inv();
+  cv::parallel_for_(cv::Range(0, result.height), [&](const cv::Range& range) {
+    for (int row = range.start; row < range.end; ++row) {
+      const double canvas_y = static_cast<double>(y0 + row);
+      for (int column = 0; column < result.width; ++column) {
+        const double canvas_x = static_cast<double>(x0 + column);
+        const cv::Vec3d source_h =
+            canvas_to_image * cv::Vec3d(canvas_x, canvas_y, 1.0);
+        if (std::abs(source_h[2]) < 1e-12) {
+          continue;
+        }
+        const double source_x = source_h[0] / source_h[2];
+        const double source_y = source_h[1] / source_h[2];
+        const int rounded_x = static_cast<int>(std::llround(source_x));
+        const int rounded_y = static_cast<int>(std::llround(source_y));
+        if (rounded_x < 0 || rounded_x >= source_width || rounded_y < 0 ||
+            rounded_y >= source_height) {
+          continue;
+        }
+        const auto index = static_cast<size_t>(row) * result.width + column;
+        result.x_map[index] = static_cast<uint16_t>(rounded_x);
+        result.y_map[index] = static_cast<uint16_t>(rounded_y);
+      }
+    }
+  });
+  return result;
+}
+
+} // namespace
+
+HomographyMapResult create_homography_maps(
+    const std::vector<std::array<double, 2>>& left_points,
+    const std::vector<std::array<double, 2>>& right_points,
+    int left_width,
+    int left_height,
+    int right_width,
+    int right_height,
+    double reprojection_threshold,
+    double confidence,
+    int max_iterations,
+    int max_output_dimension) {
+  validate_image_size(left_width, left_height, "Left");
+  validate_image_size(right_width, right_height, "Right");
+  if (left_points.size() != right_points.size()) {
+    throw std::invalid_argument(
+        "Left and right control-point counts must match");
+  }
+  if (left_points.size() < 4) {
+    throw std::invalid_argument(
+        "At least four control-point pairs are required for a homography");
+  }
+  if (reprojection_threshold <= 0.0) {
+    throw std::invalid_argument("Reprojection threshold must be positive");
+  }
+  if (confidence <= 0.0 || confidence >= 1.0) {
+    throw std::invalid_argument(
+        "Homography confidence must be between 0 and 1");
+  }
+  if (max_iterations <= 0) {
+    throw std::invalid_argument(
+        "Maximum homography iterations must be positive");
+  }
+
+  const auto left_cv = to_cv_points(left_points, "Left");
+  const auto right_cv = to_cv_points(right_points, "Right");
+  cv::Mat inlier_mask;
+  const cv::Mat homography = cv::findHomography(
+      right_cv,
+      left_cv,
+      cv::USAC_MAGSAC,
+      reprojection_threshold,
+      inlier_mask,
+      max_iterations,
+      confidence);
+  if (homography.empty()) {
+    throw std::runtime_error("OpenCV MAGSAC++ failed to estimate a homography");
+  }
+  cv::Mat homography_64;
+  homography.convertTo(homography_64, CV_64F);
+  cv::Matx33d right_to_left;
+  std::copy(
+      homography_64.ptr<double>(),
+      homography_64.ptr<double>() + 9,
+      right_to_left.val);
+
+  const cv::Matx33d identity = cv::Matx33d::eye();
+  Bounds unscaled_bounds;
+  unscaled_bounds.include(
+      transformed_corners(identity, left_width, left_height));
+  unscaled_bounds.include(
+      transformed_corners(right_to_left, right_width, right_height));
+  const double unscaled_width = unscaled_bounds.max_x - unscaled_bounds.min_x;
+  const double unscaled_height = unscaled_bounds.max_y - unscaled_bounds.min_y;
+  if (unscaled_width <= 0.0 || unscaled_height <= 0.0) {
+    throw std::runtime_error("MAGSAC++ produced invalid panorama bounds");
+  }
+
+  double output_scale = 1.0;
+  if (max_output_dimension > 0) {
+    output_scale = std::min(
+        1.0,
+        static_cast<double>(max_output_dimension) /
+            std::max(unscaled_width, unscaled_height));
+  }
+  const cv::Matx33d left_to_canvas(
+      output_scale,
+      0.0,
+      -unscaled_bounds.min_x * output_scale,
+      0.0,
+      output_scale,
+      -unscaled_bounds.min_y * output_scale,
+      0.0,
+      0.0,
+      1.0);
+  const cv::Matx33d right_to_canvas = left_to_canvas * right_to_left;
+  const int canvas_width = static_cast<int>(
+      std::ceil(unscaled_width * output_scale - kIntegerBoundsTolerance));
+  const int canvas_height = static_cast<int>(
+      std::ceil(unscaled_height * output_scale - kIntegerBoundsTolerance));
+  const int64_t canvas_pixels =
+      static_cast<int64_t>(canvas_width) * canvas_height;
+  if (canvas_width <= 0 || canvas_height <= 0 ||
+      canvas_width > kMaximumCoordinate || canvas_height > kMaximumCoordinate ||
+      canvas_pixels > kMaximumCanvasPixels) {
+    throw std::runtime_error(
+        "Homography panorama exceeds supported coordinate-map dimensions; "
+        "set a smaller maximum output dimension");
+  }
+
+  HomographyMapResult result;
+  result.canvas_width = canvas_width;
+  result.canvas_height = canvas_height;
+  result.output_scale = output_scale;
+  result.right_to_left_homography = to_array(right_to_left);
+  result.left_to_canvas_homography = to_array(left_to_canvas);
+  result.right_to_canvas_homography = to_array(right_to_canvas);
+  result.image_maps[0] = make_image_map(
+      left_to_canvas, left_width, left_height, canvas_width, canvas_height);
+  result.image_maps[1] = make_image_map(
+      right_to_canvas, right_width, right_height, canvas_width, canvas_height);
+
+  result.inlier_mask.reserve(inlier_mask.total());
+  for (size_t index = 0; index < inlier_mask.total(); ++index) {
+    result.inlier_mask.push_back(inlier_mask.ptr<uint8_t>()[index]);
+  }
+  const auto inlier_count = std::count_if(
+      result.inlier_mask.begin(), result.inlier_mask.end(), [](uint8_t value) {
+        return value != 0;
+      });
+  if (inlier_count < 4) {
+    throw std::runtime_error(
+        "OpenCV MAGSAC++ found fewer than four homography inliers");
+  }
+  return result;
+}
+
+} // namespace hm::stitcher

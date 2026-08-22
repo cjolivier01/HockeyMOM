@@ -110,12 +110,16 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
         stitch_frame_time: str | None,
         ignore_private_config: bool,
         game_config: Dict[str, Any] | None,
+        control_point_matcher: str,
+        mapping_backend: str,
     ):
         # Return a dummy project path and zero offsets.
         captured_net["configure_game_id"] = game_id
         captured_net["configure_stitch_frame_time"] = stitch_frame_time
         captured_net["configure_ignore_private_config"] = ignore_private_config
         captured_net["configure_game_config"] = game_config
+        captured_net["configure_control_point_matcher"] = control_point_matcher
+        captured_net["configure_mapping_backend"] = mapping_backend
         pto_path = str(tmp_path / "dummy.pto")
         Path(pto_path).touch()
         return pto_path, 0, 0
@@ -181,6 +185,8 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     assert captured_net.get("configure_game_id") == "test-game"
     assert captured_net.get("configure_ignore_private_config") is False
     assert isinstance(captured_net.get("configure_game_config"), dict)
+    assert captured_net.get("configure_control_point_matcher") == "superpoint-lightglue"
+    assert captured_net.get("configure_mapping_backend") == "nona"
 
 
 def should_keep_stitch_ui_terminal_after_post_processing() -> None:
@@ -219,12 +225,16 @@ def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_pat
         stitch_frame_time: str | None,
         ignore_private_config: bool,
         game_config: Dict[str, Any] | None,
+        control_point_matcher: str,
+        mapping_backend: str,
     ):
         captured["base_frame_offset"] = base_frame_offset
         captured["game_id"] = game_id
         captured["stitch_frame_time"] = stitch_frame_time
         captured["ignore_private_config"] = ignore_private_config
         captured["game_config"] = game_config
+        captured["control_point_matcher"] = control_point_matcher
+        captured["mapping_backend"] = mapping_backend
         pto_path = str(tmp_path / "dummy.pto")
         Path(pto_path).touch()
         return pto_path, 0, 0
