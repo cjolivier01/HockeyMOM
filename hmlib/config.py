@@ -132,7 +132,7 @@ def load_yaml_preserving_player_frame_context(payload: str | bytes):
     if isinstance(payload, bytes):
         payload = payload.decode("utf-8")
     config = yaml.safe_load(payload)
-    if not isinstance(config, dict) or "calibration_frame_selection" not in payload:
+    if not isinstance(config, dict):
         return config
     stitching = config.get("stitching")
     if not isinstance(stitching, dict):
@@ -149,7 +149,9 @@ def load_yaml_preserving_player_frame_context(payload: str | bytes):
     )
     text_context = text_plan.get("context") if isinstance(text_plan, dict) else None
     if isinstance(text_context, dict):
-        plan["context"] = text_context
+        for key, value in plan["context"].items():
+            if value is not None and isinstance(text_context.get(key), str):
+                plan["context"][key] = text_context[key]
     return config
 
 

@@ -52,3 +52,16 @@ def should_preserve_legacy_player_frame_context_through_private_config_save(tmp_
         snapshot["stitching"]["calibration_frame_selection"]["context"]
         == saved["stitching"]["calibration_frame_selection"]["context"]
     )
+
+
+def should_leave_malformed_null_context_for_native_validation():
+    config = hmlib_config.load_yaml_preserving_player_frame_context(
+        "stitching:\n"
+        "  calibration_frame_selection:\n"
+        "    context:\n"
+        "      source_context: null\n"
+        "      output_rotation_degrees: 0.000000\n"
+    )
+    context = config["stitching"]["calibration_frame_selection"]["context"]
+    assert context["source_context"] is None
+    assert context["output_rotation_degrees"] == "0.000000"
