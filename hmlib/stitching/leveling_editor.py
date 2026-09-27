@@ -20,6 +20,7 @@ from typing import Callable
 import yaml
 from PIL import Image
 
+from hmlib.config import load_yaml_preserving_player_frame_context
 from hmlib.stitching.projections import apply_projection, read_panorama_geometry
 from hmlib.stitching.rink_leveling import (
     estimate_leveling,
@@ -314,7 +315,9 @@ class LevelingSession:
         with self._lock():
             self._check_fresh()
             config = (
-                yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+                load_yaml_preserving_player_frame_context(
+                    self.config_path.read_text(encoding="utf-8")
+                )
                 if self.config_path.exists()
                 else {}
             )

@@ -839,7 +839,7 @@ def _read_private_config_snapshot(path: Path) -> Tuple[Dict[str, Any], Optional[
         return {}, None
     if len(payload) > 16 * 1024 * 1024:
         raise ValueError(f"Private config is too large: {path}")
-    loaded = yaml.safe_load(payload)
+    loaded = hmlib_config.load_yaml_preserving_player_frame_context(payload)
     if loaded is None:
         loaded = {}
     if not isinstance(loaded, dict):

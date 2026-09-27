@@ -94,7 +94,7 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
     if os.path.exists(yaml_file_path):
         with open(yaml_file_path, "r") as file:
             try:
-                yaml_content = yaml.safe_load(file)
+                yaml_content = load_yaml_preserving_player_frame_context(file.read())
                 if yaml_content is None:
                     # Empty file
                     return {}
@@ -109,6 +109,37 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
                 )
                 raise
     return {} if not merge_into_config else merge_into_config
+
+
+def load_yaml_preserving_player_frame_context(payload: str | bytes):
+    """Keep native HStream's fingerprinted frame-selection context as text.
+
+    Older HStream plans did not tag context strings explicitly. PyYAML resolves
+    a plain ``0.000000`` as a float and later emits ``0.0``, invalidating the
+    plan fingerprint even though the numeric value is unchanged.
+    """
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8")
+    config = yaml.safe_load(payload)
+    if not isinstance(config, dict) or "calibration_frame_selection" not in payload:
+        return config
+    stitching = config.get("stitching")
+    if not isinstance(stitching, dict):
+        return config
+    plan = stitching.get("calibration_frame_selection")
+    if not isinstance(plan, dict) or not isinstance(plan.get("context"), dict):
+        return config
+    text_config = yaml.load(payload, Loader=yaml.BaseLoader)
+    text_stitching = text_config.get("stitching") if isinstance(text_config, dict) else None
+    text_plan = (
+        text_stitching.get("calibration_frame_selection")
+        if isinstance(text_stitching, dict)
+        else None
+    )
+    text_context = text_plan.get("context") if isinstance(text_plan, dict) else None
+    if isinstance(text_context, dict):
+        plan["context"] = text_context
+    return config
 
 
 def load_yaml_files_ordered(
