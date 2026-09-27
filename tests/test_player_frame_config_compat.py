@@ -25,6 +25,12 @@ def should_preserve_legacy_player_frame_context_through_private_config_save(tmp_
         hmlib_config.get_game_config_private.__globals__, "GAME_DIR_BASE", str(tmp_path)
     )
 
+    snapshot, _ = _read_private_config_snapshot(config_path)
+    assert snapshot["stitching"]["calibration_frame_selection"]["context"] == {
+        "output_rotation_degrees": "0.000000",
+        "source_context": "null",
+    }
+
     loaded = hmlib_config.get_game_config_private("sample")
     assert loaded["stitching"]["calibration_frame_selection"]["context"] == {
         "output_rotation_degrees": "0.000000",

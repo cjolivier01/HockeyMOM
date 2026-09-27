@@ -94,7 +94,18 @@ def load_config_file_yaml(yaml_file_path: str, merge_into_config: dict = None):
     if os.path.exists(yaml_file_path):
         with open(yaml_file_path, "r") as file:
             try:
-                yaml_content = load_yaml_preserving_player_frame_context(file.read())
+                yaml_content = yaml.safe_load(file)
+                stitching = (
+                    yaml_content.get("stitching") if isinstance(yaml_content, dict) else None
+                )
+                plan = (
+                    stitching.get("calibration_frame_selection")
+                    if isinstance(stitching, dict)
+                    else None
+                )
+                if isinstance(plan, dict) and isinstance(plan.get("context"), dict):
+                    file.seek(0)
+                    yaml_content = load_yaml_preserving_player_frame_context(file.read())
                 if yaml_content is None:
                     # Empty file
                     return {}
