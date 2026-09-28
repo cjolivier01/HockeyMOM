@@ -62,6 +62,17 @@ runtime:
   video_converter: "nvvideoconvert"
 
 hstream_ui:
+  # Program detector models offered in the Detection tab. config_prefix names a
+  # configs/config_infer_*.yaml family: the bare prefix is FP32 and the selected
+  # precision appends _fp16/_bf16/_int8. The first entry is the default.
+  detector_models:
+    - id: default
+      label: Default (YOLOv8-m, 1984x736)
+      config_prefix: config_infer_yolov8_hockey
+    - id: distilled-s
+      label: Distilled (YOLOv8-s, 1408x544)
+      config_prefix: config_infer_yolov8s_hockey
+
   drivegpt_database:
     # Initial checkbox state; capture disables seeking for the run.
     enabled: true
@@ -173,12 +184,11 @@ stitching:
     biplane: [45, 0]
     triplane: [60]
     general-panini: [100, 0, 0]
-  # Framing applied after Hugin alignment when NONA is selected. A fixed
-  # 180-degree view with the full projection canvas retains the
-  # rounded dual-camera boundary; each AUTO choice can be enabled in the UI.
+  # Framing applied after Hugin alignment when NONA is selected. Fit the field
+  # of view and full canvas automatically; retain 195 degrees for manual FOV.
   projection_framing:
-    auto_fov: false
-    horizontal_fov: 180
+    auto_fov: true
+    horizontal_fov: 195
     auto_canvas: true
     auto_crop: false
   # NONA requires Hugin's automatic alignment pass during stitching calibration.
@@ -186,7 +196,11 @@ stitching:
   max_output_dimension: null
   offsets: null
   dir_name: null
+  # laplacian mixes the cameras across every scale in the overlap; alpha crossfades over a narrow
+  # band at the seam, which preserves detail the detector uses but cannot hide an exposure step.
   blend_mode: "laplacian"
+  # Alpha-blend crossfade width, as a fraction of the narrowest camera image. Ignored otherwise.
+  blend_feather_fraction: 0.05
   max_blend_levels: 11
   python_blender: false
   # Force using the arbitrary-N CUDA stitcher even when there are only 2 input views.
