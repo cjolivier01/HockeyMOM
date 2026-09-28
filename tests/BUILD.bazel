@@ -283,6 +283,31 @@ sh_test(
 )
 
 sh_test(
+    name = "test_stitching_blend",
+    srcs = ["runtime_pytest.sh"],
+    args = [
+        "tests/test_stitching_blend.py",
+        "cv2",
+        "numpy",
+        "pytest",
+        "tifffile",
+        "torch",
+        "yaml",
+    ],
+    data = [
+        "//:pyproject.toml",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_stitching_blend.py",
+        "stitching_fixtures.py",
+    ],
+    env_inherit = [
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
+sh_test(
     name = "test_stitching_settings",
     srcs = ["runtime_pytest.sh"],
     args = [

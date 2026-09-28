@@ -31,7 +31,7 @@ from hmlib.config import (
     resolve_global_refs,
     set_nested_value,
 )
-from hmlib.hm_opts import _get_baseline_runtime_config, copy_opts, hm_opts
+from hmlib.hm_opts import _get_baseline_runtime_config, copy_opts, hm_opts, preferred_arg
 from hmlib.log import get_root_logger, logger
 from hmlib.utils.finalization import finalize_resources
 from hmlib.utils.output_publication import artifact_name, publish_artifacts
@@ -2152,6 +2152,11 @@ def _main(args, num_gpu):
                         ),
                         decoder_type=args.video_stream_decode_method,
                         blend_mode=str(stitch_cfg.get("blend_mode") or opts.blend_mode),
+                        # `or` would read an explicit 0.0, a legal hard-seam width, as unset.
+                        blend_feather_fraction=preferred_arg(
+                            stitch_cfg.get("blend_feather_fraction"),
+                            args.blend_feather_fraction,
+                        ),
                         dtype=stitch_dtype,
                         python_blender=bool(stitch_cfg.get("python_blender", args.python_blender)),
                         minimize_blend=bool(stitch_cfg.get("minimize_blend", True)),

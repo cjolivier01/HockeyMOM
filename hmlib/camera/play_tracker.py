@@ -41,6 +41,14 @@ from hmlib.config import (
 )
 from hmlib.jersey.jersey_tracker import JerseyTracker
 from hmlib.log import logger
+from hmlib.stitching.blend import (
+    DEFAULT_BLEND_MODE,
+    DEFAULT_FEATHER_FRACTION,
+    GPU_BLEND_MODES,
+    MAX_FEATHER_FRACTION,
+    normalize_blend_mode,
+    normalize_feather_fraction,
+)
 from hmlib.tracking_utils import visualization as vis
 from hmlib.tracking_utils.utils import get_track_mask
 from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
@@ -69,6 +77,17 @@ _CPP_PLAYTRACKER: bool = True and _CPP_BOXES
 _MISSING = object()
 _UI_ACTION_RETRY_INITIAL_SECONDS = 0.5
 _UI_ACTION_RETRY_MAX_SECONDS = 5.0
+_BLEND_MODE_CONTROL = "Seam_Blend_Mode"
+_BLEND_FEATHER_CONTROL = "Seam_Feather_Percent"
+_BLEND_MODE_LABELS = {
+    "laplacian": "Laplacian (multi-band)",
+    "alpha": "Alpha (feathered seam)",
+    "gpu-hard-seam": "Hard seam (no blending)",
+}
+# The feather is a fraction; hm-ui carries integer controls, so it travels as
+# percent and converts at the boundary.
+_FEATHER_PERCENT_MAX = int(round(MAX_FEATHER_FRACTION * 100.0))
+_BLEND_NEXT_RUN_NOTE = "Applies on the next stitch run."
 _COLOR_TRACKBARS = {
     "White_Balance_Kelvin_Enable",
     "White_Balance_Kelvin_Temperature",
@@ -333,9 +352,12 @@ class PlayTracker(torch.nn.Module):
         self._ui_color_window_name = "Tracker Controls (Color)"
         self._ui_color_left_window_name = "Tracker Controls (Left Color)"
         self._ui_color_right_window_name = "Tracker Controls (Right Color)"
+        self._ui_blend_window_name = "Tracker Controls (Seam Blend)"
         self._ui_color_inited = False
         self._ui_color_left_inited = False
         self._ui_color_right_inited = False
+        self._ui_blend_inited = False
+        self._ui_blend_modes: Tuple[str, ...] = ()
         # Per-window slider defaults: {window_name: {slider_name: default_value}}
         self._ui_defaults: Dict[str, Dict[str, int]] = {}
         self._ui_dialogs: Dict[str, HmUiDialog] = {}
@@ -1964,6 +1986,67 @@ class PlayTracker(torch.nn.Module):
             logger.warning("Failed to read %s stitch color defaults: %s", side, ex)
         return self._base_color_slider_defaults(cfg)
 
+    @staticmethod
+    def _config_blend_mode(config: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Return the config's blend mode, or None when absent or unrecognized."""
+        raw = get_nested_value(config or {}, "stitching.blend_mode", None)
+        if raw is None:
+            return None
+        try:
+            return normalize_blend_mode(raw)
+        except ValueError:
+            logger.warning("Ignoring unrecognized stitching.blend_mode %r in the camera UI", raw)
+            return None
+
+    def _blend_mode_choices(self) -> Tuple[str, ...]:
+        """Renderable modes, plus a config's own mode when this path cannot run it.
+
+        Showing an unrunnable mode as its own entry is what makes picking a real
+        one an index change, so the choice reaches the config instead of looking
+        already-selected and firing nothing.
+        """
+        modes = list(GPU_BLEND_MODES)
+        for config in (self._game_config, self._system_game_config):
+            mode = self._config_blend_mode(config)
+            if mode is not None and mode not in modes:
+                modes.append(mode)
+        return tuple(modes)
+
+    def _blend_slider_defaults(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
+        source_config = self._game_config if config is None else config
+        mode = self._config_blend_mode(source_config) or DEFAULT_BLEND_MODE
+        choices = self._ui_blend_modes or self._blend_mode_choices()
+        index = choices.index(mode) if mode in choices else choices.index(DEFAULT_BLEND_MODE)
+        raw = get_nested_value(source_config or {}, "stitching.blend_feather_fraction", None)
+        if raw is None:
+            fraction = DEFAULT_FEATHER_FRACTION
+        else:
+            try:
+                fraction = normalize_feather_fraction(raw)
+            except ValueError:
+                logger.warning(
+                    "Ignoring invalid stitching.blend_feather_fraction %r in the camera UI", raw
+                )
+                fraction = DEFAULT_FEATHER_FRACTION
+        return {
+            _BLEND_MODE_CONTROL: index,
+            _BLEND_FEATHER_CONTROL: int(round(fraction * 100.0)),
+        }
+
+    def _apply_blend_controls(self) -> None:
+        if not self._ui_blend_inited:
+            return
+        choices = self._ui_blend_modes
+        index = self._ui_slider_value(self._ui_blend_window_name, _BLEND_MODE_CONTROL)
+        # The bridge clamps to the control's range; clamp again rather than
+        # substitute a different mode if that ever stops holding.
+        self._set_ui_config_value(
+            ("stitching", "blend_mode"), choices[min(max(index, 0), len(choices) - 1)]
+        )
+        percent = self._ui_slider_value(self._ui_blend_window_name, _BLEND_FEATHER_CONTROL)
+        fraction = min(MAX_FEATHER_FRACTION, max(0, int(percent)) / 100.0)
+        self._set_ui_config_value(("stitching", "blend_feather_fraction"), fraction)
+
     def _set_ui_color_value_at_prefixes(
         self, prefixes: List[Tuple[str, ...]], key: str, value: Any
     ):
@@ -2173,6 +2256,9 @@ class PlayTracker(torch.nn.Module):
 
             # ---- Left/right stitching color controls (optional) ----
             enable_stitch_side_ui = bool(self._force_stitching)
+            # Always defined after init, like _ui_color_inited, so the managed-path
+            # and reset helpers can read it whether or not the block below runs.
+            self._ui_blend_inited = False
             if enable_stitch_side_ui:
                 # Left stitching color window
                 try:
@@ -2281,6 +2367,43 @@ class PlayTracker(torch.nn.Module):
                 except Exception as ex:
                     logger.warning("Failed to initialize right camera color UI controls: %s", ex)
                     self._ui_color_right_inited = False
+
+                # ---- Seam blend (next-run stitcher construction) ----
+                try:
+                    self._ui_blend_modes = self._blend_mode_choices()
+                    blend_dialog = self._create_ui_dialog(
+                        self._ui_blend_window_name,
+                        initial_size=(820, 260),
+                        position=(480, 300),
+                    )
+                    blend_defaults = self._blend_slider_defaults()
+                    blend_dialog.add_slider(
+                        _BLEND_MODE_CONTROL,
+                        len(self._ui_blend_modes) - 1,
+                        blend_defaults[_BLEND_MODE_CONTROL],
+                        choices=[
+                            _BLEND_MODE_LABELS.get(mode, f"{mode} (not supported here)")
+                            for mode in self._ui_blend_modes
+                        ],
+                        description=(
+                            "Laplacian mixes the cameras across every scale in the overlap; "
+                            f"alpha crossfades only at the seam. {_BLEND_NEXT_RUN_NOTE}"
+                        ),
+                    )
+                    blend_dialog.add_slider(
+                        _BLEND_FEATHER_CONTROL,
+                        _FEATHER_PERCENT_MAX,
+                        blend_defaults[_BLEND_FEATHER_CONTROL],
+                        description=(
+                            "Alpha crossfade width, as a percent of the narrowest camera image. "
+                            f"Ignored by the other modes. {_BLEND_NEXT_RUN_NOTE}"
+                        ),
+                    )
+                    self._ui_defaults[self._ui_blend_window_name] = dict(blend_defaults)
+                    self._ui_blend_inited = True
+                except Exception as ex:
+                    logger.warning("Failed to initialize seam blend UI controls: %s", ex)
+                    self._ui_blend_inited = False
             self._publish_ui_system_defaults()
         except Exception as ex:
             try:
@@ -2289,6 +2412,7 @@ class PlayTracker(torch.nn.Module):
                 logger.warning("Failed to clean up partially initialized camera UI: %s", close_ex)
             self._ui_dialogs.clear()
             self._ui_inited = False
+            self._ui_blend_inited = False
             self._ui_color_inited = False
             self._ui_color_left_inited = False
             self._ui_color_right_inited = False
@@ -2378,6 +2502,10 @@ class PlayTracker(torch.nn.Module):
         if self._ui_color_right_window_name in defaults:
             defaults[self._ui_color_right_window_name] = self._stitch_side_color_defaults(
                 "right", self._system_game_config
+            )
+        if self._ui_blend_window_name in defaults:
+            defaults[self._ui_blend_window_name] = self._blend_slider_defaults(
+                self._system_game_config
             )
         self._hm_ui_process.set_system_defaults(defaults)
 
@@ -2571,6 +2699,7 @@ class PlayTracker(torch.nn.Module):
                     self._set_stitch_rotation_degrees(float(rot_deg))
                 except KeyError as ex:
                     logger.warning("Failed to read stitch camera UI slider: %s", ex)
+            self._apply_blend_controls()
             # --- Color controls (stitched + left/right stitching) ---
             if self._ui_color_inited:
                 # Global stitched color adjustments
@@ -2978,6 +3107,9 @@ class PlayTracker(torch.nn.Module):
             paths.update(("stitching", "left", "color", key) for key in color_keys)
         if self._ui_color_right_inited:
             paths.update(("stitching", "right", "color", key) for key in color_keys)
+        if self._ui_blend_inited:
+            paths.add(("stitching", "blend_mode"))
+            paths.add(("stitching", "blend_feather_fraction"))
         return paths
 
     def _restore_ui_managed_config(self, source: Dict[str, Any]) -> None:

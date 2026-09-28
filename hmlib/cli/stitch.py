@@ -547,7 +547,8 @@ def stitch_videos(
     rfo: int = None,
     game_id: str = None,
     project_file_name: str = "hm_project.pto",
-    blend_mode: str = "multiblend",
+    blend_mode: str = "laplacian",
+    blend_feather_fraction: Optional[float] = None,
     start_frame_number: int = 0,
     max_frames: int = None,
     batch_size: int = 1,
@@ -667,6 +668,10 @@ def stitch_videos(
         config_stitch_frame_time = stitch_cfg.get("stitch_frame_time")
         stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
         blend_mode = str(stitch_cfg.get("blend_mode") or blend_mode)
+        # `or` would read an explicit 0.0, a legal hard-seam width, as unset.
+        blend_feather_fraction = preferred_arg(
+            stitch_cfg.get("blend_feather_fraction"), blend_feather_fraction
+        )
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
         dtype = _resolve_stitch_tensor_dtype(dtype, stitch_cfg)
@@ -828,6 +833,7 @@ def stitch_videos(
                 decoder_device=decoder_device,
                 decoder_type=decoder_type,
                 blend_mode=blend_mode,
+                blend_feather_fraction=blend_feather_fraction,
                 remapping_device=remapping_device,
                 dtype=dtype,
                 minimize_blend=preferred_arg(getattr(args, "minimize_blend", None), minimize_blend),
@@ -1195,6 +1201,7 @@ def _main(args) -> None:
             max_frames=args.max_frames,
             output_stitched_video_file=args.output_file,
             blend_mode=args.blend_mode,
+            blend_feather_fraction=args.blend_feather_fraction,
             ignore_clip_box=True,
             cache_size=0,
             remapping_device=remapping_device,

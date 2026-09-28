@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -33,6 +33,10 @@ class _Control:
     group: str
     view: str
     value_revision: int
+    # Labels for an enumerated control, indexed by value. Empty means a slider
+    # (or a checkbox at max_value 1); the value stays an integer either way.
+    choices: List[str] = field(default_factory=list)
+    description: str = ""
 
 
 @dataclass
@@ -101,7 +105,23 @@ class HmUiProcess:
         self._write_spec()
         self.ensure_started()
 
-    def add_slider(self, window_name: str, name: str, max_value: int, initial_value: int) -> None:
+    def add_slider(
+        self,
+        window_name: str,
+        name: str,
+        max_value: int,
+        initial_value: int,
+        *,
+        choices: Optional[Iterable[str]] = None,
+        description: str = "",
+    ) -> None:
+        """Declare an integer control, rendered as a combo box when `choices` is given."""
+        labels = [str(choice) for choice in choices] if choices is not None else []
+        if choices is not None:
+            if len(labels) < 2:
+                raise ValueError(f"hm-ui control {name} needs at least two choices")
+            # The value is the choice index, so the range follows the label count.
+            max_value = len(labels) - 1
         controls = self._windows.setdefault(window_name, [])
         view, group = self._control_location(window_name, name)
         for control in controls:
@@ -112,6 +132,8 @@ class HmUiProcess:
                 control.system_default_value = control.value
                 control.group = group
                 control.view = view
+                control.choices = labels
+                control.description = description
                 control.value_revision += 1
                 break
         else:
@@ -127,6 +149,8 @@ class HmUiProcess:
                     group=group,
                     view=view,
                     value_revision=0,
+                    choices=labels,
+                    description=description,
                 )
             )
         self._write_spec()
@@ -576,6 +600,8 @@ class HmUiProcess:
                             "group": control.group,
                             "view": control.view,
                             "value_revision": control.value_revision,
+                            "choices": list(control.choices),
+                            "description": control.description,
                         }
                         for control in controls
                     ],
@@ -630,6 +656,8 @@ class HmUiProcess:
         if "color" in lower_window:
             view = "Stitched" if "stitched" in lower_window else "Final"
             return view, f"{view} Color"
+        if "blend" in lower_window:
+            return "Stitched", "Seam Blend"
         if control_name == "Stitch_Rotate_Degrees" or "stitch" in lower_window:
             return "Stitched", "Alignment"
         if control_name.startswith(("Overshoot_", "Post_Nonstop_")):
@@ -721,8 +749,23 @@ class HmUiDialog:
     def open(self) -> None:
         self._manager.add_window(self.window_name)
 
-    def add_slider(self, name: str, max_value: int, initial_value: int) -> None:
-        self._manager.add_slider(self.window_name, name, max_value, initial_value)
+    def add_slider(
+        self,
+        name: str,
+        max_value: int,
+        initial_value: int,
+        *,
+        choices: Optional[Iterable[str]] = None,
+        description: str = "",
+    ) -> None:
+        self._manager.add_slider(
+            self.window_name,
+            name,
+            max_value,
+            initial_value,
+            choices=choices,
+            description=description,
+        )
 
     def get_value(self, name: str) -> int:
         return self._manager.get_value(self.window_name, name, poll=False)

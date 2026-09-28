@@ -16,6 +16,14 @@ from hmlib.config import (
     save_private_config,
 )
 from hmlib.log import logger
+from hmlib.stitching.blend import (
+    DEFAULT_BLEND_MODE,
+    DEFAULT_FEATHER_FRACTION,
+    GPU_BLEND_MODES,
+    MAX_FEATHER_FRACTION,
+    normalize_blend_mode,
+    normalize_feather_fraction,
+)
 from hmlib.utils.shadow_lift import shadow_lift_settings
 
 from .base import Plugin
@@ -27,6 +35,22 @@ _EXPOSURE_EV_X10_SLIDER_MAX = _EXPOSURE_EV_X10_MAX - _EXPOSURE_EV_X10_MIN
 _EXPOSURE_EV_X10_SLIDER_ZERO = -_EXPOSURE_EV_X10_MIN
 _UI_ACTION_RETRY_INITIAL_SECONDS = 0.5
 _UI_ACTION_RETRY_MAX_SECONDS = 5.0
+
+_BLEND_WINDOW = "Stitch Blend"
+_BLEND_MODE_CONTROL = "Seam_Blend_Mode"
+_BLEND_FEATHER_CONTROL = "Seam_Feather_Percent"
+# Combo entries, in slider-index order. Only modes the CUDA stitchers can render
+# are offered; a game config naming any other mode keeps its value untouched
+# (see `_blend_mode_choices`) rather than being silently rewritten.
+_BLEND_MODE_LABELS = {
+    "laplacian": "Laplacian (multi-band)",
+    "alpha": "Alpha (feathered seam)",
+    "gpu-hard-seam": "Hard seam (no blending)",
+}
+# The feather is a fraction; the UI carries integer controls, so it travels as
+# percent and converts at the boundary.
+_FEATHER_PERCENT_MAX = int(round(MAX_FEATHER_FRACTION * 100.0))
+_NEXT_RUN_NOTE = "Applies on the next stitch run."
 
 
 @HM.register_module()
@@ -43,6 +67,7 @@ class StitchUiPlugin(Plugin):
         self._system_config: Dict[str, Any] = {}
         self._game_id: Optional[str] = None
         self._dirty_paths: Set[Tuple[str, ...]] = set()
+        self._blend_choices: Tuple[str, ...] = ()
         self._shared: Optional[Dict[str, Any]] = None
         self._active = False
         self._action_retry_after_monotonic = 0.0
@@ -70,6 +95,54 @@ class StitchUiPlugin(Plugin):
     def _slider_to_exposure_ev(position: int) -> float:
         position = max(0, min(_EXPOSURE_EV_X10_SLIDER_MAX, int(position)))
         return float(position + _EXPOSURE_EV_X10_MIN) / 10.0
+
+    @staticmethod
+    def _config_blend_mode(config: Dict[str, Any]) -> Optional[str]:
+        """Return the game's blend mode, or None when it is absent or unreadable."""
+        raw = get_nested_value(config, "stitching.blend_mode", None)
+        if raw is None:
+            return None
+        try:
+            return normalize_blend_mode(raw)
+        except ValueError:
+            logger.warning("Ignoring unrecognized stitching.blend_mode %r in the stitch UI", raw)
+            return None
+
+    @staticmethod
+    def _config_feather_percent(config: Dict[str, Any]) -> int:
+        raw = get_nested_value(config, "stitching.blend_feather_fraction", None)
+        if raw is None:
+            fraction = DEFAULT_FEATHER_FRACTION
+        else:
+            try:
+                fraction = normalize_feather_fraction(raw)
+            except ValueError:
+                logger.warning(
+                    "Ignoring invalid stitching.blend_feather_fraction %r in the stitch UI", raw
+                )
+                fraction = DEFAULT_FEATHER_FRACTION
+        return int(round(fraction * 100.0))
+
+    def _resolve_blend_choices(self) -> Tuple[str, ...]:
+        """Renderable modes, plus the game's own mode when this path cannot run it.
+
+        Showing an unrunnable mode as its own entry is what makes picking a real
+        one an index change, so the choice reaches the config instead of looking
+        already-selected and firing nothing. Resolved once at open time: the
+        combo the operator sees cannot change under them, and applying a mode
+        rewrites the config this reads from.
+        """
+        modes = list(GPU_BLEND_MODES)
+        for config in (self._game_config, self._system_config):
+            mode = self._config_blend_mode(config)
+            if mode is not None and mode not in modes:
+                modes.append(mode)
+        return tuple(modes)
+
+    def _blend_mode_index(self, config: Dict[str, Any]) -> int:
+        mode = self._config_blend_mode(config) or DEFAULT_BLEND_MODE
+        choices = self._blend_choices
+        return choices.index(mode) if mode in choices else choices.index(DEFAULT_BLEND_MODE)
 
     @classmethod
     def _color_defaults(cls, config: Dict[str, Any], path: str) -> Dict[str, int]:
@@ -185,6 +258,33 @@ class StitchUiPlugin(Plugin):
             self._stitch_deg_to_slider(rotation),
         )
 
+        self._blend_choices = self._resolve_blend_choices()
+        self._process.add_window(_BLEND_WINDOW)
+        self._process.add_slider(
+            _BLEND_WINDOW,
+            _BLEND_MODE_CONTROL,
+            len(self._blend_choices) - 1,
+            self._blend_mode_index(self._game_config),
+            choices=[
+                _BLEND_MODE_LABELS.get(mode, f"{mode} (not supported here)")
+                for mode in self._blend_choices
+            ],
+            description=(
+                "Laplacian mixes the cameras across every scale in the overlap; alpha crossfades "
+                f"only at the seam. {_NEXT_RUN_NOTE}"
+            ),
+        )
+        self._process.add_slider(
+            _BLEND_WINDOW,
+            _BLEND_FEATHER_CONTROL,
+            _FEATHER_PERCENT_MAX,
+            self._config_feather_percent(self._game_config),
+            description=(
+                "Alpha crossfade width, as a percent of the narrowest camera image. Ignored by "
+                f"the other modes. {_NEXT_RUN_NOTE}"
+            ),
+        )
+
         color_windows = {
             "Tracker Controls (Stitched Color)": "rink.camera.color",
             "Tracker Controls (Left Color)": "stitching.left.color",
@@ -199,7 +299,11 @@ class StitchUiPlugin(Plugin):
                         0.0,
                     )
                 ),
-            }
+            },
+            _BLEND_WINDOW: {
+                _BLEND_MODE_CONTROL: self._blend_mode_index(self._system_config),
+                _BLEND_FEATHER_CONTROL: self._config_feather_percent(self._system_config),
+            },
         }
         for window_name, path in color_windows.items():
             defaults = self._color_defaults(self._game_config, path)
@@ -301,12 +405,26 @@ class StitchUiPlugin(Plugin):
             max(1, value("Gamma_Multiplier_x100")) / 100.0,
         )
 
+    def _apply_blend_controls(self) -> None:
+        assert self._process is not None
+        choices = self._blend_choices
+        index = self._process.get_value(_BLEND_WINDOW, _BLEND_MODE_CONTROL, poll=False)
+        # The bridge clamps to the control's range; clamp again rather than
+        # substitute a different mode if that ever stops holding.
+        self._set_runtime_path(
+            ("stitching", "blend_mode"), choices[min(max(index, 0), len(choices) - 1)]
+        )
+        percent = self._process.get_value(_BLEND_WINDOW, _BLEND_FEATHER_CONTROL, poll=False)
+        fraction = min(MAX_FEATHER_FRACTION, max(0, int(percent)) / 100.0)
+        self._set_runtime_path(("stitching", "blend_feather_fraction"), fraction)
+
     def _apply_controls(self) -> None:
         assert self._process is not None
         rotation = self._slider_to_stitch_deg(
             self._process.get_value("Stitch Alignment", "Stitch_Rotate_Degrees", poll=False)
         )
         self._set_runtime_path(("stitching", "post_stitch_rotate_degrees"), rotation)
+        self._apply_blend_controls()
         self._apply_color_window(
             "Tracker Controls (Stitched Color)",
             ("rink", "camera", "color"),
@@ -361,7 +479,11 @@ class StitchUiPlugin(Plugin):
             "contrast",
             "gamma",
         }
-        managed_paths: Set[Tuple[str, ...]] = {rotation_path}
+        managed_paths: Set[Tuple[str, ...]] = {
+            rotation_path,
+            ("stitching", "blend_mode"),
+            ("stitching", "blend_feather_fraction"),
+        }
         for prefix in (
             ("rink", "camera", "color"),
             ("stitching", "left", "color"),

@@ -25,6 +25,13 @@ from hmlib.stitching.artifact_validation import (
     validate_artifact_generation,
 )
 from hmlib.stitching.artifacts import artifact_stage, publish_artifacts, stitching_lock
+from hmlib.stitching.blend import (
+    DEFAULT_FEATHER_FRACTION,
+    BlendSettings,
+    normalize_blend_mode,
+    normalize_feather_fraction,
+    resolve_blend_settings,
+)
 from hmlib.stitching.image_remapper import ImageRemapper, RemapImageInfoEx
 from hmlib.stitching.laplacian_blend import LaplacianBlend, simple_make_full
 from hmlib.stitching.seam import (
@@ -946,13 +953,26 @@ def create_stitcher(
     mapping_basename_2: str = "mapping_0001",
     remapped_basename: str = "mapping_",
     blend_mode: str = "laplacian",
+    feather_fraction: float = DEFAULT_FEATHER_FRACTION,
     interpolation: str = "bilinear",
     levels: int = 11,
     draw: bool = False,
     use_cuda_pano: bool = True,
     use_cuda_pano_n: bool = False,
 ):
-    """Create an ImageStitcher or CUDA panorama stitcher from mapping files."""
+    """Create an ImageStitcher or CUDA panorama stitcher from mapping files.
+
+    ``levels`` stays authoritative for the pyramid depth: callers resolve it
+    together with the mode (see :func:`hmlib.stitching.blend.resolve_blend_settings`),
+    and ``feather_fraction`` only matters when ``blend_mode`` is ``alpha``.
+    """
+    blend = BlendSettings(
+        mode=normalize_blend_mode(blend_mode),
+        feather_fraction=normalize_feather_fraction(feather_fraction),
+        max_levels=levels,
+    )
+    blend_mode = blend.mode
+    feather_fraction = blend.feather_fraction
     with stitching_lock(dir_name):
         basenames = (
             tuple(f"{remapped_basename}{index:04d}" for index in range(len(input_image_sizes_wh)))
@@ -972,9 +992,8 @@ def create_stitcher(
             input_sizes = [WHDims(w, h) for (w, h) in input_image_sizes_wh]
             size1 = input_sizes[0]
             size2 = input_sizes[1]
-            if blend_mode != "laplacian":
-                # Hard seam
-                levels = 0
+            # Alpha carries its width in feather_fraction, so only Laplacian spends levels.
+            levels = blend.require_gpu_mode().levels
             max_output_width_i = int(max_output_width) if max_output_width else 0
             if len(input_sizes) == 2 and not use_cuda_pano_n:
                 if dtype == torch.float32:
@@ -986,6 +1005,8 @@ def create_stitcher(
                         size2,
                         minimize_blend=minimize_blend,
                         max_output_width=max_output_width_i,
+                        blend_mode=blend_mode,
+                        feather_fraction=feather_fraction,
                     )
                 elif dtype == torch.uint8:
                     stitcher = CudaStitchPanoU8(
@@ -996,6 +1017,8 @@ def create_stitcher(
                         size2,
                         minimize_blend=minimize_blend,
                         max_output_width=max_output_width_i,
+                        blend_mode=blend_mode,
+                        feather_fraction=feather_fraction,
                     )
                 else:
                     raise ValueError(f"Unsupported dtype for cuda pano: {dtype}")
@@ -1012,6 +1035,8 @@ def create_stitcher(
                     input_sizes,
                     minimize_blend=minimize_blend,
                     quiet=False,
+                    blend_mode=blend_mode,
+                    feather_fraction=feather_fraction,
                 )
             if dtype == torch.uint8:
                 return CudaStitchPanoNU8(
@@ -1021,9 +1046,15 @@ def create_stitcher(
                     input_sizes,
                     minimize_blend=minimize_blend,
                     quiet=False,
+                    blend_mode=blend_mode,
+                    feather_fraction=feather_fraction,
                 )
             raise ValueError(f"Unsupported dtype for cuda pano N: {dtype}")
 
+        if blend_mode == "alpha":
+            raise ValueError(
+                "Alpha seam blending is GPU-only; drop --python-blender to stitch with it"
+            )
         blender_config: BlenderConfig = create_blender_config(
             mode=blend_mode,
             dir_name=dir_name,
@@ -1123,6 +1154,7 @@ def blend_video(
     batch_size: int = 8,
     skip_final_video_save: bool = False,
     blend_mode: str = "laplacian",
+    feather_fraction: Optional[float] = None,
     queue_size: int = 1,
     minimize_blend: bool = True,
     add_alpha_channel: bool = False,
@@ -1147,7 +1179,8 @@ def blend_video(
     @param max_width: Clamp output width for display/encoding.
     @param batch_size: Number of frames processed per batch.
     @param skip_final_video_save: Skip final file save for VideoOutput.
-    @param blend_mode: Blend mode ('laplacian' or 'hard-seam').
+    @param blend_mode: Seam blend mode (see :mod:`hmlib.stitching.blend`).
+    @param feather_fraction: Alpha crossfade width; None uses the shared default.
     @param queue_size: VideoOutput queue size.
     @param minimize_blend: If True, restrict blending to overlap region.
     @param add_alpha_channel: If True, include alpha channel in output.
@@ -1163,7 +1196,11 @@ def blend_video(
     vidinfo_1 = BasicVideoInfo(video_file_1)
     vidinfo_2 = BasicVideoInfo(video_file_2)
 
-    max_blend_levels = getattr(opts, "max_blend_levels", None)
+    blend = resolve_blend_settings(
+        blend_mode=blend_mode,
+        blend_feather_fraction=feather_fraction,
+        max_blend_levels=getattr(opts, "max_blend_levels", None),
+    )
 
     max_frames = getattr(opts, "max_frames", None)
     if (max_frames in (None, 0)) and getattr(opts, "max_time", None):
@@ -1177,31 +1214,22 @@ def blend_video(
     if use_cuda_pano:
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
-        if blend_mode == "laplacian":
-            num_levels: int = (
-                int(max_blend_levels)
-                if max_blend_levels is not None and max_blend_levels > 0
-                else 11
-            )
-        else:
-            # Hard-seam or other non-laplacian GPU modes: force single level.
-            num_levels = 0
+        blend.require_gpu_mode()
         with stitching_lock(dir_name):
             validate_artifact_generation(dir_name)
             stitcher: CudaStitchPanoU8 = CudaStitchPanoU8(
-                dir_name, batch_size, num_levels, size1, size2, minimize_blend
+                dir_name,
+                batch_size,
+                blend.levels,
+                size1,
+                size2,
+                minimize_blend,
+                blend_mode=blend.mode,
+                feather_fraction=blend.feather_fraction,
             )
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()
     else:
-        if blend_mode == "laplacian":
-            levels_arg = (
-                int(max_blend_levels)
-                if max_blend_levels is not None and max_blend_levels > 0
-                else 11
-            )
-        else:
-            levels_arg = 0
         stitcher: ImageStitcher = create_stitcher(
             dir_name=dir_name,
             batch_size=batch_size,
@@ -1210,10 +1238,11 @@ def blend_video(
             minimize_blend=minimize_blend,
             device=device,
             dtype=dtype,
-            blend_mode=blend_mode,
+            blend_mode=blend.mode,
+            feather_fraction=blend.feather_fraction,
             draw=draw,
             add_alpha_channel=add_alpha_channel,
-            levels=levels_arg,
+            levels=blend.levels,
             use_cuda_pano=use_cuda_pano,
         )
 
@@ -1426,6 +1455,7 @@ def main(args):
             draw=args.draw,
             minimize_blend=preferred_arg(args.minimize_blend, True),
             blend_mode=args.blend_mode,
+            feather_fraction=args.blend_feather_fraction,
             use_cuda_pano=not args.python_blender,
         )
 

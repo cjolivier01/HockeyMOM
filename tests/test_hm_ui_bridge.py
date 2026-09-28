@@ -413,3 +413,46 @@ def should_keep_preview_worker_alive_after_opencv_error(tmp_path, monkeypatch):
 
     assert encoded == ["failed", ("Stitched", 2)]
     assert ui._preview_worker.is_alive()
+
+
+def should_publish_enumerated_controls_with_labels_and_notes(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+
+    ui.add_window("Stitch Blend")
+    ui.add_slider(
+        "Stitch Blend",
+        "Seam_Blend_Mode",
+        # The label count decides the range; an inconsistent maximum is ignored.
+        99,
+        1,
+        choices=["Laplacian", "Alpha", "Hard seam"],
+        description="Applies on the next stitch run.",
+    )
+    ui.add_slider("Stitch Blend", "Seam_Feather_Percent", 100, 5)
+
+    spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
+    controls = {c["name"]: c for c in spec["windows"][0]["controls"]}
+    mode = controls["Seam_Blend_Mode"]
+    assert mode["choices"] == ["Laplacian", "Alpha", "Hard seam"]
+    assert mode["max_value"] == 2
+    assert mode["value"] == 1
+    assert mode["description"] == "Applies on the next stitch run."
+    # An out-of-range index cannot survive into a label lookup.
+    assert ui.set_value("Stitch Blend", "Seam_Blend_Mode", 9) is True
+    assert ui.get_value("Stitch Blend", "Seam_Blend_Mode", poll=False) == 2
+    # Plain sliders keep an empty choice list, so the sidecar renders them as before.
+    assert controls["Seam_Feather_Percent"]["choices"] == []
+    assert controls["Seam_Feather_Percent"]["description"] == ""
+    # Blend controls belong to the stitched image, not the tracked output.
+    assert mode["view"] == "Stitched"
+    assert mode["group"] == "Seam Blend"
+
+
+def should_reject_an_enumerated_control_without_alternatives(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+
+    ui.add_window("Stitch Blend")
+    with pytest.raises(ValueError, match="at least two choices"):
+        ui.add_slider("Stitch Blend", "Seam_Blend_Mode", 1, 0, choices=["Only"])

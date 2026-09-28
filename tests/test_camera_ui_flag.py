@@ -190,6 +190,7 @@ def should_tune_only_follower_zoom_and_preserve_config_reset(monkeypatch, native
     tracker._ui_color_inited = False
     tracker._ui_color_left_inited = False
     tracker._ui_color_right_inited = False
+    tracker._ui_blend_inited = False
     assert ("rink", "camera", "zoom_in_aggressiveness") in tracker._ui_managed_config_paths()
 
 
@@ -230,8 +231,10 @@ def should_restore_distinct_system_and_open_time_zoom_defaults(monkeypatch, tmp_
     tracker._ui_color_window_name = "Final Color"
     tracker._ui_color_left_window_name = "Left Color"
     tracker._ui_color_right_window_name = "Right Color"
+    tracker._ui_blend_window_name = "Seam Blend"
     tracker._ui_color_left_inited = False
     tracker._ui_color_right_inited = False
+    tracker._ui_blend_modes = ()
     tracker._camera_base_speed_x = tracker._camera_base_speed_y = 20.0
     tracker._camera_base_accel_x = tracker._camera_base_accel_y = 5.0
     tracker._stitch_rotation_controller = None
@@ -456,3 +459,64 @@ def should_replay_tracking_ui_action_snapshots_in_click_order(monkeypatch):
     tracker._apply_ui_controls()
     assert len(apply_attempts) == first_frame_attempts
     assert tracker._hm_ui_process.acknowledged_seq is None
+
+
+def should_expose_seam_blend_controls_when_the_tracker_stitches(monkeypatch, tmp_path):
+    from hmlib.camera.hm_ui_bridge import HmUiProcess
+
+    PlayTracker = _load_play_tracker(monkeypatch)
+    tracker = PlayTracker.__new__(PlayTracker)
+    tracker._game_config = {
+        "rink": {"camera": {}},
+        "stitching": {"blend_mode": "alpha", "blend_feather_fraction": 0.2},
+    }
+    tracker._system_game_config = {
+        "rink": {"camera": {}},
+        "stitching": {"blend_mode": "laplacian", "blend_feather_fraction": 0.05},
+    }
+    tracker._ui_defaults = {}
+    tracker._ui_dialogs = {}
+    tracker._ui_dirty_paths = set()
+    tracker._ui_blend_window_name = "Seam Blend"
+    tracker._ui_blend_modes = ()
+    tracker._ui_blend_inited = False
+    tracker._ui_inited = False
+    tracker._stitch_slider_enabled = False
+    tracker._ui_color_inited = False
+    tracker._ui_color_left_inited = False
+    tracker._ui_color_right_inited = False
+
+    process = HmUiProcess(title="test", tmpdir=tmp_path)
+    process.ensure_started = lambda: None
+    tracker._hm_ui_process = process
+    try:
+        tracker._ui_blend_modes = tracker._blend_mode_choices()
+        assert tracker._blend_slider_defaults() == {
+            "Seam_Blend_Mode": 1,
+            "Seam_Feather_Percent": 20,
+        }
+        assert tracker._blend_slider_defaults(tracker._system_game_config) == {
+            "Seam_Blend_Mode": 0,
+            "Seam_Feather_Percent": 5,
+        }
+
+        dialog = tracker._create_ui_dialog("Seam Blend", initial_size=(820, 260))
+        dialog.add_slider(
+            "Seam_Blend_Mode",
+            len(tracker._ui_blend_modes) - 1,
+            1,
+            choices=list(tracker._ui_blend_modes),
+        )
+        dialog.add_slider("Seam_Feather_Percent", 100, 20)
+        tracker._ui_blend_inited = True
+        assert ("stitching", "blend_mode") in tracker._ui_managed_config_paths()
+        assert ("stitching", "blend_feather_fraction") in tracker._ui_managed_config_paths()
+
+        dialog.set_value("Seam_Blend_Mode", 2, notify=False)
+        dialog.set_value("Seam_Feather_Percent", 0, notify=False)
+        tracker._apply_blend_controls()
+        assert tracker._game_config["stitching"]["blend_mode"] == "gpu-hard-seam"
+        # 0 is a legal width meaning a hard seam, not "unset".
+        assert tracker._game_config["stitching"]["blend_feather_fraction"] == 0.0
+    finally:
+        process.close()

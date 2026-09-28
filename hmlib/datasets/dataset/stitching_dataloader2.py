@@ -142,6 +142,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         auto_configure: bool = True,
         image_roi: List[int] = None,
         blend_mode: str = "laplacian",
+        blend_feather_fraction: Optional[float] = None,
         remapping_device: torch.device = None,
         decoder_device: torch.device = None,
         decoder_type: Optional[str] = None,
@@ -180,6 +181,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._videos = videos
         self._pto_project_file = pto_project_file
         self._blend_mode = blend_mode
+        self._blend_feather_fraction = blend_feather_fraction
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._current_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -623,16 +625,14 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         if self._stitcher is not None:
             return
         assert self._remapping_device.type != "cpu"
+        from hmlib.stitching.blend import resolve_blend_settings
         from hmlib.stitching.blender2 import create_stitcher
 
-        if self._blend_mode == "laplacian":
-            levels_arg = (
-                int(self._max_blend_levels)
-                if self._max_blend_levels is not None and self._max_blend_levels > 0
-                else 11
-            )
-        else:
-            levels_arg = 0
+        blend = resolve_blend_settings(
+            blend_mode=self._blend_mode,
+            blend_feather_fraction=self._blend_feather_fraction,
+            max_blend_levels=self._max_blend_levels,
+        )
 
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,
@@ -648,8 +648,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             use_cuda_pano=not self._python_blender,
             use_cuda_pano_n=self._use_cuda_pano_n,
             minimize_blend=self._minimize_blend,
-            blend_mode=self._blend_mode,
-            levels=levels_arg,
+            blend_mode=blend.mode,
+            feather_fraction=blend.feather_fraction,
+            levels=blend.levels,
         )
 
     @staticmethod

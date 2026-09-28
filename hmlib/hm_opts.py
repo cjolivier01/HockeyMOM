@@ -19,6 +19,12 @@ from hmlib.config import (
     save_private_config,
     set_nested_value,
 )
+from hmlib.stitching.blend import (
+    BLEND_MODES,
+    MAX_FEATHER_FRACTION,
+    normalize_blend_mode,
+    normalize_feather_fraction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,22 @@ def _get_arg_value(args: Any, name: str) -> Any:
     if isinstance(args, dict):
         return args.get(name, _MISSING_ARG)
     return getattr(args, name, _MISSING_ARG)
+
+
+def _blend_mode_arg(value: str) -> str:
+    """Validate ``--blend-mode`` at parse time, reporting why a value was rejected."""
+    try:
+        return normalize_blend_mode(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _blend_feather_fraction_arg(value: str) -> float:
+    """Validate ``--blend-feather-fraction`` at parse time rather than dropping it later."""
+    try:
+        return normalize_feather_fraction(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _first_non_none(values: Sequence[Any]) -> Any:
@@ -1419,8 +1441,20 @@ class hm_opts(object):
             "--blend-mode",
             "--blend_mode",
             default="laplacian",
-            type=str,
-            help="Stitching blend mode (multiblend|laplacian|gpu-hard-seam)",
+            type=_blend_mode_arg,
+            choices=BLEND_MODES,
+            help="Stitching seam blend mode",
+        )
+        parser.add_argument(
+            "--blend-feather-fraction",
+            "--blend_feather_fraction",
+            dest="blend_feather_fraction",
+            default=None,
+            type=_blend_feather_fraction_arg,
+            help=(
+                "Alpha crossfade width as a fraction of the narrowest camera image "
+                f"(0..{MAX_FEATHER_FRACTION:g}); ignored unless --blend-mode=alpha"
+            ),
         )
         parser.add_argument(
             "--skip_final_video_save",
@@ -1756,6 +1790,7 @@ class hm_opts(object):
             ("display_aspen_graph", "aspen.pipeline.display_graph"),
             ("aspen_stitching", "stitching.enabled"),
             ("blend_mode", "stitching.blend_mode"),
+            ("blend_feather_fraction", "stitching.blend_feather_fraction"),
             ("control_point_matcher", "stitching.control_point_matcher"),
             ("mapping_backend", "stitching.mapping_backend"),
             ("max_output_dimension", "stitching.max_output_dimension"),
@@ -1817,6 +1852,7 @@ class hm_opts(object):
         "display_plugin_profile": bool,
         "display_aspen_graph": bool,
         "aspen_stitching": bool,
+        "blend_feather_fraction": normalize_feather_fraction,
         "python_blender": bool,
         "no_minimize_blend": {True: False},
         "minimize_blend": bool,

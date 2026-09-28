@@ -88,6 +88,15 @@ struct ControlSpec {
     view: String,
     #[serde(default)]
     value_revision: u64,
+    /// Labels for an enumerated control, indexed by value. Empty means a plain
+    /// slider (or a checkbox when `max_value` is 1); the value stays an integer
+    /// either way, so state, revisions and resets are unchanged.
+    #[serde(default)]
+    choices: Vec<String>,
+    /// Optional one-line note shown under the widget, e.g. when a control only
+    /// takes effect on the next run.
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -554,6 +563,7 @@ impl HmUiApp {
                         let open_default = control.default_value.unwrap_or(control.value);
                         let mut reset = false;
 
+                        let choices = control.choices.as_slice();
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(display_name(&control.name)).strong());
                             ui.with_layout(
@@ -566,15 +576,48 @@ impl HmUiApp {
                                         )
                                         .on_hover_text(format!(
                                             "Open-time default: {}",
-                                            format_value(&control.name, open_default, max_value,)
+                                            format_choice_value(
+                                                &control.name,
+                                                open_default,
+                                                max_value,
+                                                choices,
+                                            )
                                         ))
                                         .clicked();
-                                    ui.monospace(format_value(&control.name, *value, max_value));
+                                    ui.monospace(format_choice_value(
+                                        &control.name,
+                                        *value,
+                                        max_value,
+                                        choices,
+                                    ));
                                 },
                             );
                         });
 
-                        let mut changed = if max_value == 1 {
+                        let mut changed = if !choices.is_empty() {
+                            let mut selected = (*value).clamp(0, choices.len() as i32 - 1);
+                            let changed = egui::ComboBox::from_id_salt((
+                                window_name.as_str(),
+                                control.name.as_str(),
+                            ))
+                            .width(ui.available_width())
+                            .selected_text(choice_label(choices, selected))
+                            .show_ui(ui, |ui| {
+                                let mut picked = false;
+                                for (index, label) in choices.iter().enumerate() {
+                                    picked |= ui
+                                        .selectable_value(&mut selected, index as i32, label)
+                                        .changed();
+                                }
+                                picked
+                            })
+                            .inner
+                            .unwrap_or(false);
+                            if changed {
+                                *value = selected;
+                            }
+                            changed
+                        } else if max_value == 1 {
                             let mut checked = *value > 0;
                             let changed = ui.checkbox(&mut checked, "Enabled").changed();
                             if changed {
@@ -597,6 +640,9 @@ impl HmUiApp {
                         if reset {
                             *value = open_default;
                             changed = true;
+                        }
+                        if !control.description.is_empty() {
+                            ui.label(egui::RichText::new(&control.description).weak().small());
                         }
                         control_changed = changed;
                         any_changed |= changed;
@@ -790,6 +836,22 @@ fn control_pages(spec: &UiSpec) -> Vec<(String, String)> {
     pages
 }
 
+fn choice_label(choices: &[String], value: i32) -> String {
+    usize::try_from(value)
+        .ok()
+        .and_then(|index| choices.get(index))
+        .cloned()
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn format_choice_value(name: &str, value: i32, max_value: i32, choices: &[String]) -> String {
+    if choices.is_empty() {
+        format_value(name, value, max_value)
+    } else {
+        choice_label(choices, value)
+    }
+}
+
 fn format_value(name: &str, value: i32, max_value: i32) -> String {
     if max_value == 1 {
         if value > 0 {
@@ -915,5 +977,37 @@ mod tests {
         let preview: PreviewSpec =
             serde_json::from_str(r#"{"name":"Stitched","path":"preview.jpg"}"#).unwrap();
         assert!(preview.metadata_path.is_none());
+    }
+
+    #[test]
+    fn legacy_control_specs_have_no_choices_or_description() {
+        let control: ControlSpec =
+            serde_json::from_str(r#"{"name":"Shadow_Lift_Percent","max_value":100,"value":4}"#)
+                .unwrap();
+        assert!(control.choices.is_empty());
+        assert!(control.description.is_empty());
+    }
+
+    #[test]
+    fn enumerated_controls_read_back_their_labels() {
+        let choices = vec!["Laplacian".to_string(), "Alpha".to_string()];
+        // An enumerated control reports its label, not the raw index.
+        assert_eq!(
+            format_choice_value("Seam_Blend_Mode", 1, 1, &choices),
+            "Alpha"
+        );
+        // A value with no label is still legible rather than blank.
+        assert_eq!(format_choice_value("Seam_Blend_Mode", 7, 1, &choices), "7");
+        assert_eq!(
+            format_choice_value("Seam_Blend_Mode", -1, 1, &choices),
+            "-1"
+        );
+        // Without choices the existing suffix-driven formatting is unchanged, so a
+        // two-entry combo does not render as the "on"/"off" a max_value of 1 means.
+        assert_eq!(format_choice_value("Enable_Thing", 1, 1, &[]), "on");
+        assert_eq!(
+            format_choice_value("Brightness_Multiplier_x100", 125, 300, &[]),
+            "1.25"
+        );
     }
 }

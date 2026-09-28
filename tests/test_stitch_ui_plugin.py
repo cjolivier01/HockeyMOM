@@ -52,6 +52,8 @@ class _FakeHmUiProcess:
         self.kwargs = kwargs
         self.values = {}
         self.open_defaults = {}
+        self.choices = {}
+        self.descriptions = {}
         self.system_defaults = {}
         self.changed = False
         self.last_poll_values_changed = False
@@ -66,9 +68,20 @@ class _FakeHmUiProcess:
         self.values.setdefault(name, {})
         self.open_defaults.setdefault(name, {})
 
-    def add_slider(self, window: str, name: str, _maximum: int, value: int) -> None:
+    def add_slider(
+        self,
+        window: str,
+        name: str,
+        _maximum: int,
+        value: int,
+        *,
+        choices=None,
+        description: str = "",
+    ) -> None:
         self.values[window][name] = value
         self.open_defaults[window][name] = value
+        self.choices.setdefault(window, {})[name] = list(choices) if choices else []
+        self.descriptions.setdefault(window, {})[name] = description
 
     def set_system_defaults(self, defaults) -> None:
         self.system_defaults = copy.deepcopy(defaults)
@@ -408,3 +421,119 @@ def should_save_and_reset_shadow_lift_controls(monkeypatch):
     assert "shadow_lift" not in config["stitching"]["left"]["color"]
     assert "shadow_lift_black_point" not in config["stitching"]["left"]["color"]
     plugin.finalize()
+
+
+def _blend_plugin(monkeypatch, *, game: dict, system: dict, saved: dict):
+    monkeypatch.setattr(stitch_ui_module, "HmUiProcess", _FakeHmUiProcess)
+    monkeypatch.setattr(stitch_ui_module, "get_config", lambda **_k: copy.deepcopy(system))
+    # `saved` stands in for the private config on disk, so a later save sees what
+    # an earlier one wrote and can remove keys that no longer override anything.
+    monkeypatch.setattr(
+        stitch_ui_module, "get_game_config_private", lambda **_k: copy.deepcopy(saved)
+    )
+
+    def save_private(_game_id, data, verbose=True):
+        del verbose
+        saved.clear()
+        saved.update(copy.deepcopy(data))
+
+    monkeypatch.setattr(stitch_ui_module, "save_private_config", save_private)
+    shared = {"camera_ui": 1, "game_id": "game-1", "game_config": game}
+    plugin = StitchUiPlugin()
+    plugin.forward({"img": object(), "shared": shared})
+    return plugin, shared, _FakeHmUiProcess.instances[-1]
+
+
+def should_offer_seam_blend_controls_opened_on_the_game_value(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"].update(blend_mode="alpha", blend_feather_fraction=0.12)
+    system = _config(rotation=0.0)
+    system["stitching"].update(blend_mode="laplacian", blend_feather_fraction=0.05)
+
+    _plugin, _shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved={})
+
+    assert process.choices["Stitch Blend"]["Seam_Blend_Mode"] == [
+        "Laplacian (multi-band)",
+        "Alpha (feathered seam)",
+        "Hard seam (no blending)",
+    ]
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == 1
+    assert process.values["Stitch Blend"]["Seam_Feather_Percent"] == 12
+    # The stitcher is built once, so both controls take effect on the next run.
+    for name in ("Seam_Blend_Mode", "Seam_Feather_Percent"):
+        assert "next stitch run" in process.descriptions["Stitch Blend"][name]
+    assert process.system_defaults["Stitch Blend"] == {
+        "Seam_Blend_Mode": 0,
+        "Seam_Feather_Percent": 5,
+    }
+
+
+def should_apply_save_and_reset_the_seam_blend(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"].update(blend_mode="laplacian", blend_feather_fraction=0.05)
+    system = copy.deepcopy(game)
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    process.values["Stitch Blend"]["Seam_Blend_Mode"] = 1
+    process.values["Stitch Blend"]["Seam_Feather_Percent"] = 20
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+
+    assert game["stitching"]["blend_mode"] == "alpha"
+    assert game["stitching"]["blend_feather_fraction"] == pytest.approx(0.2)
+
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+    assert saved["stitching"]["blend_mode"] == "alpha"
+    assert saved["stitching"]["blend_feather_fraction"] == pytest.approx(0.2)
+
+    # Resetting to system defaults drops both overrides from the private config.
+    process.queue_reset(system=True)
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+    assert game["stitching"]["blend_mode"] == "laplacian"
+    assert "blend_mode" not in saved.get("stitching", {})
+    assert "blend_feather_fraction" not in saved.get("stitching", {})
+
+
+def should_keep_an_unrenderable_game_blend_mode_selectable(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    # multiblend is HockeyMON's CPU-only mode; the stitch UI drives the GPU path.
+    game["stitching"].update(blend_mode="multiblend")
+    system = _config(rotation=0.0)
+    system["stitching"].update(blend_mode="laplacian")
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
+    assert labels[-1] == "multiblend (not supported here)"
+    # Opening on its own entry is what makes picking a real mode an index change.
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == len(labels) - 1
+
+    process.values["Stitch Blend"]["Seam_Blend_Mode"] = 1
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    assert game["stitching"]["blend_mode"] == "alpha"
+
+
+def should_ignore_a_malformed_blend_mode_without_failing_the_ui(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"].update(blend_mode="pyramid", blend_feather_fraction=9.0)
+    system = _config(rotation=0.0)
+
+    _plugin, _shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved={})
+
+    assert process.choices["Stitch Blend"]["Seam_Blend_Mode"] == [
+        "Laplacian (multi-band)",
+        "Alpha (feathered seam)",
+        "Hard seam (no blending)",
+    ]
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == 0
+    assert process.values["Stitch Blend"]["Seam_Feather_Percent"] == 5
