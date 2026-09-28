@@ -22,6 +22,10 @@ struct Args {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct UiSpec {
+    /// Producer's schema version. Echoed into the state file so the producer can
+    /// tell whether the sidecar it is talking to understands the spec it wrote.
+    #[serde(default)]
+    version: u32,
     #[serde(default)]
     title: String,
     #[serde(default)]
@@ -102,6 +106,8 @@ struct ControlSpec {
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct UiState {
     version: u32,
+    #[serde(default)]
+    spec_version: u32,
     updated_ms: u128,
     #[serde(default)]
     windows: BTreeMap<String, BTreeMap<String, i32>>,
@@ -156,6 +162,7 @@ impl HmUiApp {
             spec_path,
             state_path,
             spec: UiSpec {
+                version: 0,
                 title,
                 subtitle: "Runtime camera controls".to_string(),
                 preview_path: None,
@@ -197,6 +204,7 @@ impl HmUiApp {
         let data = fs::read_to_string(&self.spec_path)
             .with_context(|| format!("read {}", self.spec_path.display()))?;
         let mut spec: UiSpec = serde_json::from_str(&data).context("parse UI spec")?;
+        clamp_spec_choices(&mut spec);
         if spec.title.is_empty() {
             spec.title = "HM UI".to_string();
         }
@@ -223,6 +231,13 @@ impl HmUiApp {
                 {
                     entry.insert(control.name.clone(), control.value);
                     revisions.insert(control.name.clone(), control.value_revision);
+                } else if !control.choices.is_empty() {
+                    // A value carried over from an earlier spec can still be out
+                    // of range for a control that has since gained choices.
+                    let limit = control.choices.len() as i32 - 1;
+                    if let Some(value) = entry.get_mut(&control.name) {
+                        *value = (*value).clamp(0, limit);
+                    }
                 }
             }
             let valid_names: Vec<String> = window.controls.iter().map(|c| c.name.clone()).collect();
@@ -441,6 +456,7 @@ impl HmUiApp {
     fn write_state(&mut self) -> Result<()> {
         let state = UiState {
             version: 1,
+            spec_version: self.spec.version,
             updated_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -595,11 +611,9 @@ impl HmUiApp {
                         });
 
                         let mut changed = if !choices.is_empty() {
-                            let mut selected = (*value).clamp(0, choices.len() as i32 - 1);
-                            // Write the clamp back, so a spec whose value has no
-                            // label cannot leave the combo and the numeric readout
-                            // showing two different things for the rest of the run.
-                            let clamped = selected != *value;
+                            // Already clamped by clamp_spec_choices, so the combo
+                            // and the numeric readout above cannot disagree.
+                            let mut selected = *value;
                             let changed = egui::ComboBox::from_id_salt((
                                 window_name.as_str(),
                                 control.name.as_str(),
@@ -618,7 +632,7 @@ impl HmUiApp {
                             .inner
                             .unwrap_or(false);
                             *value = selected;
-                            changed || clamped
+                            changed
                         } else if max_value == 1 {
                             let mut checked = *value > 0;
                             let changed = ui.checkbox(&mut checked, "Enabled").changed();
@@ -836,6 +850,27 @@ fn control_pages(spec: &UiSpec) -> Vec<(String, String)> {
         _ => 2,
     });
     pages
+}
+
+/// Bring every enumerated control's value and defaults into label range once,
+/// so nothing downstream has to decide between the raw value and a clamped one.
+/// An out-of-range index is a producer bug; correcting it here keeps the widget
+/// and its numeric readout from showing two different things all session.
+fn clamp_spec_choices(spec: &mut UiSpec) {
+    for window in &mut spec.windows {
+        for control in &mut window.controls {
+            if control.choices.is_empty() {
+                continue;
+            }
+            let limit = control.choices.len() as i32 - 1;
+            control.max_value = limit;
+            control.value = control.value.clamp(0, limit);
+            control.default_value = control.default_value.map(|value| value.clamp(0, limit));
+            control.system_default_value = control
+                .system_default_value
+                .map(|value| value.clamp(0, limit));
+        }
+    }
 }
 
 fn choice_label(choices: &[String], value: i32) -> String {

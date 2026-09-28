@@ -288,6 +288,8 @@ sh_test(
     args = [
         "tests/test_stitching_blend.py",
         "cv2",
+        "mmcv",
+        "mmengine",
         "numpy",
         "pytest",
         "tifffile",

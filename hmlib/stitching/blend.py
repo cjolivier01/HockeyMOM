@@ -46,6 +46,21 @@ def normalize_blend_mode(value: Any) -> str:
     return normalized
 
 
+def normalize_max_blend_levels(value: Any) -> int:
+    """Return a validated Laplacian pyramid depth, or raise."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"stitching.max_blend_levels must be an integer; got {value!r}")
+    try:
+        # int() raises OverflowError, not ValueError, for an infinity - which a
+        # YAML `.inf` produces - and truncates a float, which hides a typo.
+        levels = int(value)
+        if isinstance(value, float) and levels != value:
+            raise ValueError
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(f"stitching.max_blend_levels must be an integer; got {value!r}") from exc
+    return levels
+
+
 def normalize_feather_fraction(value: Any) -> float:
     """Return a validated alpha crossfade width as a fraction of the narrowest camera.
 
@@ -79,21 +94,24 @@ class BlendSettings:
     max_levels: int = DEFAULT_BLEND_LEVELS
 
     def __post_init__(self) -> None:
-        # Mirrors hm-cupano's BlendSettings::Validate. Naming laplacian with no
-        # levels is a caller mistake, not a request for a hard seam: callers spell
-        # that `mode="gpu-hard-seam"`, and resolve_blend_settings turns a
-        # non-positive count into the default before it gets here.
+        # Mirrors hm-cupano's BlendSettings::Validate, and coerces every field, so
+        # a caller that builds this directly cannot get past validation with a
+        # float depth or leak a TypeError out of a comparison.
         object.__setattr__(self, "mode", normalize_blend_mode(self.mode))
         object.__setattr__(
             self, "feather_fraction", normalize_feather_fraction(self.feather_fraction)
         )
-        if self.mode == "laplacian" and self.max_levels < 1:
-            raise ValueError(
-                f"Laplacian blending needs at least one pyramid level; got {self.max_levels!r}"
-            )
+        object.__setattr__(self, "max_levels", normalize_max_blend_levels(self.max_levels))
         if self.max_levels < 0:
             raise ValueError(
                 f"stitching.max_blend_levels must not be negative; got {self.max_levels!r}"
+            )
+        # Naming laplacian with no levels is a caller mistake, not a request for a
+        # hard seam: callers spell that `mode="gpu-hard-seam"`, and
+        # resolve_blend_settings turns a non-positive count into the default first.
+        if self.mode == "laplacian" and self.max_levels < 1:
+            raise ValueError(
+                f"Laplacian blending needs at least one pyramid level; got {self.max_levels!r}"
             )
 
     @property
@@ -112,6 +130,21 @@ class BlendSettings:
             raise ValueError(
                 f"Stitching blend mode {self.mode!r} has no GPU implementation; "
                 f"choose one of: {choices}, or stitch with --python-blender"
+            )
+        return self
+
+    def require_python_mode(self) -> "BlendSettings":
+        """Raise when the Python blender cannot render this mode.
+
+        Table-driven on purpose: a mode added to BLEND_MODES but to neither
+        renderable set is refused by both paths rather than falling through to
+        whichever branch happens not to match its name.
+        """
+        if self.mode not in PYTHON_BLEND_MODES:
+            choices = ", ".join(PYTHON_BLEND_MODES)
+            raise ValueError(
+                f"Stitching blend mode {self.mode!r} is GPU-only; "
+                f"choose one of: {choices}, or drop --python-blender"
             )
         return self
 
@@ -139,16 +172,7 @@ def resolve_blend_settings(
         normalize_feather_fraction(fraction) if fraction is not None else DEFAULT_FEATHER_FRACTION
     )
     levels = max_blend_levels if max_blend_levels is not None else config.get("max_blend_levels")
-    if levels is None:
-        levels = DEFAULT_BLEND_LEVELS
-    if isinstance(levels, bool) or not isinstance(levels, (int, float, str)):
-        raise ValueError(f"stitching.max_blend_levels must be an integer; got {levels!r}")
-    try:
-        levels = int(levels)
-    except (ValueError, OverflowError) as exc:
-        # int() raises OverflowError, not ValueError, for an infinity - which a
-        # YAML `.inf` produces.
-        raise ValueError(f"stitching.max_blend_levels must be an integer; got {levels!r}") from exc
+    levels = DEFAULT_BLEND_LEVELS if levels is None else normalize_max_blend_levels(levels)
     # A non-positive count is the legacy "use the default" spelling on the CLI,
     # not a request for a hard seam; `blend_mode` decides that.
     if levels <= 0:
@@ -167,5 +191,6 @@ __all__ = [
     "BlendSettings",
     "normalize_blend_mode",
     "normalize_feather_fraction",
+    "normalize_max_blend_levels",
     "resolve_blend_settings",
 ]

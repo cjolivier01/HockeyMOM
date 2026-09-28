@@ -1,10 +1,9 @@
 {
   "subtitle": "GUI backend smoke test",
   "title": "HM UI Smoke Test",
-  "version": 1,
+  "version": 2,
   "windows": [
     {
-      "name": "Stitch Blend",
       "controls": [
         {
           "choices": [
@@ -39,7 +38,8 @@
           "value": 1,
           "view": "Stitched"
         }
-      ]
+      ],
+      "name": "Stitch Blend"
     }
   ]
 }

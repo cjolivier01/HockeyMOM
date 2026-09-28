@@ -21,7 +21,7 @@ from mmcv.transforms import Compose
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
-from hmlib.stitching.blend import BlendSettings, resolve_blend_settings
+from hmlib.stitching.blend import resolve_blend_settings
 from hmlib.stitching.blender2 import create_stitcher
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.hockeymon_compat import (
@@ -120,9 +120,17 @@ class StitchingPlugin(Plugin):
         # Not str(): an explicit YAML null resolves to None, which means "inherit
         # the default" the same way it does in HStream. str() would make it the
         # literal "None" and turn an inherit into a rejected mode.
+        #
+        # Resolved here rather than at the first frame: a disabled trunk becomes a
+        # no-op stub without reaching this constructor, so a bad blend key fails
+        # at graph construction instead of after video readers and models are up.
+        self._blend = resolve_blend_settings(
+            blend_mode=blend_mode,
+            blend_feather_fraction=blend_feather_fraction,
+            max_blend_levels=max_blend_levels,
+        )
         self._blend_mode = blend_mode
         self._blend_feather_fraction = blend_feather_fraction
-        self._resolved_blend: Optional[BlendSettings] = None
         self._python_blender = bool(python_blender)
         self._use_cuda_pano_n = bool(use_cuda_pano_n)
         self._minimize_blend = bool(minimize_blend)
@@ -283,7 +291,7 @@ class StitchingPlugin(Plugin):
         game_id = context.get("game_id")
         if game_id is None and isinstance(shared, dict):
             game_id = shared.get("game_id")
-        blend = self._blend_settings()
+        blend = self._blend
         payload = {
             "schema": "hm-stitch-geometry-v2",
             "game_id": str(game_id) if game_id is not None else None,
@@ -363,16 +371,6 @@ class StitchingPlugin(Plugin):
         out[..., 3].fill_(255)
         return out[0] if squeezed else out
 
-    def _blend_settings(self) -> BlendSettings:
-        """Resolve the seam blend once, so the hash and the stitcher cannot disagree."""
-        if self._resolved_blend is None:
-            self._resolved_blend = resolve_blend_settings(
-                blend_mode=self._blend_mode,
-                blend_feather_fraction=self._blend_feather_fraction,
-                max_blend_levels=self._max_blend_levels,
-            )
-        return self._resolved_blend
-
     def _create_stitcher(
         self,
         context: Dict[str, Any],
@@ -386,7 +384,7 @@ class StitchingPlugin(Plugin):
         if len(imgs) < 2:
             raise RuntimeError("StitchingPlugin needs at least 2 input views")
         dir_name = self._resolve_dir_name(context)
-        blend = self._blend_settings()
+        blend = self._blend
 
         batch_size = int(imgs[0].shape[0])
         for idx, img in enumerate(imgs):

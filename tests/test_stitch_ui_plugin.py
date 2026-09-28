@@ -522,7 +522,7 @@ def should_keep_an_unrenderable_game_blend_mode_selectable(monkeypatch):
     assert game["stitching"]["blend_mode"] == "alpha"
 
 
-def should_ignore_a_malformed_blend_mode_without_failing_the_ui(monkeypatch):
+def should_survive_a_malformed_blend_config_without_losing_its_values(monkeypatch):
     _FakeHmUiProcess.instances.clear()
     game = _config(rotation=0.0)
     game["stitching"].update(blend_mode="pyramid", blend_feather_fraction=9.0)
@@ -530,12 +530,17 @@ def should_ignore_a_malformed_blend_mode_without_failing_the_ui(monkeypatch):
 
     _plugin, _shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved={})
 
+    # The UI opens rather than failing, the three renderable modes are offered,
+    # and the mode this build cannot parse is its own entry instead of being
+    # silently presented as Laplacian.
     assert process.choices["Stitch Blend"]["Seam_Blend_Mode"] == [
         "Laplacian (multi-band)",
         "Alpha (feathered seam)",
         "Hard seam (no blending)",
+        "pyramid - not supported here",
     ]
-    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == 0
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == 3
+    # A width the slider cannot hold opens at the default.
     assert process.values["Stitch Blend"]["Seam_Feather_Percent"] == 5
 
 
@@ -585,3 +590,55 @@ def should_offer_only_the_modes_the_configured_blender_can_render(monkeypatch):
     assert "Multiblend (CPU)" in labels
     assert not any("not supported here" in label for label in labels)
     assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == labels.index("Multiblend (CPU)")
+
+
+@pytest.mark.parametrize("configured", [None, "feathered-alpha-v2"])
+def should_not_invent_a_blend_mode_for_a_config_that_names_none(monkeypatch, configured):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=5.0)
+    if configured is None:
+        game["stitching"].pop("blend_mode", None)
+    else:
+        # A mode a newer HStream could write, which this build cannot parse.
+        game["stitching"]["blend_mode"] = configured
+    system = copy.deepcopy(game)
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    # An unparseable mode keeps its own entry rather than showing as Laplacian.
+    labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
+    if configured is not None:
+        assert labels[-1] == f"{configured} - not supported here"
+        assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == len(labels) - 1
+    else:
+        assert len(labels) == 3
+
+    # Moving an unrelated control must not write a blend override.
+    process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+
+    assert game["stitching"].get("blend_mode") == configured
+    assert "blend_mode" not in saved.get("stitching", {})
+
+
+def should_repair_a_feather_width_the_slider_cannot_hold(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=5.0)
+    game["stitching"]["blend_feather_fraction"] = 9.0
+    system = _config(rotation=5.0)
+    system["stitching"]["blend_feather_fraction"] = 0.05
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    # The slider opens at the default, and the next apply writes that back rather
+    # than leaving a value the next run would reject.
+    assert process.values["Stitch Blend"]["Seam_Feather_Percent"] == 5
+    process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    assert game["stitching"]["blend_feather_fraction"] == pytest.approx(0.05)

@@ -22,6 +22,12 @@ from hmlib.log import logger
 from hmlib.utils.gpu import unwrap_tensor
 from hmlib.utils.image import image_height, image_width, make_visible_image, resize_image
 
+# Bumped whenever the spec gains a field the sidecar has to understand. The
+# sidecar echoes it into the state file, so a binary too old to render a control
+# is reported rather than quietly drawing it as something else.
+# 2: enumerated controls (`choices`) and per-control `description`.
+_SPEC_VERSION = 2
+
 
 @dataclass
 class _Control:
@@ -99,6 +105,7 @@ class HmUiProcess:
         self._last_action_seq = 0
         self._pending_actions: List[HmUiAction] = []
         self._closed = False
+        self._spec_version_warned = False
 
     def add_window(self, name: str) -> None:
         self._windows.setdefault(name, [])
@@ -225,6 +232,7 @@ class HmUiProcess:
             logger.warning("Failed to read hm-ui state: %s", ex)
             return False
         self._last_state_mtime_ns = mtime_ns
+        self._check_spec_version(state)
         selected_preview = state.get("selected_preview")
         if (
             isinstance(selected_preview, str)
@@ -254,6 +262,30 @@ class HmUiProcess:
                 )
                 changed = True
         return changed
+
+    def _check_spec_version(self, state: Dict) -> None:
+        """Warn once when the sidecar does not understand the spec we wrote.
+
+        An older binary ignores `choices` and renders an enumerated control as a
+        bare 0..N slider with no labels, which an operator can easily read as a
+        magnitude. It cannot be fixed from this side, but it can be reported.
+        """
+        if self._spec_version_warned:
+            return
+        try:
+            reported = int(state.get("spec_version") or 0)
+        except (TypeError, ValueError):
+            reported = 0
+        if reported >= _SPEC_VERSION:
+            return
+        self._spec_version_warned = True
+        logger.warning(
+            "hm-ui reports control-spec version %s but this build writes version %s; "
+            "controls with named choices will render as unlabelled sliders. "
+            "Rebuild hm-ui (bazelisk build //hm-ui:hm-ui) or set HM_UI_BIN.",
+            reported,
+            _SPEC_VERSION,
+        )
 
     @property
     def last_poll_values_changed(self) -> bool:
@@ -574,7 +606,7 @@ class HmUiProcess:
 
     def _write_spec(self) -> None:
         payload = {
-            "version": 1,
+            "version": _SPEC_VERSION,
             "title": self.title,
             "subtitle": "Runtime tracking, stitch, and camera controls",
             "preview_path": str(self.preview_path),
@@ -749,23 +781,8 @@ class HmUiDialog:
     def open(self) -> None:
         self._manager.add_window(self.window_name)
 
-    def add_slider(
-        self,
-        name: str,
-        max_value: int,
-        initial_value: int,
-        *,
-        choices: Optional[Iterable[str]] = None,
-        description: str = "",
-    ) -> None:
-        self._manager.add_slider(
-            self.window_name,
-            name,
-            max_value,
-            initial_value,
-            choices=choices,
-            description=description,
-        )
+    def add_slider(self, name: str, max_value: int, initial_value: int) -> None:
+        self._manager.add_slider(self.window_name, name, max_value, initial_value)
 
     def get_value(self, name: str) -> int:
         return self._manager.get_value(self.window_name, name, poll=False)

@@ -9,8 +9,8 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <random>
 #include <optional>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -251,7 +251,7 @@ static hm::pano::BlendSettings make_blend_settings(
     hm::pano::BlendSettings settings(num_levels);
     const std::string error = settings.Validate();
     if (!error.empty()) {
-      throw std::runtime_error(error);
+      throw std::invalid_argument(error);
     }
     return settings;
   }
@@ -268,13 +268,15 @@ static hm::pano::BlendSettings make_blend_settings(
   } else if (mode == "laplacian") {
     settings = hm::pano::BlendSettings::Laplacian(num_levels);
   } else if (mode != "gpu-hard-seam" && mode != "hard-seam" && mode != "hard") {
-    throw std::runtime_error(
+    // invalid_argument, not runtime_error: pybind maps it to ValueError, which
+    // is what every Python-side validation of the same vocabulary raises.
+    throw std::invalid_argument(
         "Unsupported stitching blend mode '" + *blend_mode +
         "'; choose laplacian, alpha or gpu-hard-seam");
   }
   const std::string error = settings.Validate();
   if (!error.empty()) {
-    throw std::runtime_error(error);
+    throw std::invalid_argument(error);
   }
   return settings;
 }

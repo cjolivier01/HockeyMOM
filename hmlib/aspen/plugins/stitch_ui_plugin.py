@@ -17,6 +17,7 @@ from hmlib.config import (
 )
 from hmlib.log import logger
 from hmlib.stitching.blend import (
+    BLEND_MODES,
     DEFAULT_BLEND_MODE,
     DEFAULT_FEATHER_FRACTION,
     GPU_BLEND_MODES,
@@ -100,31 +101,36 @@ class StitchUiPlugin(Plugin):
         return float(position + _EXPOSURE_EV_X10_MIN) / 10.0
 
     @staticmethod
-    def _config_blend_mode(config: Dict[str, Any]) -> Optional[str]:
-        """Return the game's blend mode, or None when it is absent or unreadable."""
+    def _config_blend_entry(config: Dict[str, Any]) -> Optional[str]:
+        """The combo entry this config names, or None when it names nothing.
+
+        A mode that will not normalize is returned verbatim so it can be its own
+        entry, the same way a mode this path cannot render is. Silent by design:
+        this runs on every apply, and the one warning is logged at open time.
+        """
         raw = get_nested_value(config, "stitching.blend_mode", None)
         if raw is None:
             return None
         try:
             return normalize_blend_mode(raw)
         except ValueError:
-            logger.warning("Ignoring unrecognized stitching.blend_mode %r in the stitch UI", raw)
-            return None
+            return str(raw)
 
     @staticmethod
-    def _config_feather_percent(config: Dict[str, Any]) -> int:
+    def _config_feather_percent(config: Dict[str, Any]) -> Optional[int]:
+        """The slider position this config asks for, or None when it asks for one
+        the slider cannot hold.
+
+        None means "the slider is authoritative", so the next apply repairs the
+        config rather than leaving a value that would fail the next run.
+        """
         raw = get_nested_value(config, "stitching.blend_feather_fraction", None)
         if raw is None:
-            fraction = DEFAULT_FEATHER_FRACTION
-        else:
-            try:
-                fraction = normalize_feather_fraction(raw)
-            except ValueError:
-                logger.warning(
-                    "Ignoring invalid stitching.blend_feather_fraction %r in the stitch UI", raw
-                )
-                fraction = DEFAULT_FEATHER_FRACTION
-        return int(round(fraction * 100.0))
+            return int(round(DEFAULT_FEATHER_FRACTION * 100.0))
+        try:
+            return int(round(normalize_feather_fraction(raw) * 100.0))
+        except ValueError:
+            return None
 
     def _resolve_blend_choices(self) -> Tuple[str, ...]:
         """Renderable modes, plus the game's own mode when this path cannot run it.
@@ -138,14 +144,18 @@ class StitchUiPlugin(Plugin):
         Which modes are runnable depends on the blender this game is configured
         for, so the combo never offers one the next run would refuse to build.
         """
-        self._blend_runnable = (
-            PYTHON_BLEND_MODES
-            if bool(get_nested_value(self._game_config, "stitching.python_blender", False))
-            else GPU_BLEND_MODES
+        # The plugin param is what actually selects the blender; the shared key is
+        # only its default, so an override of one must not leave the combo
+        # offering modes the other cannot run.
+        python_blender = get_nested_value(
+            self._game_config, "aspen.plugins.stitching.params.python_blender", None
         )
+        if python_blender is None:
+            python_blender = get_nested_value(self._game_config, "stitching.python_blender", False)
+        self._blend_runnable = PYTHON_BLEND_MODES if bool(python_blender) else GPU_BLEND_MODES
         modes = list(self._blend_runnable)
         for config in (self._game_config, self._system_config):
-            mode = self._config_blend_mode(config)
+            mode = self._config_blend_entry(config)
             if mode is not None and mode not in modes:
                 modes.append(mode)
         return tuple(modes)
@@ -161,9 +171,13 @@ class StitchUiPlugin(Plugin):
         ]
 
     def _blend_mode_index(self, config: Dict[str, Any]) -> int:
-        mode = self._config_blend_mode(config) or DEFAULT_BLEND_MODE
+        mode = self._config_blend_entry(config) or DEFAULT_BLEND_MODE
         choices = self._blend_choices
         return choices.index(mode) if mode in choices else choices.index(DEFAULT_BLEND_MODE)
+
+    def _blend_feather_position(self, config: Dict[str, Any]) -> int:
+        percent = self._config_feather_percent(config)
+        return int(round(DEFAULT_FEATHER_FRACTION * 100.0)) if percent is None else percent
 
     @classmethod
     def _color_defaults(cls, config: Dict[str, Any], path: str) -> Dict[str, int]:
@@ -280,6 +294,26 @@ class StitchUiPlugin(Plugin):
         )
 
         self._blend_choices = self._resolve_blend_choices()
+        # The accessors stay silent because they run on every apply; say it once.
+        blend_entry = self._config_blend_entry(self._game_config)
+        if blend_entry is not None and blend_entry not in BLEND_MODES:
+            logger.warning(
+                "stitching.blend_mode %r is not a mode this build knows; the stitch UI keeps it "
+                "selectable but the next run will reject it",
+                blend_entry,
+            )
+        elif blend_entry is not None and blend_entry not in self._blend_runnable:
+            logger.warning(
+                "stitching.blend_mode %r cannot be rendered by the configured blender; the stitch "
+                "UI keeps it selectable but the next run will reject it",
+                blend_entry,
+            )
+        if self._config_feather_percent(self._game_config) is None:
+            logger.warning(
+                "stitching.blend_feather_fraction %r is out of range; the stitch UI opens at the "
+                "default and saving repairs it",
+                get_nested_value(self._game_config, "stitching.blend_feather_fraction", None),
+            )
         self._process.add_window(_BLEND_WINDOW)
         self._process.add_slider(
             _BLEND_WINDOW,
@@ -296,7 +330,7 @@ class StitchUiPlugin(Plugin):
             _BLEND_WINDOW,
             _BLEND_FEATHER_CONTROL,
             _FEATHER_PERCENT_MAX,
-            self._config_feather_percent(self._game_config),
+            self._blend_feather_position(self._game_config),
             description=(
                 "Alpha crossfade width, as a percent of the narrowest camera image. Ignored by "
                 f"the other modes. {_NEXT_RUN_NOTE}"
@@ -320,7 +354,7 @@ class StitchUiPlugin(Plugin):
             },
             _BLEND_WINDOW: {
                 _BLEND_MODE_CONTROL: self._blend_mode_index(self._system_config),
-                _BLEND_FEATHER_CONTROL: self._config_feather_percent(self._system_config),
+                _BLEND_FEATHER_CONTROL: self._blend_feather_position(self._system_config),
             },
         }
         for window_name, path in color_windows.items():
@@ -439,11 +473,15 @@ class StitchUiPlugin(Plugin):
         # The bridge clamps to the control's range; clamp again rather than
         # substitute a different mode if that ever stops holding.
         mode = choices[min(max(index, 0), len(choices) - 1)]
-        if mode != self._config_blend_mode(self._game_config):
+        # An absent or null mode means "inherit the default", which is what the
+        # combo already shows, so it must not be written back as an override.
+        if mode != (self._config_blend_entry(self._game_config) or DEFAULT_BLEND_MODE):
             self._set_runtime_path(("stitching", "blend_mode"), mode)
         percent = max(
             0, int(self._process.get_value(_BLEND_WINDOW, _BLEND_FEATHER_CONTROL, poll=False))
         )
+        # A config width the slider cannot hold reads as None, so the slider wins
+        # and the unusable value is repaired rather than left for the next run.
         if percent != self._config_feather_percent(self._game_config):
             self._set_runtime_path(
                 ("stitching", "blend_feather_fraction"),

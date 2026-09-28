@@ -971,6 +971,9 @@ def create_stitcher(
         feather_fraction=normalize_feather_fraction(feather_fraction),
         max_levels=levels,
     )
+    # Refuse a mode the selected renderer cannot run before taking the lock and
+    # rewriting artifacts, so a config error costs nothing.
+    blend.require_gpu_mode() if use_cuda_pano else blend.require_python_mode()
     blend_mode = blend.mode
     feather_fraction = blend.feather_fraction
     with stitching_lock(dir_name):
@@ -993,7 +996,7 @@ def create_stitcher(
             size1 = input_sizes[0]
             size2 = input_sizes[1]
             # Alpha carries its width in feather_fraction, so only Laplacian spends levels.
-            levels = blend.require_gpu_mode().levels
+            levels = blend.levels
             max_output_width_i = int(max_output_width) if max_output_width else 0
             if len(input_sizes) == 2 and not use_cuda_pano_n:
                 if dtype == torch.float32:
@@ -1051,10 +1054,6 @@ def create_stitcher(
                 )
             raise ValueError(f"Unsupported dtype for cuda pano N: {dtype}")
 
-        if blend_mode == "alpha":
-            raise ValueError(
-                "Alpha seam blending is GPU-only; drop --python-blender to stitch with it"
-            )
         blender_config: BlenderConfig = create_blender_config(
             mode=blend_mode,
             dir_name=dir_name,
@@ -1183,7 +1182,8 @@ def blend_video(
     @param feather_fraction: Alpha crossfade width; None uses the shared default.
     @param queue_size: VideoOutput queue size.
     @param minimize_blend: If True, restrict blending to overlap region.
-    @param add_alpha_channel: If True, include alpha channel in output.
+    @param add_alpha_channel: Reserved; create_stitcher does not plumb it, so
+        requesting it is refused rather than silently dropped.
     @param overlap_pad: Padding in pixels around seam overlap.
     @param draw: If True, draw debug boxes over blends.
     @param use_cuda_pano: If True, use CUDA panorama stitcher instead of Python.
@@ -1211,6 +1211,10 @@ def blend_video(
         except Exception:
             max_frames = None
 
+    if add_alpha_channel:
+        # create_stitcher has no such parameter; passing it here raised TypeError
+        # before any blending, which is worse than saying so.
+        raise NotImplementedError("blend_video does not support add_alpha_channel")
     if use_cuda_pano:
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
@@ -1241,7 +1245,6 @@ def blend_video(
             blend_mode=blend.mode,
             feather_fraction=blend.feather_fraction,
             draw=draw,
-            add_alpha_channel=add_alpha_channel,
             levels=blend.levels,
             use_cuda_pano=use_cuda_pano,
         )

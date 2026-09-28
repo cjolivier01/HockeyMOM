@@ -30,3 +30,14 @@ if [[ "${status}" -ne 124 ]]; then
   echo "hm-ui exited during the GUI smoke interval with status ${status}" >&2
   exit 1
 fi
+
+# Surviving the interval is not enough: a spec that fails to parse leaves the UI
+# running with no windows and exits 124 too. State is only written after a
+# successful parse, so require the spec's controls to appear in it.
+for control in Seam_Blend_Mode Seam_Feather_Percent Shadow_Lift_Black_Point; do
+  if ! grep -q "${control}" "${state_dir}/state.json" 2>/dev/null; then
+    echo "hm-ui did not render ${control} from the smoke spec" >&2
+    cat "${state_dir}/state.json" >&2 2>/dev/null || echo "(no state file)" >&2
+    exit 1
+  fi
+done

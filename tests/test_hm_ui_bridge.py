@@ -456,3 +456,39 @@ def should_reject_an_enumerated_control_without_alternatives(tmp_path):
     ui.add_window("Stitch Blend")
     with pytest.raises(ValueError, match="at least two choices"):
         ui.add_slider("Stitch Blend", "Seam_Blend_Mode", 1, 0, choices=["Only"])
+
+
+def should_warn_once_when_the_sidecar_predates_the_spec_schema(tmp_path, caplog):
+    from hmlib.camera.hm_ui_bridge import _SPEC_VERSION
+
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+    ui.add_window("Stitch Blend")
+    ui.add_slider("Stitch Blend", "Seam_Blend_Mode", 2, 0, choices=["A", "B", "C"])
+
+    spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
+    assert spec["version"] == _SPEC_VERSION
+
+    def write_state(spec_version=None, value=1):
+        payload = {
+            "version": 1,
+            "windows": {"Stitch Blend": {"Seam_Blend_Mode": value}},
+        }
+        if spec_version is not None:
+            payload["spec_version"] = spec_version
+        ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+        ui.poll()
+
+    # An older sidecar renders the combo as an unlabelled slider; it cannot be
+    # fixed from here, but it must not pass unnoticed.
+    with caplog.at_level("WARNING"):
+        write_state(spec_version=None, value=1)
+        write_state(spec_version=None, value=2)
+    warnings = [r for r in caplog.records if "control-spec version" in r.getMessage()]
+    assert len(warnings) == 1
+
+    caplog.clear()
+    ui._spec_version_warned = False
+    with caplog.at_level("WARNING"):
+        write_state(spec_version=_SPEC_VERSION, value=0)
+    assert not [r for r in caplog.records if "control-spec version" in r.getMessage()]

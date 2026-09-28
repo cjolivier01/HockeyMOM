@@ -264,15 +264,31 @@ def should_reject_a_laplacian_stitcher_with_no_levels_before_touching_artifacts(
 def should_key_the_geometry_revision_to_the_normalized_blend_mode():
     from hmlib.aspen.plugins.stitching_plugin import StitchingPlugin
 
+    imgs = [torch.zeros(1, 3, 4, 4), torch.zeros(1, 3, 4, 4)]
+    blended = torch.zeros(1, 3, 4, 8)
+
     def revision(**kwargs):
         plugin = StitchingPlugin(**kwargs)
-        blend = plugin._blend_settings()
-        return (blend.mode, blend.feather_fraction)
+        # Without a PTO or a native revision this falls back to a process-local
+        # token, which would mask any difference the blend keys make.
+        plugin._geometry_source = lambda _context: {"kind": "test"}
+        return plugin._make_geometry_revision(
+            context={"shared": {"game_id": "g"}},
+            imgs=imgs,
+            blended=blended,
+            applied_rotation=0.0,
+        )
 
-    # Alias spellings render identically, so they must not key different masks.
+    # The revision drives a mask cache that deletes entries under other
+    # revisions, so spellings that render identically must hash identically.
     assert revision(blend_mode="gpu_hard_seam") == revision(blend_mode="GPU-Hard-Seam")
     assert revision(blend_mode=None) == revision(blend_mode="laplacian")
-    # Only alpha's width changes pixels, and it must reach the key.
+    assert revision(blend_mode="laplacian") != revision(blend_mode="alpha")
+    # Only alpha's width moves pixels, so only alpha carries it in the key -
+    # which is what leaves every already-cached Laplacian mask valid.
     assert revision(blend_mode="alpha", blend_feather_fraction=0.2) != revision(
         blend_mode="alpha", blend_feather_fraction=0.3
+    )
+    assert revision(blend_mode="laplacian", blend_feather_fraction=0.2) == revision(
+        blend_mode="laplacian", blend_feather_fraction=0.3
     )
