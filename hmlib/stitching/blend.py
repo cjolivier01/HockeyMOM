@@ -19,8 +19,10 @@ BLEND_MODES = ("laplacian", "alpha", "gpu-hard-seam", "multiblend")
 # enblend/multiblend path and has no GPU implementation.
 GPU_BLEND_MODES = ("laplacian", "alpha", "gpu-hard-seam")
 # Modes the Python blender can render. Alpha is a hm-cupano kernel with no
-# Python equivalent.
-PYTHON_BLEND_MODES = ("laplacian", "gpu-hard-seam", "multiblend")
+# Python equivalent. `multiblend` is in neither set: it names the calibration-time
+# enblend/multiblend binaries, and create_blender_config returns a seamless
+# config for it that the blender then dereferences, so no video path can run it.
+PYTHON_BLEND_MODES = ("laplacian", "gpu-hard-seam")
 _BLEND_MODE_ALIASES = {
     "hard": "gpu-hard-seam",
     "hard-seam": "gpu-hard-seam",
@@ -30,6 +32,20 @@ DEFAULT_BLEND_LEVELS = 11
 # Mirrors hm-cupano's BlendSettings::kDefaultFeatherFraction / kMaxFeatherFraction.
 DEFAULT_FEATHER_FRACTION = 0.05
 MAX_FEATHER_FRACTION = 1.0
+
+
+def config_blend_mode(value: Any) -> Optional[str]:
+    """Normalize a configured mode, or None when the config specifies none.
+
+    Absent, an explicit null, and a blank string all mean "inherit", matching
+    what the surrounding config machinery means by an empty scalar. Anything
+    else is returned folded but unvalidated, so a caller can still show or
+    report a mode this build does not know.
+    """
+    if value is None:
+        return None
+    folded = str(value).strip().lower().replace("_", "-")
+    return folded or None
 
 
 def normalize_blend_mode(value: Any) -> str:
@@ -58,6 +74,10 @@ def normalize_max_blend_levels(value: Any) -> int:
             raise ValueError
     except (ValueError, OverflowError) as exc:
         raise ValueError(f"stitching.max_blend_levels must be an integer; got {value!r}") from exc
+    # The native stitchers take an int; reject here rather than after the
+    # stitching lock and the artifact rewrite.
+    if not -(2**31) <= levels < 2**31:
+        raise ValueError(f"stitching.max_blend_levels is out of range; got {value!r}")
     return levels
 
 
@@ -123,15 +143,24 @@ class BlendSettings:
         """
         return self.max_levels if self.mode == "laplacian" else 0
 
+    def _require_renderable(self, blender: str, renderable: tuple, other: tuple, hint: str):
+        if self.mode in renderable:
+            return self
+        message = (
+            f"Stitching blend mode {self.mode!r} cannot be rendered by the {blender} blender; "
+            f"choose one of: {', '.join(renderable)}"
+        )
+        # Only suggest the other path when it can actually run this mode;
+        # `multiblend` is in neither set and pointing at either is a dead end.
+        if self.mode in other:
+            message = f"{message}, or {hint}"
+        raise ValueError(message)
+
     def require_gpu_mode(self) -> "BlendSettings":
         """Raise when the CUDA panorama stitchers cannot render this mode."""
-        if self.mode not in GPU_BLEND_MODES:
-            choices = ", ".join(GPU_BLEND_MODES)
-            raise ValueError(
-                f"Stitching blend mode {self.mode!r} has no GPU implementation; "
-                f"choose one of: {choices}, or stitch with --python-blender"
-            )
-        return self
+        return self._require_renderable(
+            "GPU", GPU_BLEND_MODES, PYTHON_BLEND_MODES, "stitch with --python-blender"
+        )
 
     def require_python_mode(self) -> "BlendSettings":
         """Raise when the Python blender cannot render this mode.
@@ -140,13 +169,9 @@ class BlendSettings:
         renderable set is refused by both paths rather than falling through to
         whichever branch happens not to match its name.
         """
-        if self.mode not in PYTHON_BLEND_MODES:
-            choices = ", ".join(PYTHON_BLEND_MODES)
-            raise ValueError(
-                f"Stitching blend mode {self.mode!r} is GPU-only; "
-                f"choose one of: {choices}, or drop --python-blender"
-            )
-        return self
+        return self._require_renderable(
+            "Python", PYTHON_BLEND_MODES, GPU_BLEND_MODES, "drop --python-blender"
+        )
 
 
 def resolve_blend_settings(
@@ -162,6 +187,7 @@ def resolve_blend_settings(
     """
     config: Mapping[str, Any] = stitch_config or {}
     mode = blend_mode if blend_mode is not None else config.get("blend_mode")
+    mode = config_blend_mode(mode)
     mode = normalize_blend_mode(mode) if mode is not None else DEFAULT_BLEND_MODE
     fraction = (
         blend_feather_fraction
@@ -189,6 +215,7 @@ __all__ = [
     "MAX_FEATHER_FRACTION",
     "PYTHON_BLEND_MODES",
     "BlendSettings",
+    "config_blend_mode",
     "normalize_blend_mode",
     "normalize_feather_fraction",
     "normalize_max_blend_levels",

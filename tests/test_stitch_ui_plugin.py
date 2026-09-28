@@ -585,11 +585,17 @@ def should_offer_only_the_modes_the_configured_blender_can_render(monkeypatch):
 
     labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
     # Alpha is a GPU kernel with no Python equivalent, so it must not be offered
-    # here; multiblend is the one mode this path can render.
-    assert not any("Alpha" in label for label in labels)
-    assert "Multiblend (CPU)" in labels
-    assert not any("not supported here" in label for label in labels)
-    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == labels.index("Multiblend (CPU)")
+    # here. multiblend is the game's own mode and no video path can render it, so
+    # it keeps a marked entry rather than being offered as a choice.
+    assert labels == [
+        "Laplacian (multi-band)",
+        "Hard seam (no blending)",
+        "Multiblend (CPU) - not supported here",
+    ]
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == len(labels) - 1
+    # No feather control at all: alpha cannot be selected, so a width here could
+    # never act on anything.
+    assert "Seam_Feather_Percent" not in process.values["Stitch Blend"]
 
 
 @pytest.mark.parametrize("configured", [None, "feathered-alpha-v2"])
@@ -642,3 +648,47 @@ def should_repair_a_feather_width_the_slider_cannot_hold(monkeypatch):
     process.changed = True
     plugin.forward({"img": object(), "shared": shared})
     assert game["stitching"]["blend_feather_fraction"] == pytest.approx(0.05)
+
+
+def should_repair_rather_than_restore_a_system_value_the_controls_cannot_hold(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"].update(blend_mode="laplacian", blend_feather_fraction=0.05)
+    system = _config(rotation=0.0)
+    system["stitching"].update(blend_mode="laplacian", blend_feather_fraction=9.0)
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    process.queue_reset(system=True)
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+
+    # The slider cannot hold 9.0, so a reset must leave the config matching what
+    # the operator sees, not restore a value the next run would reject.
+    assert process.values["Stitch Blend"]["Seam_Feather_Percent"] == 5
+    assert game["stitching"]["blend_feather_fraction"] == pytest.approx(0.05)
+
+
+def should_not_save_an_override_that_only_respells_the_system_mode(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"]["blend_mode"] = "gpu_hard_seam"
+    system = copy.deepcopy(game)
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
+    hard_seam = labels.index("Hard seam (no blending)")
+    # A round trip through the combo writes the canonical spelling, which means
+    # the same thing as the system config's alias and must not shadow it.
+    for index in (0, hard_seam):
+        process.values["Stitch Blend"]["Seam_Blend_Mode"] = index
+        process.changed = True
+        plugin.forward({"img": object(), "shared": shared})
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+
+    assert game["stitching"]["blend_mode"] == "gpu-hard-seam"
+    assert "blend_mode" not in saved.get("stitching", {})

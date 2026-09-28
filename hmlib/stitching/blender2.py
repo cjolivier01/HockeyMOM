@@ -1211,10 +1211,6 @@ def blend_video(
         except Exception:
             max_frames = None
 
-    if add_alpha_channel:
-        # create_stitcher has no such parameter; passing it here raised TypeError
-        # before any blending, which is worse than saying so.
-        raise NotImplementedError("blend_video does not support add_alpha_channel")
     if use_cuda_pano:
         size1 = WHDims(vidinfo_1.width, vidinfo_1.height)
         size2 = WHDims(vidinfo_2.width, vidinfo_2.height)
@@ -1234,6 +1230,13 @@ def blend_video(
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()
     else:
+        if add_alpha_channel:
+            # create_stitcher has no such parameter; passing it raised TypeError
+            # before any blending, which is worse than saying so. The CUDA branch
+            # above never read the flag, so it is unaffected.
+            raise NotImplementedError(
+                "blend_video does not support add_alpha_channel with --python-blender"
+            )
         stitcher: ImageStitcher = create_stitcher(
             dir_name=dir_name,
             batch_size=batch_size,

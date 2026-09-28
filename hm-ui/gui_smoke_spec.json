@@ -17,7 +17,7 @@
           "max_value": 2,
           "name": "Seam_Blend_Mode",
           "system_default_value": 0,
-          "value": 1,
+          "value": 7,
           "view": "Stitched"
         },
         {

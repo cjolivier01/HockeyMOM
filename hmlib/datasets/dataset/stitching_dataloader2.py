@@ -21,6 +21,7 @@ from mmcv.transforms import Compose
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
+from hmlib.stitching.blend import resolve_blend_settings
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
@@ -182,6 +183,18 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._pto_project_file = pto_project_file
         self._blend_mode = blend_mode
         self._blend_feather_fraction = blend_feather_fraction
+        # Resolved here, not in _create_stitcher: that runs from the first
+        # _prepare_next_frame, i.e. after calibration, artifact generation and two
+        # video decoders. A bad blend key should cost none of that.
+        self._blend = resolve_blend_settings(
+            blend_mode=blend_mode,
+            blend_feather_fraction=blend_feather_fraction,
+            max_blend_levels=max_blend_levels,
+        )
+        if python_blender:
+            self._blend.require_python_mode()
+        else:
+            self._blend.require_gpu_mode()
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._current_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -625,15 +638,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         if self._stitcher is not None:
             return
         assert self._remapping_device.type != "cpu"
-        from hmlib.stitching.blend import resolve_blend_settings
         from hmlib.stitching.blender2 import create_stitcher
 
-        blend = resolve_blend_settings(
-            blend_mode=self._blend_mode,
-            blend_feather_fraction=self._blend_feather_fraction,
-            max_blend_levels=self._max_blend_levels,
-        )
-
+        blend = self._blend
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,
             batch_size=self._batch_size,

@@ -479,16 +479,25 @@ def should_warn_once_when_the_sidecar_predates_the_spec_schema(tmp_path, caplog)
         ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
         ui.poll()
 
-    # An older sidecar renders the combo as an unlabelled slider; it cannot be
-    # fixed from here, but it must not pass unnoticed.
+    def version_warnings():
+        return [r for r in caplog.records if "control-spec version" in r.getMessage()]
+
+    # The bridge writes its own bootstrap state before the sidecar starts, and
+    # reading that back must not look like a stale binary and latch the check off.
+    with caplog.at_level("WARNING"):
+        ui._write_state()
+        ui._last_state_mtime_ns = None
+        ui.poll()
+    assert not version_warnings()
+
+    # A current sidecar is silent too.
+    with caplog.at_level("WARNING"):
+        write_state(spec_version=_SPEC_VERSION, value=0)
+    assert not version_warnings()
+
+    # An older one renders the combo as an unlabelled slider. That cannot be fixed
+    # from here, but it must be said, once.
     with caplog.at_level("WARNING"):
         write_state(spec_version=None, value=1)
         write_state(spec_version=None, value=2)
-    warnings = [r for r in caplog.records if "control-spec version" in r.getMessage()]
-    assert len(warnings) == 1
-
-    caplog.clear()
-    ui._spec_version_warned = False
-    with caplog.at_level("WARNING"):
-        write_state(spec_version=_SPEC_VERSION, value=0)
-    assert not [r for r in caplog.records if "control-spec version" in r.getMessage()]
+    assert len(version_warnings()) == 1

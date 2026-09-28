@@ -646,6 +646,10 @@ class HmUiProcess:
     def _write_state(self) -> None:
         payload = {
             "version": 1,
+            # This file is the bootstrap the sidecar reads before it writes its
+            # own; claiming the version we wrote keeps the compatibility check
+            # from firing on our own output before the sidecar has started.
+            "spec_version": _SPEC_VERSION,
             "updated_ms": int(time.time() * 1000),
             "windows": {
                 window_name: {control.name: control.value for control in controls}

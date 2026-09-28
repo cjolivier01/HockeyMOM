@@ -20,6 +20,11 @@ struct Args {
     title: String,
 }
 
+/// Highest control-spec version this build understands. Reported back to the
+/// producer so it can tell that a field it wrote was actually rendered; echoing
+/// the spec's own number instead would pass at every future bump.
+const SUPPORTED_SPEC_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct UiSpec {
     /// Producer's schema version. Echoed into the state file so the producer can
@@ -456,7 +461,7 @@ impl HmUiApp {
     fn write_state(&mut self) -> Result<()> {
         let state = UiState {
             version: 1,
-            spec_version: self.spec.version,
+            spec_version: SUPPORTED_SPEC_VERSION,
             updated_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()

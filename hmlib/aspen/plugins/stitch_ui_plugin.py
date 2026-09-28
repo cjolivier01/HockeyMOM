@@ -23,7 +23,7 @@ from hmlib.stitching.blend import (
     GPU_BLEND_MODES,
     MAX_FEATHER_FRACTION,
     PYTHON_BLEND_MODES,
-    normalize_blend_mode,
+    config_blend_mode,
     normalize_feather_fraction,
 )
 from hmlib.utils.shadow_lift import shadow_lift_settings
@@ -104,17 +104,12 @@ class StitchUiPlugin(Plugin):
     def _config_blend_entry(config: Dict[str, Any]) -> Optional[str]:
         """The combo entry this config names, or None when it names nothing.
 
-        A mode that will not normalize is returned verbatim so it can be its own
-        entry, the same way a mode this path cannot render is. Silent by design:
+        A mode that will not normalize is kept, folded, so it can be its own
+        entry the same way a mode this path cannot render is - two spellings of
+        the same unknown mode must not become two entries. Silent by design:
         this runs on every apply, and the one warning is logged at open time.
         """
-        raw = get_nested_value(config, "stitching.blend_mode", None)
-        if raw is None:
-            return None
-        try:
-            return normalize_blend_mode(raw)
-        except ValueError:
-            return str(raw)
+        return config_blend_mode(get_nested_value(config, "stitching.blend_mode", None))
 
     @staticmethod
     def _config_feather_percent(config: Dict[str, Any]) -> Optional[int]:
@@ -326,16 +321,17 @@ class StitchUiPlugin(Plugin):
                 f"only at the seam. {_NEXT_RUN_NOTE}"
             ),
         )
-        self._process.add_slider(
-            _BLEND_WINDOW,
-            _BLEND_FEATHER_CONTROL,
-            _FEATHER_PERCENT_MAX,
-            self._blend_feather_position(self._game_config),
-            description=(
-                "Alpha crossfade width, as a percent of the narrowest camera image. Ignored by "
-                f"the other modes. {_NEXT_RUN_NOTE}"
-            ),
-        )
+        if "alpha" in self._blend_runnable:
+            self._process.add_slider(
+                _BLEND_WINDOW,
+                _BLEND_FEATHER_CONTROL,
+                _FEATHER_PERCENT_MAX,
+                self._blend_feather_position(self._game_config),
+                description=(
+                    "Alpha crossfade width, as a percent of the narrowest camera image. Ignored "
+                    f"by the other modes. {_NEXT_RUN_NOTE}"
+                ),
+            )
 
         color_windows = {
             "Tracker Controls (Stitched Color)": "rink.camera.color",
@@ -354,9 +350,12 @@ class StitchUiPlugin(Plugin):
             },
             _BLEND_WINDOW: {
                 _BLEND_MODE_CONTROL: self._blend_mode_index(self._system_config),
-                _BLEND_FEATHER_CONTROL: self._blend_feather_position(self._system_config),
             },
         }
+        if "alpha" in self._blend_runnable:
+            system_defaults[_BLEND_WINDOW][_BLEND_FEATHER_CONTROL] = self._blend_feather_position(
+                self._system_config
+            )
         for window_name, path in color_windows.items():
             defaults = self._color_defaults(self._game_config, path)
             system_defaults[window_name] = self._color_defaults(self._system_config, path)
@@ -366,9 +365,14 @@ class StitchUiPlugin(Plugin):
         shared["hm_ui_preview_active"] = True
 
     @staticmethod
-    def _values_equal(left: Any, right: Any) -> bool:
+    def _values_equal(left: Any, right: Any, *, path: Tuple[str, ...] = ()) -> bool:
         if left is _MISSING or right is _MISSING:
             return left is right
+        if path == ("stitching", "blend_mode"):
+            # The combo writes the canonical spelling; a system config holding an
+            # alias of the same mode is not a value to override, and saving one
+            # would shadow every later change to the system value.
+            return config_blend_mode(left) == config_blend_mode(right)
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             return abs(float(left) - float(right)) < 1e-6
         return left == right
@@ -406,7 +410,7 @@ class StitchUiPlugin(Plugin):
                 else:
                     break
             return True
-        if cls._values_equal(previous, value):
+        if cls._values_equal(previous, value, path=path):
             return False
         current[leaf] = copy.deepcopy(value)
         return True
@@ -477,6 +481,10 @@ class StitchUiPlugin(Plugin):
         # combo already shows, so it must not be written back as an override.
         if mode != (self._config_blend_entry(self._game_config) or DEFAULT_BLEND_MODE):
             self._set_runtime_path(("stitching", "blend_mode"), mode)
+        if "alpha" not in self._blend_runnable:
+            # No feather control exists where alpha cannot be selected, so there
+            # is nothing to write and nothing that could act on it.
+            return
         percent = max(
             0, int(self._process.get_value(_BLEND_WINDOW, _BLEND_FEATHER_CONTROL, poll=False))
         )
@@ -529,15 +537,16 @@ class StitchUiPlugin(Plugin):
             current = self._path_value(self._game_config, path)
             system = self._path_value(self._system_config, path)
             value = (
-                _MISSING if current is _MISSING or self._values_equal(current, system) else current
+                _MISSING
+                if current is _MISSING or self._values_equal(current, system, path=path)
+                else current
             )
             changed |= self._set_path(private_config, path, value)
         if changed:
             save_private_config(self._game_id, private_config, verbose=True)
         self._dirty_paths.clear()
 
-    @staticmethod
-    def _managed_paths() -> Set[Tuple[str, ...]]:
+    def _managed_paths(self) -> Set[Tuple[str, ...]]:
         rotation_path = ("stitching", "post_stitch_rotate_degrees")
         color_keys = {
             "white_balance",
@@ -549,11 +558,9 @@ class StitchUiPlugin(Plugin):
             "contrast",
             "gamma",
         }
-        managed_paths: Set[Tuple[str, ...]] = {
-            rotation_path,
-            ("stitching", "blend_mode"),
-            ("stitching", "blend_feather_fraction"),
-        }
+        managed_paths: Set[Tuple[str, ...]] = {rotation_path, ("stitching", "blend_mode")}
+        if "alpha" in self._blend_runnable:
+            managed_paths.add(("stitching", "blend_feather_fraction"))
         for prefix in (
             ("rink", "camera", "color"),
             ("stitching", "left", "color"),
@@ -565,6 +572,12 @@ class StitchUiPlugin(Plugin):
     def _restore_managed_config(self, source: Dict[str, Any]) -> None:
         for path in self._managed_paths():
             self._set_runtime_path(path, self._path_value(source, path))
+        # The controls already hold the reset values, and restoring the source
+        # verbatim would undo the repair of a mode or width the combo and slider
+        # cannot represent - leaving what the operator sees and what the next run
+        # gets disagreeing, decided by which button was pressed last.
+        if self._process is not None:
+            self._apply_blend_controls()
 
     def _restore_final_reset_config(self, events: list[Any], final_values: Dict[str, Any]) -> None:
         for event in reversed(events):

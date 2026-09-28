@@ -34,10 +34,31 @@ fi
 # Surviving the interval is not enough: a spec that fails to parse leaves the UI
 # running with no windows and exits 124 too. State is only written after a
 # successful parse, so require the spec's controls to appear in it.
+state="${state_dir}/state.json"
 for control in Seam_Blend_Mode Seam_Feather_Percent Shadow_Lift_Black_Point; do
-  if ! grep -q "${control}" "${state_dir}/state.json" 2>/dev/null; then
+  if ! grep -q "${control}" "${state}" 2>/dev/null; then
     echo "hm-ui did not render ${control} from the smoke spec" >&2
-    cat "${state_dir}/state.json" >&2 2>/dev/null || echo "(no state file)" >&2
+    cat "${state}" >&2 2>/dev/null || echo "(no state file)" >&2
     exit 1
   fi
 done
+
+# The spec gives Seam_Blend_Mode a value past its last label. Reading back the
+# clamped index is what shows the binary understood `choices` at all: a build
+# that ignores the field renders a slider and echoes the raw value.
+if ! python3 - "${state}" <<'EOF'
+import json
+import sys
+
+state = json.load(open(sys.argv[1]))
+selected = state["windows"]["Stitch Blend"]["Seam_Blend_Mode"]
+if selected != 2:
+    raise SystemExit(f"expected the out-of-range choice index to clamp to 2, got {selected}")
+reported = state.get("spec_version")
+if reported != 2:
+    raise SystemExit(f"expected spec_version 2 from the sidecar, got {reported!r}")
+EOF
+then
+  cat "${state}" >&2 2>/dev/null || true
+  exit 1
+fi

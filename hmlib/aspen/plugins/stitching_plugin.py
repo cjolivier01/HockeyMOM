@@ -129,6 +129,13 @@ class StitchingPlugin(Plugin):
             blend_feather_fraction=blend_feather_fraction,
             max_blend_levels=max_blend_levels,
         )
+        # Including the renderer check, because the stitch UI deliberately lets an
+        # operator select a mode this path cannot run; catching it here costs a
+        # graph build rather than a decoded first batch.
+        if python_blender:
+            self._blend.require_python_mode()
+        else:
+            self._blend.require_gpu_mode()
         self._blend_mode = blend_mode
         self._blend_feather_fraction = blend_feather_fraction
         self._python_blender = bool(python_blender)

@@ -82,12 +82,22 @@ def should_only_spend_pyramid_levels_on_laplacian(mode, expected):
     assert BlendSettings(mode=mode, max_levels=9).levels == expected
 
 
-def should_reject_a_gpu_unrenderable_mode():
-    assert set(GPU_BLEND_MODES) == set(BLEND_MODES) - {"multiblend"}
+def should_reject_a_mode_the_selected_renderer_cannot_run():
+    from hmlib.stitching.blend import PYTHON_BLEND_MODES
+
     for mode in GPU_BLEND_MODES:
         assert BlendSettings(mode=mode).require_gpu_mode().mode == mode
-    with pytest.raises(ValueError, match="no GPU implementation"):
-        BlendSettings(mode="multiblend").require_gpu_mode()
+    for mode in PYTHON_BLEND_MODES:
+        assert BlendSettings(mode=mode).require_python_mode().mode == mode
+    # multiblend names the calibration-time enblend/multiblend binaries; neither
+    # video path can render it, so neither may suggest the other.
+    assert "multiblend" not in set(GPU_BLEND_MODES) | set(PYTHON_BLEND_MODES)
+    for check in ("require_gpu_mode", "require_python_mode"):
+        with pytest.raises(ValueError, match="cannot be rendered") as excinfo:
+            getattr(BlendSettings(mode="multiblend"), check)()
+        assert "python-blender" not in str(excinfo.value)
+    with pytest.raises(ValueError, match="drop --python-blender"):
+        BlendSettings(mode="alpha").require_python_mode()
 
 
 def _capture_native(monkeypatch, tmp_path):
@@ -158,7 +168,7 @@ def should_refuse_multiblend_on_the_gpu_path_instead_of_rendering_a_hard_seam(
     monkeypatch, tmp_path
 ):
     blender2, _ = _capture_native(monkeypatch, tmp_path)
-    with pytest.raises(ValueError, match="no GPU implementation"):
+    with pytest.raises(ValueError, match="cannot be rendered by the GPU blender"):
         blender2.create_stitcher(
             str(tmp_path),
             batch_size=1,
@@ -173,7 +183,7 @@ def should_refuse_multiblend_on_the_gpu_path_instead_of_rendering_a_hard_seam(
 
 def should_refuse_alpha_on_the_python_blender_path(monkeypatch, tmp_path):
     blender2, _ = _capture_native(monkeypatch, tmp_path)
-    with pytest.raises(ValueError, match="GPU-only"):
+    with pytest.raises(ValueError, match="cannot be rendered by the Python blender"):
         blender2.create_stitcher(
             str(tmp_path),
             batch_size=1,
@@ -238,8 +248,27 @@ def should_split_the_renderable_modes_by_blender():
     from hmlib.stitching.blend import PYTHON_BLEND_MODES
 
     assert "alpha" in GPU_BLEND_MODES and "alpha" not in PYTHON_BLEND_MODES
-    assert "multiblend" in PYTHON_BLEND_MODES and "multiblend" not in GPU_BLEND_MODES
-    assert set(GPU_BLEND_MODES) | set(PYTHON_BLEND_MODES) == set(BLEND_MODES)
+    # Every renderable mode is a known mode, but not the reverse: multiblend is
+    # vocabulary both applications accept and neither video path can run.
+    assert set(GPU_BLEND_MODES) | set(PYTHON_BLEND_MODES) < set(BLEND_MODES)
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def should_read_a_blank_configured_mode_as_unset(raw):
+    from hmlib.stitching.blend import config_blend_mode
+
+    # An empty scalar means inherit, as it does elsewhere in the config; it must
+    # not become a combo entry, and it must not abort the run.
+    assert config_blend_mode(raw) is None
+    assert resolve_blend_settings({"blend_mode": raw}).mode == DEFAULT_BLEND_MODE
+
+
+def should_fold_a_configured_mode_before_comparing_it():
+    from hmlib.stitching.blend import config_blend_mode
+
+    # Two spellings of one unknown mode must not read as two different modes.
+    assert config_blend_mode("Pyramid") == config_blend_mode(" pyramid ") == "pyramid"
+    assert config_blend_mode("GPU_Hard_Seam") == "gpu-hard-seam"
 
 
 def should_reject_a_laplacian_stitcher_with_no_levels_before_touching_artifacts(
@@ -292,3 +321,17 @@ def should_key_the_geometry_revision_to_the_normalized_blend_mode():
     assert revision(blend_mode="laplacian", blend_feather_fraction=0.2) == revision(
         blend_mode="laplacian", blend_feather_fraction=0.3
     )
+
+
+def should_reject_an_unrenderable_mode_at_plugin_construction():
+    from hmlib.aspen.plugins.stitching_plugin import StitchingPlugin
+
+    # The stitch UI deliberately lets an operator select a mode this path cannot
+    # run, so the graph must refuse to build rather than dying on the first batch.
+    with pytest.raises(ValueError, match="cannot be rendered by the GPU blender"):
+        StitchingPlugin(blend_mode="multiblend")
+    with pytest.raises(ValueError, match="cannot be rendered by the Python blender"):
+        StitchingPlugin(blend_mode="alpha", python_blender=True)
+    with pytest.raises(ValueError, match="Unsupported stitching blend mode"):
+        StitchingPlugin(blend_mode="pyramid")
+    assert StitchingPlugin(blend_mode="alpha", blend_feather_fraction=0.2)._blend.mode == "alpha"
