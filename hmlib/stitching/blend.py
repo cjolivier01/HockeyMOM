@@ -44,18 +44,25 @@ def normalize_blend_mode(value: Any) -> str:
 
 
 def normalize_feather_fraction(value: Any) -> float:
-    """Return a validated alpha crossfade width as a fraction of the narrowest camera."""
+    """Return a validated alpha crossfade width as a fraction of the narrowest camera.
+
+    Messages name the offending value, so an unresolved ``GLOBAL.*`` reference from
+    a config root that predates the key is diagnosable from the error alone.
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise ValueError("stitching.blend_feather_fraction must be a number")
+        raise ValueError(f"stitching.blend_feather_fraction must be a number; got {value!r}")
     try:
         fraction = float(value)
     except ValueError as exc:
-        raise ValueError("stitching.blend_feather_fraction must be a number") from exc
+        raise ValueError(
+            f"stitching.blend_feather_fraction must be a number; got {value!r}"
+        ) from exc
     if not math.isfinite(fraction):
-        raise ValueError("stitching.blend_feather_fraction must be finite")
+        raise ValueError(f"stitching.blend_feather_fraction must be finite; got {value!r}")
     if not 0.0 <= fraction <= MAX_FEATHER_FRACTION:
         raise ValueError(
-            f"stitching.blend_feather_fraction must be in [0, {MAX_FEATHER_FRACTION:g}]"
+            f"stitching.blend_feather_fraction must be in [0, {MAX_FEATHER_FRACTION:g}]; "
+            f"got {value!r}"
         )
     return fraction
 

@@ -2155,7 +2155,7 @@ def _main(args, num_gpu):
                         # `or` would read an explicit 0.0, a legal hard-seam width, as unset.
                         blend_feather_fraction=preferred_arg(
                             stitch_cfg.get("blend_feather_fraction"),
-                            args.blend_feather_fraction,
+                            opts.blend_feather_fraction,
                         ),
                         dtype=stitch_dtype,
                         python_blender=bool(stitch_cfg.get("python_blender", args.python_blender)),
