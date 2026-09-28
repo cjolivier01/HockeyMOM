@@ -547,7 +547,8 @@ def stitch_videos(
     rfo: int = None,
     game_id: str = None,
     project_file_name: str = "hm_project.pto",
-    blend_mode: str = "multiblend",
+    blend_mode: str = "laplacian",
+    blend_feather_fraction: Optional[float] = None,
     start_frame_number: int = 0,
     max_frames: int = None,
     batch_size: int = 1,
@@ -660,13 +661,67 @@ def stitch_videos(
                     dtype = torch.float16
         else:
             configure_cfg_all = copy.deepcopy(aspen_cfg_all)
+        raw_stitch_params = copy.deepcopy(
+            get_nested_value(aspen_cfg_all, "aspen.plugins.stitching.params", {}) or {}
+        )
         resolve_global_refs(configure_cfg_all)
         resolve_global_refs(aspen_cfg_all)
+
+        if camera_ui and not configure_only:
+            use_aspen_stitching = bool(
+                get_nested_value(aspen_cfg_all, "aspen.plugins.stitching.enabled", False)
+            )
+            if not use_aspen_stitching:
+                raise ValueError(
+                    "--camera-ui requires Aspen stitching; remove --no-aspen-stitching"
+                )
+            # The normal UI is downstream of the stitcher. An invalid configured
+            # mode would stop the graph before its first frame and leave that UI
+            # unreachable, so offer a repair session before calibration starts.
+            from hmlib.aspen.plugins.stitch_ui_plugin import repair_blend_before_stitch
+
+            run_blend_overrides = set()
+            if args is not None:
+                run_blend_overrides.update(
+                    name
+                    for name in (
+                        "blend_mode",
+                        "blend_feather_fraction",
+                        "max_blend_levels",
+                        "python_blender",
+                    )
+                    if name in args.explicit_arg_names
+                )
+                run_blend_overrides.update(
+                    f"--config-override {override.partition('=')[0].strip()}"
+                    for override in args.config_overrides
+                    if override.partition("=")[0].strip()
+                    in {
+                        "stitching.blend_mode",
+                        "stitching.blend_feather_fraction",
+                        "stitching.max_blend_levels",
+                        "stitching.python_blender",
+                    }
+                )
+            if repair_blend_before_stitch(
+                aspen_cfg_all,
+                game_id,
+                raw_graph_params=raw_stitch_params,
+                ignore_private_config=ignore_private_config,
+                run_blend_overrides=tuple(sorted(run_blend_overrides)),
+            ):
+                return lfo, rfo
 
         stitch_cfg = get_nested_value(aspen_cfg_all, "stitching", {}) or {}
         config_stitch_frame_time = stitch_cfg.get("stitch_frame_time")
         stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
-        blend_mode = str(stitch_cfg.get("blend_mode") or blend_mode)
+        # Neither read may collapse an explicit null: for the mode str(None) is
+        # the rejected literal "None", and for the feather `or` would read an
+        # explicit 0.0, a legal hard-seam width, as unset.
+        blend_mode = preferred_arg(stitch_cfg.get("blend_mode"), blend_mode)
+        blend_feather_fraction = preferred_arg(
+            stitch_cfg.get("blend_feather_fraction"), blend_feather_fraction
+        )
         minimize_blend = bool(stitch_cfg.get("minimize_blend", minimize_blend))
         python_blender = bool(stitch_cfg.get("python_blender", python_blender))
         dtype = _resolve_stitch_tensor_dtype(dtype, stitch_cfg)
@@ -828,6 +883,7 @@ def stitch_videos(
                 decoder_device=decoder_device,
                 decoder_type=decoder_type,
                 blend_mode=blend_mode,
+                blend_feather_fraction=blend_feather_fraction,
                 remapping_device=remapping_device,
                 dtype=dtype,
                 minimize_blend=preferred_arg(getattr(args, "minimize_blend", None), minimize_blend),
@@ -1195,6 +1251,7 @@ def _main(args) -> None:
             max_frames=args.max_frames,
             output_stitched_video_file=args.output_file,
             blend_mode=args.blend_mode,
+            blend_feather_fraction=args.blend_feather_fraction,
             ignore_clip_box=True,
             cache_size=0,
             remapping_device=remapping_device,

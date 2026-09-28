@@ -38,8 +38,12 @@ under the view they affect. Each control can be reset to its open-time value; th
 reset all controls to open-time or system defaults. Save writes only values that differ from
 system configuration to the game's private config.
 
+Controls with a fixed set of choices render as a combo box rather than a slider; the value
+still travels as the choice index, so state, resets and saves are unchanged. A control may
+also carry a one-line note, used for the settings that only take effect on the next run.
+
 The same UI is available for the stitching-only workflow. It shows only the stitched preview
-and the alignment/input/output color controls that affect that image:
+and the alignment, seam blend, and input/output color controls that affect that image:
 
 ```bash
 hmstitch --game-id <game> --camera-ui=1

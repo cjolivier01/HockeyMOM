@@ -9,6 +9,7 @@ aspen:
         pto_project_file: GLOBAL.stitching.pto_project_file
         dir_name: GLOBAL.stitching.dir_name
         blend_mode: GLOBAL.stitching.blend_mode
+        blend_feather_fraction: GLOBAL.stitching.blend_feather_fraction
         max_blend_levels: GLOBAL.stitching.max_blend_levels
         python_blender: GLOBAL.stitching.python_blender
         use_cuda_pano_n: GLOBAL.stitching.use_cuda_pano_n

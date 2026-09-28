@@ -21,6 +21,7 @@ from mmcv.transforms import Compose
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
+from hmlib.stitching.blend import FEATHERED_BLEND_MODES, resolve_blend_settings
 from hmlib.stitching.blender2 import create_stitcher
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.hockeymon_compat import (
@@ -94,6 +95,7 @@ class StitchingPlugin(Plugin):
         pto_project_file: Optional[str] = None,
         dir_name: Optional[str] = None,
         blend_mode: str = "laplacian",
+        blend_feather_fraction: Optional[float] = None,
         python_blender: bool = False,
         use_cuda_pano_n: bool = False,
         minimize_blend: bool = True,
@@ -115,12 +117,22 @@ class StitchingPlugin(Plugin):
                 self._dir_name = Path(self._pto_project_file).parent
             except Exception:
                 self._dir_name = None
-        self._blend_mode = str(blend_mode)
+        # Not str(): an explicit YAML null resolves to None, which means "inherit
+        # the default" the same way it does in HStream. str() would make it the
+        # literal "None" and turn an inherit into a rejected mode.
+        #
+        # Resolved here rather than at the first frame: a disabled trunk becomes a
+        # no-op stub without reaching this constructor, so a bad blend key fails
+        # at graph construction instead of after video readers and models are up.
+        self._blend = resolve_blend_settings(
+            blend_mode=blend_mode,
+            blend_feather_fraction=blend_feather_fraction,
+            max_blend_levels=max_blend_levels,
+        )
         self._python_blender = bool(python_blender)
         self._use_cuda_pano_n = bool(use_cuda_pano_n)
         self._minimize_blend = bool(minimize_blend)
         self._dtype = _parse_dtype(dtype)
-        self._max_blend_levels = max_blend_levels
         self._no_cuda_streams = bool(no_cuda_streams)
         self._post_stitch_rotate_degrees = post_stitch_rotate_degrees
         self._left_color_pipeline_cfg = left_color_pipeline
@@ -276,6 +288,7 @@ class StitchingPlugin(Plugin):
         game_id = context.get("game_id")
         if game_id is None and isinstance(shared, dict):
             game_id = shared.get("game_id")
+        blend = self._blend
         payload = {
             "schema": "hm-stitch-geometry-v2",
             "game_id": str(game_id) if game_id is not None else None,
@@ -283,9 +296,18 @@ class StitchingPlugin(Plugin):
             "input_shapes": [list(img.shape[1:]) for img in imgs],
             "stitched_shape": list(blended.shape[1:]),
             "post_stitch_rotate_degrees": float(applied_rotation),
-            "blend_mode": self._blend_mode,
+            # The normalized mode, not the raw spelling: alias spellings render
+            # identically, so they must not key different cached rink masks, and
+            # this cache deletes entries filed under other revisions.
+            "blend_mode": blend.mode,
             "max_output_width": self._max_output_width,
         }
+        if blend.mode in FEATHERED_BLEND_MODES:
+            # Only a feathered mode moves pixels with the width, and adding the key
+            # only for those keeps every already-cached Laplacian/hard-seam mask
+            # valid. Keyed off the set so a future feathered mode is covered
+            # rather than silently reusing another mode's mask.
+            payload["blend_feather_fraction"] = blend.feather_fraction
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 
@@ -361,14 +383,7 @@ class StitchingPlugin(Plugin):
         if len(imgs) < 2:
             raise RuntimeError("StitchingPlugin needs at least 2 input views")
         dir_name = self._resolve_dir_name(context)
-        if self._blend_mode == "laplacian":
-            levels_arg = (
-                int(self._max_blend_levels)
-                if self._max_blend_levels is not None and self._max_blend_levels > 0
-                else 11
-            )
-        else:
-            levels_arg = 0
+        blend = self._blend
 
         batch_size = int(imgs[0].shape[0])
         for idx, img in enumerate(imgs):
@@ -403,8 +418,9 @@ class StitchingPlugin(Plugin):
             use_cuda_pano_n=self._use_cuda_pano_n,
             minimize_blend=self._minimize_blend,
             max_output_width=self._max_output_width,
-            blend_mode=self._blend_mode,
-            levels=levels_arg,
+            blend_mode=blend.mode,
+            feather_fraction=blend.feather_fraction,
+            levels=blend.levels,
         )
 
     def _resolve_rotation_degrees(self, context: Dict[str, Any]) -> Optional[float]:

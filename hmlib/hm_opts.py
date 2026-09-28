@@ -16,8 +16,16 @@ from hmlib.config import (
     get_game_config_private,
     get_nested_value,
     normalize_runtime_config,
+    resolve_global_refs,
     save_private_config,
     set_nested_value,
+)
+from hmlib.stitching.blend import (
+    MAX_FEATHER_FRACTION,
+    RENDERABLE_BLEND_MODES,
+    normalize_blend_mode,
+    normalize_feather_fraction,
+    resolve_blend_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,12 +33,76 @@ logger = logging.getLogger(__name__)
 
 _SKIP_CONFIG_VALUE = object()
 _MISSING_ARG = object()
+_BLEND_RENDERER_PATHS = {
+    "stitching.blend_mode",
+    "stitching.blend_feather_fraction",
+    "stitching.max_blend_levels",
+    "stitching.python_blender",
+    "aspen.plugins.stitching.params.blend_mode",
+    "aspen.plugins.stitching.params.blend_feather_fraction",
+    "aspen.plugins.stitching.params.max_blend_levels",
+    "aspen.plugins.stitching.params.python_blender",
+}
+
+
+def _validate_persisted_blend_renderer(config: Dict[str, Any]) -> None:
+    """Refuse a persisted mode that the selected stitcher cannot render."""
+    effective = resolve_global_refs(copy.deepcopy(config))
+    stitching = get_nested_value(effective, "stitching", {}) or {}
+    if not isinstance(stitching, dict):
+        raise ValueError("stitching config must be a mapping")
+    # The shared keys are what hmtrack and other graph presets inherit, even
+    # when this command overrides its own Aspen plugin to use another renderer.
+    shared = resolve_blend_settings(stitching)
+    (
+        shared.require_python_mode()
+        if stitching.get("python_blender", False)
+        else shared.require_gpu_mode()
+    )
+
+    params = get_nested_value(effective, "aspen.plugins.stitching.params", None)
+    if params is None or not bool(
+        get_nested_value(effective, "aspen.plugins.stitching.enabled", True)
+    ):
+        return
+    if not isinstance(params, dict):
+        raise ValueError("aspen.plugins.stitching.params must be a mapping")
+    # An explicit null in the plugin parameters means the StitchingPlugin's
+    # constructor default, not a fallback to the shared key.
+    graph = resolve_blend_settings(
+        blend_mode=params.get("blend_mode", "laplacian"),
+        blend_feather_fraction=params.get("blend_feather_fraction"),
+        max_blend_levels=params.get("max_blend_levels"),
+    )
+    graph.require_python_mode() if params.get("python_blender", False) else graph.require_gpu_mode()
 
 
 def _get_arg_value(args: Any, name: str) -> Any:
     if isinstance(args, dict):
         return args.get(name, _MISSING_ARG)
     return getattr(args, name, _MISSING_ARG)
+
+
+def _blend_mode_arg(value: str) -> str:
+    """Validate ``--blend-mode`` at parse time, reporting why a value was rejected."""
+    try:
+        mode = normalize_blend_mode(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    if mode not in RENDERABLE_BLEND_MODES:
+        raise argparse.ArgumentTypeError(
+            f"Stitching blend mode {value!r} cannot be rendered by any blender; "
+            f"choose one of: {', '.join(RENDERABLE_BLEND_MODES)}"
+        )
+    return mode
+
+
+def _blend_feather_fraction_arg(value: str) -> float:
+    """Validate ``--blend-feather-fraction`` at parse time rather than dropping it later."""
+    try:
+        return normalize_feather_fraction(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _first_non_none(values: Sequence[Any]) -> Any:
@@ -1419,8 +1491,23 @@ class hm_opts(object):
             "--blend-mode",
             "--blend_mode",
             default="laplacian",
-            type=str,
-            help="Stitching blend mode (multiblend|laplacian|gpu-hard-seam)",
+            type=_blend_mode_arg,
+            # Not BLEND_MODES: `multiblend` is vocabulary a config may carry, but
+            # no renderer can produce it, and --persist would write a value that
+            # makes every later run of that game fail to build its graph.
+            choices=RENDERABLE_BLEND_MODES,
+            help="Stitching seam blend mode",
+        )
+        parser.add_argument(
+            "--blend-feather-fraction",
+            "--blend_feather_fraction",
+            dest="blend_feather_fraction",
+            default=None,
+            type=_blend_feather_fraction_arg,
+            help=(
+                "Alpha crossfade width as a fraction of the narrowest camera image "
+                f"(0..{MAX_FEATHER_FRACTION:g}); ignored unless --blend-mode=alpha"
+            ),
         )
         parser.add_argument(
             "--skip_final_video_save",
@@ -1756,6 +1843,7 @@ class hm_opts(object):
             ("display_aspen_graph", "aspen.pipeline.display_graph"),
             ("aspen_stitching", "stitching.enabled"),
             ("blend_mode", "stitching.blend_mode"),
+            ("blend_feather_fraction", "stitching.blend_feather_fraction"),
             ("control_point_matcher", "stitching.control_point_matcher"),
             ("mapping_backend", "stitching.mapping_backend"),
             ("max_output_dimension", "stitching.max_output_dimension"),
@@ -1817,6 +1905,7 @@ class hm_opts(object):
         "display_plugin_profile": bool,
         "display_aspen_graph": bool,
         "aspen_stitching": bool,
+        "blend_feather_fraction": normalize_feather_fraction,
         "python_blender": bool,
         "no_minimize_blend": {True: False},
         "minimize_blend": bool,
@@ -2160,21 +2249,39 @@ class hm_opts(object):
             ),
             require_parser=True,
         )
+        arg_updates = list(
+            _iter_arg_config_updates(
+                config,
+                args,
+                arg_to_config=hm_opts.PRIVATE_CONFIG_ARG_TO_CONFIG_MAP,
+                value_map=hm_opts.PRIVATE_CONFIG_VALUE_MAP,
+                setdefault_args=(),
+                parser=parser,
+                explicit_arg_names=explicit_arg_names,
+            )
+        )
+        override_updates = list(
+            _iter_config_override_updates(config, getattr(args, "config_overrides", None))
+        )
+        if any(path in _BLEND_RENDERER_PATHS for _, path, _ in arg_updates) or any(
+            path in _BLEND_RENDERER_PATHS for path, _ in override_updates
+        ):
+            # The parser validates the mode's vocabulary, but the selected
+            # renderer is a separate config key. Check their effective pair
+            # before --persist can leave the game unable to start.
+            proposed_config = copy.deepcopy(config)
+            for _, path, mapped_value in arg_updates:
+                set_nested_value(proposed_config, path, mapped_value)
+            for path, value in override_updates:
+                set_nested_value(proposed_config, path, value)
+            _validate_persisted_blend_renderer(proposed_config)
         private_cfg = get_game_config_private(game_id=game_id)
         if not isinstance(private_cfg, dict):
             private_cfg = {}
         normalize_runtime_config(private_cfg)
 
         changed = False
-        for _, path, mapped_value in _iter_arg_config_updates(
-            config,
-            args,
-            arg_to_config=hm_opts.PRIVATE_CONFIG_ARG_TO_CONFIG_MAP,
-            value_map=hm_opts.PRIVATE_CONFIG_VALUE_MAP,
-            setdefault_args=(),
-            parser=parser,
-            explicit_arg_names=explicit_arg_names,
-        ):
+        for _, path, mapped_value in arg_updates:
             current_value = get_nested_value(private_cfg, path, _MISSING_ARG)
             if current_value is not _MISSING_ARG and current_value == mapped_value:
                 continue
@@ -2192,10 +2299,7 @@ class hm_opts(object):
                 set_nested_value(private_cfg, show_image_path, True)
                 changed = True
 
-        for key_path, pval in _iter_config_override_updates(
-            config,
-            getattr(args, "config_overrides", None),
-        ):
+        for key_path, pval in override_updates:
             current_value = get_nested_value(private_cfg, key_path, _MISSING_ARG)
             if current_value is not _MISSING_ARG and current_value == pval:
                 continue

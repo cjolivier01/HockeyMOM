@@ -21,6 +21,7 @@ from mmcv.transforms import Compose
 
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
+from hmlib.stitching.blend import resolve_blend_settings
 from hmlib.stitching.configure_stitching import configure_video_stitching
 from hmlib.tracking_utils.timer import Timer
 from hmlib.ui import show_image
@@ -142,6 +143,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         auto_configure: bool = True,
         image_roi: List[int] = None,
         blend_mode: str = "laplacian",
+        blend_feather_fraction: Optional[float] = None,
         remapping_device: torch.device = None,
         decoder_device: torch.device = None,
         decoder_type: Optional[str] = None,
@@ -179,7 +181,14 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
         self._pto_project_file = pto_project_file
-        self._blend_mode = blend_mode
+        # Resolved here, not in _create_stitcher: that runs from the first
+        # _prepare_next_frame, i.e. after calibration, artifact generation and two
+        # video decoders. A bad blend key should cost none of that.
+        self._blend = resolve_blend_settings(
+            blend_mode=blend_mode,
+            blend_feather_fraction=blend_feather_fraction,
+            max_blend_levels=max_blend_levels,
+        )
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._current_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -197,7 +206,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._right_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = right_color_pipeline
         self._left_color_pipeline: Optional[Compose] = None
         self._right_color_pipeline: Optional[Compose] = None
-        self._max_blend_levels: Optional[int] = max_blend_levels
         self._capture_rgb_stats: bool = bool(capture_rgb_stats)
 
         # Optimize the roi box
@@ -625,15 +633,7 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         assert self._remapping_device.type != "cpu"
         from hmlib.stitching.blender2 import create_stitcher
 
-        if self._blend_mode == "laplacian":
-            levels_arg = (
-                int(self._max_blend_levels)
-                if self._max_blend_levels is not None and self._max_blend_levels > 0
-                else 11
-            )
-        else:
-            levels_arg = 0
-
+        blend = self._blend
         self._stitcher = create_stitcher(
             dir_name=self._dir_name,
             batch_size=self._batch_size,
@@ -648,8 +648,9 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             use_cuda_pano=not self._python_blender,
             use_cuda_pano_n=self._use_cuda_pano_n,
             minimize_blend=self._minimize_blend,
-            blend_mode=self._blend_mode,
-            levels=levels_arg,
+            blend_mode=blend.mode,
+            feather_fraction=blend.feather_fraction,
+            levels=blend.levels,
         )
 
     @staticmethod

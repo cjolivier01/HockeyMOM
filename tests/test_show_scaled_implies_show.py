@@ -400,6 +400,141 @@ def should_persist_config_override_to_private_config(monkeypatch) -> None:
     assert saved["stitching"]["max_blend_levels"] == 7
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--blend-mode", "alpha", "--python-blender", "1"],
+        ["--config-override", "stitching.blend_mode=alpha", "--python-blender", "1"],
+        [
+            "--blend-mode",
+            "alpha",
+            "--python-blender",
+            "1",
+            "--config-override",
+            "aspen.plugins.stitching.params.python_blender=false",
+        ],
+    ],
+)
+def should_reject_an_unrenderable_blend_before_persisting(monkeypatch, argv) -> None:
+    import hmlib.hm_opts as hm_opts_module
+    from hmlib.hm_opts import hm_opts
+
+    command = ["--persist", "--game-id", "test-game", *argv]
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(command)
+    explicit = hm_opts.collect_explicit_arg_names(parser, command)
+    config = {
+        "stitching": {"blend_mode": "laplacian", "python_blender": False},
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "blend_mode": "GLOBAL.stitching.blend_mode",
+                        "python_blender": "GLOBAL.stitching.python_blender",
+                    }
+                }
+            }
+        },
+    }
+    writes = []
+    monkeypatch.setattr(
+        hm_opts_module,
+        "save_private_config",
+        lambda *args, **kwargs: writes.append((args, kwargs)),
+    )
+
+    with pytest.raises(ValueError, match="cannot be rendered by the Python blender"):
+        hm_opts.persist_private_config_overrides(
+            args,
+            parser=parser,
+            config=config,
+            explicit_arg_names=explicit,
+        )
+
+    assert writes == []
+
+
+def should_accept_an_explicit_null_aspen_mode_when_both_blends_can_render(monkeypatch) -> None:
+    import hmlib.hm_opts as hm_opts_module
+    from hmlib.hm_opts import hm_opts
+
+    command = [
+        "--persist",
+        "--game-id",
+        "test-game",
+        "--blend-mode",
+        "alpha",
+        "--config-override",
+        "aspen.plugins.stitching.params.python_blender=true",
+    ]
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(command)
+    config = {
+        "stitching": {"blend_mode": "laplacian", "python_blender": False},
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "params": {
+                        "blend_mode": None,
+                        "python_blender": "GLOBAL.stitching.python_blender",
+                    }
+                }
+            }
+        },
+    }
+    saved = {}
+    monkeypatch.setattr(hm_opts_module, "get_game_config_private", lambda game_id: {})
+    monkeypatch.setattr(
+        hm_opts_module,
+        "save_private_config",
+        lambda game_id, data, verbose=True: saved.update(data),
+    )
+
+    assert hm_opts.persist_private_config_overrides(
+        args,
+        parser=parser,
+        config=config,
+        explicit_arg_names=hm_opts.collect_explicit_arg_names(parser, command),
+    )
+    assert saved["stitching"]["blend_mode"] == "alpha"
+    assert saved["aspen"]["plugins"]["stitching"]["params"]["python_blender"] is True
+
+
+def should_skip_dormant_aspen_blend_validation_when_persisting(monkeypatch) -> None:
+    import hmlib.hm_opts as hm_opts_module
+    from hmlib.hm_opts import hm_opts
+
+    command = ["--persist", "--game-id", "test-game", "--blend-mode", "alpha"]
+    parser = hm_opts.parser(argparse.ArgumentParser())
+    args = parser.parse_args(command)
+    config = {
+        "stitching": {"blend_mode": "laplacian", "python_blender": False},
+        "aspen": {
+            "plugins": {
+                "stitching": {
+                    "enabled": False,
+                    "params": {"blend_mode": "multiblend", "python_blender": False},
+                }
+            }
+        },
+    }
+    saved = {}
+    monkeypatch.setattr(hm_opts_module, "get_game_config_private", lambda game_id: {})
+    monkeypatch.setattr(
+        hm_opts_module,
+        "save_private_config",
+        lambda game_id, data, verbose=True: saved.update(data),
+    )
+
+    assert hm_opts.persist_private_config_overrides(
+        args,
+        parser=parser,
+        config=config,
+        explicit_arg_names=hm_opts.collect_explicit_arg_names(parser, command),
+    )
+    assert saved["stitching"]["blend_mode"] == "alpha"
+
+
 def should_not_write_private_config_when_ignored(monkeypatch) -> None:
     import hmlib.hm_opts as hm_opts_module
     from hmlib.hm_opts import hm_opts

@@ -4,12 +4,15 @@
 #include <torch/torch.h>
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -226,6 +229,58 @@ class AspenGraphSampler {
 };
 
 using hm::pano::cuda::CudaStitchPano;
+
+// Build the blend operator from HockeyMON's (mode, levels, feather) triple.
+//
+// Omitting `blend_mode` keeps the historical encoding hm-cupano's implicit
+// BlendSettings(int) constructor documents, where a positive `num_levels` is a
+// Laplacian pyramid and 0 is a hard seam, so every caller that predates this
+// argument means exactly what it meant before.
+//
+// A mode that IS given decides the operator, because a caller naming one and
+// getting another is the silent mismatch this argument exists to prevent:
+// "gpu-hard-seam" with 11 levels renders a hard seam rather than a pyramid, and
+// "laplacian" with 0 levels is an error rather than a hard seam. Names match
+// HockeyMONStream's ParseBlendMode, including the '_' spellings. "multiblend"
+// is rejected rather than silently rendered as something else.
+static hm::pano::BlendSettings make_blend_settings(
+    const std::optional<std::string>& blend_mode,
+    int num_levels,
+    float feather_fraction) {
+  if (!blend_mode.has_value()) {
+    hm::pano::BlendSettings settings(num_levels);
+    const std::string error = settings.Validate();
+    if (!error.empty()) {
+      throw std::invalid_argument(error);
+    }
+    return settings;
+  }
+  std::string mode;
+  mode.reserve(blend_mode->size());
+  for (char ch : *blend_mode) {
+    const char lowered =
+        static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    mode.push_back(ch == '_' ? '-' : lowered);
+  }
+  hm::pano::BlendSettings settings = hm::pano::BlendSettings::HardSeam();
+  if (mode == "alpha") {
+    settings = hm::pano::BlendSettings::Alpha(feather_fraction);
+  } else if (mode == "laplacian") {
+    settings = hm::pano::BlendSettings::Laplacian(num_levels);
+  } else if (mode != "gpu-hard-seam" && mode != "hard-seam" && mode != "hard") {
+    // invalid_argument, not runtime_error: pybind maps it to ValueError, which
+    // is what every Python-side validation of the same vocabulary raises.
+    throw std::invalid_argument(
+        "Unsupported stitching blend mode '" + *blend_mode +
+        "'; choose laplacian, alpha or gpu-hard-seam");
+  }
+  const std::string error = settings.Validate();
+  if (!error.empty()) {
+    throw std::invalid_argument(error);
+  }
+  return settings;
+}
+
 // TODO: make templated and name CudaStitchPanoU8 and CudaStitchPanoF16 python
 // classes
 template <typename T, typename T_compute>
@@ -240,10 +295,12 @@ class PyCudaStitchPano : public CudaStitchPano<T, T_compute> {
       WHDims input1_size,
       WHDims input2_size,
       bool minimize_blend,
-      int max_output_width)
+      int max_output_width,
+      const std::optional<std::string>& blend_mode,
+      float feather_fraction)
       : CudaStitchPano<T, T_compute>(
             batch_size,
-            num_levels,
+            make_blend_settings(blend_mode, num_levels, feather_fraction),
             hm::pano::ControlMasks(std::move(game_dir)),
             /*quiet=*/false,
             /*minimize_blend=*/minimize_blend,
@@ -293,10 +350,12 @@ class PyCudaStitchPano3 : public CudaStitchPano3<T, T_compute> {
       std::string game_dir,
       int batch_size,
       int num_levels,
-      std::vector<WHDims> input_sizes)
+      std::vector<WHDims> input_sizes,
+      const std::optional<std::string>& blend_mode,
+      float feather_fraction)
       : CudaStitchPano3<T, T_compute>(
             batch_size,
-            num_levels,
+            make_blend_settings(blend_mode, num_levels, feather_fraction),
             hm::pano::ControlMasks3(std::move(game_dir))),
         input_sizes_(std::move(input_sizes)) {
     if (!Super::status().ok()) {
@@ -353,10 +412,12 @@ class PyCudaStitchPanoN : public CudaStitchPanoN<T, T_compute> {
       int num_levels,
       std::vector<WHDims> input_sizes,
       bool minimize_blend,
-      bool quiet)
+      bool quiet,
+      const std::optional<std::string>& blend_mode,
+      float feather_fraction)
       : CudaStitchPanoN<T, T_compute>(
             batch_size,
-            num_levels,
+            make_blend_settings(blend_mode, num_levels, feather_fraction),
             hm::pano::ControlMasksN(
                 std::move(game_dir),
                 static_cast<int>(input_sizes.size())),
@@ -1998,14 +2059,26 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPano<uchar4, T_compute>>>(
       m, "CudaStitchPanoU8")
       .def(
-          py::init<std::string, int, int, WHDims, WHDims, bool, int>(),
+          py::init<
+              std::string,
+              int,
+              int,
+              WHDims,
+              WHDims,
+              bool,
+              int,
+              const std::optional<std::string>&,
+              float>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input1"),
           py::arg("input2"),
           py::arg("minimize_blend"),
-          py::arg("max_output_width") = 0)
+          py::arg("max_output_width") = 0,
+          py::arg("blend_mode") = py::none(),
+          py::arg("feather_fraction") =
+              hm::pano::BlendSettings::kDefaultFeatherFraction)
       .def("canvas_width", &PyCudaStitchPano<uchar4, T_compute>::canvas_width)
       .def("canvas_height", &PyCudaStitchPano<uchar4, T_compute>::canvas_height)
       .def(
@@ -2045,7 +2118,21 @@ void init_cuda_pano(::pybind11::module_& m) {
       PyCudaStitchPano3<uchar4, T_compute>,
       std::shared_ptr<PyCudaStitchPano3<uchar4, T_compute>>>(
       m, "CudaStitchPano3U8")
-      .def(py::init<std::string, int, int, std::vector<WHDims>>())
+      .def(
+          py::init<
+              std::string,
+              int,
+              int,
+              std::vector<WHDims>,
+              const std::optional<std::string>&,
+              float>(),
+          py::arg("game_dir"),
+          py::arg("batch_size"),
+          py::arg("num_levels"),
+          py::arg("input_sizes"),
+          py::arg("blend_mode") = py::none(),
+          py::arg("feather_fraction") =
+              hm::pano::BlendSettings::kDefaultFeatherFraction)
       .def("canvas_width", &PyCudaStitchPano3<uchar4, T_compute>::canvas_width)
       .def(
           "canvas_height", &PyCudaStitchPano3<uchar4, T_compute>::canvas_height)
@@ -2096,13 +2183,24 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPanoN<uchar4, T_compute>>>(
       m, "CudaStitchPanoNU8")
       .def(
-          py::init<std::string, int, int, std::vector<WHDims>, bool, bool>(),
+          py::init<
+              std::string,
+              int,
+              int,
+              std::vector<WHDims>,
+              bool,
+              bool,
+              const std::optional<std::string>&,
+              float>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input_sizes"),
           py::arg("minimize_blend"),
-          py::arg("quiet") = false)
+          py::arg("quiet") = false,
+          py::arg("blend_mode") = py::none(),
+          py::arg("feather_fraction") =
+              hm::pano::BlendSettings::kDefaultFeatherFraction)
       .def("canvas_width", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_width)
       .def(
           "canvas_height", &PyCudaStitchPanoN<uchar4, T_compute>::canvas_height)
@@ -2150,14 +2248,26 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPano<float4, T_compute>>>(
       m, "CudaStitchPanoF32")
       .def(
-          py::init<std::string, int, int, WHDims, WHDims, bool, int>(),
+          py::init<
+              std::string,
+              int,
+              int,
+              WHDims,
+              WHDims,
+              bool,
+              int,
+              const std::optional<std::string>&,
+              float>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input1"),
           py::arg("input2"),
           py::arg("minimize_blend"),
-          py::arg("max_output_width") = 0)
+          py::arg("max_output_width") = 0,
+          py::arg("blend_mode") = py::none(),
+          py::arg("feather_fraction") =
+              hm::pano::BlendSettings::kDefaultFeatherFraction)
       .def("canvas_width", &PyCudaStitchPano<float4, T_compute>::canvas_width)
       .def("canvas_height", &PyCudaStitchPano<float4, T_compute>::canvas_height)
       .def(
@@ -2197,7 +2307,21 @@ void init_cuda_pano(::pybind11::module_& m) {
       PyCudaStitchPano3<float4, T_compute>,
       std::shared_ptr<PyCudaStitchPano3<float4, T_compute>>>(
       m, "CudaStitchPano3F32")
-      .def(py::init<std::string, int, int, std::vector<WHDims>>())
+      .def(
+          py::init<
+              std::string,
+              int,
+              int,
+              std::vector<WHDims>,
+              const std::optional<std::string>&,
+              float>(),
+          py::arg("game_dir"),
+          py::arg("batch_size"),
+          py::arg("num_levels"),
+          py::arg("input_sizes"),
+          py::arg("blend_mode") = py::none(),
+          py::arg("feather_fraction") =
+              hm::pano::BlendSettings::kDefaultFeatherFraction)
       .def("canvas_width", &PyCudaStitchPano3<float4, T_compute>::canvas_width)
       .def(
           "canvas_height", &PyCudaStitchPano3<float4, T_compute>::canvas_height)
@@ -2248,13 +2372,24 @@ void init_cuda_pano(::pybind11::module_& m) {
       std::shared_ptr<PyCudaStitchPanoN<float4, T_compute>>>(
       m, "CudaStitchPanoNF32")
       .def(
-          py::init<std::string, int, int, std::vector<WHDims>, bool, bool>(),
+          py::init<
+              std::string,
+              int,
+              int,
+              std::vector<WHDims>,
+              bool,
+              bool,
+              const std::optional<std::string>&,
+              float>(),
           py::arg("game_dir"),
           py::arg("batch_size"),
           py::arg("num_levels"),
           py::arg("input_sizes"),
           py::arg("minimize_blend"),
-          py::arg("quiet") = false)
+          py::arg("quiet") = false,
+          py::arg("blend_mode") = py::none(),
+          py::arg("feather_fraction") =
+              hm::pano::BlendSettings::kDefaultFeatherFraction)
       .def("canvas_width", &PyCudaStitchPanoN<float4, T_compute>::canvas_width)
       .def(
           "canvas_height", &PyCudaStitchPanoN<float4, T_compute>::canvas_height)

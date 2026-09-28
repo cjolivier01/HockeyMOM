@@ -133,7 +133,9 @@ hmstitch --game-id ev-stockton-1 \
 - `--control-point-matcher superpoint-lightglue|dedode-lightglue|loftr` — Feature matching backend (default: `superpoint-lightglue`); DeDoDe caps its longest input dimension at 1920 pixels and restores matches to source-image coordinates
 - `--mapping-backend nona|opencv-magsac|opencv-affine-ransac` — Mapping TIFF generator (default: `nona`); the native OpenCV options use either `findHomography` with MAGSAC++ or `estimateAffine2D` with RANSAC and write the same RGB/alpha and X/Y map artifacts
 - `--max-output-dimension N` — Optionally scale a native OpenCV mapping canvas so neither dimension exceeds `N`
-- `--blend-mode laplacian|multiblend|gpu-hard-seam` — Blending mode
+- `--blend-mode laplacian|alpha|gpu-hard-seam` — Seam blend. `laplacian` mixes the cameras across every spatial scale in the overlap; `alpha` crossfades over a narrow band at the seam and leaves the rest of the overlap carrying source pixels; `gpu-hard-seam` does not mix. `multiblend` names the calibration-time enblend/multiblend binaries and cannot be used as a video blend mode on either path
+- `--blend-feather-fraction <0..1>` — Alpha crossfade width as a fraction of the narrowest camera image (default `0.05`); ignored by the other modes
+- `--camera-ui=1` — If the configured blend cannot render, opens a blend-only repair control before calibration. Choose a supported mode and Save, then rerun `hmstitch`. Remove invalid CLI blend overrides first; `--ignore-private-config` also prevents a saved repair from taking effect.
 - `--batch-size`, `--stitch-cache-size`, `--multi-gpu` — Performance tuning
 - `--show` / `--show-scaled` — Preview frames
 

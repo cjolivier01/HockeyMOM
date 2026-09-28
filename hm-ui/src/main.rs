@@ -20,8 +20,17 @@ struct Args {
     title: String,
 }
 
+/// Highest control-spec version this build understands. Reported back to the
+/// producer so it can tell that a field it wrote was actually rendered; echoing
+/// the spec's own number instead would pass at every future bump.
+const SUPPORTED_SPEC_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct UiSpec {
+    /// Producer's schema version. Echoed into the state file so the producer can
+    /// tell whether the sidecar it is talking to understands the spec it wrote.
+    #[serde(default)]
+    version: u32,
     #[serde(default)]
     title: String,
     #[serde(default)]
@@ -88,11 +97,22 @@ struct ControlSpec {
     view: String,
     #[serde(default)]
     value_revision: u64,
+    /// Labels for an enumerated control, indexed by value. Empty means a plain
+    /// slider (or a checkbox when `max_value` is 1); the value stays an integer
+    /// either way, so state, revisions and resets are unchanged.
+    #[serde(default)]
+    choices: Vec<String>,
+    /// Optional one-line note shown under the widget, e.g. when a control only
+    /// takes effect on the next run.
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 struct UiState {
     version: u32,
+    #[serde(default)]
+    spec_version: u32,
     updated_ms: u128,
     #[serde(default)]
     windows: BTreeMap<String, BTreeMap<String, i32>>,
@@ -147,6 +167,7 @@ impl HmUiApp {
             spec_path,
             state_path,
             spec: UiSpec {
+                version: 0,
                 title,
                 subtitle: "Runtime camera controls".to_string(),
                 preview_path: None,
@@ -188,6 +209,7 @@ impl HmUiApp {
         let data = fs::read_to_string(&self.spec_path)
             .with_context(|| format!("read {}", self.spec_path.display()))?;
         let mut spec: UiSpec = serde_json::from_str(&data).context("parse UI spec")?;
+        clamp_spec_choices(&mut spec);
         if spec.title.is_empty() {
             spec.title = "HM UI".to_string();
         }
@@ -214,6 +236,13 @@ impl HmUiApp {
                 {
                     entry.insert(control.name.clone(), control.value);
                     revisions.insert(control.name.clone(), control.value_revision);
+                } else if !control.choices.is_empty() {
+                    // A value carried over from an earlier spec can still be out
+                    // of range for a control that has since gained choices.
+                    let limit = control.choices.len() as i32 - 1;
+                    if let Some(value) = entry.get_mut(&control.name) {
+                        *value = (*value).clamp(0, limit);
+                    }
                 }
             }
             let valid_names: Vec<String> = window.controls.iter().map(|c| c.name.clone()).collect();
@@ -432,6 +461,7 @@ impl HmUiApp {
     fn write_state(&mut self) -> Result<()> {
         let state = UiState {
             version: 1,
+            spec_version: SUPPORTED_SPEC_VERSION,
             updated_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -554,6 +584,7 @@ impl HmUiApp {
                         let open_default = control.default_value.unwrap_or(control.value);
                         let mut reset = false;
 
+                        let choices = control.choices.as_slice();
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(display_name(&control.name)).strong());
                             ui.with_layout(
@@ -566,15 +597,48 @@ impl HmUiApp {
                                         )
                                         .on_hover_text(format!(
                                             "Open-time default: {}",
-                                            format_value(&control.name, open_default, max_value,)
+                                            format_choice_value(
+                                                &control.name,
+                                                open_default,
+                                                max_value,
+                                                choices,
+                                            )
                                         ))
                                         .clicked();
-                                    ui.monospace(format_value(&control.name, *value, max_value));
+                                    ui.monospace(format_choice_value(
+                                        &control.name,
+                                        *value,
+                                        max_value,
+                                        choices,
+                                    ));
                                 },
                             );
                         });
 
-                        let mut changed = if max_value == 1 {
+                        let mut changed = if !choices.is_empty() {
+                            // Already clamped by clamp_spec_choices, so the combo
+                            // and the numeric readout above cannot disagree.
+                            let mut selected = *value;
+                            let changed = egui::ComboBox::from_id_salt((
+                                window_name.as_str(),
+                                control.name.as_str(),
+                            ))
+                            .width(ui.available_width())
+                            .selected_text(choice_label(choices, selected))
+                            .show_ui(ui, |ui| {
+                                let mut picked = false;
+                                for (index, label) in choices.iter().enumerate() {
+                                    picked |= ui
+                                        .selectable_value(&mut selected, index as i32, label)
+                                        .changed();
+                                }
+                                picked
+                            })
+                            .inner
+                            .unwrap_or(false);
+                            *value = selected;
+                            changed
+                        } else if max_value == 1 {
                             let mut checked = *value > 0;
                             let changed = ui.checkbox(&mut checked, "Enabled").changed();
                             if changed {
@@ -597,6 +661,9 @@ impl HmUiApp {
                         if reset {
                             *value = open_default;
                             changed = true;
+                        }
+                        if !control.description.is_empty() {
+                            ui.label(egui::RichText::new(&control.description).weak().small());
                         }
                         control_changed = changed;
                         any_changed |= changed;
@@ -790,6 +857,43 @@ fn control_pages(spec: &UiSpec) -> Vec<(String, String)> {
     pages
 }
 
+/// Bring every enumerated control's value and defaults into label range once,
+/// so nothing downstream has to decide between the raw value and a clamped one.
+/// An out-of-range index is a producer bug; correcting it here keeps the widget
+/// and its numeric readout from showing two different things all session.
+fn clamp_spec_choices(spec: &mut UiSpec) {
+    for window in &mut spec.windows {
+        for control in &mut window.controls {
+            if control.choices.is_empty() {
+                continue;
+            }
+            let limit = control.choices.len() as i32 - 1;
+            control.max_value = limit;
+            control.value = control.value.clamp(0, limit);
+            control.default_value = control.default_value.map(|value| value.clamp(0, limit));
+            control.system_default_value = control
+                .system_default_value
+                .map(|value| value.clamp(0, limit));
+        }
+    }
+}
+
+fn choice_label(choices: &[String], value: i32) -> String {
+    usize::try_from(value)
+        .ok()
+        .and_then(|index| choices.get(index))
+        .cloned()
+        .unwrap_or_else(|| value.to_string())
+}
+
+fn format_choice_value(name: &str, value: i32, max_value: i32, choices: &[String]) -> String {
+    if choices.is_empty() {
+        format_value(name, value, max_value)
+    } else {
+        choice_label(choices, value)
+    }
+}
+
 fn format_value(name: &str, value: i32, max_value: i32) -> String {
     if max_value == 1 {
         if value > 0 {
@@ -915,5 +1019,37 @@ mod tests {
         let preview: PreviewSpec =
             serde_json::from_str(r#"{"name":"Stitched","path":"preview.jpg"}"#).unwrap();
         assert!(preview.metadata_path.is_none());
+    }
+
+    #[test]
+    fn legacy_control_specs_have_no_choices_or_description() {
+        let control: ControlSpec =
+            serde_json::from_str(r#"{"name":"Shadow_Lift_Percent","max_value":100,"value":4}"#)
+                .unwrap();
+        assert!(control.choices.is_empty());
+        assert!(control.description.is_empty());
+    }
+
+    #[test]
+    fn enumerated_controls_read_back_their_labels() {
+        let choices = vec!["Laplacian".to_string(), "Alpha".to_string()];
+        // An enumerated control reports its label, not the raw index.
+        assert_eq!(
+            format_choice_value("Seam_Blend_Mode", 1, 1, &choices),
+            "Alpha"
+        );
+        // A value with no label is still legible rather than blank.
+        assert_eq!(format_choice_value("Seam_Blend_Mode", 7, 1, &choices), "7");
+        assert_eq!(
+            format_choice_value("Seam_Blend_Mode", -1, 1, &choices),
+            "-1"
+        );
+        // Without choices the existing suffix-driven formatting is unchanged, so a
+        // two-entry combo does not render as the "on"/"off" a max_value of 1 means.
+        assert_eq!(format_choice_value("Enable_Thing", 1, 1, &[]), "on");
+        assert_eq!(
+            format_choice_value("Brightness_Multiplier_x100", 125, 300, &[]),
+            "1.25"
+        );
     }
 }

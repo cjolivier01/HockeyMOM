@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -21,6 +21,12 @@ import numpy as np
 from hmlib.log import logger
 from hmlib.utils.gpu import unwrap_tensor
 from hmlib.utils.image import image_height, image_width, make_visible_image, resize_image
+
+# Bumped whenever the spec gains a field the sidecar has to understand. The
+# sidecar echoes it into the state file, so a binary too old to render a control
+# is reported rather than quietly drawing it as something else.
+# 2: enumerated controls (`choices`) and per-control `description`.
+_SPEC_VERSION = 2
 
 
 @dataclass
@@ -33,6 +39,10 @@ class _Control:
     group: str
     view: str
     value_revision: int
+    # Labels for an enumerated control, indexed by value. Empty means a slider
+    # (or a checkbox at max_value 1); the value stays an integer either way.
+    choices: List[str] = field(default_factory=list)
+    description: str = ""
 
 
 @dataclass
@@ -95,13 +105,30 @@ class HmUiProcess:
         self._last_action_seq = 0
         self._pending_actions: List[HmUiAction] = []
         self._closed = False
+        self._spec_version_warned = False
 
     def add_window(self, name: str) -> None:
         self._windows.setdefault(name, [])
         self._write_spec()
         self.ensure_started()
 
-    def add_slider(self, window_name: str, name: str, max_value: int, initial_value: int) -> None:
+    def add_slider(
+        self,
+        window_name: str,
+        name: str,
+        max_value: int,
+        initial_value: int,
+        *,
+        choices: Optional[Iterable[str]] = None,
+        description: str = "",
+    ) -> None:
+        """Declare an integer control, rendered as a combo box when `choices` is given."""
+        labels = [str(choice) for choice in choices] if choices is not None else []
+        if choices is not None:
+            if len(labels) < 2:
+                raise ValueError(f"hm-ui control {name} needs at least two choices")
+            # The value is the choice index, so the range follows the label count.
+            max_value = len(labels) - 1
         controls = self._windows.setdefault(window_name, [])
         view, group = self._control_location(window_name, name)
         for control in controls:
@@ -112,6 +139,8 @@ class HmUiProcess:
                 control.system_default_value = control.value
                 control.group = group
                 control.view = view
+                control.choices = labels
+                control.description = description
                 control.value_revision += 1
                 break
         else:
@@ -127,6 +156,8 @@ class HmUiProcess:
                     group=group,
                     view=view,
                     value_revision=0,
+                    choices=labels,
+                    description=description,
                 )
             )
         self._write_spec()
@@ -201,6 +232,7 @@ class HmUiProcess:
             logger.warning("Failed to read hm-ui state: %s", ex)
             return False
         self._last_state_mtime_ns = mtime_ns
+        self._check_spec_version(state)
         selected_preview = state.get("selected_preview")
         if (
             isinstance(selected_preview, str)
@@ -230,6 +262,36 @@ class HmUiProcess:
                 )
                 changed = True
         return changed
+
+    def _check_spec_version(self, state: Dict) -> None:
+        """Warn once when the sidecar does not understand the spec we wrote.
+
+        An older binary ignores `choices` and renders an enumerated control as a
+        bare 0..N slider with no labels, which an operator can easily read as a
+        magnitude. It cannot be fixed from this side, but it can be reported.
+        """
+        if self._spec_version_warned:
+            return
+        if not any(control.choices for controls in self._windows.values() for control in controls):
+            # Nothing published here needs a v2 sidecar, so an older one renders
+            # this session identically and there is nothing to report.
+            return
+        try:
+            reported = int(state.get("spec_version") or 0)
+        except (TypeError, ValueError):
+            reported = 0
+        if reported >= _SPEC_VERSION:
+            return
+        self._spec_version_warned = True
+        logger.warning(
+            "hm-ui reports control-spec version %s but this build writes version %s; "
+            "controls with named choices will render as an unlabelled slider, or as an "
+            "on/off checkbox when there are exactly two choices. "
+            "Set HM_UI_BIN, or rebuild hm-ui (bazelisk build //hm-ui:hm-ui) and make sure "
+            "the rebuilt binary is the one on PATH.",
+            reported,
+            _SPEC_VERSION,
+        )
 
     @property
     def last_poll_values_changed(self) -> bool:
@@ -550,7 +612,7 @@ class HmUiProcess:
 
     def _write_spec(self) -> None:
         payload = {
-            "version": 1,
+            "version": _SPEC_VERSION,
             "title": self.title,
             "subtitle": "Runtime tracking, stitch, and camera controls",
             "preview_path": str(self.preview_path),
@@ -576,6 +638,8 @@ class HmUiProcess:
                             "group": control.group,
                             "view": control.view,
                             "value_revision": control.value_revision,
+                            "choices": list(control.choices),
+                            "description": control.description,
                         }
                         for control in controls
                     ],
@@ -588,6 +652,10 @@ class HmUiProcess:
     def _write_state(self) -> None:
         payload = {
             "version": 1,
+            # This file is the bootstrap the sidecar reads before it writes its
+            # own; claiming the version we wrote keeps the compatibility check
+            # from firing on our own output before the sidecar has started.
+            "spec_version": _SPEC_VERSION,
             "updated_ms": int(time.time() * 1000),
             "windows": {
                 window_name: {control.name: control.value for control in controls}
@@ -630,6 +698,8 @@ class HmUiProcess:
         if "color" in lower_window:
             view = "Stitched" if "stitched" in lower_window else "Final"
             return view, f"{view} Color"
+        if "blend" in lower_window:
+            return "Stitched", "Seam Blend"
         if control_name == "Stitch_Rotate_Degrees" or "stitch" in lower_window:
             return "Stitched", "Alignment"
         if control_name.startswith(("Overshoot_", "Post_Nonstop_")):

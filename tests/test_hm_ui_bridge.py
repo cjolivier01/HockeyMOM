@@ -413,3 +413,91 @@ def should_keep_preview_worker_alive_after_opencv_error(tmp_path, monkeypatch):
 
     assert encoded == ["failed", ("Stitched", 2)]
     assert ui._preview_worker.is_alive()
+
+
+def should_publish_enumerated_controls_with_labels_and_notes(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+
+    ui.add_window("Stitch Blend")
+    ui.add_slider(
+        "Stitch Blend",
+        "Seam_Blend_Mode",
+        # The label count decides the range; an inconsistent maximum is ignored.
+        99,
+        1,
+        choices=["Laplacian", "Alpha", "Hard seam"],
+        description="Applies on the next stitch run.",
+    )
+    ui.add_slider("Stitch Blend", "Seam_Feather_Percent", 100, 5)
+
+    spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
+    controls = {c["name"]: c for c in spec["windows"][0]["controls"]}
+    mode = controls["Seam_Blend_Mode"]
+    assert mode["choices"] == ["Laplacian", "Alpha", "Hard seam"]
+    assert mode["max_value"] == 2
+    assert mode["value"] == 1
+    assert mode["description"] == "Applies on the next stitch run."
+    # An out-of-range index cannot survive into a label lookup.
+    assert ui.set_value("Stitch Blend", "Seam_Blend_Mode", 9) is True
+    assert ui.get_value("Stitch Blend", "Seam_Blend_Mode", poll=False) == 2
+    # Plain sliders keep an empty choice list, so the sidecar renders them as before.
+    assert controls["Seam_Feather_Percent"]["choices"] == []
+    assert controls["Seam_Feather_Percent"]["description"] == ""
+    # Blend controls belong to the stitched image, not the tracked output.
+    assert mode["view"] == "Stitched"
+    assert mode["group"] == "Seam Blend"
+
+
+def should_reject_an_enumerated_control_without_alternatives(tmp_path):
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+
+    ui.add_window("Stitch Blend")
+    with pytest.raises(ValueError, match="at least two choices"):
+        ui.add_slider("Stitch Blend", "Seam_Blend_Mode", 1, 0, choices=["Only"])
+
+
+def should_warn_once_when_the_sidecar_predates_the_spec_schema(tmp_path, caplog):
+    from hmlib.camera.hm_ui_bridge import _SPEC_VERSION
+
+    ui = HmUiProcess(title="test", tmpdir=tmp_path)
+    ui.ensure_started = lambda: None
+    ui.add_window("Stitch Blend")
+    ui.add_slider("Stitch Blend", "Seam_Blend_Mode", 2, 0, choices=["A", "B", "C"])
+
+    spec = json.loads(ui.spec_path.read_text(encoding="utf-8"))
+    assert spec["version"] == _SPEC_VERSION
+
+    def write_state(spec_version=None, value=1):
+        payload = {
+            "version": 1,
+            "windows": {"Stitch Blend": {"Seam_Blend_Mode": value}},
+        }
+        if spec_version is not None:
+            payload["spec_version"] = spec_version
+        ui.state_path.write_text(json.dumps(payload), encoding="utf-8")
+        ui.poll()
+
+    def version_warnings():
+        return [r for r in caplog.records if "control-spec version" in r.getMessage()]
+
+    # The bridge writes its own bootstrap state before the sidecar starts, and
+    # reading that back must not look like a stale binary and latch the check off.
+    with caplog.at_level("WARNING"):
+        ui._write_state()
+        ui._last_state_mtime_ns = None
+        ui.poll()
+    assert not version_warnings()
+
+    # A current sidecar is silent too.
+    with caplog.at_level("WARNING"):
+        write_state(spec_version=_SPEC_VERSION, value=0)
+    assert not version_warnings()
+
+    # An older one renders the combo as an unlabelled slider. That cannot be fixed
+    # from here, but it must be said, once.
+    with caplog.at_level("WARNING"):
+        write_state(spec_version=None, value=1)
+        write_state(spec_version=None, value=2)
+    assert len(version_warnings()) == 1
