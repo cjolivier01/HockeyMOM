@@ -117,7 +117,10 @@ class StitchingPlugin(Plugin):
                 self._dir_name = Path(self._pto_project_file).parent
             except Exception:
                 self._dir_name = None
-        self._blend_mode = str(blend_mode)
+        # Not str(): an explicit YAML null resolves to None, which means "inherit
+        # the default" the same way it does in HStream. str() would make it the
+        # literal "None" and turn an inherit into a rejected mode.
+        self._blend_mode = blend_mode
         self._blend_feather_fraction = blend_feather_fraction
         self._resolved_blend: Optional[BlendSettings] = None
         self._python_blender = bool(python_blender)
@@ -280,6 +283,7 @@ class StitchingPlugin(Plugin):
         game_id = context.get("game_id")
         if game_id is None and isinstance(shared, dict):
             game_id = shared.get("game_id")
+        blend = self._blend_settings()
         payload = {
             "schema": "hm-stitch-geometry-v2",
             "game_id": str(game_id) if game_id is not None else None,
@@ -287,13 +291,16 @@ class StitchingPlugin(Plugin):
             "input_shapes": [list(img.shape[1:]) for img in imgs],
             "stitched_shape": list(blended.shape[1:]),
             "post_stitch_rotate_degrees": float(applied_rotation),
-            "blend_mode": self._blend_mode,
+            # The normalized mode, not the raw spelling: alias spellings render
+            # identically, so they must not key different cached rink masks, and
+            # this cache deletes entries filed under other revisions.
+            "blend_mode": blend.mode,
             "max_output_width": self._max_output_width,
         }
-        if self._blend_settings().mode == "alpha":
+        if blend.mode == "alpha":
             # Only alpha moves pixels with the feather width, and only adding the key
             # for alpha keeps every already-cached Laplacian/hard-seam mask valid.
-            payload["blend_feather_fraction"] = self._blend_settings().feather_fraction
+            payload["blend_feather_fraction"] = blend.feather_fraction
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 

@@ -596,6 +596,10 @@ impl HmUiApp {
 
                         let mut changed = if !choices.is_empty() {
                             let mut selected = (*value).clamp(0, choices.len() as i32 - 1);
+                            // Write the clamp back, so a spec whose value has no
+                            // label cannot leave the combo and the numeric readout
+                            // showing two different things for the rest of the run.
+                            let clamped = selected != *value;
                             let changed = egui::ComboBox::from_id_salt((
                                 window_name.as_str(),
                                 control.name.as_str(),
@@ -613,10 +617,8 @@ impl HmUiApp {
                             })
                             .inner
                             .unwrap_or(false);
-                            if changed {
-                                *value = selected;
-                            }
-                            changed
+                            *value = selected;
+                            changed || clamped
                         } else if max_value == 1 {
                             let mut checked = *value > 0;
                             let changed = ui.checkbox(&mut checked, "Enabled").changed();

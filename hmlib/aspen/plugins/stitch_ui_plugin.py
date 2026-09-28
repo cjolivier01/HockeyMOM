@@ -21,6 +21,7 @@ from hmlib.stitching.blend import (
     DEFAULT_FEATHER_FRACTION,
     GPU_BLEND_MODES,
     MAX_FEATHER_FRACTION,
+    PYTHON_BLEND_MODES,
     normalize_blend_mode,
     normalize_feather_fraction,
 )
@@ -39,13 +40,14 @@ _UI_ACTION_RETRY_MAX_SECONDS = 5.0
 _BLEND_WINDOW = "Stitch Blend"
 _BLEND_MODE_CONTROL = "Seam_Blend_Mode"
 _BLEND_FEATHER_CONTROL = "Seam_Feather_Percent"
-# Combo entries, in slider-index order. Only modes the CUDA stitchers can render
-# are offered; a game config naming any other mode keeps its value untouched
-# (see `_blend_mode_choices`) rather than being silently rewritten.
+# Combo labels for every mode this repository knows. A mode the configured
+# blender cannot render still gets an entry (see `_resolve_blend_choices`), but
+# it is marked so the operator can tell it apart from a real choice.
 _BLEND_MODE_LABELS = {
     "laplacian": "Laplacian (multi-band)",
     "alpha": "Alpha (feathered seam)",
     "gpu-hard-seam": "Hard seam (no blending)",
+    "multiblend": "Multiblend (CPU)",
 }
 # The feather is a fraction; the UI carries integer controls, so it travels as
 # percent and converts at the boundary.
@@ -68,6 +70,7 @@ class StitchUiPlugin(Plugin):
         self._game_id: Optional[str] = None
         self._dirty_paths: Set[Tuple[str, ...]] = set()
         self._blend_choices: Tuple[str, ...] = ()
+        self._blend_runnable: Tuple[str, ...] = ()
         self._shared: Optional[Dict[str, Any]] = None
         self._active = False
         self._action_retry_after_monotonic = 0.0
@@ -131,13 +134,31 @@ class StitchUiPlugin(Plugin):
         already-selected and firing nothing. Resolved once at open time: the
         combo the operator sees cannot change under them, and applying a mode
         rewrites the config this reads from.
+
+        Which modes are runnable depends on the blender this game is configured
+        for, so the combo never offers one the next run would refuse to build.
         """
-        modes = list(GPU_BLEND_MODES)
+        self._blend_runnable = (
+            PYTHON_BLEND_MODES
+            if bool(get_nested_value(self._game_config, "stitching.python_blender", False))
+            else GPU_BLEND_MODES
+        )
+        modes = list(self._blend_runnable)
         for config in (self._game_config, self._system_config):
             mode = self._config_blend_mode(config)
             if mode is not None and mode not in modes:
                 modes.append(mode)
         return tuple(modes)
+
+    def _blend_mode_labels(self) -> list[str]:
+        return [
+            (
+                _BLEND_MODE_LABELS.get(mode, mode)
+                if mode in self._blend_runnable
+                else f"{_BLEND_MODE_LABELS.get(mode, mode)} - not supported here"
+            )
+            for mode in self._blend_choices
+        ]
 
     def _blend_mode_index(self, config: Dict[str, Any]) -> int:
         mode = self._config_blend_mode(config) or DEFAULT_BLEND_MODE
@@ -265,10 +286,7 @@ class StitchUiPlugin(Plugin):
             _BLEND_MODE_CONTROL,
             len(self._blend_choices) - 1,
             self._blend_mode_index(self._game_config),
-            choices=[
-                _BLEND_MODE_LABELS.get(mode, f"{mode} (not supported here)")
-                for mode in self._blend_choices
-            ],
+            choices=self._blend_mode_labels(),
             description=(
                 "Laplacian mixes the cameras across every scale in the overlap; alpha crossfades "
                 f"only at the seam. {_NEXT_RUN_NOTE}"
@@ -406,17 +424,31 @@ class StitchUiPlugin(Plugin):
         )
 
     def _apply_blend_controls(self) -> None:
+        """Write back only the blend controls the operator actually moved.
+
+        Both controls are lossy views of the config: the combo canonicalizes the
+        spelling and the slider quantizes the fraction to whole percent. Writing
+        unconditionally would rewrite `gpu_hard_seam` as `gpu-hard-seam` and
+        0.125 as 0.12 on an apply triggered by some unrelated control, and each
+        rewrite then reads as an override the save can never clear. Comparing
+        against what the config already means keeps an untouched control silent.
+        """
         assert self._process is not None
         choices = self._blend_choices
         index = self._process.get_value(_BLEND_WINDOW, _BLEND_MODE_CONTROL, poll=False)
         # The bridge clamps to the control's range; clamp again rather than
         # substitute a different mode if that ever stops holding.
-        self._set_runtime_path(
-            ("stitching", "blend_mode"), choices[min(max(index, 0), len(choices) - 1)]
+        mode = choices[min(max(index, 0), len(choices) - 1)]
+        if mode != self._config_blend_mode(self._game_config):
+            self._set_runtime_path(("stitching", "blend_mode"), mode)
+        percent = max(
+            0, int(self._process.get_value(_BLEND_WINDOW, _BLEND_FEATHER_CONTROL, poll=False))
         )
-        percent = self._process.get_value(_BLEND_WINDOW, _BLEND_FEATHER_CONTROL, poll=False)
-        fraction = min(MAX_FEATHER_FRACTION, max(0, int(percent)) / 100.0)
-        self._set_runtime_path(("stitching", "blend_feather_fraction"), fraction)
+        if percent != self._config_feather_percent(self._game_config):
+            self._set_runtime_path(
+                ("stitching", "blend_feather_fraction"),
+                min(MAX_FEATHER_FRACTION, percent / 100.0),
+            )
 
     def _apply_controls(self) -> None:
         assert self._process is not None

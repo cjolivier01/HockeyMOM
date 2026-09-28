@@ -65,7 +65,7 @@ class CudaStitchPanoU8:
         input2: WHDims,
         minimize_blend: bool = True,
         max_output_width: int = 0,
-        blend_mode: str = "laplacian",
+        blend_mode: Optional[str] = None,
         feather_fraction: float = 0.05,
     ): ...
     def process(
@@ -80,8 +80,8 @@ class CudaStitchPano3U8:
         game_dir: str,
         batch_size: int,
         num_levels: int,
-        inputs: Sequence[WHDims],
-        blend_mode: str = "laplacian",
+        input_sizes: Sequence[WHDims],
+        blend_mode: Optional[str] = None,
         feather_fraction: float = 0.05,
     ): ...
     def process(self, d_inputs: Sequence[int], d_canvas: int, stream: Optional[int]) -> None: ...
@@ -97,7 +97,7 @@ class CudaStitchPanoNU8:
         input_sizes: Sequence[WHDims],
         minimize_blend: bool,
         quiet: bool = False,
-        blend_mode: str = "laplacian",
+        blend_mode: Optional[str] = None,
         feather_fraction: float = 0.05,
     ): ...
     def process(self, d_inputs: Sequence[int], d_canvas: int, stream: Optional[int]) -> None: ...

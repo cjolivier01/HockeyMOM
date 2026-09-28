@@ -10,6 +10,7 @@ from stitching_fixtures import write_generation
 from hmlib.stitching.blend import (
     BLEND_MODES,
     DEFAULT_BLEND_LEVELS,
+    DEFAULT_BLEND_MODE,
     DEFAULT_FEATHER_FRACTION,
     GPU_BLEND_MODES,
     BlendSettings,
@@ -203,3 +204,75 @@ def should_carry_the_blend_keys_in_the_shared_baseline():
     stitching = get_config(game_id=None)["stitching"]
     assert normalize_blend_mode(stitching["blend_mode"]) == "laplacian"
     assert normalize_feather_fraction(stitching["blend_feather_fraction"]) == 0.05
+
+
+def should_reject_naming_laplacian_with_no_pyramid_levels():
+    # `mode="gpu-hard-seam"` is how a caller asks for no blending; laplacian with
+    # no levels is a mistake that used to render a hard seam under a wrong name.
+    with pytest.raises(ValueError, match="at least one pyramid level"):
+        BlendSettings(mode="laplacian", max_levels=0)
+    with pytest.raises(ValueError, match="must not be negative"):
+        BlendSettings(mode="alpha", max_levels=-1)
+    assert BlendSettings(mode="gpu-hard-seam", max_levels=0).levels == 0
+    # The dataclass canonicalizes, so no caller can hold an alias spelling.
+    assert BlendSettings(mode="GPU_HARD_SEAM").mode == "gpu-hard-seam"
+
+
+def should_reject_a_non_finite_level_count_as_a_value_error():
+    # int(inf) raises OverflowError, which is not a ValueError; a YAML `.inf`
+    # must not escape as a bare OverflowError from the stitching plugin.
+    with pytest.raises(ValueError, match="must be an integer"):
+        resolve_blend_settings(max_blend_levels=float("inf"))
+    with pytest.raises(ValueError, match="must be a number"):
+        normalize_feather_fraction(10**400)
+
+
+def should_treat_an_explicit_null_blend_mode_as_inherit():
+    # HStream writes `blend_mode: null` to mean inherit; str(None) would make it
+    # the literal "None" and reject it.
+    assert resolve_blend_settings({"blend_mode": None}).mode == DEFAULT_BLEND_MODE
+    assert resolve_blend_settings(blend_mode=None).mode == DEFAULT_BLEND_MODE
+
+
+def should_split_the_renderable_modes_by_blender():
+    from hmlib.stitching.blend import PYTHON_BLEND_MODES
+
+    assert "alpha" in GPU_BLEND_MODES and "alpha" not in PYTHON_BLEND_MODES
+    assert "multiblend" in PYTHON_BLEND_MODES and "multiblend" not in GPU_BLEND_MODES
+    assert set(GPU_BLEND_MODES) | set(PYTHON_BLEND_MODES) == set(BLEND_MODES)
+
+
+def should_reject_a_laplacian_stitcher_with_no_levels_before_touching_artifacts(
+    monkeypatch, tmp_path
+):
+    blender2, captured = _capture_native(monkeypatch, tmp_path)
+    with pytest.raises(ValueError, match="at least one pyramid level"):
+        blender2.create_stitcher(
+            str(tmp_path),
+            batch_size=1,
+            device=torch.device("cuda"),
+            dtype=torch.uint8,
+            left_image_size_wh=(4, 3),
+            right_image_size_wh=(4, 3),
+            python_blender=False,
+            blend_mode="laplacian",
+            levels=0,
+        )
+    assert not captured
+
+
+def should_key_the_geometry_revision_to_the_normalized_blend_mode():
+    from hmlib.aspen.plugins.stitching_plugin import StitchingPlugin
+
+    def revision(**kwargs):
+        plugin = StitchingPlugin(**kwargs)
+        blend = plugin._blend_settings()
+        return (blend.mode, blend.feather_fraction)
+
+    # Alias spellings render identically, so they must not key different masks.
+    assert revision(blend_mode="gpu_hard_seam") == revision(blend_mode="GPU-Hard-Seam")
+    assert revision(blend_mode=None) == revision(blend_mode="laplacian")
+    # Only alpha's width changes pixels, and it must reach the key.
+    assert revision(blend_mode="alpha", blend_feather_fraction=0.2) != revision(
+        blend_mode="alpha", blend_feather_fraction=0.3
+    )

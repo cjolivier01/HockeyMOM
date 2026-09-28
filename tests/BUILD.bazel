@@ -297,6 +297,9 @@ sh_test(
     data = [
         "//:pyproject.toml",
         "//hmlib:hmlib.lib",
+        # blender2 imports hockeymon_compat at module level, so the native
+        # extension has to be in the runfiles tree, not just in a local env.
+        "//hockeymon:hockeymon",
         "python_runtime.sh",
         "test_stitching_blend.py",
         "stitching_fixtures.py",

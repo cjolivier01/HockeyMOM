@@ -18,6 +18,9 @@ BLEND_MODES = ("laplacian", "alpha", "gpu-hard-seam", "multiblend")
 # Modes the CUDA panorama stitchers can render. `multiblend` is the CPU
 # enblend/multiblend path and has no GPU implementation.
 GPU_BLEND_MODES = ("laplacian", "alpha", "gpu-hard-seam")
+# Modes the Python blender can render. Alpha is a hm-cupano kernel with no
+# Python equivalent.
+PYTHON_BLEND_MODES = ("laplacian", "gpu-hard-seam", "multiblend")
 _BLEND_MODE_ALIASES = {
     "hard": "gpu-hard-seam",
     "hard-seam": "gpu-hard-seam",
@@ -53,7 +56,7 @@ def normalize_feather_fraction(value: Any) -> float:
         raise ValueError(f"stitching.blend_feather_fraction must be a number; got {value!r}")
     try:
         fraction = float(value)
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
         raise ValueError(
             f"stitching.blend_feather_fraction must be a number; got {value!r}"
         ) from exc
@@ -74,6 +77,24 @@ class BlendSettings:
     mode: str = DEFAULT_BLEND_MODE
     feather_fraction: float = DEFAULT_FEATHER_FRACTION
     max_levels: int = DEFAULT_BLEND_LEVELS
+
+    def __post_init__(self) -> None:
+        # Mirrors hm-cupano's BlendSettings::Validate. Naming laplacian with no
+        # levels is a caller mistake, not a request for a hard seam: callers spell
+        # that `mode="gpu-hard-seam"`, and resolve_blend_settings turns a
+        # non-positive count into the default before it gets here.
+        object.__setattr__(self, "mode", normalize_blend_mode(self.mode))
+        object.__setattr__(
+            self, "feather_fraction", normalize_feather_fraction(self.feather_fraction)
+        )
+        if self.mode == "laplacian" and self.max_levels < 1:
+            raise ValueError(
+                f"Laplacian blending needs at least one pyramid level; got {self.max_levels!r}"
+            )
+        if self.max_levels < 0:
+            raise ValueError(
+                f"stitching.max_blend_levels must not be negative; got {self.max_levels!r}"
+            )
 
     @property
     def levels(self) -> int:
@@ -121,11 +142,13 @@ def resolve_blend_settings(
     if levels is None:
         levels = DEFAULT_BLEND_LEVELS
     if isinstance(levels, bool) or not isinstance(levels, (int, float, str)):
-        raise ValueError("stitching.max_blend_levels must be an integer")
+        raise ValueError(f"stitching.max_blend_levels must be an integer; got {levels!r}")
     try:
         levels = int(levels)
-    except ValueError as exc:
-        raise ValueError("stitching.max_blend_levels must be an integer") from exc
+    except (ValueError, OverflowError) as exc:
+        # int() raises OverflowError, not ValueError, for an infinity - which a
+        # YAML `.inf` produces.
+        raise ValueError(f"stitching.max_blend_levels must be an integer; got {levels!r}") from exc
     # A non-positive count is the legacy "use the default" spelling on the CLI,
     # not a request for a hard seam; `blend_mode` decides that.
     if levels <= 0:
@@ -140,6 +163,7 @@ __all__ = [
     "DEFAULT_FEATHER_FRACTION",
     "GPU_BLEND_MODES",
     "MAX_FEATHER_FRACTION",
+    "PYTHON_BLEND_MODES",
     "BlendSettings",
     "normalize_blend_mode",
     "normalize_feather_fraction",

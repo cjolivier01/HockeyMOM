@@ -512,7 +512,7 @@ def should_keep_an_unrenderable_game_blend_mode_selectable(monkeypatch):
     plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
 
     labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
-    assert labels[-1] == "multiblend (not supported here)"
+    assert labels[-1] == "Multiblend (CPU) - not supported here"
     # Opening on its own entry is what makes picking a real mode an index change.
     assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == len(labels) - 1
 
@@ -537,3 +537,51 @@ def should_ignore_a_malformed_blend_mode_without_failing_the_ui(monkeypatch):
     ]
     assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == 0
     assert process.values["Stitch Blend"]["Seam_Feather_Percent"] == 5
+
+
+def should_not_rewrite_blend_values_the_operator_never_touched(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=5.0)
+    # An underscore spelling HStream writes, and a width the whole-percent
+    # slider cannot represent.
+    game["stitching"].update(blend_mode="gpu_hard_seam", blend_feather_fraction=0.125)
+    system = copy.deepcopy(game)
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    # Move an unrelated control, which applies every control.
+    process.values["Stitch Alignment"]["Stitch_Rotate_Degrees"] = 80
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+
+    assert game["stitching"]["blend_mode"] == "gpu_hard_seam"
+    assert game["stitching"]["blend_feather_fraction"] == 0.125
+    # Neither may appear as a private override: they still match the system config.
+    assert "blend_mode" not in saved.get("stitching", {})
+    assert "blend_feather_fraction" not in saved.get("stitching", {})
+
+    # Moving the control itself still writes, canonicalized.
+    process.values["Stitch Blend"]["Seam_Blend_Mode"] = 0
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    assert game["stitching"]["blend_mode"] == "laplacian"
+
+
+def should_offer_only_the_modes_the_configured_blender_can_render(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"].update(blend_mode="multiblend", python_blender=True)
+    system = copy.deepcopy(game)
+
+    _plugin, _shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved={})
+
+    labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
+    # Alpha is a GPU kernel with no Python equivalent, so it must not be offered
+    # here; multiblend is the one mode this path can render.
+    assert not any("Alpha" in label for label in labels)
+    assert "Multiblend (CPU)" in labels
+    assert not any("not supported here" in label for label in labels)
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == labels.index("Multiblend (CPU)")

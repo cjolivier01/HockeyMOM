@@ -667,8 +667,10 @@ def stitch_videos(
         stitch_cfg = get_nested_value(aspen_cfg_all, "stitching", {}) or {}
         config_stitch_frame_time = stitch_cfg.get("stitch_frame_time")
         stitch_frame_time = preferred_arg(stitch_frame_time, config_stitch_frame_time)
-        blend_mode = str(stitch_cfg.get("blend_mode") or blend_mode)
-        # `or` would read an explicit 0.0, a legal hard-seam width, as unset.
+        # Neither read may collapse an explicit null: for the mode str(None) is
+        # the rejected literal "None", and for the feather `or` would read an
+        # explicit 0.0, a legal hard-seam width, as unset.
+        blend_mode = preferred_arg(stitch_cfg.get("blend_mode"), blend_mode)
         blend_feather_fraction = preferred_arg(
             stitch_cfg.get("blend_feather_fraction"), blend_feather_fraction
         )

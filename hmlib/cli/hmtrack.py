@@ -2151,8 +2151,11 @@ def _main(args, num_gpu):
                             torch.device(args.decoder_device) if args.decoder_device else None
                         ),
                         decoder_type=args.video_stream_decode_method,
-                        blend_mode=str(stitch_cfg.get("blend_mode") or opts.blend_mode),
-                        # `or` would read an explicit 0.0, a legal hard-seam width, as unset.
+                        # Neither read may collapse an explicit null: for the mode
+                        # str(None) is the rejected literal "None", and for the
+                        # feather `or` would read an explicit 0.0, a legal
+                        # hard-seam width, as unset.
+                        blend_mode=preferred_arg(stitch_cfg.get("blend_mode"), opts.blend_mode),
                         blend_feather_fraction=preferred_arg(
                             stitch_cfg.get("blend_feather_fraction"),
                             opts.blend_feather_fraction,
