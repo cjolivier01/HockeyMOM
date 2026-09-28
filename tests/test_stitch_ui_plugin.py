@@ -748,3 +748,112 @@ def should_not_write_a_mode_no_renderer_can_run(monkeypatch):
     plugin.forward({"img": object(), "shared": shared})
     assert game["stitching"]["blend_mode"] == "laplacian"
     assert "blend_mode" not in saved.get("stitching", {})
+
+
+def should_save_a_blend_repair_before_the_stitch_graph_starts(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"].update(blend_mode="multiblend", python_blender=False)
+    game["aspen"] = {
+        "plugins": {
+            "stitching": {
+                "params": {
+                    "blend_mode": "multiblend",
+                    "blend_feather_fraction": 0.05,
+                    "max_blend_levels": 11,
+                    "python_blender": False,
+                }
+            }
+        }
+    }
+    system = _config(rotation=0.0)
+    system["stitching"].update(blend_mode="laplacian", python_blender=False)
+    saved: dict = {}
+
+    monkeypatch.setattr(stitch_ui_module, "HmUiProcess", _FakeHmUiProcess)
+    monkeypatch.setattr(stitch_ui_module, "get_config", lambda **_k: copy.deepcopy(system))
+    monkeypatch.setattr(
+        stitch_ui_module, "get_game_config_private", lambda **_k: copy.deepcopy(saved)
+    )
+
+    def save_private(_game_id, data, verbose=True):
+        del verbose
+        saved.clear()
+        saved.update(copy.deepcopy(data))
+
+    monkeypatch.setattr(stitch_ui_module, "save_private_config", save_private)
+
+    def select_and_save(_seconds):
+        process = _FakeHmUiProcess.instances[-1]
+        process.values["Stitch Blend"]["Seam_Blend_Mode"] = 1
+        process.changed = True
+        process.queue_action("save")
+
+    monkeypatch.setattr(stitch_ui_module.time, "sleep", select_and_save)
+
+    assert (
+        stitch_ui_module.repair_blend_before_stitch(
+            game,
+            "game-1",
+            raw_graph_params={
+                "blend_mode": "GLOBAL.stitching.blend_mode",
+                "blend_feather_fraction": "GLOBAL.stitching.blend_feather_fraction",
+                "max_blend_levels": "GLOBAL.stitching.max_blend_levels",
+                "python_blender": "GLOBAL.stitching.python_blender",
+            },
+        )
+        is True
+    )
+    assert game["stitching"]["blend_mode"] == "alpha"
+    assert saved["stitching"]["blend_mode"] == "alpha"
+    # The already-resolved graph copy is stale; the caller ends this run so the
+    # next graph can resolve the saved shared value.
+    assert game["aspen"]["plugins"]["stitching"]["params"]["blend_mode"] == "multiblend"
+    process = _FakeHmUiProcess.instances[-1]
+    assert list(process.values) == ["Stitch Blend"]
+    assert list(saved) == ["stitching"]
+    assert process.closed is True
+
+
+def should_fail_clearly_when_the_repair_ui_closes_without_saving(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"]["blend_mode"] = "multiblend"
+    monkeypatch.setattr(stitch_ui_module, "HmUiProcess", _FakeHmUiProcess)
+
+    def close_ui(_seconds):
+        _FakeHmUiProcess.instances[-1].closed = True
+
+    monkeypatch.setattr(stitch_ui_module.time, "sleep", close_ui)
+
+    with pytest.raises(ValueError, match="closed without saving"):
+        stitch_ui_module.repair_blend_before_stitch(game, "game-1")
+
+
+def should_report_an_unrepairable_aspen_blend_override() -> None:
+    game = _config(rotation=0.0)
+    game["stitching"]["blend_mode"] = "laplacian"
+    game["aspen"] = {"plugins": {"stitching": {"params": {"blend_mode": "multiblend"}}}}
+
+    with pytest.raises(ValueError, match="edit aspen.plugins.stitching.params.blend_mode"):
+        stitch_ui_module.repair_blend_before_stitch(
+            game, "game-1", raw_graph_params={"blend_mode": "multiblend"}
+        )
+
+
+def should_not_claim_to_repair_a_private_config_that_will_be_ignored() -> None:
+    game = _config(rotation=0.0)
+    game["stitching"]["blend_mode"] = "multiblend"
+
+    with pytest.raises(ValueError, match="--ignore-private-config would discard"):
+        stitch_ui_module.repair_blend_before_stitch(game, "game-1", ignore_private_config=True)
+
+
+def should_not_save_a_repair_that_a_cli_override_will_replace() -> None:
+    game = _config(rotation=0.0)
+    game["stitching"]["blend_mode"] = "multiblend"
+
+    with pytest.raises(ValueError, match="change or remove that override"):
+        stitch_ui_module.repair_blend_before_stitch(
+            game, "game-1", run_blend_overrides=("blend_mode",)
+        )

@@ -25,6 +25,8 @@ from hmlib.stitching.blend import (
     PYTHON_BLEND_MODES,
     config_blend_mode,
     normalize_feather_fraction,
+    normalize_max_blend_levels,
+    resolve_blend_settings,
 )
 from hmlib.utils.shadow_lift import shadow_lift_settings
 
@@ -62,14 +64,16 @@ class StitchUiPlugin(Plugin):
 
     disable_in_cuda_graph_pipeline = True
 
-    def __init__(self, enabled: bool = True) -> None:
+    def __init__(self, enabled: bool = True, blend_only: bool = False) -> None:
         super().__init__(enabled=enabled)
+        self._blend_only = blend_only
         self._process: Optional[HmUiProcess] = None
         self._game_config: Dict[str, Any] = {}
         self._open_config: Dict[str, Any] = {}
         self._system_config: Dict[str, Any] = {}
         self._game_id: Optional[str] = None
         self._dirty_paths: Set[Tuple[str, ...]] = set()
+        self._save_count = 0
         self._blend_choices: Tuple[str, ...] = ()
         self._blend_runnable: Tuple[str, ...] = ()
         self._shared: Optional[Dict[str, Any]] = None
@@ -272,21 +276,25 @@ class StitchUiPlugin(Plugin):
                     ex,
                 )
 
-        title = f"HM Stitch UI - {self._game_id}" if self._game_id else "HM Stitch UI"
+        if self._blend_only:
+            title = f"HM Stitch Blend Repair - {self._game_id}"
+        else:
+            title = f"HM Stitch UI - {self._game_id}" if self._game_id else "HM Stitch UI"
         self._process = HmUiProcess(title=title, preview_names=("Stitched",))
         alignment_window = "Stitch Alignment"
-        self._process.add_window(alignment_window)
-        rotation = get_nested_value(
-            self._game_config,
-            "stitching.post_stitch_rotate_degrees",
-            0.0,
-        )
-        self._process.add_slider(
-            alignment_window,
-            "Stitch_Rotate_Degrees",
-            180,
-            self._stitch_deg_to_slider(rotation),
-        )
+        if not self._blend_only:
+            self._process.add_window(alignment_window)
+            rotation = get_nested_value(
+                self._game_config,
+                "stitching.post_stitch_rotate_degrees",
+                0.0,
+            )
+            self._process.add_slider(
+                alignment_window,
+                "Stitch_Rotate_Degrees",
+                180,
+                self._stitch_deg_to_slider(rotation),
+            )
 
         self._blend_choices = self._resolve_blend_choices()
         # The accessors stay silent because they run on every apply; say it once.
@@ -345,27 +353,29 @@ class StitchUiPlugin(Plugin):
             "Tracker Controls (Right Color)": "stitching.right.color",
         }
         system_defaults: Dict[str, Dict[str, int]] = {
-            alignment_window: {
+            _BLEND_WINDOW: {
+                _BLEND_MODE_CONTROL: self._blend_mode_index(self._system_config),
+            }
+        }
+        if not self._blend_only:
+            system_defaults[alignment_window] = {
                 "Stitch_Rotate_Degrees": self._stitch_deg_to_slider(
                     get_nested_value(
                         self._system_config,
                         "stitching.post_stitch_rotate_degrees",
                         0.0,
                     )
-                ),
-            },
-            _BLEND_WINDOW: {
-                _BLEND_MODE_CONTROL: self._blend_mode_index(self._system_config),
-            },
-        }
+                )
+            }
         if "alpha" in self._blend_runnable:
             system_defaults[_BLEND_WINDOW][_BLEND_FEATHER_CONTROL] = self._blend_feather_position(
                 self._system_config
             )
-        for window_name, path in color_windows.items():
-            defaults = self._color_defaults(self._game_config, path)
-            system_defaults[window_name] = self._color_defaults(self._system_config, path)
-            self._add_color_window(window_name, defaults)
+        if not self._blend_only:
+            for window_name, path in color_windows.items():
+                defaults = self._color_defaults(self._game_config, path)
+                system_defaults[window_name] = self._color_defaults(self._system_config, path)
+                self._add_color_window(window_name, defaults)
         self._process.set_system_defaults(system_defaults)
         shared["hm_ui_process"] = self._process
         shared["hm_ui_preview_active"] = True
@@ -509,6 +519,9 @@ class StitchUiPlugin(Plugin):
 
     def _apply_controls(self) -> None:
         assert self._process is not None
+        if self._blend_only:
+            self._apply_blend_controls()
+            return
         rotation = self._slider_to_stitch_deg(
             self._process.get_value("Stitch Alignment", "Stitch_Rotate_Degrees", poll=False)
         )
@@ -556,6 +569,11 @@ class StitchUiPlugin(Plugin):
         if changed:
             save_private_config(self._game_id, private_config, verbose=True)
         self._dirty_paths.clear()
+        self._save_count += 1
+
+    @property
+    def save_count(self) -> int:
+        return self._save_count
 
     def _managed_paths(self) -> Set[Tuple[str, ...]]:
         rotation_path = ("stitching", "post_stitch_rotate_degrees")
@@ -569,9 +587,12 @@ class StitchUiPlugin(Plugin):
             "contrast",
             "gamma",
         }
-        managed_paths: Set[Tuple[str, ...]] = {rotation_path, ("stitching", "blend_mode")}
+        managed_paths: Set[Tuple[str, ...]] = {("stitching", "blend_mode")}
         if "alpha" in self._blend_runnable:
             managed_paths.add(("stitching", "blend_feather_fraction"))
+        if self._blend_only:
+            return managed_paths
+        managed_paths.add(rotation_path)
         for prefix in (
             ("rink", "camera", "color"),
             ("stitching", "left", "color"),
@@ -700,4 +721,133 @@ class StitchUiPlugin(Plugin):
         self._disable_ui()
 
 
-__all__ = ["StitchUiPlugin"]
+def repair_blend_before_stitch(
+    game_config: Dict[str, Any],
+    game_id: Optional[str],
+    *,
+    raw_graph_params: Optional[Dict[str, Any]] = None,
+    ignore_private_config: bool = False,
+    run_blend_overrides: Tuple[str, ...] = (),
+) -> bool:
+    """Let the operator save a runnable blend before a broken stitch graph starts.
+
+    Returns true when the UI saved a repair. The caller must end this run: the
+    graph's stitcher parameters were resolved from the old config already.
+    """
+    stitching = get_nested_value(game_config, "stitching", {}) or {}
+    if not isinstance(stitching, dict):
+        raise ValueError("stitching config must be a mapping")
+    graph_params = get_nested_value(game_config, "aspen.plugins.stitching.params", None)
+    if graph_params is not None and not isinstance(graph_params, dict):
+        raise ValueError("aspen.plugins.stitching.params must be a mapping")
+    mode_is_shared = graph_params is None or (
+        raw_graph_params is not None
+        and raw_graph_params.get("blend_mode") == "GLOBAL.stitching.blend_mode"
+    )
+    feather_is_shared = graph_params is None or (
+        raw_graph_params is not None
+        and raw_graph_params.get("blend_feather_fraction")
+        == "GLOBAL.stitching.blend_feather_fraction"
+    )
+    levels = (
+        graph_params.get("max_blend_levels")
+        if graph_params is not None
+        else stitching.get("max_blend_levels")
+    )
+    if levels is not None:
+        # The blend UI has no pyramid-depth control, so do not wait for an edit
+        # that cannot repair this value.
+        normalize_max_blend_levels(levels)
+    python_blender = bool(
+        graph_params.get("python_blender", False)
+        if graph_params is not None
+        else stitching.get("python_blender", False)
+    )
+
+    def mode_value() -> Any:
+        if mode_is_shared:
+            return stitching.get("blend_mode")
+        return graph_params.get("blend_mode", DEFAULT_BLEND_MODE)
+
+    def feather_value() -> Any:
+        if feather_is_shared:
+            return stitching.get("blend_feather_fraction")
+        return graph_params.get("blend_feather_fraction")
+
+    def validate() -> None:
+        blend = resolve_blend_settings(
+            blend_mode=mode_value(),
+            blend_feather_fraction=feather_value(),
+            max_blend_levels=levels,
+        )
+        blend.require_python_mode() if python_blender else blend.require_gpu_mode()
+
+    try:
+        validate()
+    except ValueError as error:
+        if graph_params is not None and not mode_is_shared:
+            try:
+                explicit_mode = resolve_blend_settings(
+                    blend_mode=graph_params.get("blend_mode", DEFAULT_BLEND_MODE)
+                )
+                (
+                    explicit_mode.require_python_mode()
+                    if python_blender
+                    else explicit_mode.require_gpu_mode()
+                )
+            except ValueError as explicit_error:
+                raise ValueError(
+                    f"{explicit_error}; edit aspen.plugins.stitching.params.blend_mode directly"
+                ) from explicit_error
+        if graph_params is not None and not feather_is_shared:
+            raw_feather = graph_params.get("blend_feather_fraction")
+            if raw_feather is not None:
+                try:
+                    normalize_feather_fraction(raw_feather)
+                except ValueError as explicit_error:
+                    raise ValueError(
+                        f"{explicit_error}; edit "
+                        "aspen.plugins.stitching.params.blend_feather_fraction directly"
+                    ) from explicit_error
+        if python_blender and feather_value() is not None:
+            # The Python path publishes no feather control.
+            normalize_feather_fraction(feather_value())
+        if run_blend_overrides:
+            raise ValueError(
+                f"{error}; this command overrides {', '.join(run_blend_overrides)} on every "
+                "run, so change or remove that override before saving a stitch UI repair"
+            ) from error
+        if ignore_private_config:
+            raise ValueError(
+                f"{error}; --ignore-private-config would discard a stitch UI repair"
+            ) from error
+        if not game_id:
+            raise ValueError(f"{error}; the stitch UI needs --game-id to save a repair") from error
+        logger.warning("%s. Open the stitch UI, choose a supported blend, and Save.", error)
+    else:
+        return False
+
+    plugin = StitchUiPlugin(blend_only=True)
+    shared = {"camera_ui": 1, "game_id": game_id, "game_config": game_config}
+    context = {"img": None, "shared": shared}
+    checked_saves = 0
+    try:
+        while True:
+            plugin.forward(context)
+            if shared.get("hm_ui_process") is None:
+                raise ValueError("Stitch UI closed without saving a runnable blend mode")
+            if plugin.save_count > checked_saves:
+                checked_saves = plugin.save_count
+                try:
+                    validate()
+                except ValueError as error:
+                    logger.warning("Blend configuration still cannot stitch: %s", error)
+                else:
+                    logger.info("Saved a runnable blend. Run hmstitch again to use it.")
+                    return True
+            time.sleep(0.05)
+    finally:
+        plugin.finalize()
+
+
+__all__ = ["StitchUiPlugin", "repair_blend_before_stitch"]

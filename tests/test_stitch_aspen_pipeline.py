@@ -206,6 +206,43 @@ def should_keep_stitch_ui_terminal_after_post_processing() -> None:
     )
 
 
+def should_offer_blend_repair_before_calibration(monkeypatch, tmp_path) -> None:
+    from hmlib.aspen.plugins import stitch_ui_plugin
+
+    monkeypatch.setattr(stitch_cli, "BasicVideoInfo", _DummyVideoInfo, raising=False)
+    calls = []
+
+    def repair(config, game_id, **kwargs):
+        calls.append((config, game_id, kwargs))
+        return True
+
+    def configure(*args, **kwargs):
+        raise AssertionError("calibration started before the blend repair")
+
+    monkeypatch.setattr(stitch_ui_plugin, "repair_blend_before_stitch", repair)
+    monkeypatch.setattr(stitch_cli, "configure_video_stitching", configure, raising=False)
+    args = types.SimpleNamespace(
+        ignore_private_config=False,
+        config_overrides=[],
+        explicit_arg_names=set(),
+        persist=False,
+    )
+
+    offsets = stitch_cli.stitch_videos(
+        dir_name=str(tmp_path),
+        videos={"left": ["left.mp4"], "right": ["right.mp4"]},
+        max_control_points=10,
+        game_id="test-game",
+        camera_ui=1,
+        args=args,
+    )
+
+    assert offsets == (None, None)
+    assert len(calls) == 1
+    assert calls[0][1] == "test-game"
+    assert calls[0][2]["raw_graph_params"]["blend_mode"] == "GLOBAL.stitching.blend_mode"
+
+
 def should_use_configured_stitch_frame_time_for_base_offset(monkeypatch, tmp_path):
     captured: Dict[str, Any] = {}
 

@@ -16,6 +16,7 @@ from hmlib.config import (
     get_game_config_private,
     get_nested_value,
     normalize_runtime_config,
+    resolve_global_refs,
     save_private_config,
     set_nested_value,
 )
@@ -24,6 +25,7 @@ from hmlib.stitching.blend import (
     RENDERABLE_BLEND_MODES,
     normalize_blend_mode,
     normalize_feather_fraction,
+    resolve_blend_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,48 @@ logger = logging.getLogger(__name__)
 
 _SKIP_CONFIG_VALUE = object()
 _MISSING_ARG = object()
+_BLEND_RENDERER_PATHS = {
+    "stitching.blend_mode",
+    "stitching.blend_feather_fraction",
+    "stitching.max_blend_levels",
+    "stitching.python_blender",
+    "aspen.plugins.stitching.params.blend_mode",
+    "aspen.plugins.stitching.params.blend_feather_fraction",
+    "aspen.plugins.stitching.params.max_blend_levels",
+    "aspen.plugins.stitching.params.python_blender",
+}
+
+
+def _validate_persisted_blend_renderer(config: Dict[str, Any]) -> None:
+    """Refuse a persisted mode that the selected stitcher cannot render."""
+    effective = resolve_global_refs(copy.deepcopy(config))
+    stitching = get_nested_value(effective, "stitching", {}) or {}
+    if not isinstance(stitching, dict):
+        raise ValueError("stitching config must be a mapping")
+    # The shared keys are what hmtrack and other graph presets inherit, even
+    # when this command overrides its own Aspen plugin to use another renderer.
+    shared = resolve_blend_settings(stitching)
+    (
+        shared.require_python_mode()
+        if stitching.get("python_blender", False)
+        else shared.require_gpu_mode()
+    )
+
+    params = get_nested_value(effective, "aspen.plugins.stitching.params", None)
+    if params is None or not bool(
+        get_nested_value(effective, "aspen.plugins.stitching.enabled", True)
+    ):
+        return
+    if not isinstance(params, dict):
+        raise ValueError("aspen.plugins.stitching.params must be a mapping")
+    # An explicit null in the plugin parameters means the StitchingPlugin's
+    # constructor default, not a fallback to the shared key.
+    graph = resolve_blend_settings(
+        blend_mode=params.get("blend_mode", "laplacian"),
+        blend_feather_fraction=params.get("blend_feather_fraction"),
+        max_blend_levels=params.get("max_blend_levels"),
+    )
+    graph.require_python_mode() if params.get("python_blender", False) else graph.require_gpu_mode()
 
 
 def _get_arg_value(args: Any, name: str) -> Any:
@@ -2205,21 +2249,39 @@ class hm_opts(object):
             ),
             require_parser=True,
         )
+        arg_updates = list(
+            _iter_arg_config_updates(
+                config,
+                args,
+                arg_to_config=hm_opts.PRIVATE_CONFIG_ARG_TO_CONFIG_MAP,
+                value_map=hm_opts.PRIVATE_CONFIG_VALUE_MAP,
+                setdefault_args=(),
+                parser=parser,
+                explicit_arg_names=explicit_arg_names,
+            )
+        )
+        override_updates = list(
+            _iter_config_override_updates(config, getattr(args, "config_overrides", None))
+        )
+        if any(path in _BLEND_RENDERER_PATHS for _, path, _ in arg_updates) or any(
+            path in _BLEND_RENDERER_PATHS for path, _ in override_updates
+        ):
+            # The parser validates the mode's vocabulary, but the selected
+            # renderer is a separate config key. Check their effective pair
+            # before --persist can leave the game unable to start.
+            proposed_config = copy.deepcopy(config)
+            for _, path, mapped_value in arg_updates:
+                set_nested_value(proposed_config, path, mapped_value)
+            for path, value in override_updates:
+                set_nested_value(proposed_config, path, value)
+            _validate_persisted_blend_renderer(proposed_config)
         private_cfg = get_game_config_private(game_id=game_id)
         if not isinstance(private_cfg, dict):
             private_cfg = {}
         normalize_runtime_config(private_cfg)
 
         changed = False
-        for _, path, mapped_value in _iter_arg_config_updates(
-            config,
-            args,
-            arg_to_config=hm_opts.PRIVATE_CONFIG_ARG_TO_CONFIG_MAP,
-            value_map=hm_opts.PRIVATE_CONFIG_VALUE_MAP,
-            setdefault_args=(),
-            parser=parser,
-            explicit_arg_names=explicit_arg_names,
-        ):
+        for _, path, mapped_value in arg_updates:
             current_value = get_nested_value(private_cfg, path, _MISSING_ARG)
             if current_value is not _MISSING_ARG and current_value == mapped_value:
                 continue
@@ -2237,10 +2299,7 @@ class hm_opts(object):
                 set_nested_value(private_cfg, show_image_path, True)
                 changed = True
 
-        for key_path, pval in _iter_config_override_updates(
-            config,
-            getattr(args, "config_overrides", None),
-        ):
+        for key_path, pval in override_updates:
             current_value = get_nested_value(private_cfg, key_path, _MISSING_ARG)
             if current_value is not _MISSING_ARG and current_value == pval:
                 continue
