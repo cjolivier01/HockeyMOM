@@ -181,8 +181,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._video_right_offset_frame = videos["right"]["frame_offset"]
         self._videos = videos
         self._pto_project_file = pto_project_file
-        self._blend_mode = blend_mode
-        self._blend_feather_fraction = blend_feather_fraction
         # Resolved here, not in _create_stitcher: that runs from the first
         # _prepare_next_frame, i.e. after calibration, artifact generation and two
         # video decoders. A bad blend key should cost none of that.
@@ -191,10 +189,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
             blend_feather_fraction=blend_feather_fraction,
             max_blend_levels=max_blend_levels,
         )
-        if python_blender:
-            self._blend.require_python_mode()
-        else:
-            self._blend.require_gpu_mode()
         self._max_frames = max_frames if max_frames is not None else _LARGE_NUMBER_OF_FRAMES
         self._current_frame = start_frame_number
         self._on_first_stitched_image_callback = on_first_stitched_image_callback
@@ -212,7 +206,6 @@ class StitchDataset(PersistCacheMixin, torch.utils.data.IterableDataset):
         self._right_color_pipeline_cfg: Optional[List[Dict[str, Any]]] = right_color_pipeline
         self._left_color_pipeline: Optional[Compose] = None
         self._right_color_pipeline: Optional[Compose] = None
-        self._max_blend_levels: Optional[int] = max_blend_levels
         self._capture_rgb_stats: bool = bool(capture_rgb_stats)
 
         # Optimize the roi box

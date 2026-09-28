@@ -21,7 +21,7 @@ from mmcv.transforms import Compose
 from hmlib.config import get_game_config, get_nested_value
 from hmlib.datasets.dataset.mot_video import MOTLoadVideoWithOrig
 from hmlib.log import logger
-from hmlib.stitching.blend import resolve_blend_settings
+from hmlib.stitching.blend import FEATHERED_BLEND_MODES, resolve_blend_settings
 from hmlib.stitching.blender2 import create_stitcher
 from hmlib.utils.gpu import StreamTensorBase, unwrap_tensor, wrap_tensor
 from hmlib.utils.hockeymon_compat import (
@@ -129,20 +129,10 @@ class StitchingPlugin(Plugin):
             blend_feather_fraction=blend_feather_fraction,
             max_blend_levels=max_blend_levels,
         )
-        # Including the renderer check, because the stitch UI deliberately lets an
-        # operator select a mode this path cannot run; catching it here costs a
-        # graph build rather than a decoded first batch.
-        if python_blender:
-            self._blend.require_python_mode()
-        else:
-            self._blend.require_gpu_mode()
-        self._blend_mode = blend_mode
-        self._blend_feather_fraction = blend_feather_fraction
         self._python_blender = bool(python_blender)
         self._use_cuda_pano_n = bool(use_cuda_pano_n)
         self._minimize_blend = bool(minimize_blend)
         self._dtype = _parse_dtype(dtype)
-        self._max_blend_levels = max_blend_levels
         self._no_cuda_streams = bool(no_cuda_streams)
         self._post_stitch_rotate_degrees = post_stitch_rotate_degrees
         self._left_color_pipeline_cfg = left_color_pipeline
@@ -312,9 +302,11 @@ class StitchingPlugin(Plugin):
             "blend_mode": blend.mode,
             "max_output_width": self._max_output_width,
         }
-        if blend.mode == "alpha":
-            # Only alpha moves pixels with the feather width, and only adding the key
-            # for alpha keeps every already-cached Laplacian/hard-seam mask valid.
+        if blend.mode in FEATHERED_BLEND_MODES:
+            # Only a feathered mode moves pixels with the width, and adding the key
+            # only for those keeps every already-cached Laplacian/hard-seam mask
+            # valid. Keyed off the set so a future feathered mode is covered
+            # rather than silently reusing another mode's mask.
             payload["blend_feather_fraction"] = blend.feather_fraction
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()

@@ -323,15 +323,18 @@ def should_key_the_geometry_revision_to_the_normalized_blend_mode():
     )
 
 
-def should_reject_an_unrenderable_mode_at_plugin_construction():
+def should_validate_the_blend_vocabulary_at_plugin_construction():
     from hmlib.aspen.plugins.stitching_plugin import StitchingPlugin
 
-    # The stitch UI deliberately lets an operator select a mode this path cannot
-    # run, so the graph must refuse to build rather than dying on the first batch.
-    with pytest.raises(ValueError, match="cannot be rendered by the GPU blender"):
-        StitchingPlugin(blend_mode="multiblend")
-    with pytest.raises(ValueError, match="cannot be rendered by the Python blender"):
-        StitchingPlugin(blend_mode="alpha", python_blender=True)
+    # Vocabulary and range are decided by the config alone, so they fail at graph
+    # construction rather than on the first decoded batch.
     with pytest.raises(ValueError, match="Unsupported stitching blend mode"):
         StitchingPlugin(blend_mode="pyramid")
+    with pytest.raises(ValueError, match="blend_feather_fraction"):
+        StitchingPlugin(blend_mode="alpha", blend_feather_fraction=2.0)
+    with pytest.raises(ValueError, match="max_blend_levels"):
+        StitchingPlugin(max_blend_levels="eleven")
     assert StitchingPlugin(blend_mode="alpha", blend_feather_fraction=0.2)._blend.mode == "alpha"
+    # Whether a mode is renderable depends on the stitcher being built, and
+    # --configure-only never builds one, so that check stays in create_stitcher.
+    assert StitchingPlugin(blend_mode="multiblend")._blend.mode == "multiblend"

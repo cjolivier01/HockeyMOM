@@ -974,8 +974,6 @@ def create_stitcher(
     # Refuse a mode the selected renderer cannot run before taking the lock and
     # rewriting artifacts, so a config error costs nothing.
     blend.require_gpu_mode() if use_cuda_pano else blend.require_python_mode()
-    blend_mode = blend.mode
-    feather_fraction = blend.feather_fraction
     with stitching_lock(dir_name):
         basenames = (
             tuple(f"{remapped_basename}{index:04d}" for index in range(len(input_image_sizes_wh)))
@@ -1008,8 +1006,8 @@ def create_stitcher(
                         size2,
                         minimize_blend=minimize_blend,
                         max_output_width=max_output_width_i,
-                        blend_mode=blend_mode,
-                        feather_fraction=feather_fraction,
+                        blend_mode=blend.mode,
+                        feather_fraction=blend.feather_fraction,
                     )
                 elif dtype == torch.uint8:
                     stitcher = CudaStitchPanoU8(
@@ -1020,8 +1018,8 @@ def create_stitcher(
                         size2,
                         minimize_blend=minimize_blend,
                         max_output_width=max_output_width_i,
-                        blend_mode=blend_mode,
-                        feather_fraction=feather_fraction,
+                        blend_mode=blend.mode,
+                        feather_fraction=blend.feather_fraction,
                     )
                 else:
                     raise ValueError(f"Unsupported dtype for cuda pano: {dtype}")
@@ -1038,8 +1036,8 @@ def create_stitcher(
                     input_sizes,
                     minimize_blend=minimize_blend,
                     quiet=False,
-                    blend_mode=blend_mode,
-                    feather_fraction=feather_fraction,
+                    blend_mode=blend.mode,
+                    feather_fraction=blend.feather_fraction,
                 )
             if dtype == torch.uint8:
                 return CudaStitchPanoNU8(
@@ -1049,17 +1047,20 @@ def create_stitcher(
                     input_sizes,
                     minimize_blend=minimize_blend,
                     quiet=False,
-                    blend_mode=blend_mode,
-                    feather_fraction=feather_fraction,
+                    blend_mode=blend.mode,
+                    feather_fraction=blend.feather_fraction,
                 )
             raise ValueError(f"Unsupported dtype for cuda pano N: {dtype}")
 
         blender_config: BlenderConfig = create_blender_config(
-            mode=blend_mode,
+            # blend.* throughout: the parameters were the caller's spelling, and
+            # create_blender_config folds the vocabulary a second time, so handing
+            # it the already-resolved mode and depth keeps the two from diverging.
+            mode=blend.mode,
             dir_name=dir_name,
             basename=remapped_basename,
             device=device,
-            levels=levels,
+            levels=blend.levels,
             lazy_init=False,
             interpolation=interpolation,
         )
@@ -1156,7 +1157,6 @@ def blend_video(
     feather_fraction: Optional[float] = None,
     queue_size: int = 1,
     minimize_blend: bool = True,
-    add_alpha_channel: bool = False,
     overlap_pad: int = 120,
     draw: bool = False,
     use_cuda_pano: bool = False,
@@ -1182,8 +1182,6 @@ def blend_video(
     @param feather_fraction: Alpha crossfade width; None uses the shared default.
     @param queue_size: VideoOutput queue size.
     @param minimize_blend: If True, restrict blending to overlap region.
-    @param add_alpha_channel: Reserved; create_stitcher does not plumb it, so
-        requesting it is refused rather than silently dropped.
     @param overlap_pad: Padding in pixels around seam overlap.
     @param draw: If True, draw debug boxes over blends.
     @param use_cuda_pano: If True, use CUDA panorama stitcher instead of Python.
@@ -1230,13 +1228,6 @@ def blend_video(
         canvas_width = stitcher.canvas_width()
         canvas_height = stitcher.canvas_height()
     else:
-        if add_alpha_channel:
-            # create_stitcher has no such parameter; passing it raised TypeError
-            # before any blending, which is worse than saying so. The CUDA branch
-            # above never read the flag, so it is unaffected.
-            raise NotImplementedError(
-                "blend_video does not support add_alpha_channel with --python-blender"
-            )
         stitcher: ImageStitcher = create_stitcher(
             dir_name=dir_name,
             batch_size=batch_size,

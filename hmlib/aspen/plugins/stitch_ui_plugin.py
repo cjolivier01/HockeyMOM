@@ -305,9 +305,15 @@ class StitchUiPlugin(Plugin):
             )
         if self._config_feather_percent(self._game_config) is None:
             logger.warning(
-                "stitching.blend_feather_fraction %r is out of range; the stitch UI opens at the "
-                "default and saving repairs it",
+                "stitching.blend_feather_fraction %r is out of range; %s",
                 get_nested_value(self._game_config, "stitching.blend_feather_fraction", None),
+                (
+                    "the stitch UI opens at the default and saving repairs it"
+                    if "alpha" in self._blend_runnable
+                    # No feather control is published where alpha cannot be
+                    # selected, so nothing here can write a usable value.
+                    else "no control here can repair it; fix the game config"
+                ),
             )
         self._process.add_window(_BLEND_WINDOW)
         self._process.add_slider(
@@ -477,9 +483,14 @@ class StitchUiPlugin(Plugin):
         # The bridge clamps to the control's range; clamp again rather than
         # substitute a different mode if that ever stops holding.
         mode = choices[min(max(index, 0), len(choices) - 1)]
-        # An absent or null mode means "inherit the default", which is what the
-        # combo already shows, so it must not be written back as an override.
-        if mode != (self._config_blend_entry(self._game_config) or DEFAULT_BLEND_MODE):
+        # A marked entry stands for the value the config already holds, not for a
+        # choice: selecting it must leave that value alone rather than write a
+        # mode the next graph build would refuse. Only a runnable mode is a real
+        # selection, and an absent or null mode means "inherit the default",
+        # which is what the combo already shows.
+        if mode in self._blend_runnable and mode != (
+            self._config_blend_entry(self._game_config) or DEFAULT_BLEND_MODE
+        ):
             self._set_runtime_path(("stitching", "blend_mode"), mode)
         if "alpha" not in self._blend_runnable:
             # No feather control exists where alpha cannot be selected, so there

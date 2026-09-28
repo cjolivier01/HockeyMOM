@@ -23,6 +23,16 @@ GPU_BLEND_MODES = ("laplacian", "alpha", "gpu-hard-seam")
 # enblend/multiblend binaries, and create_blender_config returns a seamless
 # config for it that the blender then dereferences, so no video path can run it.
 PYTHON_BLEND_MODES = ("laplacian", "gpu-hard-seam")
+# Modes whose rendered pixels depend on `blend_feather_fraction`. Anything keyed
+# on the blend has to include the width for these and may leave it out for the
+# rest; deriving that from the set rather than from the name keeps a future
+# feathered mode from silently reusing another mode's cached artifacts.
+FEATHERED_BLEND_MODES = ("alpha",)
+# Modes some renderer can actually produce. A mode outside this set is still
+# recognized vocabulary - a config may name it - but no entry point offers it.
+RENDERABLE_BLEND_MODES = tuple(
+    mode for mode in BLEND_MODES if mode in set(GPU_BLEND_MODES) | set(PYTHON_BLEND_MODES)
+)
 _BLEND_MODE_ALIASES = {
     "hard": "gpu-hard-seam",
     "hard-seam": "gpu-hard-seam",
@@ -35,17 +45,21 @@ MAX_FEATHER_FRACTION = 1.0
 
 
 def config_blend_mode(value: Any) -> Optional[str]:
-    """Normalize a configured mode, or None when the config specifies none.
+    """Fold a configured mode to its canonical spelling, or None when unset.
 
     Absent, an explicit null, and a blank string all mean "inherit", matching
     what the surrounding config machinery means by an empty scalar. Anything
-    else is returned folded but unvalidated, so a caller can still show or
-    report a mode this build does not know.
+    else is folded the same way :func:`normalize_blend_mode` folds it, aliases
+    included, but returned rather than rejected - so a caller can show or report
+    a mode this build does not know without a second, subtly different fold
+    deciding that a mode it does know is unknown.
     """
     if value is None:
         return None
     folded = str(value).strip().lower().replace("_", "-")
-    return folded or None
+    if not folded:
+        return None
+    return _BLEND_MODE_ALIASES.get(folded, folded)
 
 
 def normalize_blend_mode(value: Any) -> str:
@@ -54,8 +68,7 @@ def normalize_blend_mode(value: Any) -> str:
     Accepts the same spellings as HockeyMONStream: case-insensitive, and
     underscores interchangeable with hyphens.
     """
-    normalized = str(value).strip().lower().replace("_", "-")
-    normalized = _BLEND_MODE_ALIASES.get(normalized, normalized)
+    normalized = config_blend_mode(value)
     if normalized not in BLEND_MODES:
         choices = ", ".join(BLEND_MODES)
         raise ValueError(f"Unsupported stitching blend mode {value!r}; choose one of: {choices}")
@@ -211,9 +224,11 @@ __all__ = [
     "DEFAULT_BLEND_LEVELS",
     "DEFAULT_BLEND_MODE",
     "DEFAULT_FEATHER_FRACTION",
+    "FEATHERED_BLEND_MODES",
     "GPU_BLEND_MODES",
     "MAX_FEATHER_FRACTION",
     "PYTHON_BLEND_MODES",
+    "RENDERABLE_BLEND_MODES",
     "BlendSettings",
     "config_blend_mode",
     "normalize_blend_mode",

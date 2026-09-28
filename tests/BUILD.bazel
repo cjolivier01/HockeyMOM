@@ -290,6 +290,7 @@ sh_test(
         "cv2",
         "mmcv",
         "mmengine",
+        "networkx",
         "numpy",
         "pytest",
         "tifffile",

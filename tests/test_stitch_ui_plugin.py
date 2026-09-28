@@ -692,3 +692,59 @@ def should_not_save_an_override_that_only_respells_the_system_mode(monkeypatch):
 
     assert game["stitching"]["blend_mode"] == "gpu-hard-seam"
     assert "blend_mode" not in saved.get("stitching", {})
+
+
+def should_recognize_an_alias_spelling_of_a_runnable_mode(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    # An alias HStream's ParseBlendMode accepts. It names a mode this path runs,
+    # so it must not become a second entry for the same seam.
+    game["stitching"]["blend_mode"] = "hard-seam"
+    system = copy.deepcopy(game)
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    assert process.choices["Stitch Blend"]["Seam_Blend_Mode"] == [
+        "Laplacian (multi-band)",
+        "Alpha (feathered seam)",
+        "Hard seam (no blending)",
+    ]
+    assert process.values["Stitch Blend"]["Seam_Blend_Mode"] == 2
+
+    # Re-picking the same seam is not an override of the system's spelling.
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+    assert "blend_mode" not in saved.get("stitching", {})
+
+
+def should_not_write_a_mode_no_renderer_can_run(monkeypatch):
+    _FakeHmUiProcess.instances.clear()
+    game = _config(rotation=0.0)
+    game["stitching"]["blend_mode"] = "multiblend"
+    system = _config(rotation=0.0)
+    system["stitching"]["blend_mode"] = "laplacian"
+    saved: dict = {}
+
+    plugin, shared, process = _blend_plugin(monkeypatch, game=game, system=system, saved=saved)
+
+    labels = process.choices["Stitch Blend"]["Seam_Blend_Mode"]
+    unrunnable = labels.index("Multiblend (CPU) - not supported here")
+
+    # Picking a real mode works.
+    process.values["Stitch Blend"]["Seam_Blend_Mode"] = 0
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    assert game["stitching"]["blend_mode"] == "laplacian"
+
+    # Picking the marked entry back must not write a mode the next graph build
+    # would refuse, leaving the game unlaunchable with no UI left to fix it.
+    process.values["Stitch Blend"]["Seam_Blend_Mode"] = unrunnable
+    process.changed = True
+    plugin.forward({"img": object(), "shared": shared})
+    process.queue_action("save")
+    plugin.forward({"img": object(), "shared": shared})
+    assert game["stitching"]["blend_mode"] == "laplacian"
+    assert "blend_mode" not in saved.get("stitching", {})

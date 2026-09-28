@@ -20,8 +20,8 @@ from hmlib.config import (
     set_nested_value,
 )
 from hmlib.stitching.blend import (
-    BLEND_MODES,
     MAX_FEATHER_FRACTION,
+    RENDERABLE_BLEND_MODES,
     normalize_blend_mode,
     normalize_feather_fraction,
 )
@@ -42,9 +42,15 @@ def _get_arg_value(args: Any, name: str) -> Any:
 def _blend_mode_arg(value: str) -> str:
     """Validate ``--blend-mode`` at parse time, reporting why a value was rejected."""
     try:
-        return normalize_blend_mode(value)
+        mode = normalize_blend_mode(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from exc
+    if mode not in RENDERABLE_BLEND_MODES:
+        raise argparse.ArgumentTypeError(
+            f"Stitching blend mode {value!r} cannot be rendered by any blender; "
+            f"choose one of: {', '.join(RENDERABLE_BLEND_MODES)}"
+        )
+    return mode
 
 
 def _blend_feather_fraction_arg(value: str) -> float:
@@ -1442,7 +1448,10 @@ class hm_opts(object):
             "--blend_mode",
             default="laplacian",
             type=_blend_mode_arg,
-            choices=BLEND_MODES,
+            # Not BLEND_MODES: `multiblend` is vocabulary a config may carry, but
+            # no renderer can produce it, and --persist would write a value that
+            # makes every later run of that game fail to build its graph.
+            choices=RENDERABLE_BLEND_MODES,
             help="Stitching seam blend mode",
         )
         parser.add_argument(

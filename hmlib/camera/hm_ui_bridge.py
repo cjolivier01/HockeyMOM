@@ -272,6 +272,10 @@ class HmUiProcess:
         """
         if self._spec_version_warned:
             return
+        if not any(control.choices for controls in self._windows.values() for control in controls):
+            # Nothing published here needs a v2 sidecar, so an older one renders
+            # this session identically and there is nothing to report.
+            return
         try:
             reported = int(state.get("spec_version") or 0)
         except (TypeError, ValueError):
@@ -281,8 +285,10 @@ class HmUiProcess:
         self._spec_version_warned = True
         logger.warning(
             "hm-ui reports control-spec version %s but this build writes version %s; "
-            "controls with named choices will render as unlabelled sliders. "
-            "Rebuild hm-ui (bazelisk build //hm-ui:hm-ui) or set HM_UI_BIN.",
+            "controls with named choices will render as an unlabelled slider, or as an "
+            "on/off checkbox when there are exactly two choices. "
+            "Set HM_UI_BIN, or rebuild hm-ui (bazelisk build //hm-ui:hm-ui) and make sure "
+            "the rebuilt binary is the one on PATH.",
             reported,
             _SPEC_VERSION,
         )

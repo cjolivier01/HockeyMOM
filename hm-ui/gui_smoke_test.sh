@@ -43,9 +43,16 @@ for control in Seam_Blend_Mode Seam_Feather_Percent Shadow_Lift_Black_Point; do
   fi
 done
 
-# The spec gives Seam_Blend_Mode a value past its last label. Reading back the
-# clamped index is what shows the binary understood `choices` at all: a build
-# that ignores the field renders a slider and echoes the raw value.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Skipping the hm-ui state assertions: python3 is not installed" >&2
+  exit 0
+fi
+
+# Two separate checks. The spec gives Seam_Blend_Mode a value past its last
+# label, so reading back a clamped index shows clamp_spec_choices ran - a plain
+# slider clamps to max_value too, so this catches a regression in this build,
+# not an older binary. The reported spec_version is what catches that, because
+# only a build that knows the field emits it.
 if ! python3 - "${state}" <<'EOF'
 import json
 import sys
