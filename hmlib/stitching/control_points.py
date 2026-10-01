@@ -147,8 +147,8 @@ def _match_superpoint_lightglue(
         .eval()
         .to(device)
     )
-    # extract() downsamples to SUPERPOINT_RESIZE internally and reports keypoints
-    # back in full-resolution coordinates, so no outer resize is needed here.
+    # extract() resizes to SUPERPOINT_RESIZE internally and reports keypoints back
+    # in source-image coordinates, so no outer resize is needed here.
     feats0 = extractor.extract(image0)
     feats1 = extractor.extract(image1)
     matches = matcher({"image0": feats0, "image1": feats1})["matches"][0]

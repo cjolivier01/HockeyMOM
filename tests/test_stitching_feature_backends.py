@@ -85,23 +85,27 @@ def should_resize_superpoint_inputs_to_the_long_edge_and_report_source_coordinat
     )
 
 
-class _FakeSuperPoint:
-    """Stands in for SuperPoint, handing out one canned feature dict per image."""
+class _FakeModule:
+    """Absorbs the .eval().to(device) chain that the matcher applies to both models."""
+
+    def eval(self) -> _FakeModule:
+        return self
+
+    def to(self, _device: torch.device) -> _FakeModule:
+        return self
+
+
+class _FakeSuperPoint(_FakeModule):
+    """Hands out one canned feature dict per extracted image."""
 
     def __init__(self, *feature_dicts: dict) -> None:
         self._features = iter(feature_dicts)
-
-    def eval(self) -> "_FakeSuperPoint":
-        return self
-
-    def to(self, _device: torch.device) -> "_FakeSuperPoint":
-        return self
 
     def extract(self, _image: torch.Tensor) -> dict:
         return next(self._features)
 
 
-class _FakeLightGlue(_FakeSuperPoint):
+class _FakeLightGlue(_FakeModule):
     """Returns LightGlue's output shape: one [Si x 2] index tensor per batch element."""
 
     def __init__(self, matches: torch.Tensor) -> None:
@@ -126,7 +130,8 @@ def should_pair_superpoint_keypoints_using_lightglue_match_indices(
         torch.zeros((3, 8, 8)), torch.zeros((3, 8, 8)), torch.device("cpu"), 128
     )
 
-    # Index pairs are (query, train), so the batch dim and both columns must line up.
+    # Column 0 indexes image0's keypoints and column 1 image1's; neither the batch
+    # dim nor the column order may be transposed.
     torch.testing.assert_close(points0, torch.tensor([[20.0, 2.0], [0.0, 0.0]]))
     torch.testing.assert_close(points1, torch.tensor([[30.0, 3.0], [40.0, 4.0]]))
 
