@@ -3,7 +3,7 @@
 build --nokeep_going --color=yes
 # build --crosstool_top=@toolchain//crosstool:toolchain
 build --copt=-fPIC
-build --copt=-std=c++17
+build --copt=-std=c++20
 
 build:debug -c dbg --strip="never"
 build:debug --copt=-g3
