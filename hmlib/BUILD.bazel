@@ -68,6 +68,9 @@ python_library(
         "telemetry/schema.sql",
         ":config_data_files",
         "images/scoreboard_selector_thank_you.svg",
+        # Apache-2.0 attribution for the vendored stitching/superpoint.py.
+        "stitching/LIGHTGLUE_LICENSE.txt",
+        "stitching/SUPERPOINT_NOTICE.md",
         ":embed_enblend",
     ] + _MULTIBLEND_DATA,
     lint_tests = False,

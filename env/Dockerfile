@@ -374,7 +374,6 @@ RUN set -eux; \
   build_install /opt/hm/src/hm/openmm/mmpose "mmpose-*.whl"; \
   build_install /opt/hm/src/hm/openmm/mmhuman3d "mmhuman3d-*.whl"; \
   build_install /opt/hm/src/hm/openmm/mmeval "mmeval-*.whl"; \
-  build_install /opt/hm/src/hm/xmodels/LightGlue "lightglue-*.whl"; \
   build_install /opt/hm/src/hm/xmodels/str/parseq "strhub-*.whl"; \
   \
   rm -rf "${WHEEL_DIR}"

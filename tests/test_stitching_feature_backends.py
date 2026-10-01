@@ -53,11 +53,13 @@ def should_resize_dedode_inputs_to_1920_and_restore_original_coordinates() -> No
     torch.testing.assert_close(original_point, torch.tensor([4938.0, 2713.0]))
 
 
-def _superpoint_without_weights(monkeypatch: pytest.MonkeyPatch) -> superpoint_module.SuperPoint:
+def _superpoint_without_weights(
+    monkeypatch: pytest.MonkeyPatch, **conf: object
+) -> superpoint_module.SuperPoint:
     """Build a SuperPoint whose layers are random, so no checkpoint is fetched."""
     monkeypatch.setattr(torch.hub, "load_state_dict_from_url", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(superpoint_module.SuperPoint, "load_state_dict", lambda *_a, **_k: None)
-    return superpoint_module.SuperPoint()
+    return superpoint_module.SuperPoint(**conf)
 
 
 def should_resize_superpoint_inputs_to_the_long_edge_and_report_source_coordinates(
@@ -73,16 +75,56 @@ def should_resize_superpoint_inputs_to_the_long_edge_and_report_source_coordinat
         return {"keypoints": corners[None]}
 
     monkeypatch.setattr(extractor, "forward", fake_forward)
-    feats = extractor.extract(torch.zeros((3, 2160, 3840)))
+    # 1920x1080 keeps the same 1.875 downscale as a 4K frame without the 95MB
+    # allocation and full-resolution antialias blur that one would cost in CI.
+    feats = extractor.extract(torch.zeros((3, 1080, 1920)))
 
     # SuperPoint sees a 1024-long-edge image regardless of the source resolution.
     assert seen == [(576, 1024)]
-    assert feats["image_size"].tolist() == [[3840.0, 2160.0]]
+    # image_size is (w, h) -- kornia's normalize_keypoints reads it in that order.
+    assert feats["image_size"].tolist() == [[1920.0, 1080.0]]
     # Corners of the downsampled image map back onto corners of the source frame.
     torch.testing.assert_close(
         feats["keypoints"],
-        torch.tensor([[[1.375, 1.375], [3837.625, 2157.625]]]),
+        torch.tensor([[[0.4375, 0.4375], [1918.5625, 1078.5625]]]),
     )
+
+
+def should_reject_images_superpoint_cannot_safely_upscale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extractor = _superpoint_without_weights(monkeypatch)
+
+    with pytest.raises(ValueError, match="long edge"):
+        extractor.extract(torch.zeros((3, 60, 100)))
+    with pytest.raises(TypeError, match="float image"):
+        extractor.extract(torch.zeros((3, 1080, 1920), dtype=torch.uint8))
+
+
+def should_hand_superpoint_features_to_kornia_lightglue_unmodified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard the real extract() -> kornia contract that both other tests stub out.
+
+    ``features=None`` skips the checkpoint download, so this needs no network;
+    kornia still validates key names, the (w, h) image_size order, descriptor
+    shape and the normalized-keypoint range the way the real matcher does.
+    """
+    extractor = _superpoint_without_weights(monkeypatch, max_num_keypoints=64)
+    matcher = kornia_feature.LightGlue(features=None).eval()
+
+    rng = torch.Generator().manual_seed(0)
+    image = torch.rand((3, 540, 960), generator=rng)
+    feats0 = extractor.extract(image)
+    feats1 = extractor.extract(torch.rot90(image, k=2, dims=(1, 2)).contiguous())
+
+    count0 = feats0["keypoints"].shape[1]
+    assert feats0["descriptors"].shape == (1, count0, 256)
+    assert feats0["keypoints"].shape == (1, count0, 2)
+    matches = matcher({"image0": feats0, "image1": feats1})["matches"][0]
+    assert matches.ndim == 2 and matches.shape[-1] == 2
+    assert bool((matches[:, 0] < count0).all())
+    assert bool((matches[:, 1] < feats1["keypoints"].shape[1]).all())
 
 
 class _FakeModule:
@@ -96,13 +138,13 @@ class _FakeModule:
 
 
 class _FakeSuperPoint(_FakeModule):
-    """Hands out one canned feature dict per extracted image."""
+    """Keys its reply off the image it is given, so a swapped call site shows up."""
 
-    def __init__(self, *feature_dicts: dict) -> None:
-        self._features = iter(feature_dicts)
+    def __init__(self, features_by_marker: dict[float, dict]) -> None:
+        self._features_by_marker = features_by_marker
 
-    def extract(self, _image: torch.Tensor) -> dict:
-        return next(self._features)
+    def extract(self, image: torch.Tensor) -> dict:
+        return self._features_by_marker[float(image.flatten()[0])]
 
 
 class _FakeLightGlue(_FakeModule):
@@ -110,8 +152,10 @@ class _FakeLightGlue(_FakeModule):
 
     def __init__(self, matches: torch.Tensor) -> None:
         self._matches = matches
+        self.seen: dict = {}
 
-    def __call__(self, _data: dict) -> dict:
+    def __call__(self, data: dict) -> dict:
+        self.seen = data
         return {"matches": [self._matches]}
 
 
@@ -120,16 +164,24 @@ def should_pair_superpoint_keypoints_using_lightglue_match_indices(
 ) -> None:
     keypoints0 = torch.tensor([[0.0, 0.0], [10.0, 1.0], [20.0, 2.0]])
     keypoints1 = torch.tensor([[30.0, 3.0], [40.0, 4.0], [50.0, 5.0]])
-    extractor = _FakeSuperPoint({"keypoints": keypoints0[None]}, {"keypoints": keypoints1[None]})
+    feats0 = {"keypoints": keypoints0[None]}
+    feats1 = {"keypoints": keypoints1[None]}
+    # Each image carries a distinct marker value, so extracting the same one twice
+    # or filling the matcher's slots in the wrong order fails the assertions below.
+    image0 = torch.full((3, 8, 8), 1.0)
+    image1 = torch.full((3, 8, 8), 2.0)
+    extractor = _FakeSuperPoint({1.0: feats0, 2.0: feats1})
     matcher = _FakeLightGlue(torch.tensor([[2, 0], [0, 1]]))
 
     monkeypatch.setattr(superpoint_module, "SuperPoint", lambda **_kwargs: extractor)
     monkeypatch.setattr(kornia_feature, "LightGlue", lambda **_kwargs: matcher)
 
     points0, points1 = control_points_module._match_superpoint_lightglue(
-        torch.zeros((3, 8, 8)), torch.zeros((3, 8, 8)), torch.device("cpu"), 128
+        image0, image1, torch.device("cpu"), 128
     )
 
+    assert matcher.seen["image0"] is feats0
+    assert matcher.seen["image1"] is feats1
     # Column 0 indexes image0's keypoints and column 1 image1's; neither the batch
     # dim nor the column order may be transposed.
     torch.testing.assert_close(points0, torch.tensor([[20.0, 2.0], [0.0, 0.0]]))

@@ -45,16 +45,20 @@
 """SuperPoint detector/descriptor, vendored from cvg/LightGlue.
 
 Kornia supplies LightGlue but no SuperPoint, because the Magic Leap terms in
-the banner above are incompatible with kornia's Apache-2.0 licence. This file
-is therefore upstream's, unchanged except for folding the ``Extractor`` and
-``ImagePreprocessor`` helpers of ``lightglue.utils`` into
-:meth:`SuperPoint.extract` so that the rest of ``lightglue`` is not needed.
+the banner above are incompatible with kornia's Apache-2.0 licence.
+
+The network and its tensor math are upstream's. What differs: the
+``Extractor``/``ImagePreprocessor`` helpers of ``lightglue.utils`` are folded
+into :meth:`SuperPoint.extract` so the rest of ``lightglue`` is not needed,
+the checkpoint is loaded with ``weights_only``, and the file is formatted to
+this repo's Black/ruff settings rather than upstream's.
 
 Source: https://github.com/cvg/LightGlue/blob/main/lightglue/superpoint.py
+See SUPERPOINT_NOTICE.md in this directory for licensing.
 """
 
 from types import SimpleNamespace
-from typing import Dict
+from typing import Any, ClassVar
 
 import torch
 from kornia.color import rgb_to_grayscale
@@ -63,6 +67,7 @@ from torch import nn
 
 # Longest edge, in pixels, that SuperPoint sees. Upstream's ``preprocess_conf``.
 SUPERPOINT_RESIZE = 1024
+WEIGHTS_URL = "https://github.com/cvg/LightGlue/releases/download/v0.1_arxiv/superpoint_v1.pth"
 
 
 def simple_nms(scores, nms_radius: int):
@@ -117,7 +122,7 @@ class SuperPoint(nn.Module):
 
     """
 
-    default_conf = {
+    default_conf: ClassVar[dict[str, Any]] = {
         "descriptor_dim": 256,
         "nms_radius": 4,
         "max_num_keypoints": None,
@@ -125,13 +130,16 @@ class SuperPoint(nn.Module):
         "remove_borders": 4,
     }
 
-    weights_url = "https://github.com/cvg/LightGlue/releases/download/v0.1_arxiv/superpoint_v1.pth"
+    required_data_keys: ClassVar[list[str]] = ["image"]
 
-    required_data_keys = ["image"]
-
-    def __init__(self, **conf):
+    def __init__(self, **conf: Any) -> None:
         super().__init__()
+        unknown = set(conf) - set(self.default_conf)
+        if unknown:
+            raise TypeError(f"Unknown SuperPoint options: {', '.join(sorted(unknown))}")
         self.conf = SimpleNamespace(**{**self.default_conf, **conf})
+        if self.conf.max_num_keypoints is not None and self.conf.max_num_keypoints <= 0:
+            raise ValueError("max_num_keypoints must be positive or None")
         self.relu = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
         c1, c2, c3, c4, c5 = 64, 64, 128, 128, 256
@@ -151,13 +159,12 @@ class SuperPoint(nn.Module):
         self.convDa = nn.Conv2d(c4, c5, kernel_size=3, stride=1, padding=1)
         self.convDb = nn.Conv2d(c5, self.conf.descriptor_dim, kernel_size=1, stride=1, padding=0)
 
-        self.load_state_dict(torch.hub.load_state_dict_from_url(self.weights_url))
-
-        if self.conf.max_num_keypoints is not None and self.conf.max_num_keypoints <= 0:
-            raise ValueError("max_num_keypoints must be positive or None")
+        self.load_state_dict(
+            torch.hub.load_state_dict_from_url(WEIGHTS_URL, map_location="cpu", weights_only=True)
+        )
 
     @torch.no_grad()
-    def extract(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def extract(self, image: torch.Tensor) -> dict[str, torch.Tensor]:
         """Detect and describe one image, resizing it to SUPERPOINT_RESIZE first.
 
         @param image: RGB tensor in ``[0, 1]``, either ``CHW`` or ``1CHW``.
@@ -168,12 +175,27 @@ class SuperPoint(nn.Module):
             image = image[None]  # add batch dim
         if image.dim() != 4 or image.shape[0] != 1:
             raise ValueError("SuperPoint.extract expects a single CHW or 1CHW image")
+        if not image.is_floating_point():
+            raise TypeError(f"SuperPoint.extract expects a float image, got {image.dtype}")
         height, width = image.shape[-2:]
+        # resize() also upscales, and past ~9x the border keypoints map to negative
+        # source coordinates, which kornia's LightGlue rejects with an empty message.
+        if max(height, width) * 9 < SUPERPOINT_RESIZE:
+            raise ValueError(
+                f"SuperPoint.extract needs an image of at least {SUPERPOINT_RESIZE // 9} pixels "
+                f"on its long edge, got {width}x{height}"
+            )
         resized = resize(image, SUPERPOINT_RESIZE, side="long", antialias=True)
-        scales = image.new_tensor([resized.shape[-1] / width, resized.shape[-2] / height])
+        # Keep the coordinate maths in float32: a float16 image would quantise the
+        # scale factors enough to shift restored keypoints by pixels at 8K.
+        factors = torch.tensor(
+            [resized.shape[-1] / width, resized.shape[-2] / height],
+            device=image.device,
+            dtype=torch.float32,
+        )
         feats = self.forward({"image": resized})
-        feats["image_size"] = image.new_tensor([width, height])[None].float()
-        feats["keypoints"] = (feats["keypoints"] + 0.5) / scales[None] - 0.5
+        feats["image_size"] = factors.new_tensor([[width, height]])
+        feats["keypoints"] = (feats["keypoints"].float() + 0.5) / factors[None] - 0.5
         return feats
 
     def forward(self, data: dict) -> dict:
