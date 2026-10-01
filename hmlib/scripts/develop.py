@@ -38,7 +38,6 @@ LOCAL_EDITABLE_PACKAGES = (
     "openmm/mmpretrain",
     "openmm/mmyolo",
     "openmm/mmaction2",
-    "xmodels/LightGlue",
     "xmodels/str/parseq",
 )
 

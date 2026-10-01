@@ -30,7 +30,6 @@ _MATCHER_ALIASES = {
     "dedode": "dedode-lightglue",
     "akaze": "akaze-hamming",
 }
-_SUPERPOINT_MAX_IMAGE_DIMENSION = 2048
 _DEDODE_MAX_IMAGE_DIMENSION = 1920
 _LOFTR_MAX_IMAGE_DIMENSION = 1600
 
@@ -133,12 +132,13 @@ def _match_superpoint_lightglue(
     device: torch.device,
     max_num_keypoints: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    from lightglue import LightGlue, SuperPoint
-    from lightglue.utils import rbd
+    import kornia.feature as kornia_feature
+
+    from hmlib.stitching.superpoint import SuperPoint
 
     extractor = SuperPoint(max_num_keypoints=max_num_keypoints).eval().to(device)
     matcher = (
-        LightGlue(
+        kornia_feature.LightGlue(
             features="superpoint",
             depth_confidence=-1,
             width_confidence=-1,
@@ -147,27 +147,14 @@ def _match_superpoint_lightglue(
         .eval()
         .to(device)
     )
-    resized0, scale_x0, scale_y0 = _resize_for_matching(
-        image0,
-        max_dimension=_SUPERPOINT_MAX_IMAGE_DIMENSION,
-    )
-    resized1, scale_x1, scale_y1 = _resize_for_matching(
-        image1,
-        max_dimension=_SUPERPOINT_MAX_IMAGE_DIMENSION,
-    )
-    feats0 = extractor.extract(resized0)
-    feats1 = extractor.extract(resized1)
-    matches01 = matcher({"image0": feats0, "image1": feats1})
-    feats0, feats1, matches01 = [rbd(value) for value in (feats0, feats1, matches01)]
-    matches = matches01["matches"]
-    points0 = feats0["keypoints"][matches[..., 0]]
-    points1 = feats1["keypoints"][matches[..., 1]]
-    points0 = points0 * points0.new_tensor([scale_x0, scale_y0])
-    points1 = points1 * points1.new_tensor([scale_x1, scale_y1])
-    return (
-        points0,
-        points1,
-    )
+    # extract() downsamples to SUPERPOINT_RESIZE internally and reports keypoints
+    # back in full-resolution coordinates, so no outer resize is needed here.
+    feats0 = extractor.extract(image0)
+    feats1 = extractor.extract(image1)
+    matches = matcher({"image0": feats0, "image1": feats1})["matches"][0]
+    points0 = feats0["keypoints"][0][matches[:, 0]]
+    points1 = feats1["keypoints"][0][matches[:, 1]]
+    return points0, points1
 
 
 def _match_dedode_lightglue(

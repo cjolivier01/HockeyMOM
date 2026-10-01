@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import cv2
+import kornia.feature as kornia_feature
 import numpy as np
 import pytest
 import tifffile
@@ -13,6 +14,7 @@ from stitching_fixtures import write_mapping_files, write_seam
 
 from hmlib.stitching import configure_stitching, homography_maps
 from hmlib.stitching import control_points as control_points_module
+from hmlib.stitching import superpoint as superpoint_module
 
 
 def should_normalize_control_point_matcher_aliases() -> None:
@@ -51,19 +53,82 @@ def should_resize_dedode_inputs_to_1920_and_restore_original_coordinates() -> No
     torch.testing.assert_close(original_point, torch.tensor([4938.0, 2713.0]))
 
 
-def should_resize_superpoint_inputs_to_2048_and_restore_original_coordinates() -> None:
-    image = torch.empty((3, 4320, 7680), device="meta")
-    resized, scale_x, scale_y = control_points_module._resize_for_matching(
-        image,
-        max_dimension=control_points_module._SUPERPOINT_MAX_IMAGE_DIMENSION,
+def _superpoint_without_weights(monkeypatch: pytest.MonkeyPatch) -> superpoint_module.SuperPoint:
+    """Build a SuperPoint whose layers are random, so no checkpoint is fetched."""
+    monkeypatch.setattr(torch.hub, "load_state_dict_from_url", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(superpoint_module.SuperPoint, "load_state_dict", lambda *_a, **_k: None)
+    return superpoint_module.SuperPoint()
+
+
+def should_resize_superpoint_inputs_to_the_long_edge_and_report_source_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extractor = _superpoint_without_weights(monkeypatch)
+    seen: list[tuple[int, int]] = []
+
+    def fake_forward(data: dict) -> dict:
+        height, width = data["image"].shape[-2:]
+        seen.append((height, width))
+        corners = torch.tensor([[0.0, 0.0], [width - 1.0, height - 1.0]])
+        return {"keypoints": corners[None]}
+
+    monkeypatch.setattr(extractor, "forward", fake_forward)
+    feats = extractor.extract(torch.zeros((3, 2160, 3840)))
+
+    # SuperPoint sees a 1024-long-edge image regardless of the source resolution.
+    assert seen == [(576, 1024)]
+    assert feats["image_size"].tolist() == [[3840.0, 2160.0]]
+    # Corners of the downsampled image map back onto corners of the source frame.
+    torch.testing.assert_close(
+        feats["keypoints"],
+        torch.tensor([[[1.375, 1.375], [3837.625, 2157.625]]]),
     )
 
-    assert resized.shape == (3, 1152, 2048)
-    assert scale_x == pytest.approx(3.75)
-    assert scale_y == pytest.approx(3.75)
-    resized_point = torch.tensor([1024.0, 576.0])
-    original_point = resized_point * resized_point.new_tensor([scale_x, scale_y])
-    torch.testing.assert_close(original_point, torch.tensor([3840.0, 2160.0]))
+
+class _FakeSuperPoint:
+    """Stands in for SuperPoint, handing out one canned feature dict per image."""
+
+    def __init__(self, *feature_dicts: dict) -> None:
+        self._features = iter(feature_dicts)
+
+    def eval(self) -> "_FakeSuperPoint":
+        return self
+
+    def to(self, _device: torch.device) -> "_FakeSuperPoint":
+        return self
+
+    def extract(self, _image: torch.Tensor) -> dict:
+        return next(self._features)
+
+
+class _FakeLightGlue(_FakeSuperPoint):
+    """Returns LightGlue's output shape: one [Si x 2] index tensor per batch element."""
+
+    def __init__(self, matches: torch.Tensor) -> None:
+        self._matches = matches
+
+    def __call__(self, _data: dict) -> dict:
+        return {"matches": [self._matches]}
+
+
+def should_pair_superpoint_keypoints_using_lightglue_match_indices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keypoints0 = torch.tensor([[0.0, 0.0], [10.0, 1.0], [20.0, 2.0]])
+    keypoints1 = torch.tensor([[30.0, 3.0], [40.0, 4.0], [50.0, 5.0]])
+    extractor = _FakeSuperPoint({"keypoints": keypoints0[None]}, {"keypoints": keypoints1[None]})
+    matcher = _FakeLightGlue(torch.tensor([[2, 0], [0, 1]]))
+
+    monkeypatch.setattr(superpoint_module, "SuperPoint", lambda **_kwargs: extractor)
+    monkeypatch.setattr(kornia_feature, "LightGlue", lambda **_kwargs: matcher)
+
+    points0, points1 = control_points_module._match_superpoint_lightglue(
+        torch.zeros((3, 8, 8)), torch.zeros((3, 8, 8)), torch.device("cpu"), 128
+    )
+
+    # Index pairs are (query, train), so the batch dim and both columns must line up.
+    torch.testing.assert_close(points0, torch.tensor([[20.0, 2.0], [0.0, 0.0]]))
+    torch.testing.assert_close(points1, torch.tensor([[30.0, 3.0], [40.0, 4.0]]))
 
 
 @pytest.mark.parametrize(
