@@ -264,6 +264,7 @@ sh_test(
     args = [
         "tests/test_stitching_feature_backends.py",
         "cv2",
+        "kornia",
         "numpy",
         "pytest",
         "tifffile",
