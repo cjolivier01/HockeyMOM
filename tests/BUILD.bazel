@@ -815,6 +815,30 @@ sh_test(
 )
 
 sh_test(
+    name="test_rink_landmarks_overlay",
+    srcs=["runtime_pytest.sh"],
+    args=[
+        "tests/test_rink_landmarks_overlay.py",
+        "cv2",
+        "networkx",
+        "pytest",
+        "torch",
+        "yaml",
+    ],
+    data=[
+        "//:pyproject.toml",
+        "//hmlib:config_data_files",
+        "//hmlib:hmlib.lib",
+        "python_runtime.sh",
+        "test_rink_landmarks_overlay.py",
+    ],
+    env_inherit=[
+        "CONDA_PREFIX",
+        "PYTHON_BIN_PATH",
+    ],
+)
+
+sh_test(
     name="test_apply_camera_plugin_dimensions",
     srcs=["runtime_pytest.sh"],
     args=[

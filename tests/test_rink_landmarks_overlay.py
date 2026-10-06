@@ -99,17 +99,17 @@ def should_convert_the_rgb_palette_to_bgr_for_the_overlay() -> None:
 
     landmarks = _landmarks([0], [_box_mask(10, 20, 10, 20)])
 
-    color, alpha = build_overlay_layer(
-        HEIGHT, WIDTH, landmarks=landmarks, outline_thickness=0, bgr=True
-    )
-    rgb_color, _ = build_overlay_layer(
+    layer = build_overlay_layer(HEIGHT, WIDTH, landmarks=landmarks, outline_thickness=0, bgr=True)
+    rgb_layer = build_overlay_layer(
         HEIGHT, WIDTH, landmarks=landmarks, outline_thickness=0, bgr=False
     )
 
+    # The layer is cropped to its coverage, so index relative to the box.
+    y, x = 15 - layer.box[0], 15 - layer.box[2]
     # "Blue Line" is RGB (220, 20, 60); frames in this codebase are BGR.
-    assert color[:, 15, 15].tolist() == [60, 20, 220]
-    assert rgb_color[:, 15, 15].tolist() == [220, 20, 60]
-    assert pytest.approx(float(alpha[0, 15, 15])) == 0.35
+    assert layer.color[:, y, x].tolist() == [60, 20, 220]
+    assert rgb_layer.color[:, y, x].tolist() == [220, 20, 60]
+    assert pytest.approx(float(layer.alpha[0, y, x])) == 0.35
 
 
 @requires_torch
@@ -118,13 +118,60 @@ def should_draw_landmark_outlines_over_their_own_fill() -> None:
 
     landmarks = _landmarks([0], [_box_mask(10, 20, 10, 20)])
 
-    _, alpha = build_overlay_layer(
+    layer = build_overlay_layer(
         HEIGHT, WIDTH, landmarks=landmarks, fill_alpha=0.35, outline_alpha=0.95
     )
 
+    y0, _, x0, _ = layer.box
     # The border pixel carries the outline alpha, the interior the fill alpha.
-    assert pytest.approx(float(alpha[0, 10, 10])) == 0.95
-    assert pytest.approx(float(alpha[0, 15, 15])) == 0.35
+    assert pytest.approx(float(layer.alpha[0, 10 - y0, 10 - x0])) == 0.95
+    assert pytest.approx(float(layer.alpha[0, 15 - y0, 15 - x0])) == 0.35
+
+
+@requires_torch
+def should_crop_the_baked_layer_to_the_pixels_it_covers() -> None:
+    from hmlib.segm.rink_landmarks import build_overlay_layer
+
+    layer = build_overlay_layer(
+        HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 10, 50), rink_mask_alpha=0.5
+    )
+
+    # Blending the whole panorama for marks covering part of it is the
+    # dominant per-frame cost, so the layer carries only its own box.
+    assert layer.box == (5, 35, 10, 50)
+    assert tuple(layer.color.shape) == (3, 30, 40)
+    assert tuple(layer.alpha.shape) == (1, 30, 40)
+
+
+@requires_torch
+def should_not_build_a_layer_that_covers_nothing() -> None:
+    from hmlib.segm.rink_landmarks import build_overlay_layer
+
+    landmarks = _landmarks([0], [_box_mask(10, 20, 10, 20)])
+
+    # Asking for neither a fill nor an outline leaves an all-zero layer; it
+    # must not be uploaded and blended over every frame for no visible effect.
+    assert (
+        build_overlay_layer(HEIGHT, WIDTH, landmarks=landmarks, fill_alpha=0.0, outline_thickness=0)
+        is None
+    )
+
+
+@requires_torch
+def should_leave_pixels_outside_the_overlay_box_untouched() -> None:
+    from hmlib.segm.rink_landmarks import build_overlay_layer, composite_overlay
+
+    layer = build_overlay_layer(
+        HEIGHT, WIDTH, rink_mask=_box_mask(10, 20, 10, 20), rink_mask_alpha=0.5
+    )
+    img = torch.full((HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
+
+    out = composite_overlay(img, layer)
+
+    assert out[0, 0].tolist() == [100, 100, 100]
+    assert out[15, 15].tolist() != [100, 100, 100]
+    # The caller's tensor is shared pipeline state; it must not be mutated.
+    assert bool((img == 100).all())
 
 
 @requires_torch
@@ -156,12 +203,12 @@ def should_return_none_when_there_is_nothing_to_draw() -> None:
 def should_preserve_image_layout_and_dtype_when_compositing(shape, dtype) -> None:
     from hmlib.segm.rink_landmarks import build_overlay_layer, composite_overlay
 
-    color, alpha = build_overlay_layer(
+    layer = build_overlay_layer(
         HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
     )
     img = torch.full(shape, 100, dtype=dtype)
 
-    out = composite_overlay(img, color, alpha)
+    out = composite_overlay(img, layer)
 
     assert out.shape == img.shape
     assert out.dtype == img.dtype
@@ -172,7 +219,7 @@ def should_preserve_image_layout_and_dtype_when_compositing(shape, dtype) -> Non
 def should_blend_the_overlay_at_the_requested_alpha() -> None:
     from hmlib.segm.rink_landmarks import build_overlay_layer, composite_overlay
 
-    color, alpha = build_overlay_layer(
+    layer = build_overlay_layer(
         HEIGHT,
         WIDTH,
         rink_mask=_box_mask(0, HEIGHT, 0, WIDTH),
@@ -181,7 +228,7 @@ def should_blend_the_overlay_at_the_requested_alpha() -> None:
     )
     img = torch.zeros((HEIGHT, WIDTH, 3), dtype=torch.uint8)
 
-    out = composite_overlay(img, color, alpha)
+    out = composite_overlay(img, layer)
 
     assert out[0, 0].tolist() == [0, 100, 0]
 
@@ -242,8 +289,8 @@ def should_composite_the_cached_overlay_onto_every_frame() -> None:
     plugin._layer = build_overlay_layer(
         HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
     )
-    plugin._layer_shape = (HEIGHT, WIDTH)
-    plugin._attempted_shape = (HEIGHT, WIDTH)
+    plugin._layer_key = (HEIGHT, WIDTH, None)
+    plugin._attempted_key = (HEIGHT, WIDTH, None)
     img = torch.full((1, HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
 
     out = plugin.forward({"img": img, "game_id": "game-1"})
@@ -283,8 +330,8 @@ def should_discard_a_stale_overlay_when_the_panorama_is_resized(no_real_models) 
     plugin._layer = build_overlay_layer(
         HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
     )
-    plugin._layer_shape = (HEIGHT, WIDTH)
-    plugin._attempted_shape = (HEIGHT, WIDTH)
+    plugin._layer_key = (HEIGHT, WIDTH, None)
+    plugin._attempted_key = (HEIGHT, WIDTH, None)
     resized = torch.full((1, HEIGHT * 2, WIDTH * 2, 3), 100, dtype=torch.uint8)
 
     # The rebuild at the new size fails, so the plugin must fall silent rather
@@ -344,7 +391,7 @@ def should_keep_stitching_when_the_overlay_models_are_unavailable(no_real_models
 
     assert plugin.forward({"img": img, "game_id": "nope"}) == {}
     # And it must not retry the failing models on every subsequent frame.
-    assert plugin._attempted_shape == (HEIGHT, WIDTH)
+    assert plugin._attempted_key == (HEIGHT, WIDTH, None)
     assert plugin.forward({"img": img, "game_id": "nope"}) == {}
 
 
@@ -357,8 +404,8 @@ def should_keep_stitching_when_compositing_fails(monkeypatch) -> None:
     plugin._layer = build_overlay_layer(
         HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
     )
-    plugin._layer_shape = (HEIGHT, WIDTH)
-    plugin._attempted_shape = (HEIGHT, WIDTH)
+    plugin._layer_key = (HEIGHT, WIDTH, None)
+    plugin._attempted_key = (HEIGHT, WIDTH, None)
 
     def _oom(*args, **kwargs):
         raise torch.OutOfMemoryError("no room")
@@ -411,7 +458,7 @@ def _stitch_graph_config(argv: list[str]) -> dict:
     """
     import sys
 
-    from hmlib.cli.stitch import make_parser
+    from hmlib.cli.stitch import _arm_rink_overlay, make_parser
     from hmlib.config import (
         get_config,
         load_yaml_files_ordered,
@@ -437,6 +484,7 @@ def _stitch_graph_config(argv: list[str]) -> dict:
         aspen, args, parser=parser, explicit_arg_names=args.explicit_arg_names
     )
     hm_opts.apply_config_overrides(aspen, args.config_overrides)
+    _arm_rink_overlay(aspen)
     resolve_global_refs(aspen)
     return aspen
 
@@ -467,6 +515,24 @@ def should_arm_the_rink_overlay_from_the_stitch_cli(flag, drawn, quiet) -> None:
     assert node["enabled"] is True
     assert node["params"][drawn] is True
     assert node["params"][quiet] is False
+
+
+@requires_torch
+@pytest.mark.parametrize("key", ["plot.plot_ice_mask", "plot.plot_rink_landmarks"])
+def should_arm_the_rink_overlay_from_a_config_file(key) -> None:
+    from hmlib.cli.stitch import _arm_rink_overlay
+    from hmlib.config import get_nested_value, set_nested_value
+
+    # A game or private YAML can ask for an overlay without the flag ever
+    # being typed, and ARG_TO_CONFIG_MAP only fires for explicit flags -- so
+    # the master switch has to be derived from the final config, not mapped.
+    config = _stitch_graph_config(["--ignore-private-config=1"])
+    assert get_nested_value(config, "plot.plot_rink_overlay") is False
+
+    set_nested_value(config, key, True)
+    _arm_rink_overlay(config)
+
+    assert get_nested_value(config, "plot.plot_rink_overlay") is True
 
 
 @requires_torch

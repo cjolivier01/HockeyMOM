@@ -17,7 +17,7 @@ import gc
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -49,6 +49,43 @@ DEFAULT_SCORE_THRESH = 0.5
 # flat tint. Drop it from overlays unless it is asked for by name.
 DEFAULT_EXCLUDED_CLASSES = ("Field",)
 
+# Overlay appearance. Single source of truth: the plugin, the CLI flags and
+# build_overlay_layer all default to these rather than restating the literals.
+# The rink tint matches SegmBoundaries.draw so the stitch preview and the
+# tracking overlay render the same mask the same way.
+DEFAULT_RINK_MASK_COLOR = (0, 255, 0)
+DEFAULT_RINK_MASK_ALPHA = 0.10
+DEFAULT_FILL_ALPHA = 0.35
+DEFAULT_OUTLINE_ALPHA = 0.95
+DEFAULT_OUTLINE_THICKNESS = 3
+
+
+class OverlayLayer(NamedTuple):
+    """A baked overlay, cropped to the region it actually covers.
+
+    ``box`` is ``(y0, y1, x0, x1)`` in full-frame coordinates; ``color`` and
+    ``alpha`` are sized to that box, not to the frame.
+    """
+
+    color: torch.Tensor  # uint8 [3, h, w]
+    alpha: torch.Tensor  # float32 [1, h, w]
+    box: Tuple[int, int, int, int]
+
+
+def parse_class_list(classes: Union[str, Sequence[str], None]) -> Optional[List[str]]:
+    """Normalize a class allow-list from a CLI string, YAML string, or sequence.
+
+    A ``str`` is a ``Sequence[str]``, so ``list("Blue Line")`` would silently
+    become an allow-list of single characters.
+    """
+    if classes is None:
+        return None
+    if isinstance(classes, str):
+        classes = classes.split(",")
+    names = [str(name).strip() for name in classes if str(name).strip()]
+    return names or None
+
+
 # Longest edge handed to the detector when no explicit scale is given.
 #
 # This is a memory cap, not a quality knob. The model's own test pipeline
@@ -74,23 +111,23 @@ def landmark_metadata(model: "BaseDetector") -> Tuple[Tuple[str, ...], List[Tupl
     meta = getattr(model, "dataset_meta", None) or {}
     classes = tuple(meta.get("classes") or ())
     # mmdet stores a palette *name* ("random") when neither the checkpoint nor
-    # the config carries real colors, so validate rather than int() a string.
-    palette: List[Tuple[int, int, int]] = []
-    for color in meta.get("palette") or []:
-        if isinstance(color, (str, bytes)) or not isinstance(color, Sequence):
-            palette = []
-            break
-        try:
-            channels = [int(channel) for channel in color]
-        except (TypeError, ValueError):
-            palette = []
-            break
-        if len(channels) != 3:
-            palette = []
-            break
-        palette.append((channels[0], channels[1], channels[2]))
+    # the config carries real colors, so this has to survive a str as well as
+    # a list of triples or an ndarray of rows.
+    try:
+        palette = [tuple(int(channel) for channel in color) for color in meta.get("palette") or []]
+    except (TypeError, ValueError):
+        palette = []
+    if any(len(color) != 3 for color in palette):
+        palette = []
     if len(palette) < len(classes):
-        # Deterministic fallback so an untagged checkpoint still renders.
+        # Deterministic fallback so an untagged checkpoint still renders. Say
+        # so: otherwise the colors just silently stop matching the ones mmdet's
+        # own visualizer uses for this checkpoint.
+        logger.warning(
+            "Rink landmark checkpoint has no usable palette (%r); falling back to "
+            "generated colors, which will not match the training visualizations.",
+            meta.get("palette"),
+        )
         palette = [_hsv_color(i, len(classes)) for i in range(len(classes))]
     return classes, palette
 
@@ -101,6 +138,24 @@ def _hsv_color(index: int, total: int) -> Tuple[int, int, int]:
     pixel = np.uint8([[[hue, 255, 255]]])
     rgb = cv2.cvtColor(pixel, cv2.COLOR_HSV2RGB)[0, 0]
     return int(rgb[0]), int(rgb[1]), int(rgb[2])
+
+
+def _resolve_model_path(path: str) -> str:
+    """Resolve a model path that may be a URL, repo-relative, or CWD-relative.
+
+    Config-declared paths are repo-root-relative, but the same parameters also
+    carry values a user typed, which are naturally relative to where they are
+    standing. The graph threads config values through those parameters too, so
+    the callee cannot tell the two apart -- accept either and let the one that
+    exists win.
+    """
+    if "://" in path:
+        return path
+    from_root = prepend_root_dir(path)
+    if os.path.exists(from_root) or os.path.isabs(path):
+        return from_root
+    from_cwd = os.path.abspath(path)
+    return from_cwd if os.path.exists(from_cwd) else from_root
 
 
 def _as_numpy_image(image: Union[torch.Tensor, np.ndarray, StreamTensorBase]) -> np.ndarray:
@@ -160,17 +215,19 @@ def _rescale_landmarks(
 ) -> Dict[str, Any]:
     """Map masks and boxes produced at ``inference_scale`` back to full resolution.
 
-    One mask at a time: upsampling the whole stack in a single float32
-    interpolate would recreate the very allocation DEFAULT_MAX_INFERENCE_EDGE
-    exists to avoid, only on the host (N * 234 MB on a 12407x4710 panorama).
+    One mask at a time, through the sibling module's _resize_mask: upsampling
+    the whole stack in a single float32 interpolate would recreate the very
+    allocation DEFAULT_MAX_INFERENCE_EDGE exists to avoid, only on the host
+    (N * 234 MB on a 12407x4710 panorama).
     """
+    from hmlib.segm.ice_rink import _resize_mask
+
     height, width = target_hw
     masks = landmarks["masks"]
     if masks.numel():
         resized = torch.empty((masks.shape[0], height, width), dtype=torch.bool)
         for index in range(masks.shape[0]):
-            one = masks[index].to(torch.float32)[None, None]
-            resized[index] = F.interpolate(one, size=(height, width), mode="nearest")[0, 0] > 0.5
+            resized[index] = _resize_mask(masks[index], height, width)
         landmarks["masks"] = resized
     inv_scale = 1.0 / inference_scale
     landmarks["bboxes"] = landmarks["bboxes"] * inv_scale
@@ -200,6 +257,9 @@ def find_rink_landmarks(
     orig_height = image_height(image)
     orig_width = image_width(image)
     infer_image = _as_numpy_image(image)
+
+    if inference_scale is not None and inference_scale <= 0:
+        raise ValueError(f"Rink landmark inference scale must be > 0, got {inference_scale}")
 
     # A clamp, not a fallback: the cap exists to stop an 11.7 GiB allocation,
     # so an explicit --rink-landmarks-inference-scale must not be able to
@@ -278,8 +338,8 @@ def configure_rink_landmarks(
         )
         return None
 
-    config_path = prepend_root_dir(model_config_file)
-    checkpoint_path = prepend_root_dir(model_checkpoint)
+    config_path = _resolve_model_path(model_config_file)
+    checkpoint_path = _resolve_model_path(model_checkpoint)
     if "://" not in checkpoint_path and not os.path.exists(checkpoint_path):
         logger.warning(
             "Rink landmark checkpoint not found: %s. Train it with "
@@ -350,11 +410,11 @@ def build_overlay_layer(
     width: int,
     landmarks: Optional[Dict[str, Any]] = None,
     rink_mask: Optional[torch.Tensor] = None,
-    rink_mask_color: Tuple[int, int, int] = (0, 255, 0),
-    rink_mask_alpha: float = 0.10,
-    fill_alpha: float = 0.35,
-    outline_alpha: float = 0.95,
-    outline_thickness: int = 3,
+    rink_mask_color: Tuple[int, int, int] = DEFAULT_RINK_MASK_COLOR,
+    rink_mask_alpha: float = DEFAULT_RINK_MASK_ALPHA,
+    fill_alpha: float = DEFAULT_FILL_ALPHA,
+    outline_alpha: float = DEFAULT_OUTLINE_ALPHA,
+    outline_thickness: int = DEFAULT_OUTLINE_THICKNESS,
     label_text: bool = False,
     bgr: bool = True,
 ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
@@ -398,9 +458,11 @@ def build_overlay_layer(
         # full-resolution plane per instance (58 MB each on a 12407x4710
         # panorama). 0 means "no outline here", otherwise 1 + palette index.
         outline_owner = np.zeros((height, width), dtype=np.uint16)
+        outline_ids: set[int] = set()
 
         for mask, label in zip(masks, labels):
-            mask_np = mask.numpy().astype(np.uint8)
+            selected = mask.detach().to(torch.bool).cpu().numpy()
+            mask_np = selected.view(np.uint8)
             if mask_np.shape != (height, width):
                 logger.warning(
                     "Landmark mask is %s but the overlay plane is %s; skipping it.",
@@ -410,19 +472,21 @@ def build_overlay_layer(
                 continue
             index = int(label)
             rgb = channel_order(palette[index] if index < len(palette) else (255, 255, 255))
-            selected = mask_np.astype(bool)
             if fill_alpha > 0:
                 color[selected] = rgb
                 alpha[selected] = float(fill_alpha)
+                drew_anything = True
             if outline_thickness > 0:
                 edges = _mask_outline(mask_np, outline_thickness)
                 # Later instances win, matching the previous two-pass order.
                 np.copyto(outline_owner, index + 1, where=edges.astype(bool))
-            drew_anything = True
+                outline_ids.add(index + 1)
+                drew_anything = True
 
-        for index in np.unique(outline_owner):
-            if index == 0:
-                continue
+        # Iterate the ids actually written rather than np.unique()-ing a
+        # panorama-sized plane, which would sort 58M elements to learn what
+        # the fill loop already knew.
+        for index in sorted(outline_ids):
             rgb = channel_order(palette[index - 1] if index - 1 < len(palette) else (255, 255, 255))
             selected = outline_owner == index
             color[selected] = rgb
@@ -434,9 +498,21 @@ def build_overlay_layer(
     if not drew_anything:
         return None
 
-    color_t = torch.from_numpy(color).permute(2, 0, 1).contiguous()
-    alpha_t = torch.from_numpy(alpha).unsqueeze(0).contiguous()
-    return color_t, alpha_t
+    # Crop to the covered region. Painted lines cover a few percent of a
+    # panorama, so blending only this box turns the per-frame cost into a
+    # fraction of what a full-frame blend would read and write.
+    rows = np.flatnonzero(alpha.any(axis=1))
+    cols = np.flatnonzero(alpha.any(axis=0))
+    if not rows.size or not cols.size:
+        # Every mask was empty, or the alphas were all zero.
+        logger.warning("Rink overlay covers no pixels; drawing nothing.")
+        return None
+    y0, y1 = int(rows[0]), int(rows[-1]) + 1
+    x0, x1 = int(cols[0]), int(cols[-1]) + 1
+
+    color_t = torch.from_numpy(color[y0:y1, x0:x1]).permute(2, 0, 1).contiguous()
+    alpha_t = torch.from_numpy(alpha[y0:y1, x0:x1]).unsqueeze(0).contiguous()
+    return OverlayLayer(color=color_t, alpha=alpha_t, box=(y0, y1, x0, x1))
 
 
 def _draw_labels(
@@ -456,68 +532,87 @@ def _draw_labels(
         index = int(label)
         name = classes[index] if index < len(classes) else str(index)
         rgb = channel_order(palette[index] if index < len(palette) else (255, 255, 255))
-        x = int(bbox[0])
-        y = max(int(bbox[1]) - 4, int(round(16 * font_scale)))
         text = f"{name} {float(score):.2f}"
-        text_layer = np.zeros(color.shape[:2], dtype=np.uint8)
+        (text_width, text_height), baseline = cv2.getTextSize(
+            text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness
+        )
+        x = int(bbox[0])
+        y = max(int(bbox[1]) - 4, text_height)
+
+        # Rasterize into a box the size of the text, not the size of the
+        # panorama: a full-frame scratch plane per label would be 58 MB each
+        # on a 12407x4710 frame, to stamp a couple of dozen characters.
+        height, width = color.shape[:2]
+        x0 = max(0, x)
+        y0 = max(0, y - text_height - baseline)
+        x1 = min(width, x + text_width)
+        y1 = min(height, y + baseline)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        scratch = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
         cv2.putText(
-            text_layer,
+            scratch,
             text,
-            (x, y),
+            (x - x0, y - y0),
             cv2.FONT_HERSHEY_SIMPLEX,
             font_scale,
-            color=1,
+            color=255,
             thickness=thickness,
             lineType=cv2.LINE_AA,
         )
-        selected = text_layer.astype(bool)
-        color[selected] = rgb
-        alpha[selected] = 1.0
+        selected = scratch > 127
+        color[y0:y1, x0:x1][selected] = rgb
+        alpha[y0:y1, x0:x1][selected] = 1.0
 
 
-def overlay_layer_to(
-    layer: Tuple[torch.Tensor, torch.Tensor], device: torch.device
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def overlay_layer_to(layer: OverlayLayer, device: torch.device) -> OverlayLayer:
     """Move a baked layer onto ``device`` once, as float32 ready for the blend.
 
-    Callers cache the result. Doing this per frame instead would push the whole
-    layer back over PCIe every frame -- 409 MB on a 12407x4710 panorama -- which
-    is far more expensive than the blend it feeds.
+    Callers cache the result. Doing this per frame instead would push the layer
+    back over PCIe every frame, which costs more than the blend it feeds.
     """
-    color, alpha = layer
-    return color.to(device=device, dtype=torch.float32), alpha.to(
-        device=device, dtype=torch.float32
+    return layer._replace(
+        color=layer.color.to(device=device, dtype=torch.float32),
+        alpha=layer.alpha.to(device=device, dtype=torch.float32),
     )
 
 
-def composite_overlay(
-    img: torch.Tensor, color_layer: torch.Tensor, alpha_layer: torch.Tensor
-) -> torch.Tensor:
+def composite_overlay(img: torch.Tensor, layer: OverlayLayer) -> torch.Tensor:
     """Alpha-blend a prebuilt overlay onto ``img``, preserving its layout and dtype.
 
-    Pass layers already on ``img``'s device (see :func:`overlay_layer_to`); the
-    conversions below are a correctness fallback, not the intended path.
+    Only ``layer.box`` is touched: the painted features cover a small part of a
+    panorama, so blending the whole frame would read and write two orders of
+    magnitude more than the marks need. Pass a layer already on ``img``'s device
+    (see :func:`overlay_layer_to`); the conversions below are a correctness
+    fallback, not the intended path.
     """
     was_channels_first = is_channels_first(img)
     work = make_channels_first(img)
     original_dtype = work.dtype
 
-    color = color_layer.to(device=work.device, dtype=torch.float32)
-    alpha = alpha_layer.to(device=work.device, dtype=torch.float32)
+    color = layer.color.to(device=work.device, dtype=torch.float32)
+    alpha = layer.alpha.to(device=work.device, dtype=torch.float32)
     if work.ndim == 4:
         color = color.unsqueeze(0)
         alpha = alpha.unsqueeze(0)
 
-    # lerp keeps this to one output allocation instead of the five a hand-rolled
-    # `a * (1 - t) + b * t` would materialize at panorama size.
-    blended = torch.lerp(work.to(torch.float32), color, alpha)
-    if original_dtype == torch.uint8:
-        blended = blended.round_().clamp_(0, 255)
-    elif not torch.is_floating_point(torch.empty(0, dtype=original_dtype)):
-        blended = blended.round_()
-    blended = blended.to(original_dtype)
+    y0, y1, x0, x1 = layer.box
+    region = work[..., y0:y1, x0:x1]
 
-    return blended if was_channels_first else make_channels_last(blended)
+    # lerp keeps this to one output allocation instead of the five a hand-rolled
+    # `a * (1 - t) + b * t` would materialize.
+    blended = torch.lerp(region.to(torch.float32), color, alpha)
+    if not original_dtype.is_floating_point:
+        blended.round_()
+        if original_dtype == torch.uint8:
+            blended.clamp_(0, 255)
+
+    # Write the blended box back into a copy of the frame; the caller's tensor
+    # is shared pipeline state and must not be mutated.
+    out = work.clone()
+    out[..., y0:y1, x0:x1] = blended.to(original_dtype)
+
+    return out if was_channels_first else make_channels_last(out)
 
 
 def summarize_landmarks(landmarks: Optional[Dict[str, Any]]) -> str:
@@ -626,6 +721,9 @@ def main(args: argparse.Namespace = None) -> int:
             device=device,
             expected_shape=torch.Size((height, width)),
             image=frame,
+            # Annotating a frame must not rewrite the game's calibration; use
+            # hmfind_ice_rink when you actually mean to regenerate it.
+            persist=False,
         )
         rink_mask = (rink_profile or {}).get("combined_mask")
         print("rink mask: " + ("found" if rink_mask is not None else "unavailable"))
@@ -656,8 +754,7 @@ def main(args: argparse.Namespace = None) -> int:
         print("Nothing to draw.")
         return 1
 
-    color_layer, alpha_layer = layer
-    annotated = composite_overlay(torch.from_numpy(frame), color_layer, alpha_layer)
+    annotated = composite_overlay(torch.from_numpy(frame), layer)
 
     output_path = args.output or str(Path(game_dir) / "rink_landmarks.png")
     cv2.imwrite(output_path, annotated.numpy())

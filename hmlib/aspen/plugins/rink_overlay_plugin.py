@@ -24,6 +24,18 @@ from .base import Plugin
 logger = logging.getLogger(__name__)
 
 
+def _is_out_of_memory(error: BaseException) -> bool:
+    """Whether ``error`` is a GPU out-of-memory failure in any of its shapes.
+
+    cuDNN and cuBLAS workspace failures surface as a plain RuntimeError rather
+    than OutOfMemoryError, and on a card already holding the stitcher that is
+    the common one.
+    """
+    if isinstance(error, torch.OutOfMemoryError):
+        return True
+    return isinstance(error, RuntimeError) and "out of memory" in str(error).lower()
+
+
 class RinkOverlayPlugin(Plugin):
     """
     Overlay the rink mask and/or the painted rink landmarks on the stitched image.
@@ -50,9 +62,9 @@ class RinkOverlayPlugin(Plugin):
         score_thr: Optional[float] = None,
         inference_scale: Optional[float] = None,
         classes: Optional[Sequence[str]] = None,
-        fill_alpha: float = 0.35,
-        rink_mask_alpha: float = 0.10,
-        outline_thickness: int = 3,
+        fill_alpha: Optional[float] = None,
+        rink_mask_alpha: Optional[float] = None,
+        outline_thickness: Optional[int] = None,
         label_text: bool = False,
         device: Optional[str] = None,
         checkpoint: Optional[str] = None,
@@ -64,15 +76,21 @@ class RinkOverlayPlugin(Plugin):
         self._draw_landmarks = bool(landmarks)
         self._score_thr = score_thr
         self._inference_scale = inference_scale
-        # A str is a Sequence[str], so list("Blue Line") would become an
-        # allow-list of single characters. Per-game YAML naturally spells this
-        # as a comma-separated string, matching the CLI flag.
-        if isinstance(classes, str):
-            classes = [name.strip() for name in classes.split(",") if name.strip()]
-        self._classes = list(classes) if classes else None
-        self._fill_alpha = float(fill_alpha)
-        self._rink_mask_alpha = float(rink_mask_alpha)
-        self._outline_thickness = int(outline_thickness)
+        from hmlib.segm.rink_landmarks import (
+            DEFAULT_FILL_ALPHA,
+            DEFAULT_OUTLINE_THICKNESS,
+            DEFAULT_RINK_MASK_ALPHA,
+            parse_class_list,
+        )
+
+        self._classes = parse_class_list(classes)
+        self._fill_alpha = float(DEFAULT_FILL_ALPHA if fill_alpha is None else fill_alpha)
+        self._rink_mask_alpha = float(
+            DEFAULT_RINK_MASK_ALPHA if rink_mask_alpha is None else rink_mask_alpha
+        )
+        self._outline_thickness = int(
+            DEFAULT_OUTLINE_THICKNESS if outline_thickness is None else outline_thickness
+        )
         self._label_text = bool(label_text)
         self._device = device
         self._checkpoint = checkpoint
@@ -80,28 +98,40 @@ class RinkOverlayPlugin(Plugin):
         self._save_debug_frame = bool(save_debug_frame)
 
         self._layer: Optional[tuple] = None
-        self._layer_shape: Optional[tuple] = None
-        self._attempted_shape: Optional[tuple] = None
+        # (height, width, stitched_geometry_revision). The revision matters:
+        # a recalibration can land on the same output size while moving every
+        # pixel, and a mask aligned to the old warp is worse than none.
+        self._layer_key: Optional[tuple] = None
+        self._attempted_key: Optional[tuple] = None
         self._device_layer: Optional[tuple] = None
-        self._device_layer_key: Optional[torch.device] = None
+        self._composite_failures: int = 0
+        self._dumped_debug_frame: bool = False
+
+    # Give up after this many consecutive blend failures rather than retrying
+    # a doomed allocation on every frame of a long encode.
+    _MAX_COMPOSITE_FAILURES = 3
 
     def set_cuda_graph_enabled(self, enabled: bool) -> bool:
-        # Mask inference and the first-frame PNG dump cannot be captured.
+        # This plugin never builds a CudaGraphCallable, so there is nothing to
+        # capture. Returning False just keeps it out of the supported-plugins
+        # report; AspenNet does not use the value to exclude anything.
         self._cuda_graph_enabled = False
         return False
 
-    def _resolve_device(self, frame: torch.Tensor, context: Dict[str, Any]) -> torch.device:
-        """Pick the inference device, preferring the one the frame already lives on."""
+    def _resolve_device(self, frame: torch.Tensor, capped: bool) -> torch.device:
+        """Pick the inference device for one model.
+
+        Measured on a 32 GB card: the ice rink model runs at full panorama
+        resolution and reliably OOMs next to the stitcher's working set, so it
+        stays on the CPU like IceRinkSegmBoundariesPlugin does. The landmark
+        model is capped at DEFAULT_MAX_INFERENCE_EDGE and fits, so it gets the
+        GPU and the first frame is not stalled for minutes. An explicit
+        ``device`` param overrides both.
+        """
         if self._device:
             return torch.device(self._device)
-        if torch.is_tensor(frame) and frame.is_cuda:
+        if capped and torch.is_tensor(frame) and frame.is_cuda:
             return frame.device
-        shared = context.get("shared") or {}
-        shared_device = shared.get("device")
-        if shared_device is not None:
-            device = torch.device(shared_device)
-            if device.type == "cuda":
-                return device
         return torch.device("cpu")
 
     def _build_layer(self, frame: torch.Tensor, context: Dict[str, Any]) -> None:
@@ -121,7 +151,6 @@ class RinkOverlayPlugin(Plugin):
 
         height = int(image_height(frame))
         width = int(image_width(frame))
-        device = self._resolve_device(frame, context)
         geometry = context.get("camera_input_geometry") or {}
         revision = geometry.get("stitched_geometry_revision")
 
@@ -132,7 +161,7 @@ class RinkOverlayPlugin(Plugin):
             rink_profile = self._run_model(
                 "rink mask",
                 configure_ice_rink_mask,
-                device,
+                self._resolve_device(frame, capped=False),
                 game_id=game_id,
                 expected_shape=torch.Size((height, width)),
                 image=frame,
@@ -152,7 +181,7 @@ class RinkOverlayPlugin(Plugin):
             landmarks = self._run_model(
                 "rink landmarks",
                 configure_rink_landmarks,
-                device,
+                self._resolve_device(frame, capped=True),
                 game_id=game_id,
                 image=frame,
                 score_thr=(
@@ -178,7 +207,7 @@ class RinkOverlayPlugin(Plugin):
         if self._layer is None:
             logger.warning("Rink overlay produced nothing to draw.")
             return
-        self._layer_shape = (height, width)
+        self._layer_key = (height, width, revision)
 
     def _run_model(self, what: str, call, device: torch.device, **kwargs):
         """Run one calibration model, degrading to no overlay on any failure.
@@ -188,16 +217,17 @@ class RinkOverlayPlugin(Plugin):
         """
         try:
             return call(device=device, **kwargs)
-        except torch.OutOfMemoryError:
-            if device.type == "cpu":
-                logger.warning("Ran out of memory computing the %s; skipping it.", what)
-                return None
-            logger.warning("Ran out of GPU memory computing the %s; retrying on the CPU.", what)
         except Exception as ex:
             # Decoration must never abort an encode: a missing game dir raises
             # AssertionError, an absent checkpoint FileNotFoundError, and so on.
-            logger.warning("%s unavailable for the overlay: %s", what.capitalize(), ex)
-            return None
+            if device.type == "cpu" or not _is_out_of_memory(ex):
+                logger.warning("%s unavailable for the overlay: %s", what.capitalize(), ex)
+                return None
+            logger.warning("Ran out of GPU memory computing the %s; retrying on the CPU.", what)
+
+        # Hand the partially-allocated model's memory back before retrying, so
+        # a fragmented allocator does not cascade the OOM into the stitcher.
+        torch.cuda.empty_cache()
         try:
             return call(device=torch.device("cpu"), **kwargs)
         except Exception as ex:
@@ -213,6 +243,7 @@ class RinkOverlayPlugin(Plugin):
         shared = context.get("shared") or {}
         work_dir = context.get("work_dir") or shared.get("work_dir")
         if not work_dir:
+            logger.warning("No work_dir in context; skipping the rink overlay reference frame.")
             return
         try:
             import cv2
@@ -231,13 +262,11 @@ class RinkOverlayPlugin(Plugin):
         from hmlib.segm.rink_landmarks import composite_overlay, overlay_layer_to
 
         device = frame.device
-        if self._device_layer is None or self._device_layer_key != device:
+        if self._device_layer is None or self._device_layer[0].device != device:
             # Upload once per device. Re-uploading each frame would cost more
             # than the blend: 409 MB on a 12407x4710 panorama.
             self._device_layer = overlay_layer_to(self._layer, device)
-            self._device_layer_key = device
-        color_layer, alpha_layer = self._device_layer
-        return composite_overlay(frame, color_layer, alpha_layer)
+        return composite_overlay(frame, self._device_layer)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
         if not self.enabled:
@@ -254,25 +283,25 @@ class RinkOverlayPlugin(Plugin):
 
         height = int(image_height(frame))
         width = int(image_width(frame))
+        geometry = context.get("camera_input_geometry") or {}
+        key = (height, width, geometry.get("stitched_geometry_revision"))
 
-        if self._layer_shape is not None and self._layer_shape != (height, width):
-            # The panorama changed size mid-run (a recalibration, or a different
-            # max_output_width). A stale mask would be drawn in the wrong place.
-            logger.info(
-                "Stitched frame resized to %dx%d; rebuilding the rink overlay.", width, height
-            )
+        if self._layer_key is not None and self._layer_key != key:
+            # The panorama was resized or recalibrated mid-run. A recalibration
+            # can keep the output size and still move every pixel, so a stale
+            # mask would be drawn in the wrong place either way.
+            logger.info("Stitched geometry changed; rebuilding the rink overlay.")
             self._layer = None
-            self._layer_shape = None
+            self._layer_key = None
             self._device_layer = None
-            self._device_layer_key = None
 
         if self._layer is None:
-            # Key the "already tried and failed" latch on the shape, so a
-            # failure at one panorama size does not mute the overlay forever
-            # once the stream settles on a size the models can handle.
-            if self._attempted_shape == (height, width):
+            # Key the "already tried and failed" latch on the geometry, so a
+            # failure under one geometry does not mute the overlay forever
+            # once the stream settles on one the models can handle.
+            if self._attempted_key == key:
                 return {}
-            self._attempted_shape = (height, width)
+            self._attempted_key = key
             try:
                 with self.profile_scope("rink_overlay.build"):
                     self._build_layer(frame, context)
@@ -283,23 +312,31 @@ class RinkOverlayPlugin(Plugin):
                 self._layer = None
             if self._layer is None:
                 return {}
-            first_build = True
-        else:
-            first_build = False
 
         try:
             with self.profile_scope("rink_overlay.composite"):
                 annotated = self._composite(frame)
         except Exception as ex:
-            # A transient OOM on frame N must cost the overlay, not the encode.
-            logger.warning("Rink overlay compositing failed; dropping it: %s", ex)
-            self._layer = None
+            # A transient OOM here must cost at most the overlay. Keep the
+            # baked layer and just drop the device copy so the next frame
+            # re-uploads; only give up after this keeps happening.
+            self._composite_failures += 1
             self._device_layer = None
-            self._device_layer_key = None
+            logger.warning(
+                "Rink overlay compositing failed (%d/%d): %s",
+                self._composite_failures,
+                self._MAX_COMPOSITE_FAILURES,
+                ex,
+            )
+            if self._composite_failures >= self._MAX_COMPOSITE_FAILURES:
+                logger.warning("Giving up on the rink overlay for this run.")
+                self._layer = None
             return {}
 
-        if first_build and self._save_debug_frame:
+        self._composite_failures = 0
+        if self._save_debug_frame and not self._dumped_debug_frame:
             self._dump_debug_frame(annotated, context)
+            self._dumped_debug_frame = True
         return {"img": wrap_tensor(annotated)}
 
     def input_keys(self):

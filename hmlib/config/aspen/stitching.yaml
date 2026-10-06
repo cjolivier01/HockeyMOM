@@ -30,11 +30,9 @@ aspen:
     # UI and the encoded file alike.
     #
     # Off by default: a disabled node becomes a no-op stub, so apply_camera can
-    # depend on it unconditionally. --plot-ice-mask and --plot-rink-landmarks
-    # both set plot.plot_rink_overlay through ARG_TO_CONFIG_MAP. That mapping
-    # has to be a direct one, not an IMPLIED_ARG_TO_CONFIG_MAP entry:
-    # stitch_videos() rebuilds this graph's config and applies only
-    # ARG_TO_CONFIG_MAP, so an implied flag would never reach it.
+    # depend on it unconditionally. stitch.py's _arm_rink_overlay() sets
+    # plot.plot_rink_overlay when either overlay below is on, from whichever
+    # source asked for it -- flag, game YAML or --config-override.
     rink_overlay:
       class: hmlib.aspen.plugins.rink_overlay_plugin.RinkOverlayPlugin
       depends: [stitching]

@@ -1935,11 +1935,8 @@ class hm_opts(object):
             ("plot_jersey_numbers", "plot.plot_jersey_numbers"),
             ("plot_actions", "plot.plot_actions"),
             ("plot_pose", "plot.plot_pose"),
-            # Either overlay also arms the stitch graph's rink_overlay node.
-            # The dict value maps below skip the write entirely when the flag
-            # is absent, so an unset flag leaves the configured value alone.
-            ("plot_ice_mask", ["plot.plot_ice_mask", "plot.plot_rink_overlay"]),
-            ("plot_rink_landmarks", ["plot.plot_rink_landmarks", "plot.plot_rink_overlay"]),
+            ("plot_ice_mask", "plot.plot_ice_mask"),
+            ("plot_rink_landmarks", "plot.plot_rink_landmarks"),
             ("plot_rink_landmark_labels", "plot.plot_rink_landmark_labels"),
             ("rink_landmarks_score_thr", "plot.rink_landmarks_score_thr"),
             ("rink_landmarks_inference_scale", "plot.rink_landmarks_inference_scale"),
