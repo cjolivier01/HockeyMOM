@@ -37,9 +37,12 @@ plot:
   plot_actions: false
   plot_pose: false
   plot_ice_mask: false
+  # Master switch for the stitch graph's rink_overlay node. Off by default, so
+  # the node is a no-op stub and nothing is constructed. --plot-ice-mask and
+  # --plot-rink-landmarks each set this alongside their own key.
+  plot_rink_overlay: false
   # Painted rink features (blue lines, circles, crease, ...) from
-  # model.rink_landmarks_segm. Together with plot_ice_mask these drive the
-  # stitch graph's rink_overlay node; with both off it draws nothing.
+  # model.rink_landmarks_segm.
   plot_rink_landmarks: false
   plot_rink_landmark_labels: false
   # null keeps hmlib.segm.rink_landmarks.DEFAULT_SCORE_THRESH.

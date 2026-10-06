@@ -196,7 +196,10 @@ def should_keep_stitch_ui_terminal_after_post_processing() -> None:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     plugins = config["aspen"]["plugins"]
 
-    assert plugins["apply_camera"]["depends"] == ["stitching"]
+    # rink_overlay sits between the two, annotating `img` in place. It is a
+    # no-op stub unless --plot-ice-mask / --plot-rink-landmarks arm it.
+    assert plugins["rink_overlay"]["depends"] == ["stitching"]
+    assert plugins["apply_camera"]["depends"] == ["rink_overlay"]
     assert plugins["video_out_prep"]["depends"] == ["apply_camera"]
     assert plugins["stitch_ui"]["depends"] == ["video_out_prep"]
     assert all(

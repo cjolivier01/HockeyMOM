@@ -29,15 +29,16 @@ aspen:
     # Annotates `img` in place, so the overlay reaches the preview, the camera
     # UI and the encoded file alike.
     #
-    # The node stays enabled and the two plot flags below decide whether it
-    # draws; with both off its forward() returns immediately. A GLOBAL gate on
-    # `enabled` would not work here: stitch_videos() builds this graph from its
-    # own config, which only receives ARG_TO_CONFIG_MAP overrides, so an
-    # implied flag set during hm_opts.init() would never reach it.
+    # Off by default: a disabled node becomes a no-op stub, so apply_camera can
+    # depend on it unconditionally. --plot-ice-mask and --plot-rink-landmarks
+    # both set plot.plot_rink_overlay through ARG_TO_CONFIG_MAP. That mapping
+    # has to be a direct one, not an IMPLIED_ARG_TO_CONFIG_MAP entry:
+    # stitch_videos() rebuilds this graph's config and applies only
+    # ARG_TO_CONFIG_MAP, so an implied flag would never reach it.
     rink_overlay:
       class: hmlib.aspen.plugins.rink_overlay_plugin.RinkOverlayPlugin
       depends: [stitching]
-      enabled: true
+      enabled: GLOBAL.plot.plot_rink_overlay
       params:
         rink_mask: GLOBAL.plot.plot_ice_mask
         landmarks: GLOBAL.plot.plot_rink_landmarks
@@ -45,9 +46,9 @@ aspen:
         inference_scale: GLOBAL.plot.rink_landmarks_inference_scale
         classes: GLOBAL.plot.rink_landmarks_classes
         label_text: GLOBAL.plot.plot_rink_landmark_labels
-        # Thread the model paths through the graph rather than letting the
-        # plugin call get_model_config(): that re-reads the config from disk,
-        # so --rink-landmarks-checkpoint would be silently dropped.
+        # Thread the model paths through the graph. The plugin's fallback,
+        # get_model_config(), re-reads the config from disk, so an override
+        # applied to this graph's config would otherwise be dropped.
         checkpoint: GLOBAL.model.rink_landmarks_segm.checkpoint
         model_config: GLOBAL.model.rink_landmarks_segm.config
 

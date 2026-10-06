@@ -21,6 +21,7 @@ ENTRY_POINTS = {
     "hmcreate_control_points": "hmlib.cli.create_control_points:main",
     "hmplayers": "hmlib.cli.players:main",
     "hmfind_ice_rink": "hmlib.cli.find_ice_rink:main",
+    "hmfind_rink_landmarks": "hmlib.segm.rink_landmarks:main",
     "hmpostprocess_shifts": "hmlib.cli.postprocess_shifts:main",
     "hmorientation": "hmlib.cli.hmorientation:main",
     "hmscoreboard": "hmlib.scoreboard.selector:main",

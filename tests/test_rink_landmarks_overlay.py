@@ -243,17 +243,39 @@ def should_composite_the_cached_overlay_onto_every_frame() -> None:
         HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
     )
     plugin._layer_shape = (HEIGHT, WIDTH)
-    plugin._attempted = True
+    plugin._attempted_shape = (HEIGHT, WIDTH)
     img = torch.full((1, HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
 
     out = plugin.forward({"img": img, "game_id": "game-1"})
 
     assert bool((out["img"] != img).any())
     assert out["img"].shape == img.shape
+    # The layer is uploaded to the frame's device once and reused, not
+    # re-sent from the host on every frame.
+    assert plugin._device_layer is not None
+    cached = plugin._device_layer
+    plugin.forward({"img": img, "game_id": "game-1"})
+    assert plugin._device_layer is cached
+
+
+@pytest.fixture
+def no_real_models(monkeypatch):
+    """Keep the unit suite off the network.
+
+    model.rink_landmarks_segm now defaults to a published release URL, so an
+    unpatched call really would download 340 MB and run Mask2Former on the CPU.
+    """
+
+    def _absent(**kwargs):
+        raise AssertionError("no game directory found for game id")
+
+    monkeypatch.setattr("hmlib.segm.ice_rink.configure_ice_rink_mask", _absent)
+    monkeypatch.setattr("hmlib.segm.rink_landmarks.configure_rink_landmarks", _absent)
+    return monkeypatch
 
 
 @requires_torch
-def should_discard_a_stale_overlay_when_the_panorama_is_resized() -> None:
+def should_discard_a_stale_overlay_when_the_panorama_is_resized(no_real_models) -> None:
     from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
     from hmlib.segm.rink_landmarks import build_overlay_layer
 
@@ -262,13 +284,43 @@ def should_discard_a_stale_overlay_when_the_panorama_is_resized() -> None:
         HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
     )
     plugin._layer_shape = (HEIGHT, WIDTH)
-    plugin._attempted = True
+    plugin._attempted_shape = (HEIGHT, WIDTH)
     resized = torch.full((1, HEIGHT * 2, WIDTH * 2, 3), 100, dtype=torch.uint8)
 
-    # A landmark model is not configured in tests, so the rebuild fails and the
-    # plugin must fall silent rather than draw the mask in the wrong place.
+    # The rebuild at the new size fails, so the plugin must fall silent rather
+    # than keep painting the old mask in the wrong place.
     assert plugin.forward({"img": resized, "game_id": "game-1"}) == {}
     assert plugin._layer is None
+
+
+@requires_torch
+def should_retry_the_overlay_once_the_panorama_settles_on_a_workable_size(monkeypatch) -> None:
+    from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
+
+    calls: list[tuple[int, int]] = []
+
+    def _only_small(**kwargs):
+        shape = tuple(kwargs["expected_shape"])
+        calls.append(shape)
+        if shape != (HEIGHT, WIDTH):
+            raise RuntimeError("mask unavailable at this size")
+        return {"combined_mask": _box_mask(5, 35, 5, 55)}
+
+    monkeypatch.setattr("hmlib.segm.ice_rink.configure_ice_rink_mask", _only_small)
+    plugin = RinkOverlayPlugin(
+        enabled=True, rink_mask=True, landmarks=False, save_debug_frame=False
+    )
+
+    big = torch.full((1, HEIGHT * 2, WIDTH * 2, 3), 100, dtype=torch.uint8)
+    assert plugin.forward({"img": big, "game_id": "game-1"}) == {}
+    # Latched for that size only, so the failing size is not retried...
+    assert plugin.forward({"img": big, "game_id": "game-1"}) == {}
+    assert len(calls) == 1
+
+    # ...but a size the models can handle still gets its overlay.
+    small = torch.full((1, HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
+    out = plugin.forward({"img": small, "game_id": "game-1"})
+    assert bool((out["img"] != small).any())
 
 
 @requires_torch
@@ -283,18 +335,70 @@ def should_leave_the_frame_alone_when_the_overlay_is_switched_off() -> None:
 
 
 @requires_torch
-def should_keep_stitching_when_the_overlay_models_are_unavailable() -> None:
+def should_keep_stitching_when_the_overlay_models_are_unavailable(no_real_models) -> None:
     from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
 
-    # "nope" has no game directory, so configure_ice_rink_mask raises an
-    # AssertionError. A decoration failure must never abort the stitch.
+    # Both models raise. A decoration failure must never abort the stitch.
     plugin = RinkOverlayPlugin(enabled=True)
     img = torch.full((1, HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
 
     assert plugin.forward({"img": img, "game_id": "nope"}) == {}
     # And it must not retry the failing models on every subsequent frame.
-    assert plugin._attempted is True
+    assert plugin._attempted_shape == (HEIGHT, WIDTH)
     assert plugin.forward({"img": img, "game_id": "nope"}) == {}
+
+
+@requires_torch
+def should_keep_stitching_when_compositing_fails(monkeypatch) -> None:
+    from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
+    from hmlib.segm.rink_landmarks import build_overlay_layer
+
+    plugin = RinkOverlayPlugin(enabled=True, save_debug_frame=False)
+    plugin._layer = build_overlay_layer(
+        HEIGHT, WIDTH, rink_mask=_box_mask(5, 35, 5, 55), rink_mask_alpha=0.5
+    )
+    plugin._layer_shape = (HEIGHT, WIDTH)
+    plugin._attempted_shape = (HEIGHT, WIDTH)
+
+    def _oom(*args, **kwargs):
+        raise torch.OutOfMemoryError("no room")
+
+    monkeypatch.setattr("hmlib.segm.rink_landmarks.composite_overlay", _oom)
+    img = torch.full((1, HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
+
+    # A transient OOM on frame N costs the overlay, not the encode.
+    assert plugin.forward({"img": img, "game_id": "game-1"}) == {}
+
+
+@requires_torch
+def should_not_persist_the_rink_profile_from_a_preview_overlay(monkeypatch) -> None:
+    from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
+
+    seen: dict = {}
+
+    def _capture(**kwargs):
+        seen.update(kwargs)
+        return {"combined_mask": _box_mask(5, 35, 5, 55)}
+
+    monkeypatch.setattr("hmlib.segm.ice_rink.configure_ice_rink_mask", _capture)
+    plugin = RinkOverlayPlugin(
+        enabled=True, rink_mask=True, landmarks=False, save_debug_frame=False
+    )
+    img = torch.full((1, HEIGHT, WIDTH, 3), 100, dtype=torch.uint8)
+
+    plugin.forward(
+        {
+            "img": img,
+            "game_id": "game-1",
+            "camera_input_geometry": {"stitched_geometry_revision": "rev-7"},
+        }
+    )
+
+    # Drawing a preview must not rewrite rink_mask_<i>.png or drop
+    # rink.ice_contours_geometry_revision, and must not reuse a mask baked for
+    # a different warp that happens to share this panorama's size.
+    assert seen["persist"] is False
+    assert seen["geometry_revision"] == "rev-7"
 
 
 def _stitch_graph_config(argv: list[str]) -> dict:
@@ -332,7 +436,7 @@ def _stitch_graph_config(argv: list[str]) -> dict:
     hm_opts.apply_arg_config_overrides(
         aspen, args, parser=parser, explicit_arg_names=args.explicit_arg_names
     )
-    hm_opts.apply_config_overrides(aspen, getattr(args, "config_overrides", None))
+    hm_opts.apply_config_overrides(aspen, args.config_overrides)
     resolve_global_refs(aspen)
     return aspen
 
@@ -356,22 +460,41 @@ def should_place_the_rink_overlay_between_the_stitcher_and_the_camera_crop() -> 
     ],
 )
 def should_arm_the_rink_overlay_from_the_stitch_cli(flag, drawn, quiet) -> None:
-    params = _stitch_graph_config([flag, "--ignore-private-config=1"])["aspen"]["plugins"][
+    node = _stitch_graph_config([flag, "--ignore-private-config=1"])["aspen"]["plugins"][
         "rink_overlay"
-    ]["params"]
+    ]
 
-    assert params[drawn] is True
-    assert params[quiet] is False
+    assert node["enabled"] is True
+    assert node["params"][drawn] is True
+    assert node["params"][quiet] is False
 
 
 @requires_torch
-def should_draw_nothing_by_default_in_the_stitch_graph() -> None:
-    params = _stitch_graph_config(["--ignore-private-config=1"])["aspen"]["plugins"][
-        "rink_overlay"
-    ]["params"]
+def should_leave_the_rink_overlay_node_disabled_by_default() -> None:
+    node = _stitch_graph_config(["--ignore-private-config=1"])["aspen"]["plugins"]["rink_overlay"]
 
-    assert params["rink_mask"] is False
-    assert params["landmarks"] is False
+    # A disabled node is replaced by a no-op stub, so an ordinary stitch pays
+    # nothing: no plugin construction, no model import, no per-frame work.
+    assert node["enabled"] is False
+    assert node["params"]["rink_mask"] is False
+    assert node["params"]["landmarks"] is False
+
+
+@requires_torch
+def should_stub_out_the_rink_overlay_when_no_plot_flag_is_given() -> None:
+    import hmlib.hm_transforms  # noqa: F401
+    import hmlib.transforms  # noqa: F401
+    from hmlib.aspen import AspenNet
+    from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
+
+    aspen = _stitch_graph_config(["--ignore-private-config=1"])["aspen"]
+    net = AspenNet("default-off", aspen, shared={})
+    module = net.node_map["rink_overlay"].module
+
+    assert not isinstance(module, RinkOverlayPlugin)
+    assert module.forward({"img": "untouched"}) == {}
+    # apply_camera still resolves its dependency through the stub.
+    assert ("rink_overlay", "apply_camera") in set(net.graph.edges())
 
 
 @requires_torch

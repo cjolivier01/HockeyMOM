@@ -15,6 +15,7 @@ stitched frame, and ``build_overlay_layer`` bakes the result into a single
 import argparse
 import gc
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -72,18 +73,34 @@ def landmark_metadata(model: "BaseDetector") -> Tuple[Tuple[str, ...], List[Tupl
     """Return ``(classes, palette)`` from a detector's ``dataset_meta``."""
     meta = getattr(model, "dataset_meta", None) or {}
     classes = tuple(meta.get("classes") or ())
-    palette = [tuple(int(c) for c in color) for color in (meta.get("palette") or [])]
-    if not palette and classes:
+    # mmdet stores a palette *name* ("random") when neither the checkpoint nor
+    # the config carries real colors, so validate rather than int() a string.
+    palette: List[Tuple[int, int, int]] = []
+    for color in meta.get("palette") or []:
+        if isinstance(color, (str, bytes)) or not isinstance(color, Sequence):
+            palette = []
+            break
+        try:
+            channels = [int(channel) for channel in color]
+        except (TypeError, ValueError):
+            palette = []
+            break
+        if len(channels) != 3:
+            palette = []
+            break
+        palette.append((channels[0], channels[1], channels[2]))
+    if len(palette) < len(classes):
         # Deterministic fallback so an untagged checkpoint still renders.
         palette = [_hsv_color(i, len(classes)) for i in range(len(classes))]
     return classes, palette
 
 
 def _hsv_color(index: int, total: int) -> Tuple[int, int, int]:
+    """Evenly spaced fallback color. RGB, because palettes here are RGB."""
     hue = int(179 * index / max(1, total))
     pixel = np.uint8([[[hue, 255, 255]]])
-    bgr = cv2.cvtColor(pixel, cv2.COLOR_HSV2BGR)[0, 0]
-    return int(bgr[0]), int(bgr[1]), int(bgr[2])
+    rgb = cv2.cvtColor(pixel, cv2.COLOR_HSV2RGB)[0, 0]
+    return int(rgb[0]), int(rgb[1]), int(rgb[2])
 
 
 def _as_numpy_image(image: Union[torch.Tensor, np.ndarray, StreamTensorBase]) -> np.ndarray:
@@ -120,7 +137,9 @@ def detect_rink_landmarks(
     if not bool(keep.any()):
         return None
 
-    masks = instances.masks
+    # InstanceData raises AttributeError for a field that was never set, so a
+    # bbox-only checkpoint has to be probed with getattr rather than `is None`.
+    masks = getattr(instances, "masks", None)
     if masks is None:
         logger.warning("Rink landmark model returned no masks; is it a bbox-only checkpoint?")
         return None
@@ -139,14 +158,20 @@ def detect_rink_landmarks(
 def _rescale_landmarks(
     landmarks: Dict[str, Any], inference_scale: float, target_hw: Tuple[int, int]
 ) -> Dict[str, Any]:
-    """Map masks and boxes produced at ``inference_scale`` back to full resolution."""
+    """Map masks and boxes produced at ``inference_scale`` back to full resolution.
+
+    One mask at a time: upsampling the whole stack in a single float32
+    interpolate would recreate the very allocation DEFAULT_MAX_INFERENCE_EDGE
+    exists to avoid, only on the host (N * 234 MB on a 12407x4710 panorama).
+    """
     height, width = target_hw
     masks = landmarks["masks"]
     if masks.numel():
-        resized = F.interpolate(
-            masks.to(torch.float32).unsqueeze(1), size=(height, width), mode="nearest"
-        )
-        landmarks["masks"] = resized.squeeze(1).to(torch.bool)
+        resized = torch.empty((masks.shape[0], height, width), dtype=torch.bool)
+        for index in range(masks.shape[0]):
+            one = masks[index].to(torch.float32)[None, None]
+            resized[index] = F.interpolate(one, size=(height, width), mode="nearest")[0, 0] > 0.5
+        landmarks["masks"] = resized
     inv_scale = 1.0 / inference_scale
     landmarks["bboxes"] = landmarks["bboxes"] * inv_scale
     return landmarks
@@ -159,8 +184,14 @@ def find_rink_landmarks(
     device: Optional[torch.device] = None,
     score_thr: float = DEFAULT_SCORE_THRESH,
     inference_scale: Optional[float] = None,
+    include: Optional[Sequence[str]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Load the landmark detector, run it on one frame, and free it again."""
+    """Load the landmark detector, run it on one frame, and free it again.
+
+    ``include`` is applied before the masks are rescaled, so a discarded class
+    -- "Field" covers the whole sheet -- never pays for a full-resolution
+    upsample it is about to be thrown away by.
+    """
     from mmdet.apis import init_detector
 
     if device is None:
@@ -170,19 +201,28 @@ def find_rink_landmarks(
     orig_width = image_width(image)
     infer_image = _as_numpy_image(image)
 
-    if inference_scale is None:
-        inference_scale = _auto_inference_scale(orig_width, orig_height)
+    # A clamp, not a fallback: the cap exists to stop an 11.7 GiB allocation,
+    # so an explicit --rink-landmarks-inference-scale must not be able to
+    # disable it. Taking the minimum lets callers ask for less, never more.
+    auto_scale = _auto_inference_scale(orig_width, orig_height)
+    if auto_scale is not None and (inference_scale is None or inference_scale > auto_scale):
         if inference_scale is not None:
-            logger.info(
-                "Running rink landmark inference at scale %.4f (%dx%d -> %dx%d) to stay "
-                "within DEFAULT_MAX_INFERENCE_EDGE=%d.",
+            logger.warning(
+                "Clamping the requested rink landmark inference scale %.4f to %.4f so the "
+                "longest edge stays within DEFAULT_MAX_INFERENCE_EDGE=%d.",
                 inference_scale,
-                orig_width,
-                orig_height,
-                round(orig_width * inference_scale),
-                round(orig_height * inference_scale),
+                auto_scale,
                 DEFAULT_MAX_INFERENCE_EDGE,
             )
+        inference_scale = auto_scale
+        logger.info(
+            "Running rink landmark inference at scale %.4f (%dx%d -> %dx%d).",
+            inference_scale,
+            orig_width,
+            orig_height,
+            round(orig_width * inference_scale),
+            round(orig_height * inference_scale),
+        )
 
     if inference_scale and inference_scale != 1.0:
         new_width = max(1, int(round(orig_width * inference_scale)))
@@ -203,6 +243,9 @@ def find_rink_landmarks(
 
     if landmarks is None:
         return None
+    landmarks = filter_landmarks(landmarks, include=include)
+    if landmarks is None:
+        return None
     if inference_scale and inference_scale != 1.0:
         landmarks = _rescale_landmarks(landmarks, inference_scale, (orig_height, orig_width))
     return landmarks
@@ -216,15 +259,19 @@ def configure_rink_landmarks(
     inference_scale: Optional[float] = None,
     checkpoint: Optional[str] = None,
     model_config: Optional[str] = None,
+    include: Optional[Sequence[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Resolve the landmark model from the game config and run it on ``image``."""
-    model_config_file, model_checkpoint = get_model_config(
-        game_id=game_id, model_name="rink_landmarks_segm"
-    )
-    if model_config:
-        model_config_file = model_config
-    if checkpoint:
-        model_checkpoint = checkpoint
+    model_config_file, model_checkpoint = model_config, checkpoint
+    if not (model_config_file and model_checkpoint):
+        # get_model_config reaches the game directory, which raises when the
+        # game has none. Skip it entirely when the caller already supplied
+        # both paths, so explicit overrides keep working without a game dir.
+        config_default, checkpoint_default = get_model_config(
+            game_id=game_id, model_name="rink_landmarks_segm"
+        )
+        model_config_file = model_config_file or config_default
+        model_checkpoint = model_checkpoint or checkpoint_default
     if not model_config_file or not model_checkpoint:
         logger.warning(
             "No rink landmark model configured (model.rink_landmarks_segm); skipping landmarks."
@@ -248,6 +295,7 @@ def configure_rink_landmarks(
         device=device,
         score_thr=score_thr,
         inference_scale=inference_scale,
+        include=include,
     )
 
 
@@ -345,7 +393,11 @@ def build_overlay_layer(
         masks = landmarks["masks"]
         labels = landmarks["labels"]
         scores = landmarks["scores"]
-        outlines: List[Tuple[np.ndarray, Tuple[int, int, int]]] = []
+        # Outlines are deferred so thin classes stay legible over the fills,
+        # but they are accumulated into one shared plane rather than one
+        # full-resolution plane per instance (58 MB each on a 12407x4710
+        # panorama). 0 means "no outline here", otherwise 1 + palette index.
+        outline_owner = np.zeros((height, width), dtype=np.uint16)
 
         for mask, label in zip(masks, labels):
             mask_np = mask.numpy().astype(np.uint8)
@@ -363,11 +415,16 @@ def build_overlay_layer(
                 color[selected] = rgb
                 alpha[selected] = float(fill_alpha)
             if outline_thickness > 0:
-                outlines.append((_mask_outline(mask_np, outline_thickness), rgb))
+                edges = _mask_outline(mask_np, outline_thickness)
+                # Later instances win, matching the previous two-pass order.
+                np.copyto(outline_owner, index + 1, where=edges.astype(bool))
             drew_anything = True
 
-        for edges, rgb in outlines:
-            selected = edges.astype(bool)
+        for index in np.unique(outline_owner):
+            if index == 0:
+                continue
+            rgb = channel_order(palette[index - 1] if index - 1 < len(palette) else (255, 255, 255))
+            selected = outline_owner == index
             color[selected] = rgb
             alpha[selected] = float(outline_alpha)
 
@@ -418,21 +475,42 @@ def _draw_labels(
         alpha[selected] = 1.0
 
 
+def overlay_layer_to(
+    layer: Tuple[torch.Tensor, torch.Tensor], device: torch.device
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Move a baked layer onto ``device`` once, as float32 ready for the blend.
+
+    Callers cache the result. Doing this per frame instead would push the whole
+    layer back over PCIe every frame -- 409 MB on a 12407x4710 panorama -- which
+    is far more expensive than the blend it feeds.
+    """
+    color, alpha = layer
+    return color.to(device=device, dtype=torch.float32), alpha.to(
+        device=device, dtype=torch.float32
+    )
+
+
 def composite_overlay(
     img: torch.Tensor, color_layer: torch.Tensor, alpha_layer: torch.Tensor
 ) -> torch.Tensor:
-    """Alpha-blend a prebuilt overlay onto ``img``, preserving its layout and dtype."""
+    """Alpha-blend a prebuilt overlay onto ``img``, preserving its layout and dtype.
+
+    Pass layers already on ``img``'s device (see :func:`overlay_layer_to`); the
+    conversions below are a correctness fallback, not the intended path.
+    """
     was_channels_first = is_channels_first(img)
     work = make_channels_first(img)
     original_dtype = work.dtype
 
-    color = color_layer.to(device=work.device)
-    alpha = alpha_layer.to(device=work.device)
+    color = color_layer.to(device=work.device, dtype=torch.float32)
+    alpha = alpha_layer.to(device=work.device, dtype=torch.float32)
     if work.ndim == 4:
         color = color.unsqueeze(0)
         alpha = alpha.unsqueeze(0)
 
-    blended = work.to(torch.float32) * (1.0 - alpha) + color.to(torch.float32) * alpha
+    # lerp keeps this to one output allocation instead of the five a hand-rolled
+    # `a * (1 - t) + b * t` would materialize at panorama size.
+    blended = torch.lerp(work.to(torch.float32), color, alpha)
     if original_dtype == torch.uint8:
         blended = blended.round_().clamp_(0, 255)
     elif not torch.is_floating_point(torch.empty(0, dtype=original_dtype)):
@@ -456,7 +534,7 @@ def summarize_landmarks(landmarks: Optional[Dict[str, Any]]) -> str:
     return f"{len(landmarks['labels'])} landmarks: " + ", ".join(parts)
 
 
-def main(args: argparse.Namespace = None) -> None:
+def main(args: argparse.Namespace = None) -> int:
     """Render the rink mask and landmarks onto one stitched frame and save it."""
     from hmlib.config import get_game_dir
     from hmlib.segm.ice_rink import configure_ice_rink_mask
@@ -552,6 +630,7 @@ def main(args: argparse.Namespace = None) -> None:
         rink_mask = (rink_profile or {}).get("combined_mask")
         print("rink mask: " + ("found" if rink_mask is not None else "unavailable"))
 
+    include = [name for name in (args.classes or "").split(",") if name.strip()]
     landmarks = configure_rink_landmarks(
         game_id=args.game_id,
         image=frame,
@@ -560,13 +639,9 @@ def main(args: argparse.Namespace = None) -> None:
         inference_scale=args.scale,
         checkpoint=args.checkpoint,
         model_config=args.model_config,
+        include=include or None,
     )
     print(summarize_landmarks(landmarks))
-    if landmarks is not None:
-        include = [name for name in (args.classes or "").split(",") if name.strip()]
-        landmarks = filter_landmarks(landmarks, include=include or None)
-        if include:
-            print("after class filter: " + summarize_landmarks(landmarks))
 
     layer = build_overlay_layer(
         height=height,
@@ -596,4 +671,4 @@ def main(args: argparse.Namespace = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

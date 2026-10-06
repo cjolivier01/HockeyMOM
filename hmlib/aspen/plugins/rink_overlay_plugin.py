@@ -64,6 +64,11 @@ class RinkOverlayPlugin(Plugin):
         self._draw_landmarks = bool(landmarks)
         self._score_thr = score_thr
         self._inference_scale = inference_scale
+        # A str is a Sequence[str], so list("Blue Line") would become an
+        # allow-list of single characters. Per-game YAML naturally spells this
+        # as a comma-separated string, matching the CLI flag.
+        if isinstance(classes, str):
+            classes = [name.strip() for name in classes.split(",") if name.strip()]
         self._classes = list(classes) if classes else None
         self._fill_alpha = float(fill_alpha)
         self._rink_mask_alpha = float(rink_mask_alpha)
@@ -76,25 +81,35 @@ class RinkOverlayPlugin(Plugin):
 
         self._layer: Optional[tuple] = None
         self._layer_shape: Optional[tuple] = None
-        self._attempted: bool = False
+        self._attempted_shape: Optional[tuple] = None
+        self._device_layer: Optional[tuple] = None
+        self._device_layer_key: Optional[torch.device] = None
 
     def set_cuda_graph_enabled(self, enabled: bool) -> bool:
         # Mask inference and the first-frame PNG dump cannot be captured.
         self._cuda_graph_enabled = False
         return False
 
-    def _resolve_device(self) -> torch.device:
+    def _resolve_device(self, frame: torch.Tensor, context: Dict[str, Any]) -> torch.device:
+        """Pick the inference device, preferring the one the frame already lives on."""
         if self._device:
             return torch.device(self._device)
+        if torch.is_tensor(frame) and frame.is_cuda:
+            return frame.device
+        shared = context.get("shared") or {}
+        shared_device = shared.get("device")
+        if shared_device is not None:
+            device = torch.device(shared_device)
+            if device.type == "cuda":
+                return device
         return torch.device("cpu")
 
     def _build_layer(self, frame: torch.Tensor, context: Dict[str, Any]) -> None:
-        """Run both models once and cache the composited overlay for this frame size."""
+        """Run both models once and cache the baked overlay for this frame size."""
         from hmlib.segm.rink_landmarks import (
             DEFAULT_SCORE_THRESH,
             build_overlay_layer,
             configure_rink_landmarks,
-            filter_landmarks,
             summarize_landmarks,
         )
 
@@ -106,46 +121,49 @@ class RinkOverlayPlugin(Plugin):
 
         height = int(image_height(frame))
         width = int(image_width(frame))
-        device = self._resolve_device()
+        device = self._resolve_device(frame, context)
+        geometry = context.get("camera_input_geometry") or {}
+        revision = geometry.get("stitched_geometry_revision")
 
         rink_mask = None
         if self._draw_rink_mask:
             from hmlib.segm.ice_rink import configure_ice_rink_mask
 
-            try:
-                rink_profile = configure_ice_rink_mask(
-                    game_id=game_id,
-                    device=device,
-                    expected_shape=torch.Size((height, width)),
-                    image=frame,
-                )
-                rink_mask = (rink_profile or {}).get("combined_mask")
-            except Exception as ex:
-                # The overlay is decoration. Nothing it can fail at -- a missing
-                # game dir (AssertionError), an absent checkpoint, an OOM during
-                # inference -- justifies killing a multi-hour encode.
-                logger.warning("Rink mask unavailable for the overlay: %s", ex)
+            rink_profile = self._run_model(
+                "rink mask",
+                configure_ice_rink_mask,
+                device,
+                game_id=game_id,
+                expected_shape=torch.Size((height, width)),
+                image=frame,
+                # A preview must never rewrite the game's calibration. persist
+                # would overwrite rink_mask_<i>.png and drop
+                # rink.ice_contours_geometry_revision, invalidating the
+                # tracking pipeline's provenance-checked cache. Passing the
+                # revision also stops a mask baked for a different warp of the
+                # same size being reused -- the exact thing this draw is for.
+                persist=False,
+                geometry_revision=revision,
+            )
+            rink_mask = (rink_profile or {}).get("combined_mask")
 
         landmarks = None
         if self._draw_landmarks:
-            try:
-                landmarks = configure_rink_landmarks(
-                    game_id=game_id,
-                    image=frame,
-                    device=device,
-                    score_thr=(
-                        self._score_thr if self._score_thr is not None else DEFAULT_SCORE_THRESH
-                    ),
-                    inference_scale=self._inference_scale,
-                    checkpoint=self._checkpoint,
-                    model_config=self._model_config,
-                )
-            except Exception as ex:
-                logger.warning("Rink landmarks unavailable for the overlay: %s", ex)
-            else:
-                logger.info("Rink overlay: %s", summarize_landmarks(landmarks))
-                if landmarks is not None:
-                    landmarks = filter_landmarks(landmarks, include=self._classes)
+            landmarks = self._run_model(
+                "rink landmarks",
+                configure_rink_landmarks,
+                device,
+                game_id=game_id,
+                image=frame,
+                score_thr=(
+                    self._score_thr if self._score_thr is not None else DEFAULT_SCORE_THRESH
+                ),
+                inference_scale=self._inference_scale,
+                checkpoint=self._checkpoint,
+                model_config=self._model_config,
+                include=self._classes,
+            )
+            logger.info("Rink overlay: %s", summarize_landmarks(landmarks))
 
         self._layer = build_overlay_layer(
             height=height,
@@ -162,11 +180,36 @@ class RinkOverlayPlugin(Plugin):
             return
         self._layer_shape = (height, width)
 
-        if self._save_debug_frame:
-            self._dump_debug_frame(frame, context)
+    def _run_model(self, what: str, call, device: torch.device, **kwargs):
+        """Run one calibration model, degrading to no overlay on any failure.
 
-    def _dump_debug_frame(self, frame: torch.Tensor, context: Dict[str, Any]) -> None:
-        """Write the first annotated frame so one run always leaves a still to inspect."""
+        Retries on the CPU once if the GPU is out of memory, so a tight card
+        loses the overlay's speed rather than the overlay itself.
+        """
+        try:
+            return call(device=device, **kwargs)
+        except torch.OutOfMemoryError:
+            if device.type == "cpu":
+                logger.warning("Ran out of memory computing the %s; skipping it.", what)
+                return None
+            logger.warning("Ran out of GPU memory computing the %s; retrying on the CPU.", what)
+        except Exception as ex:
+            # Decoration must never abort an encode: a missing game dir raises
+            # AssertionError, an absent checkpoint FileNotFoundError, and so on.
+            logger.warning("%s unavailable for the overlay: %s", what.capitalize(), ex)
+            return None
+        try:
+            return call(device=torch.device("cpu"), **kwargs)
+        except Exception as ex:
+            logger.warning("%s unavailable for the overlay: %s", what.capitalize(), ex)
+            return None
+
+    def _dump_debug_frame(self, annotated: torch.Tensor, context: Dict[str, Any]) -> None:
+        """Write the first annotated frame so a run always leaves a still to inspect.
+
+        Takes the composite ``forward`` already computed rather than blending
+        the panorama a second time.
+        """
         shared = context.get("shared") or {}
         work_dir = context.get("work_dir") or shared.get("work_dir")
         if not work_dir:
@@ -176,7 +219,6 @@ class RinkOverlayPlugin(Plugin):
 
             from hmlib.utils.image import make_visible_image
 
-            annotated = self._composite(frame)
             if annotated.ndim == 4:
                 annotated = annotated[0]
             path = os.path.join(str(work_dir), "rink_overlay_0.png")
@@ -186,9 +228,15 @@ class RinkOverlayPlugin(Plugin):
             logger.warning("Could not write the rink overlay reference frame: %s", ex)
 
     def _composite(self, frame: torch.Tensor) -> torch.Tensor:
-        from hmlib.segm.rink_landmarks import composite_overlay
+        from hmlib.segm.rink_landmarks import composite_overlay, overlay_layer_to
 
-        color_layer, alpha_layer = self._layer
+        device = frame.device
+        if self._device_layer is None or self._device_layer_key != device:
+            # Upload once per device. Re-uploading each frame would cost more
+            # than the blend: 409 MB on a 12407x4710 panorama.
+            self._device_layer = overlay_layer_to(self._layer, device)
+            self._device_layer_key = device
+        color_layer, alpha_layer = self._device_layer
         return composite_overlay(frame, color_layer, alpha_layer)
 
     def forward(self, context: Dict[str, Any]):  # type: ignore[override]
@@ -215,22 +263,47 @@ class RinkOverlayPlugin(Plugin):
             )
             self._layer = None
             self._layer_shape = None
-            self._attempted = False
+            self._device_layer = None
+            self._device_layer_key = None
 
         if self._layer is None:
-            if self._attempted:
+            # Key the "already tried and failed" latch on the shape, so a
+            # failure at one panorama size does not mute the overlay forever
+            # once the stream settles on a size the models can handle.
+            if self._attempted_shape == (height, width):
                 return {}
-            self._attempted = True
-            with self.profile_scope("rink_overlay.build"):
-                self._build_layer(frame, context)
+            self._attempted_shape = (height, width)
+            try:
+                with self.profile_scope("rink_overlay.build"):
+                    self._build_layer(frame, context)
+            except Exception as ex:
+                # Everything past the models -- allocating the panorama-sized
+                # planes, cv2 contour tracing -- is still only decoration.
+                logger.warning("Could not build the rink overlay: %s", ex)
+                self._layer = None
             if self._layer is None:
                 return {}
+            first_build = True
+        else:
+            first_build = False
 
-        with self.profile_scope("rink_overlay.composite"):
-            return {"img": wrap_tensor(self._composite(frame))}
+        try:
+            with self.profile_scope("rink_overlay.composite"):
+                annotated = self._composite(frame)
+        except Exception as ex:
+            # A transient OOM on frame N must cost the overlay, not the encode.
+            logger.warning("Rink overlay compositing failed; dropping it: %s", ex)
+            self._layer = None
+            self._device_layer = None
+            self._device_layer_key = None
+            return {}
+
+        if first_build and self._save_debug_frame:
+            self._dump_debug_frame(annotated, context)
+        return {"img": wrap_tensor(annotated)}
 
     def input_keys(self):
-        return {"img", "game_id", "work_dir", "shared"}
+        return {"img", "game_id", "work_dir", "shared", "camera_input_geometry"}
 
     def output_keys(self):
         return {"img"}
