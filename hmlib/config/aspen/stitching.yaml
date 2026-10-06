@@ -26,9 +26,34 @@ aspen:
         max_output_width: GLOBAL.stitching.max_output_width
         cache_rotation_grid: GLOBAL.stitching.cache_rotation_grid
 
+    # Annotates `img` in place, so the overlay reaches the preview, the camera
+    # UI and the encoded file alike.
+    #
+    # The node stays enabled and the two plot flags below decide whether it
+    # draws; with both off its forward() returns immediately. A GLOBAL gate on
+    # `enabled` would not work here: stitch_videos() builds this graph from its
+    # own config, which only receives ARG_TO_CONFIG_MAP overrides, so an
+    # implied flag set during hm_opts.init() would never reach it.
+    rink_overlay:
+      class: hmlib.aspen.plugins.rink_overlay_plugin.RinkOverlayPlugin
+      depends: [stitching]
+      enabled: true
+      params:
+        rink_mask: GLOBAL.plot.plot_ice_mask
+        landmarks: GLOBAL.plot.plot_rink_landmarks
+        score_thr: GLOBAL.plot.rink_landmarks_score_thr
+        inference_scale: GLOBAL.plot.rink_landmarks_inference_scale
+        classes: GLOBAL.plot.rink_landmarks_classes
+        label_text: GLOBAL.plot.plot_rink_landmark_labels
+        # Thread the model paths through the graph rather than letting the
+        # plugin call get_model_config(): that re-reads the config from disk,
+        # so --rink-landmarks-checkpoint would be silently dropped.
+        checkpoint: GLOBAL.model.rink_landmarks_segm.checkpoint
+        model_config: GLOBAL.model.rink_landmarks_segm.config
+
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [stitching]
+      depends: [rink_overlay]
       enabled: true
       params:
         # Inline the pipeline here so this config is self-contained and

@@ -37,6 +37,20 @@ plot:
   plot_actions: false
   plot_pose: false
   plot_ice_mask: false
+  # Painted rink features (blue lines, circles, crease, ...) from
+  # model.rink_landmarks_segm. Together with plot_ice_mask these drive the
+  # stitch graph's rink_overlay node; with both off it draws nothing.
+  plot_rink_landmarks: false
+  plot_rink_landmark_labels: false
+  # null keeps hmlib.segm.rink_landmarks.DEFAULT_SCORE_THRESH.
+  rink_landmarks_score_thr: null
+  # Downscale before landmark inference. The model was trained on 1008x1008
+  # crops, so a full-width panorama is well outside its training distribution;
+  # lower this if the detections look wrong.
+  rink_landmarks_inference_scale: null
+  # Class allow-list; null draws everything except "Field", which covers the
+  # whole sheet and is better served by plot_ice_mask.
+  rink_landmarks_classes: null
 
 #
 # Aspen engine defaults
@@ -487,6 +501,16 @@ model:
     # checkpoint: pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth
     # checkpoint: https://github.com/cjolivier01/HockeyMON/releases/download/v0.0.1/ice_rink_iter_30000.pth
     checkpoint: https://github.com/cjolivier01/HockeyMONStream/releases/download/pretrained-assets-v1/ice_rink_iter_60000.pth
+
+  rink_landmarks_segm:
+    # The 11 painted rink features (blue lines, circles, crease, ...), as
+    # opposed to ice_rink_segm above, which segments the playing surface.
+    config: config/models/rink_landmarks/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco.py
+    # Local training artifact from openmm/train_rink_landmarks.sh, not yet
+    # published to a release like the ice rink checkpoint. Paths here resolve
+    # against hmlib/, hence the "../" up to the repo root. Override with
+    # --rink-landmarks-checkpoint, or point this at a URL once it is published.
+    checkpoint: ../openmm/work_dirs/mask2former_rink_landmarks/best_coco_segm_mAP_iter_97500.pth
 
   svnh_classifier:
     config: null

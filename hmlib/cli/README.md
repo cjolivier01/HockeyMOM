@@ -8,6 +8,7 @@ This folder contains user-facing CLI commands that are installed with hm-prefixe
 - **hmcreate_control_points** — Compute control points with SuperPoint/LightGlue, DeDoDe/LightGlue, or LoFTR and update a .pto
 - **hmplayers** — Analyze tracked players and generate per-player timestamp files
 - **hmfind_ice_rink** — Detect the ice rink mask and save configuration for a game
+- **hmfind_rink_landmarks** — Overlay the rink mask and painted rink landmarks on one stitched frame
 - **hmorientation** — Inspect a game directory and label left/right camera sets
 - **hmconcatenate_videos** — Normalize and concatenate multiple videos with ffmpeg
 
@@ -122,6 +123,10 @@ hmstitch --game-id ev-stockton-1 --control-point-matcher loftr
 hmstitch --game-id ev-stockton-1 \
   --control-point-matcher dedode-lightglue \
   --mapping-backend opencv-affine-ransac
+
+# Preview the rink mask and the painted rink landmarks on the stitched video
+hmstitch --game-id ev-stockton-1 --show-image \
+  --plot-ice-mask --plot-rink-landmarks --plot-rink-landmark-labels
 ```
 
 ### Notable options
@@ -138,6 +143,28 @@ hmstitch --game-id ev-stockton-1 \
 - `--camera-ui=1` — If the configured blend cannot render, opens a blend-only repair control before calibration. Choose a supported mode and Save, then rerun `hmstitch`. Remove invalid CLI blend overrides first; `--ignore-private-config` also prevents a saved repair from taking effect.
 - `--batch-size`, `--stitch-cache-size`, `--multi-gpu` — Performance tuning
 - `--show` / `--show-scaled` — Preview frames
+
+### Rink overlays
+
+The stitch graph's `rink_overlay` node runs between the stitcher and the camera
+crop and annotates the panorama in place — so the marks appear in the live
+preview, the camera UI and the encoded file alike. `--plot-ice-mask` and
+`--plot-rink-landmarks` each select one of the two overlays; with neither flag
+the node returns immediately and draws nothing. Both models run once, on the
+first frame; every later frame costs a single alpha blend.
+
+- `--plot-ice-mask` — Green tint over the ice rink mask (`model.ice_rink_segm`)
+- `--plot-rink-landmarks` — Per-class fills and outlines for the painted features (`model.rink_landmarks_segm`)
+- `--plot-rink-landmark-labels` — Annotate each landmark with its class name and score
+- `--rink-landmarks-score-thr <float>` — Minimum instance score (default `0.5`)
+- `--rink-landmarks-inference-scale <float>` — Downscale before landmark inference. The model was trained on 1008x1008 crops, so a full-width panorama is well outside its training distribution; lower this if detections look wrong
+- `--rink-landmarks-classes "Blue Line,Crease"` — Restrict to named classes. The default draws everything except `Field`, which covers the whole sheet and is better served by `--plot-ice-mask`
+- `--rink-landmarks-checkpoint <path>` — Override the landmark checkpoint
+
+The first annotated frame is always written to
+`output_workdirs/<game-id>/rink_overlay_0.png`, so a run leaves a still to
+inspect even without a display. For a single frame with no stitch at all, use
+`hmfind_rink_landmarks`.
 
 ---
 
@@ -192,6 +219,37 @@ hmfind_ice_rink --game-id ev-stockton-1 --show
 - `--scale <float>` — Optional image scaling
 - `--device cpu|cuda[:N]` — Choose inference device
 - `--force` — Recompute and overwrite existing mask configuration
+
+---
+
+## hmfind_rink_landmarks — Overlay the rink mask and painted landmarks on one frame
+
+Annotate the stitched frame `s.png` with the ice rink mask (green tint) and the
+11 painted rink features from `model.rink_landmarks_segm` — Blue Line, Center Ice
+Circle, Center Line, Crease, Faceoff Dot, Field, Goal, Goal Line, Slot Box,
+Trapezoid, Zone Circle — then write `rink_landmarks.png` into the game directory.
+
+This is the fast way to eyeball both masks without running a stitch. The live
+equivalent is `hmstitch --plot-ice-mask --plot-rink-landmarks --show-image`.
+
+### Quick start
+```bash
+python -m hmlib.cli.find_rink_landmarks --game-id ev-stockton-1 --show
+```
+
+### Notable options
+- `--image <path>` / `--output <path>` — Override the input frame and where the annotated copy lands
+- `--score-thr <float>` — Minimum instance score (default 0.5)
+- `--scale <float>` — Downscale before landmark inference
+- `--classes "Blue Line,Crease"` — Draw only these classes; the default draws everything except `Field`
+- `--no-rink-mask` / `--no-labels` — Drop the green rink tint or the per-instance class text
+- `--checkpoint` / `--model-config` — Override the landmark model
+- `--device cpu|cuda[:N]` — Choose inference device
+
+The landmark checkpoint is a local training artifact produced by
+`openmm/train_rink_landmarks.sh`; unlike the ice rink model it is not published
+to a release, so `model.rink_landmarks_segm.checkpoint` points into
+`openmm/work_dirs/`.
 
 ---
 
