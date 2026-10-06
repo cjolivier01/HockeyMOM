@@ -412,6 +412,19 @@ def should_route_the_landmark_checkpoint_override_into_the_graph() -> None:
 
 
 @requires_torch
+def should_default_the_landmark_checkpoint_to_the_published_release_asset() -> None:
+    # A work_dirs path only resolves on the machine that trained the model, so
+    # the default has to be the release URL that mmengine can fetch and cache.
+    params = _stitch_graph_config(["--plot-rink-landmarks", "--ignore-private-config=1"])["aspen"][
+        "plugins"
+    ]["rink_overlay"]["params"]
+
+    assert params["checkpoint"].startswith("https://")
+    assert params["checkpoint"].endswith("/rink_landmarks_iter_97500.pth")
+    assert "work_dirs" not in params["checkpoint"]
+
+
+@requires_torch
 def should_keep_the_stitch_graph_valid_under_cuda_graph_mode() -> None:
     import hmlib.hm_transforms  # noqa: F401
     import hmlib.transforms  # noqa: F401

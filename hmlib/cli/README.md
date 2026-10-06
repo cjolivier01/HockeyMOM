@@ -246,10 +246,11 @@ python -m hmlib.cli.find_rink_landmarks --game-id ev-stockton-1 --show
 - `--checkpoint` / `--model-config` — Override the landmark model
 - `--device cpu|cuda[:N]` — Choose inference device
 
-The landmark checkpoint is a local training artifact produced by
-`openmm/train_rink_landmarks.sh`; unlike the ice rink model it is not published
-to a release, so `model.rink_landmarks_segm.checkpoint` points into
-`openmm/work_dirs/`.
+`model.rink_landmarks_segm.checkpoint` defaults to the published
+`rink_landmarks_iter_97500.pth` release asset, downloaded and cached by
+mmengine on first use, exactly like the ice rink model. Point it at a local
+`openmm/work_dirs/` checkpoint with `--rink-landmarks-checkpoint` to try a
+newly trained one.
 
 ---
 
