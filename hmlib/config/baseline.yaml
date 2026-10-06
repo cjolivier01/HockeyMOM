@@ -153,6 +153,10 @@ stitching:
       display_name: "TV Dublin"
       rotation_degrees: [0, -23.5, 3.23]
       rink_mask_frame_time: "-00:00:01"
+    fremont:
+      display_name: "Sharks Ice Fremont"
+      rotation_degrees: [0, -15, 0]
+      rink_mask_frame_time: "-00:00:01"
   # Final ice-mask frame: null inherits the selected rink; auto uses the current
   # first stitched frame. A negative [-]HH:MM:SS[.mmm] time is relative to the
   # synchronized recording end, independently of Playback start and run limits.
@@ -168,9 +172,13 @@ stitching:
   control_points:
     m_kpts0: null
     m_kpts1: null
-  control_point_matcher: "superpoint-lightglue"
-  # SuperPoint defaults to 2k on every platform; auto also resolves to 2k. Native and 1k remain explicit choices.
-  # Other matchers retain their fixed processing sizes.
+  # Required: there is no compiled-in default, so removing this key is an error.
+  # AKAZE needs no model asset, runs on CPU, and aligns rink footage better than
+  # SuperPoint + LightGlue in practice. Neural matchers remain explicit choices.
+  control_point_matcher: "akaze-hamming"
+  # Applies only to SuperPoint, which defaults to 2k on every platform; auto also
+  # resolves to 2k. Native and 1k remain explicit choices. Other matchers,
+  # including the default AKAZE, retain their fixed processing sizes.
   control_point_resolution: "2k"
   # Neural control-point matchers: cuda (default) or cpu. No automatic CPU fallback.
   control_point_execution_provider: "cuda"
@@ -435,19 +443,19 @@ model:
     # checkpoint_local: pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth
     # ^ the above checkpoint, but on Google drive (pretrained/mmdetection/yolox_s_8x8_300e_coco_80e_ch_with_detector_prefix.pth)
     # checkpoint_remote: https://drive.google.com/file/d/1WgJ-u2aL1Yv6VNXF5w-0DtsxCCDXAEe7/view?usp=drive_link
-  
+
 #  detection:
     # config: config/models/hm2/hm_crowdhuman_yolox_s_2240x800.py
     # checkpoint: /mnt/data/pretrained/mmdetection/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
     # checkpoint: https://github.com/cjolivier01/HockeyMON/releases/download/v0.0.1/yolox_s_8x8_300e_coco_1312x480_80e_ch_2240x800_1e_with_detector_prefix.pth
-    
+
     # config: /mnt/monster-data/colivier/src/hm/openmm/rundir/work_dirs/yolov8_m_syncbn_fast_8xb16-500e_coco/hm_crowdhuman_yolov8_m_1984_736.py
     # checkpoint: https://download.openmmlab.com/mmyolo/v0/yolov8/yolov8_m_syncbn_fast_8xb16-500e_coco/yolov8_m_syncbn_fast_8xb16-500e_coco_20230115_192200-c22e560a.pth
   # pose:
   #   config: config/models/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_aic-coco-384x288.py
   #   # checkpoint: https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-384x288-97d6cb0f_20230228.pth
   #   checkpoint: https://github.com/cjolivier01/HockeyMON/releases/download/v0.0.1/rtmpose-m_8xb64-crowdpose_harpe-256x192_best_PCK_epoch_1178.pth
-    
+
 
     # RTMPOSE
     # config: config/models/wholebody_2d_keypoint/rtmpose/rtmpose-l_8xb32-270e_coco-wholebody-384x288.py
