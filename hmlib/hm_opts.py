@@ -1603,7 +1603,13 @@ class hm_opts(object):
             # build a choices list. test_control_point_matcher_defaults guards
             # the duplication.
             choices=["superpoint-lightglue", "dedode-lightglue", "loftr", "akaze-hamming"],
-            default="akaze-hamming",
+            # No literal default: finalize_parser replaces it with None and
+            # reads the real one out of baseline.yaml for --help. A literal
+            # would survive only as the sentinel that sync_args_from_config
+            # uses to null a value "equal to the default" -- which silently
+            # discards that exact matcher when it is typed via an abbreviated
+            # flag that collect_explicit_arg_names does not recognize.
+            default=None,
             help="Feature matcher used to find stitching control points",
         )
         parser.add_argument(

@@ -16,7 +16,10 @@ from typing import Any, Mapping
 
 import yaml
 
-from hmlib.stitching.control_points import normalize_control_point_matcher
+from hmlib.stitching.control_points import (
+    DEFAULT_CONTROL_POINT_MATCHER,
+    normalize_control_point_matcher,
+)
 
 MAX_CANVAS_DIMENSION = 65534
 MAX_CANVAS_PIXELS = 256 * 1024 * 1024
@@ -249,7 +252,7 @@ def read_stitching_settings(
     # as one that goes through the baseline, or calibration provenance differs
     # between the two paths for the same game.
     matcher = normalize_control_point_matcher(
-        _defaulted(stitch, "control_point_matcher", "akaze-hamming")
+        _defaulted(stitch, "control_point_matcher", DEFAULT_CONTROL_POINT_MATCHER)
     )
     backend = normalize_mapping_backend(_defaulted(stitch, "mapping_backend", "nona"))
     projection = normalize_projection(

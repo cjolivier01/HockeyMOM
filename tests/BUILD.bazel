@@ -796,7 +796,13 @@ sh_test(
     srcs=["runtime_pytest.sh"],
     args=[
         "tests/test_control_point_matcher_defaults.py",
+        # Importing hmlib.stitching.control_points pulls in cv2/numpy, and
+        # hmlib.cli.stitch pulls in the rest; the probe list is what rejects an
+        # interpreter that cannot satisfy them.
+        "cv2",
+        "numpy",
         "pytest",
+        "tifffile",
         "torch",
         "yaml",
     ],

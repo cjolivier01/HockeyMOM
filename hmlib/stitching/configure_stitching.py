@@ -1292,6 +1292,10 @@ def _build_stitching_project_in_place(
         or max_control_points < 4
     ):
         raise ValueError("max_control_points must be an integer of at least four")
+    # replace() writes past read_stitching_settings' own validation, so the
+    # matcher-specific floor has to be re-checked here. AKAZE needs six.
+    if settings.control_point_matcher == "akaze-hamming" and max_control_points < 6:
+        raise ValueError("AKAZE max_control_points must be at least six")
     settings = replace(settings, max_control_points=max_control_points)
     control_point_matcher = settings.control_point_matcher
     mapping_backend = settings.mapping_backend
@@ -1311,10 +1315,11 @@ def _build_stitching_project_in_place(
     max_output_dimension = normalize_max_output_dimension(max_output_dimension)
     dir_name = pto_path.parent
     previous_manifest = _read_stitch_artifact_manifest(dir_name)
-    # None means "we do not know what produced the existing project". It never
-    # compares equal to a real matcher, so the alignment is regenerated rather
-    # than reused -- which is what guessing a specific matcher here was getting
-    # wrong: guess right by accident and an unrelated .pto gets trusted.
+    # None means "we do not know what produced the existing project", which
+    # never compares equal to a real matcher. build_stitching_project writes the
+    # staged .pto and its manifest together, so in practice the manifest is
+    # present whenever the project is; this guards the case where that stops
+    # holding, rather than guessing a matcher that could match by accident.
     previous_control_point_matcher = (
         previous_manifest.get("control_point_matcher") if previous_manifest is not None else None
     )
@@ -1615,6 +1620,10 @@ def configure_video_stitching(
         or max_control_points < 4
     ):
         raise ValueError("max_control_points must be an integer of at least four")
+    # replace() writes past read_stitching_settings' own validation, so the
+    # matcher-specific floor has to be re-checked here. AKAZE needs six.
+    if settings.control_point_matcher == "akaze-hamming" and max_control_points < 6:
+        raise ValueError("AKAZE max_control_points must be at least six")
     settings = replace(settings, max_control_points=max_control_points)
     validate_output_scale(scale, settings.mapping_backend)
     control_point_matcher = settings.control_point_matcher
@@ -1672,7 +1681,7 @@ def _configure_video_stitching_locked(
     stitch_frame_time: Optional[str] = None,
     ignore_private_config: bool = False,
     game_config: Optional[Dict[str, Any]] = None,
-    control_point_matcher: str = "superpoint-lightglue",
+    control_point_matcher: Optional[str] = None,
     mapping_backend: str = "nona",
     max_output_dimension: Optional[int] = None,
     settings: Optional[StitchingSettings] = None,

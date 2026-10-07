@@ -23,7 +23,10 @@ import torch
 from hmlib.config import get_game_config, get_game_dir
 from hmlib.stitching.akaze import LensCalibrationPair, load_lens_calibration
 from hmlib.stitching.configure_stitching import build_stitching_project, configure_video_stitching
-from hmlib.stitching.control_points import CONTROL_POINT_MATCHERS
+from hmlib.stitching.control_points import (
+    CONTROL_POINT_MATCHERS,
+    DEFAULT_CONTROL_POINT_MATCHER,
+)
 from hmlib.stitching.control_points import (
     calculate_control_points as calculate_stitching_control_points,
 )
@@ -238,7 +241,7 @@ def calculate_control_points(
     device: Optional[torch.device] = None,
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
-    matcher: str = "superpoint-lightglue",
+    matcher: str = DEFAULT_CONTROL_POINT_MATCHER,
     lens_calibration: Optional[LensCalibrationPair] = None,
 ) -> Dict[str, torch.Tensor]:
     """
