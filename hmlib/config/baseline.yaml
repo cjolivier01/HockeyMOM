@@ -37,6 +37,12 @@ plot:
   plot_actions: false
   plot_pose: false
   plot_ice_mask: false
+  #
+  # Rink landmark overlay. NOT IMPLEMENTED IN HSTREAM YET: no native code reads
+  # these keys; HockeyMON's stitch graph (its rink_overlay node) is the only
+  # consumer. They are listed in both copies of this file to keep the two
+  # synchronized.
+  #
   # Master switch for the stitch graph's rink_overlay node. Off by default, so
   # the node is a no-op stub and nothing is constructed. --plot-ice-mask and
   # --plot-rink-landmarks each set this alongside their own key.
@@ -506,6 +512,10 @@ model:
     checkpoint: https://github.com/cjolivier01/HockeyMONStream/releases/download/pretrained-assets-v1/ice_rink_iter_60000.pth
 
   rink_landmarks_segm:
+    # NOT IMPLEMENTED IN HSTREAM YET: no native code loads this model;
+    # HockeyMON's rink landmark overlay is the only consumer. It is listed in
+    # both copies of this file to keep the two synchronized.
+    #
     # The 11 painted rink features (blue lines, circles, crease, ...), as
     # opposed to ice_rink_segm above, which segments the playing surface.
     # Trained by openmm/train_rink_landmarks.sh; this is its best checkpoint
