@@ -26,9 +26,33 @@ aspen:
         max_output_width: GLOBAL.stitching.max_output_width
         cache_rotation_grid: GLOBAL.stitching.cache_rotation_grid
 
+    # Annotates `img` in place, so the overlay reaches the preview, the camera
+    # UI and the encoded file alike.
+    #
+    # Off by default: a disabled node becomes a no-op stub, so apply_camera can
+    # depend on it unconditionally. stitch.py's _arm_rink_overlay() sets
+    # plot.plot_rink_overlay when either overlay below is on, from whichever
+    # source asked for it -- flag, game YAML or --config-override.
+    rink_overlay:
+      class: hmlib.aspen.plugins.rink_overlay_plugin.RinkOverlayPlugin
+      depends: [stitching]
+      enabled: GLOBAL.plot.plot_rink_overlay
+      params:
+        rink_mask: GLOBAL.plot.plot_ice_mask
+        landmarks: GLOBAL.plot.plot_rink_landmarks
+        score_thr: GLOBAL.plot.rink_landmarks_score_thr
+        inference_scale: GLOBAL.plot.rink_landmarks_inference_scale
+        classes: GLOBAL.plot.rink_landmarks_classes
+        label_text: GLOBAL.plot.plot_rink_landmark_labels
+        # Thread the model paths through the graph. The plugin's fallback,
+        # get_model_config(), re-reads the config from disk, so an override
+        # applied to this graph's config would otherwise be dropped.
+        checkpoint: GLOBAL.model.rink_landmarks_segm.checkpoint
+        model_config: GLOBAL.model.rink_landmarks_segm.config
+
     apply_camera:
       class: hmlib.camera.apply_camera_plugin.ApplyCameraPlugin
-      depends: [stitching]
+      depends: [rink_overlay]
       enabled: true
       params:
         # Inline the pipeline here so this config is self-contained and

@@ -263,6 +263,21 @@ def _game_or_private_plugin_config_was_explicit(
     return False
 
 
+def _arm_rink_overlay(aspen_cfg_all: Dict[str, Any]) -> None:
+    """Enable the rink_overlay node when either overlay has been asked for.
+
+    Derived once, here, where the config is final. An arg -> config mapping
+    could not do it: those only fire for flags given on the command line, so a
+    game or private YAML setting ``plot.plot_ice_mask`` would leave the node
+    disabled and draw nothing. YAML cannot express the OR either.
+    """
+    wanted = bool(get_nested_value(aspen_cfg_all, "plot.plot_ice_mask", False)) or bool(
+        get_nested_value(aspen_cfg_all, "plot.plot_rink_landmarks", False)
+    )
+    if wanted:
+        set_nested_value(aspen_cfg_all, "plot.plot_rink_overlay", True)
+
+
 def _apply_stitch_buffering_defaults(
     aspen_cfg_all: Dict[str, Any], args: Optional[argparse.Namespace]
 ) -> None:
@@ -648,6 +663,7 @@ def stitch_videos(
                 explicit_arg_names=getattr(args, "explicit_arg_names", None),
             )
             hm_opts.apply_config_overrides(aspen_cfg_all, getattr(args, "config_overrides", None))
+            _arm_rink_overlay(aspen_cfg_all)
             args.game_config = aspen_cfg_all
             hm_opts.persist_private_config_overrides(
                 args,

@@ -198,6 +198,16 @@ def _debug_to_play_tracker(value: Any) -> Any:
         return _SKIP_CONFIG_VALUE
 
 
+def _split_comma_list(value: Any) -> Any:
+    """Turn ``"Blue Line,Crease"`` into a list, leaving an already-split value alone."""
+    if value is None:
+        return _SKIP_CONFIG_VALUE
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    items = [item.strip() for item in str(value).split(",") if item.strip()]
+    return items or _SKIP_CONFIG_VALUE
+
+
 def _get_disable_progress_bar() -> bool:
     import os
 
@@ -636,6 +646,46 @@ class hm_opts(object):
             help="Disable tracking circles and draw bounding boxes instead.",
         )
         plot.add_argument("--plot-ice-mask", action="store_true", help="Plot the ice mask")
+        plot.add_argument(
+            "--plot-rink-landmarks",
+            action="store_true",
+            help="Plot the painted rink landmarks (blue lines, circles, crease, ...)",
+        )
+        plot.add_argument(
+            "--plot-rink-landmark-labels",
+            action="store_true",
+            help="Label each plotted rink landmark with its class name and score",
+        )
+        plot.add_argument(
+            "--rink-landmarks-score-thr",
+            type=float,
+            default=None,
+            help="Minimum score for a plotted rink landmark instance (default 0.5)",
+        )
+        plot.add_argument(
+            "--rink-landmarks-inference-scale",
+            type=float,
+            default=None,
+            help=(
+                "Downscale factor applied before rink landmark inference. The model was "
+                "trained on 1008x1008 crops, so a full-width panorama is out of distribution."
+            ),
+        )
+        plot.add_argument(
+            "--rink-landmarks-classes",
+            type=str,
+            default=None,
+            help=(
+                "Comma-separated rink landmark classes to draw. Default draws everything "
+                "except 'Field', which covers the whole sheet (use --plot-ice-mask for that)."
+            ),
+        )
+        plot.add_argument(
+            "--rink-landmarks-checkpoint",
+            type=str,
+            default=None,
+            help="Override the rink landmark checkpoint (model.rink_landmarks_segm.checkpoint)",
+        )
         plot.add_argument(
             "--plot-trajectories", action="store_true", help="Plot individual track trajectories"
         )
@@ -1886,6 +1936,12 @@ class hm_opts(object):
             ("plot_actions", "plot.plot_actions"),
             ("plot_pose", "plot.plot_pose"),
             ("plot_ice_mask", "plot.plot_ice_mask"),
+            ("plot_rink_landmarks", "plot.plot_rink_landmarks"),
+            ("plot_rink_landmark_labels", "plot.plot_rink_landmark_labels"),
+            ("rink_landmarks_score_thr", "plot.rink_landmarks_score_thr"),
+            ("rink_landmarks_inference_scale", "plot.rink_landmarks_inference_scale"),
+            ("rink_landmarks_classes", "plot.rink_landmarks_classes"),
+            ("rink_landmarks_checkpoint", "model.rink_landmarks_segm.checkpoint"),
             ("plot_all_detections", "plot.plot_all_detections"),
             (
                 "plot_tracking",
@@ -1927,6 +1983,9 @@ class hm_opts(object):
         "plot_actions": {True: True},
         "plot_pose": {True: True},
         "plot_ice_mask": {True: True},
+        "plot_rink_landmarks": {True: True},
+        "plot_rink_landmark_labels": {True: True},
+        "rink_landmarks_classes": _split_comma_list,
         "plot_tracking": {True: True},
         "no_plot_tracking_circles": {True: False},
         "debug": _debug_to_play_tracker,

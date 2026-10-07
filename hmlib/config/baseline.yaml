@@ -37,6 +37,29 @@ plot:
   plot_actions: false
   plot_pose: false
   plot_ice_mask: false
+  #
+  # Rink landmark overlay. NOT IMPLEMENTED IN HSTREAM YET: no native code reads
+  # these keys; HockeyMON's stitch graph (its rink_overlay node) is the only
+  # consumer. They are listed in both copies of this file to keep the two
+  # synchronized.
+  #
+  # Master switch for the stitch graph's rink_overlay node. Off by default, so
+  # the node is a no-op stub and nothing is constructed. --plot-ice-mask and
+  # --plot-rink-landmarks each set this alongside their own key.
+  plot_rink_overlay: false
+  # Painted rink features (blue lines, circles, crease, ...) from
+  # model.rink_landmarks_segm.
+  plot_rink_landmarks: false
+  plot_rink_landmark_labels: false
+  # null keeps hmlib.segm.rink_landmarks.DEFAULT_SCORE_THRESH.
+  rink_landmarks_score_thr: null
+  # Downscale before landmark inference. The model was trained on 1008x1008
+  # crops, so a full-width panorama is well outside its training distribution;
+  # lower this if the detections look wrong.
+  rink_landmarks_inference_scale: null
+  # Class allow-list; null draws everything except "Field", which covers the
+  # whole sheet and is better served by plot_ice_mask.
+  rink_landmarks_classes: null
 
 #
 # Aspen engine defaults
@@ -487,6 +510,18 @@ model:
     # checkpoint: pretrained/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco/ice_rink_iter_30000.pth
     # checkpoint: https://github.com/cjolivier01/HockeyMON/releases/download/v0.0.1/ice_rink_iter_30000.pth
     checkpoint: https://github.com/cjolivier01/HockeyMONStream/releases/download/pretrained-assets-v1/ice_rink_iter_60000.pth
+
+  rink_landmarks_segm:
+    # NOT IMPLEMENTED IN HSTREAM YET: no native code loads this model;
+    # HockeyMON's rink landmark overlay is the only consumer. It is listed in
+    # both copies of this file to keep the two synchronized.
+    #
+    # The 11 painted rink features (blue lines, circles, crease, ...), as
+    # opposed to ice_rink_segm above, which segments the playing surface.
+    # Trained by openmm/train_rink_landmarks.sh; this is its best checkpoint
+    # by coco/segm_mAP (0.773 at iteration 97500).
+    config: config/models/rink_landmarks/mask2former_swin-s-p4-w7-224_8xb2-lsj-50e_coco.py
+    checkpoint: https://github.com/cjolivier01/HockeyMONStream/releases/download/pretrained-assets-v1/rink_landmarks_iter_97500.pth
 
   svnh_classifier:
     config: null

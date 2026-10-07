@@ -21,7 +21,7 @@ if torch is not None:
     from hmlib.tracking_utils.detection_dataframe import DetectionDataFrame
     from hmlib.tracking_utils.pose_dataframe import PoseDataFrame
     from hmlib.tracking_utils.tracking_dataframe import TrackingDataFrame
-    from hmlib.utils.gpu import wrap_tensor
+    from hmlib.utils.gpu import unwrap_tensor, wrap_tensor
 else:
     DeleteKey = object  # type: ignore[assignment]
     Plugin = object  # type: ignore[assignment]
@@ -32,6 +32,7 @@ else:
     PoseDataFrame = None  # type: ignore[assignment]
     TrackingDataFrame = None  # type: ignore[assignment]
     wrap_tensor = None  # type: ignore[assignment]
+    unwrap_tensor = None  # type: ignore[assignment]
 
 TESTS_DIR = Path(__file__).resolve().parent
 if str(TESTS_DIR) not in sys.path:
@@ -527,6 +528,44 @@ def _case_ice_config(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = Fal
     )
     assert out["rink_profile"]["game_id"] == "game-1"
     assert out["rink_profile"]["shape"] == (20, 30)
+
+
+def _case_rink_overlay(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
+    from hmlib.aspen.plugins.rink_overlay_plugin import RinkOverlayPlugin
+
+    monkeypatch.setattr(
+        "hmlib.segm.ice_rink.configure_ice_rink_mask",
+        lambda **kwargs: {"combined_mask": torch.ones((20, 30), dtype=torch.bool)},
+    )
+    landmark_mask = torch.zeros((20, 30), dtype=torch.bool)
+    landmark_mask[4:16, 6:24] = True
+    monkeypatch.setattr(
+        "hmlib.segm.rink_landmarks.configure_rink_landmarks",
+        lambda **kwargs: {
+            "labels": torch.tensor([0]),
+            "scores": torch.tensor([0.9]),
+            "bboxes": torch.tensor([[6.0, 4.0, 24.0, 16.0]]),
+            "masks": landmark_mask.unsqueeze(0),
+            "classes": ("Blue Line",),
+            "palette": [(220, 20, 60)],
+        },
+    )
+    # Exercise both halves: the landmark branch is why this plugin exists.
+    plugin = RinkOverlayPlugin(landmarks=True, label_text=True, save_debug_frame=False)
+    _maybe_enable_cuda_graph(plugin, cuda_graph_enabled)
+    img = torch.full((1, 20, 30, 3), 100, dtype=torch.uint8)
+    out = plugin(
+        {
+            "img": wrap_tensor(img),
+            "game_id": "game-1",
+            "shared": {"game_id": "game-1"},
+        }
+    )
+    annotated = unwrap_tensor(out["img"])
+    assert annotated.shape == img.shape
+    assert bool((annotated != img).any())
+    # Inside the landmark mask the fill wins over the fainter rink tint.
+    assert annotated[0, 10, 15].tolist() != annotated[0, 1, 1].tolist()
 
 
 def _case_image_prep(monkeypatch, tmp_path: Path, cuda_graph_enabled: bool = False) -> None:
@@ -1209,6 +1248,7 @@ PLUGIN_CASES: dict[str, Callable[[Any, Path, bool], None]] = {
     "hmlib.aspen.plugins.pose_to_det_plugin.PoseToDetPlugin": _case_pose_to_det,
     "hmlib.aspen.plugins.postprocess_plugin.CamPostProcessPlugin": _case_postprocess,
     "hmlib.aspen.plugins.prune_plugin.PruneKeysPlugin": _case_prune,
+    "hmlib.aspen.plugins.rink_overlay_plugin.RinkOverlayPlugin": _case_rink_overlay,
     "hmlib.aspen.plugins.save_plugins.SaveDetectionsPlugin": _case_save_detections,
     "hmlib.aspen.plugins.save_plugins.SaveTrackingPlugin": _case_save_tracking,
     "hmlib.aspen.plugins.save_plugins.SavePosePlugin": _case_save_pose,
