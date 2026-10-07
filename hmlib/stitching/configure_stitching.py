@@ -1311,10 +1311,12 @@ def _build_stitching_project_in_place(
     max_output_dimension = normalize_max_output_dimension(max_output_dimension)
     dir_name = pto_path.parent
     previous_manifest = _read_stitch_artifact_manifest(dir_name)
+    # None means "we do not know what produced the existing project". It never
+    # compares equal to a real matcher, so the alignment is regenerated rather
+    # than reused -- which is what guessing a specific matcher here was getting
+    # wrong: guess right by accident and an unrelated .pto gets trusted.
     previous_control_point_matcher = (
-        previous_manifest.get("control_point_matcher")
-        if previous_manifest is not None
-        else "superpoint-lightglue"
+        previous_manifest.get("control_point_matcher") if previous_manifest is not None else None
     )
     hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
@@ -1576,42 +1578,6 @@ def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
     }
 
     return percentages
-
-
-def load_or_calculate_control_points(
-    game_id: str,
-    image0: Union[str, Path, torch.Tensor],
-    image1: Union[str, Path, torch.Tensor],
-    force: bool = False,
-    device: Optional[torch.device] = None,
-    save: bool = True,
-) -> Dict[str, torch.Tensor]:
-    """Load game-specific control points or compute them with a learned matcher.
-
-    @param game_id: Game identifier used to resolve private config.
-    @param image0: First image (path or tensor).
-    @param image1: Second image (path or tensor).
-    @param force: If True, ignore cached control points and recompute.
-    @param device: Optional device for LightGlue/SuperPoint.
-    @param max_control_points: Maximum number of points to keep.
-    @param output_directory: Optional directory for debug visualizations.
-    @param save: If True, persist control points into game config.
-    @return: Dict with at least ``m_kpts0`` and ``m_kpts1`` tensors.
-    """
-    config = get_game_config_private(game_id=game_id) or {}
-    normalize_runtime_config(config)
-    control_points = get_nested_value(config, "stitching.control_points") if not force else {}
-    if force or not control_points:
-        # Calculate them...
-        control_points = calculate_control_points(image=image0, image1=image1, device=device)
-        assert "m_kpts0" in control_points and "m_kpts1" in control_points
-        # Remove stuff we don't want
-        control_points.pop("kpts0")
-        control_points.pop("kpts1")
-
-        if save:
-            config = set_nested_value(config, "stitching.control_points", control_points)
-            save_private_config(game_id=game_id, data=config)
 
 
 def configure_video_stitching(

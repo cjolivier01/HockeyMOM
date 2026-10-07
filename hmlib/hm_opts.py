@@ -1598,8 +1598,12 @@ class hm_opts(object):
         )
         parser.add_argument(
             "--control-point-matcher",
-            choices=["superpoint-lightglue", "dedode-lightglue", "loftr"],
-            default="superpoint-lightglue",
+            # Must stay equal to hmlib.stitching.control_points.CONTROL_POINT_MATCHERS;
+            # that module pulls in torch, so it cannot be imported here just to
+            # build a choices list. test_control_point_matcher_defaults guards
+            # the duplication.
+            choices=["superpoint-lightglue", "dedode-lightglue", "loftr", "akaze-hamming"],
+            default="akaze-hamming",
             help="Feature matcher used to find stitching control points",
         )
         parser.add_argument(

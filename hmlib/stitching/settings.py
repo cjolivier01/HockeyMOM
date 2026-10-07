@@ -244,8 +244,12 @@ def read_stitching_settings(
     baseline_path = Path(__file__).resolve().parents[1] / "config" / "baseline.yaml"
     with baseline_path.open(encoding="utf-8") as stream:
         baseline = yaml.safe_load(stream)["stitching"]
+    # Keep this equal to stitching.control_point_matcher in baseline.yaml; a
+    # caller that passes a config without the key must resolve the same matcher
+    # as one that goes through the baseline, or calibration provenance differs
+    # between the two paths for the same game.
     matcher = normalize_control_point_matcher(
-        _defaulted(stitch, "control_point_matcher", "superpoint-lightglue")
+        _defaulted(stitch, "control_point_matcher", "akaze-hamming")
     )
     backend = normalize_mapping_backend(_defaulted(stitch, "mapping_backend", "nona"))
     projection = normalize_projection(

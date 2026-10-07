@@ -135,7 +135,7 @@ hmstitch --game-id ev-stockton-1 --show-image \
 - `--stitch-frame-time HH:MM:SS` — Choose reference frame for alignment; `--start-frame-time` to start processing at a time
 - `--stitch-rotate-degrees <float>` — Rotate the stitched output about its center by the given degrees; keeps same dimensions (use small values to level the horizon)
 - `--max-control-points N` — Control points for homography
-- `--control-point-matcher superpoint-lightglue|dedode-lightglue|loftr` — Feature matching backend (default: `superpoint-lightglue`); each caps its longest input dimension before matching — SuperPoint at 1024 pixels, DeDoDe at 1920, LoFTR at 1600 — and rescales matches back to source-image coordinates. Only SuperPoint corrects for pixel centres when it does so, so switching backends can move a control point by a pixel or two
+- `--control-point-matcher akaze-hamming|superpoint-lightglue|dedode-lightglue|loftr` — Feature matching backend (default: `akaze-hamming`, which needs no model asset, runs on CPU, and aligns rink footage better than SuperPoint + LightGlue in practice). The neural matchers each cap their longest input dimension before matching — SuperPoint at 1024 pixels, DeDoDe at 1920, LoFTR at 1600 — and rescale matches back to source-image coordinates. Only SuperPoint corrects for pixel centres when it does so, so switching backends can move a control point by a pixel or two
 - `--mapping-backend nona|opencv-magsac|opencv-affine-ransac` — Mapping TIFF generator (default: `nona`); the native OpenCV options use either `findHomography` with MAGSAC++ or `estimateAffine2D` with RANSAC and write the same RGB/alpha and X/Y map artifacts
 - `--max-output-dimension N` — Optionally scale a native OpenCV mapping canvas so neither dimension exceeds `N`
 - `--blend-mode laplacian|alpha|gpu-hard-seam` — Seam blend. `laplacian` mixes the cameras across every spatial scale in the overlap; `alpha` crossfades over a narrow band at the seam and leaves the rest of the overlap carrying source pixels; `gpu-hard-seam` does not mix. `multiblend` names the calibration-time enblend/multiblend binaries and cannot be used as a video blend mode on either path
@@ -185,7 +185,7 @@ hmcreate_control_points --left left.mp4 --right right.mp4 --synchronize-only
 - `--left` / `--right` — Input videos (or supply `--game-id`)
 - `--synchronize-only` — Print left/right frame offsets and exit
 - `--max-control-points N` — Limit control point matches
-- `--control-point-matcher superpoint-lightglue|dedode-lightglue|loftr` — Feature matching backend
+- `--control-point-matcher akaze-hamming|superpoint-lightglue|dedode-lightglue|loftr` — Feature matching backend (default: `akaze-hamming`)
 - `--mapping-backend nona|opencv-magsac|opencv-affine-ransac` — Mapping TIFF generator
 - `--scale <float>` — Downscale when optimizing/visualizing
 - `--max-output-dimension N` — Cap the generated panorama width and height

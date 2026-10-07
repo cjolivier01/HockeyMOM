@@ -184,7 +184,7 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     from hmlib.stitching.settings import read_stitching_settings
 
     settings = read_stitching_settings(captured_net["configure_game_config"])
-    assert settings.control_point_matcher == "superpoint-lightglue"
+    assert settings.control_point_matcher == "akaze-hamming"
     assert settings.mapping_backend == "nona"
     assert settings.projection == "general-panini"
     assert settings.run_autooptimizer
