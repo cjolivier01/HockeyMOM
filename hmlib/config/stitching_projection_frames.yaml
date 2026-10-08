@@ -14,7 +14,9 @@ pipeline:
   timeout_seconds: 360
 
 defaults:
-  control_point_matcher: superpoint-lightglue
+  # Track stitching.control_point_matcher in baseline.yaml, so the projection
+  # review grid reviews the projections people actually ship.
+  control_point_matcher: akaze-hamming
   mapping_backend: nona
   auto_fov: true
   horizontal_fov: 180  # Retained in metadata but ignored while auto_fov is true.

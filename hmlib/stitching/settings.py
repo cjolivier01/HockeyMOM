@@ -16,7 +16,10 @@ from typing import Any, Mapping
 
 import yaml
 
-from hmlib.stitching.control_points import normalize_control_point_matcher
+from hmlib.stitching.control_points import (
+    DEFAULT_CONTROL_POINT_MATCHER,
+    normalize_control_point_matcher,
+)
 
 MAX_CANVAS_DIMENSION = 65534
 MAX_CANVAS_PIXELS = 256 * 1024 * 1024
@@ -244,8 +247,12 @@ def read_stitching_settings(
     baseline_path = Path(__file__).resolve().parents[1] / "config" / "baseline.yaml"
     with baseline_path.open(encoding="utf-8") as stream:
         baseline = yaml.safe_load(stream)["stitching"]
+    # Keep this equal to stitching.control_point_matcher in baseline.yaml; a
+    # caller that passes a config without the key must resolve the same matcher
+    # as one that goes through the baseline, or calibration provenance differs
+    # between the two paths for the same game.
     matcher = normalize_control_point_matcher(
-        _defaulted(stitch, "control_point_matcher", "superpoint-lightglue")
+        _defaulted(stitch, "control_point_matcher", DEFAULT_CONTROL_POINT_MATCHER)
     )
     backend = normalize_mapping_backend(_defaulted(stitch, "mapping_backend", "nona"))
     projection = normalize_projection(

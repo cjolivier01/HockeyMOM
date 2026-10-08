@@ -24,6 +24,10 @@ CONTROL_POINT_MATCHERS = (
     "loftr",
     "akaze-hamming",
 )
+# Library-layer default, for helpers that are callable without a resolved
+# config. Must equal stitching.control_point_matcher in baseline.yaml --
+# test_control_point_matcher_defaults pins that.
+DEFAULT_CONTROL_POINT_MATCHER = "akaze-hamming"
 _MATCHER_ALIASES = {
     "superpoint": "superpoint-lightglue",
     "lightglue": "superpoint-lightglue",
@@ -406,7 +410,7 @@ def calculate_control_points(
     device: Optional[torch.device] = None,
     max_num_keypoints: int = 2048,
     output_directory: Optional[str] = None,
-    matcher: str = "superpoint-lightglue",
+    matcher: str = DEFAULT_CONTROL_POINT_MATCHER,
     lens_calibration: Optional[LensCalibrationPair] = None,
 ) -> Dict[str, torch.Tensor]:
     """Compute control points for a pair of images with a selected matcher.

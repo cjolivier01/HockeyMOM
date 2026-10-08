@@ -4,9 +4,10 @@
 before extracting frames or changing a cached calibration. The dataset calibration
 path uses the same settings. Invalid combinations raise an error before cleanup.
 
-The bundled default uses `opencv-magsac`, rectilinear output, and no Hugin
-optimizer. `opencv-affine-ransac` also supports rectilinear output. Other
-projections require NONA and explicit optimizer opt-in:
+The bundled default uses `nona`, General Panini output, and the Hugin
+optimizer (`baseline.yaml`: `mapping_backend: nona`, `projection:
+general-panini`, `run_autooptimizer: true`). `opencv-magsac` and
+`opencv-affine-ransac` support rectilinear output only:
 
 ```yaml
 stitching:
@@ -75,8 +76,9 @@ Frame count and the control-point limit are recorded in calibration provenance.
 
 ## AKAZE and GoPro KB4 profiles
 
-Select `stitching.control_point_matcher: akaze-hamming` (`akaze` is an alias) for
-OpenCV M-LDB detection and mutual Hamming matching without model downloads.
+`akaze-hamming` (`akaze` is an alias) is the bundled default
+(`stitching.control_point_matcher` in `baseline.yaml`): OpenCV M-LDB detection
+and mutual Hamming matching, with no model download.
 Rebuild the native extension to expose its CPU AKAZE detector; this does not
 depend on the Python OpenCV package exporting AKAZE.
 Detection is limited to 1920 pixels and 2000 keypoints per camera, using the

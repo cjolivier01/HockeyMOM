@@ -1292,6 +1292,10 @@ def _build_stitching_project_in_place(
         or max_control_points < 4
     ):
         raise ValueError("max_control_points must be an integer of at least four")
+    # replace() writes past read_stitching_settings' own validation, so the
+    # matcher-specific floor has to be re-checked here. AKAZE needs six.
+    if settings.control_point_matcher == "akaze-hamming" and max_control_points < 6:
+        raise ValueError("AKAZE max_control_points must be at least six")
     settings = replace(settings, max_control_points=max_control_points)
     control_point_matcher = settings.control_point_matcher
     mapping_backend = settings.mapping_backend
@@ -1311,10 +1315,13 @@ def _build_stitching_project_in_place(
     max_output_dimension = normalize_max_output_dimension(max_output_dimension)
     dir_name = pto_path.parent
     previous_manifest = _read_stitch_artifact_manifest(dir_name)
+    # None means "we do not know what produced the existing project", which
+    # never compares equal to a real matcher. build_stitching_project writes the
+    # staged .pto and its manifest together, so in practice the manifest is
+    # present whenever the project is; this guards the case where that stops
+    # holding, rather than guessing a matcher that could match by accident.
     previous_control_point_matcher = (
-        previous_manifest.get("control_point_matcher")
-        if previous_manifest is not None
-        else "superpoint-lightglue"
+        previous_manifest.get("control_point_matcher") if previous_manifest is not None else None
     )
     hm_project = project_file_path
     autooptimiser_out = os.path.join(dir_name, "autooptimiser_out.pto")
@@ -1578,42 +1585,6 @@ def get_pixel_value_percentages(image_path: str) -> Dict[int, float]:
     return percentages
 
 
-def load_or_calculate_control_points(
-    game_id: str,
-    image0: Union[str, Path, torch.Tensor],
-    image1: Union[str, Path, torch.Tensor],
-    force: bool = False,
-    device: Optional[torch.device] = None,
-    save: bool = True,
-) -> Dict[str, torch.Tensor]:
-    """Load game-specific control points or compute them with a learned matcher.
-
-    @param game_id: Game identifier used to resolve private config.
-    @param image0: First image (path or tensor).
-    @param image1: Second image (path or tensor).
-    @param force: If True, ignore cached control points and recompute.
-    @param device: Optional device for LightGlue/SuperPoint.
-    @param max_control_points: Maximum number of points to keep.
-    @param output_directory: Optional directory for debug visualizations.
-    @param save: If True, persist control points into game config.
-    @return: Dict with at least ``m_kpts0`` and ``m_kpts1`` tensors.
-    """
-    config = get_game_config_private(game_id=game_id) or {}
-    normalize_runtime_config(config)
-    control_points = get_nested_value(config, "stitching.control_points") if not force else {}
-    if force or not control_points:
-        # Calculate them...
-        control_points = calculate_control_points(image=image0, image1=image1, device=device)
-        assert "m_kpts0" in control_points and "m_kpts1" in control_points
-        # Remove stuff we don't want
-        control_points.pop("kpts0")
-        control_points.pop("kpts1")
-
-        if save:
-            config = set_nested_value(config, "stitching.control_points", control_points)
-            save_private_config(game_id=game_id, data=config)
-
-
 def configure_video_stitching(
     dir_name: str,
     video_left: str,
@@ -1649,6 +1620,10 @@ def configure_video_stitching(
         or max_control_points < 4
     ):
         raise ValueError("max_control_points must be an integer of at least four")
+    # replace() writes past read_stitching_settings' own validation, so the
+    # matcher-specific floor has to be re-checked here. AKAZE needs six.
+    if settings.control_point_matcher == "akaze-hamming" and max_control_points < 6:
+        raise ValueError("AKAZE max_control_points must be at least six")
     settings = replace(settings, max_control_points=max_control_points)
     validate_output_scale(scale, settings.mapping_backend)
     control_point_matcher = settings.control_point_matcher
@@ -1706,7 +1681,7 @@ def _configure_video_stitching_locked(
     stitch_frame_time: Optional[str] = None,
     ignore_private_config: bool = False,
     game_config: Optional[Dict[str, Any]] = None,
-    control_point_matcher: str = "superpoint-lightglue",
+    control_point_matcher: Optional[str] = None,
     mapping_backend: str = "nona",
     max_output_dimension: Optional[int] = None,
     settings: Optional[StitchingSettings] = None,

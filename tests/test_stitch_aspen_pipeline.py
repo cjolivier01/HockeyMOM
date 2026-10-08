@@ -184,7 +184,11 @@ def should_build_aspen_pipeline_for_stitching(monkeypatch, tmp_path):
     from hmlib.stitching.settings import read_stitching_settings
 
     settings = read_stitching_settings(captured_net["configure_game_config"])
-    assert settings.control_point_matcher == "superpoint-lightglue"
+    # Derived, not hardcoded: this assertion was left on the old value when the
+    # baseline switched to akaze-hamming and turned the suite red.
+    baseline_path = Path(stitch_cli.__file__).resolve().parents[1] / "config/baseline.yaml"
+    baseline_stitching = yaml.safe_load(baseline_path.read_text(encoding="utf-8"))["stitching"]
+    assert settings.control_point_matcher == baseline_stitching["control_point_matcher"]
     assert settings.mapping_backend == "nona"
     assert settings.projection == "general-panini"
     assert settings.run_autooptimizer
