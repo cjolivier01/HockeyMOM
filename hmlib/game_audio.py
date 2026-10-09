@@ -9,12 +9,12 @@ audio copy or merge.
 """
 
 import os
+import re
 from pathlib import Path
 from typing import List, Optional, Union
 
 from hmlib.audio import copy_audio
 from hmlib.config import get_game_dir
-from hmlib.utils.path import add_suffix_to_filename
 
 
 def transfer_audio(
@@ -29,54 +29,45 @@ def transfer_audio(
     @param game_id: Game identifier used to resolve the target directory.
     @param input_av_files: Single path or list of paths containing the audio to copy.
     @param video_source_file: Video file that should receive the audio track.
-    @param output_av_path: Optional explicit output path; auto-generated when ``None``.
+    @param output_av_path: Optional output basename or positive version; auto-generated when ``None``.
     @param max_iterations: Max attempts when searching for a free destination filename.
     @return: Path to the resulting video file with audio merged in.
     @see @ref hmlib.audio.copy_audio "copy_audio" for the underlying ffmpeg call.
     """
-    if not output_av_path:
+    if output_av_path:
+        requested = Path(output_av_path)
+        match = re.search(r"-(\d+)$", requested.stem)
+        if match and int(match[1]) < 1:
+            raise ValueError("Output audio version must start at one")
+        if match and os.path.lexists(requested):
+            raise FileExistsError(f"Output audio version already exists: {requested}")
+    else:
         game_video_dir = get_game_dir(game_id)
-        # TODO: Use hmlib.utils.path functions for this (or create as needed)
-        if not game_video_dir:
-            # Going into results dir
-            dir_tokens = video_source_file.split("/")
-            file_name = dir_tokens[-1]
-            fn_tokens = file_name.split(".")
-            if len(fn_tokens) > 1:
-                if fn_tokens[-1] == "mkv":
-                    # There will be audio drift when adding audio
-                    # from mkv to mkv due to strange frame rate items
-                    # in the mkv that differ from the original
-                    fn_tokens[-1] = "mp4"
-                fn_tokens[-2] += "-with-audio"
-            else:
-                fn_tokens[0] += "-with-audio"
-            dir_tokens[-1] = ".".join(fn_tokens)
-            output_av_path = os.path.join(*dir_tokens)
+        video = Path(video_source_file)
+        directory = Path(game_video_dir) if game_video_dir else video.parent
+        # Remux MKV to MP4 to avoid the audio drift of MKV-to-MKV copies.
+        extension = ".mp4" if video.suffix == ".mkv" else video.suffix
+        requested = directory / (video.stem + "-with-audio" + extension)
+        match = None
+    if match is None:
+        # Work videos have stable names; published audio versions start at one.
+        directory = requested.parent
+        base_name, extension = requested.stem, requested.suffix
+        pattern = re.compile(rf"^{re.escape(base_name)}-(\d+){re.escape(extension)}$")
+        first_version = 1
+        for existing in directory.iterdir():
+            match = pattern.fullmatch(existing.name)
+            if match:
+                first_version = max(first_version, int(match[1]) + 1)
+        for version in range(first_version, first_version + max_iterations):
+            candidate = directory / f"{base_name}-{version}{extension}"
+            if not os.path.lexists(candidate):
+                output_av_path = str(candidate)
+                break
         else:
-            # Going into game-dir (numbered if pre-existing)
-            file_name = video_source_file.split("/")[-1]
-            file_name = add_suffix_to_filename(file_name, "-with-audio")
-            base_name, extension = os.path.splitext(file_name)
-            if extension == ".mkv":
-                # There will be audio drift when adding audio
-                # from mkv to mkv due to strange frame rate items
-                # in the mkv that differ from the original
-                extension = ".mp4"
-            output_av_path = None
-            for i in range(max_iterations):
-                if i:
-                    fname = base_name + "-" + str(i) + extension
-                else:
-                    fname = base_name + extension
-                fname = os.path.join(game_video_dir, fname)
-                if not os.path.exists(fname):
-                    output_av_path = fname
-                    break
-            if output_av_path is None:
-                raise RuntimeError(
-                    f"Could not find a free destination file name after {max_iterations} iteration attempts"
-                )
+            raise RuntimeError(
+                f"Could not find a free destination file name after {max_iterations} iteration attempts"
+            )
     print(f"Saving video with audio to file: {output_av_path}")
 
     copy_audio(

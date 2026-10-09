@@ -9,6 +9,7 @@ from __future__ import annotations
 import glob
 import hashlib
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -29,6 +30,40 @@ TABLES = (
     "checkpoints",
     "config_events",
 )
+
+
+def database_stem(game_id: str) -> str:
+    game_id = str(game_id)
+    if not game_id or "\0" in game_id:
+        raise ValueError("Telemetry requires a nonempty game ID without NUL characters")
+    return re.sub(r"[\\/]+", "_", game_id) + "_telemetry"
+
+
+def database_filename(game_id: str, generation: int) -> str:
+    if generation < 1 or generation > 2**64 - 1:
+        raise ValueError("Telemetry version must be between 1 and 2**64 - 1")
+    return f"{database_stem(game_id)}-{generation}.db"
+
+
+def database_generation(filename: str) -> int | None:
+    match = re.fullmatch(r".+_telemetry-(\d+)\.(?:db|sqlite)", filename)
+    if match is None:
+        match = re.fullmatch(r"(?:hm|hstream)_telemetry(?:-(\d+))?\.(?:db|sqlite)", filename)
+    if match is None:
+        return None
+    generation = int(match[1]) if match[1] is not None else 0
+    if generation > 2**64 - 1:
+        raise ValueError("Telemetry generation exceeds its unsigned 64-bit range")
+    return generation
+
+
+def game_database_files(directory: str | Path) -> list[Path]:
+    """Discover game-named recordings and earlier HM/hstream database names."""
+    return sorted(
+        path
+        for path in Path(directory).iterdir()
+        if path.is_file() and database_generation(path.name) is not None
+    )
 
 
 def validate_schema(connection: sqlite3.Connection) -> None:

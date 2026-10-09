@@ -2468,14 +2468,18 @@ def _deploy_output_artifacts(
             if (path.suffix == ".csv" or path.name == "rink_mask_0.png") and path.is_file()
         }
     if target_deploy_dir and telemetry_path is not None:
-        from hmlib.telemetry.database import completed_runs, read_database
+        from hmlib.telemetry.database import completed_runs, database_stem, read_database
 
         with read_database(telemetry_path) as database:
-            completed_runs(database)
+            recordings = completed_runs(database)
+            recorded_games = {run["game_id"] for run in recordings}
+            if len(recorded_games) != 1:
+                raise ValueError("Game-directory publication requires recordings from one game")
+            recorded_game = next(iter(recorded_games))
         # Only this run's database; stale CSVs and masks in reused work dirs
         # must never masquerade as companions of the new telemetry generation.
         sources = {path.name: path for path in supplementary_paths}
-        sources["hm_telemetry.db"] = Path(telemetry_path)
+        sources[database_stem(recorded_game) + ".db"] = Path(telemetry_path)
     source_video = Path(output_video_path) if output_video_path else None
     if source_video is not None and not source_video.is_file():
         source_video = None
@@ -2505,8 +2509,9 @@ def _deploy_output_artifacts(
             return result.files[destination.name]
         # An explicit archive filename fixes the CSV generation as well. A
         # collision must be resolved by the caller, never by overwriting data.
-        # Preserve the literal suffix, including -0 and leading zeroes: neither
-        # may alias the bare, mutable calibration mask in the game directory.
+        # Positive versions may retain leading zeroes. Zero is not a version.
+        if int(match[1]) < 1:
+            raise ValueError("Output video version must start at one")
         csv_sources = {
             f"{Path(name).stem}{match.group(0)}{Path(name).suffix}": path
             for name, path in sources.items()

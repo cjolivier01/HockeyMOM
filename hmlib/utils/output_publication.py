@@ -26,9 +26,9 @@ def artifact_name(name: str, suffix: int) -> str:
     path = Path(name)
     if path.name != name or name in ("", ".", ".."):
         raise ValueError(f"Artifact name must be a filename: {name!r}")
-    if suffix < 0:
-        raise ValueError("Artifact suffix must be nonnegative")
-    return name if suffix == 0 else f"{path.stem}-{suffix}{path.suffix}"
+    if suffix < 1:
+        raise ValueError("Artifact version must start at one")
+    return f"{path.stem}-{suffix}{path.suffix}"
 
 
 def _is_discovery_marker(name: str) -> bool:
@@ -36,7 +36,7 @@ def _is_discovery_marker(name: str) -> bool:
     return (
         stem == "tracking"
         or stem.endswith("-tracking")
-        or (Path(name).suffix == ".db" and stem in {"hm_telemetry", "hstream_telemetry"})
+        or (Path(name).suffix == ".db" and stem.endswith("_telemetry"))
     )
 
 
@@ -82,7 +82,7 @@ def publish_artifacts(
     sources: Mapping[str, str | Path],
     directory: str | Path,
     *,
-    suffix: int = 0,
+    suffix: int | None = None,
     exact: bool = False,
     generation_directories: Sequence[str | Path] = (),
 ) -> PublishedArtifacts:
@@ -94,7 +94,9 @@ def publish_artifacts(
     existing entries. Hard links remain within that filesystem, including NFS;
     published files are independent of the working source files.
 
-    ``exact`` reserves exactly the requested suffix and raises on collisions.
+    ``exact`` reserves exactly the requested positive suffix and raises on collisions.
+    With no suffix, exact publication accepts already numbered filenames sharing
+    one positive version and preserves their spelling, including leading zeroes.
     Otherwise numbering starts at one, above every existing tracking/stitched
     video or companion generation, even when some numbers are missing. On
     failure, only names still owned by this attempt are removed; all source
@@ -106,6 +108,19 @@ def publish_artifacts(
     """
     directory = Path(directory)
     names = list(sources)
+    literal_names = exact and suffix is None
+    if literal_names:
+        versions = set()
+        for name in names:
+            match = re.search(r"-(\d+)$", Path(name).stem)
+            if match is None or int(match[1]) < 1:
+                raise ValueError(f"Exact artifact name needs a positive version: {name!r}")
+            versions.add(int(match[1]))
+        if len(versions) > 1:
+            raise ValueError("Exact artifacts must share one version")
+        suffix = next(iter(versions), 1)
+    elif suffix is None:
+        suffix = 1
     for name in names:
         artifact_name(name, suffix)
     if not names:
@@ -143,7 +158,7 @@ def publish_artifacts(
                     ),
                 ]
             )
-            patterns.append(re.compile(r"^(?:hm|hstream)_telemetry(?:-(\d+))?\.db$"))
+            patterns.append(re.compile(r"^.+_telemetry(?:-(\d+))?\.(?:db|sqlite)$"))
             for history in {directory, *(Path(path) for path in generation_directories)}:
                 if not history.exists():
                     continue
@@ -152,7 +167,10 @@ def publish_artifacts(
                         match = pattern.fullmatch(existing.name)
                         if match:
                             suffix = max(suffix, int(match.group(1) or 0) + 1)
-        candidates = {name: directory / artifact_name(name, suffix) for name in names}
+        candidates = {
+            name: directory / (name if literal_names else artifact_name(name, suffix))
+            for name in names
+        }
         while any(os.path.lexists(path) for path in candidates.values()):
             if exact:
                 raise FileExistsError(f"Output generation {suffix} already exists in {directory}")

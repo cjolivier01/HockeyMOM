@@ -1,13 +1,15 @@
 # DriveGPT telemetry databases
 
-Hstream records one `hstream_telemetry.db` (or numbered `hstream_telemetry-N.db`) in its working directory. Publication copies a completed, closed database to the game directory using the finalized video's suffix, such as `hstream_telemetry-2.db`. Capture without a saved video publishes the next available numbered generation.
+Hstream and HM record `<game-id>_telemetry-N.db`, with working generations starting at 1. Publication copies a completed, closed database to the game directory using the finalized video's suffix, such as `my-game_telemetry-2.db`. Capture without a saved video publishes the next available numbered generation. Existing `hstream_telemetry[-N].db` and `hm_telemetry[-N].db` recordings remain readable.
+
+`N` is a positive file version. New published videos, databases, and CSV companions start at `-1`; neither an empty suffix nor `-0` is a new version. Explicit positive versions may retain leading zeroes. Older unnumbered recordings remain readable. Calibration camera/frame indices are independent of these versions.
 
 
 HM's `hmtrack` also records SQLite telemetry. Enabled `SaveDetectionsPlugin`,
-`SaveTrackingPlugin`, and `SaveCameraPlugin` stages write one `hm_telemetry.db`
-(or a fresh `hm_telemetry-N.db` in a reused working directory) instead of their
+`SaveTrackingPlugin`, and `SaveCameraPlugin` stages write one `<game-id>_telemetry-N.db`
+(with a fresh numeric suffix in a reused working directory) instead of their
 observation CSVs. The normal publication policy copies the current closed
-recording to the game/deploy directory as `hm_telemetry-N.db`, using the video's
+recording to the game/deploy directory as `<game-id>_telemetry-N.db`, using the video's
 suffix when video is saved. Time-limited runs stay in the working directory
 unless `--deploy-dir` is supplied, as before. Enabled pose/action outputs remain
 supplementary CSV files; older CSV inputs remain readable.
@@ -34,7 +36,7 @@ remain incomplete and cannot be trained on or published as completed runs.
 
 Experiment `reuse_tracking` passes the exact first variant's completed database
 to later variants and records the reused tracks with their new camera outputs.
-An explicit `--input-tracking-data=/path/to/hm_telemetry-N.db` also works with
+An explicit `--input-tracking-data=/path/to/my-game_telemetry-1.db` also works with
 `LoadTrackingPlugin`. Reuse requires one completed run with one unambiguous
 geometry/source/epoch and unique source frame IDs. Merged or discontinuous inputs
 must be selected separately; missing frames are errors, while recorded empty
@@ -56,7 +58,7 @@ WHERE run_id = '<run-uuid>' AND kind = 'run-configuration';
 Train directly from any combination of individual and merged databases:
 
 ```sh
-./drivegpt_train.sh --database='/data/games/*/hstream_telemetry-*.db' \
+./drivegpt_train.sh --database='/data/games/*/*_telemetry-*.db' \
   --database=/data/combined.db --no-pose --include-rink --rink-input=grid
 ```
 
@@ -72,7 +74,7 @@ For explicit dataset selection:
 schema: hockey-drivegpt-dataset-v2
 root: /data
 databases:
-  - games/*/hstream_telemetry-*.db
+  - games/*/*_telemetry-*.db
   - combined.db
 include: ['*']
 exclude: []
@@ -97,7 +99,7 @@ The output contains the database copies, a catalog, and `dataset.yaml`. The gene
 Inspect and merge:
 
 ```sh
-python -m hmlib.cli.telemetry_db inspect /data/game/hstream_telemetry-2.db
+python -m hmlib.cli.telemetry_db inspect /data/game/game_telemetry-2.db
 python -m hmlib.cli.telemetry_db merge /data/combined.db /data/games
 ```
 

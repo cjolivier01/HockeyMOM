@@ -20,10 +20,25 @@ from hmlib.camera.camera_transformer import CameraNorm
 from hmlib.camera.rink_context import mask_to_grid
 from hmlib.telemetry.database import (
     create_database,
+    database_filename,
+    database_generation,
     discover_runs,
+    game_database_files,
     merge_databases,
     read_database,
 )
+
+
+def should_discover_game_named_and_legacy_recordings(tmp_path):
+    recognized = [
+        "game-a_telemetry-1.db",
+        "game-b_telemetry-12.db",
+        "hstream_telemetry-4.db",
+        "hm_telemetry.db",
+    ]
+    for name in [*recognized, "unrelated.db", "game-a_telemetry-invalid.db"]:
+        (tmp_path / name).touch()
+    assert [path.name for path in game_database_files(tmp_path)] == sorted(recognized)
 
 
 def recording(path, game="game-a", run_id=None, *, width=200, height=100):
@@ -177,7 +192,7 @@ def should_merge_preserve_full_run_configuration_archive(tmp_path):
 
 
 def should_database_training_retains_empty_frames_order_and_policy_boundaries(tmp_path):
-    path = tmp_path / "hstream_telemetry-2.db"
+    path = tmp_path / "game-a_telemetry-2.db"
     _, mask = recording(path)
     games, _ = discover_database_games([path])
     norm = CameraNorm(scale_x=200, scale_y=100, max_players=8)
@@ -247,14 +262,14 @@ def should_geometry_revisions_split_a_run_into_independent_training_sequences(tm
 def should_published_dataset_preserves_suffixes_and_trains_from_databases(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
-    recording(source / "hstream_telemetry-2.db")
-    recording(source / "hstream_telemetry-4.db", "game-b")
+    recording(source / "game-a_telemetry-2.db")
+    recording(source / "game-b_telemetry-4.db", "game-b")
     destination = tmp_path / "published"
     catalog = publish_database_dataset([source], destination)
     assert catalog["schema"] == "hockey-drivegpt-catalog-v2"
     assert sorted(path.name for path in destination.rglob("*.db")) == [
-        "hstream_telemetry-2.db",
-        "hstream_telemetry-4.db",
+        "game-a_telemetry-2.db",
+        "game-b_telemetry-4.db",
     ]
     assert not list(destination.rglob("*.csv"))
     train, val, identity = catalog_split(
@@ -332,3 +347,11 @@ def should_filter_short_geometries_before_worker_sharding(tmp_path, monkeypatch)
             dataset_module, "get_worker_info", lambda: SimpleNamespace(id=worker_id, num_workers=2)
         )
         assert next(iter(dataset))["y"].shape[0] == 32
+
+
+@pytest.mark.parametrize("version", [0, -1])
+def should_reject_new_database_version_zero(tmp_path, version):
+    with pytest.raises(ValueError, match="between 1"):
+        database_filename("game-a", version)
+    assert database_generation("game-a_telemetry-0.db") == 0
+    assert database_generation("hm_telemetry.db") == 0

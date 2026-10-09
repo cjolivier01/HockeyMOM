@@ -20,7 +20,12 @@ import cv2
 import numpy as np
 import yaml
 
-from hmlib.telemetry.database import create_database, read_database
+from hmlib.telemetry.database import (
+    create_database,
+    database_filename,
+    database_generation,
+    read_database,
+)
 
 
 @dataclass(frozen=True)
@@ -68,9 +73,13 @@ class TelemetryRecorder:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         # Reserve a fresh working generation; previous runs remain recoverable.
-        index = 0
+        index = 1
+        for entry in directory.iterdir():
+            generation = database_generation(entry.name)
+            if generation is not None:
+                index = max(index, generation + 1)
         while True:
-            self.path = directory / f"hm_telemetry{'-' + str(index) if index else ''}.db"
+            self.path = directory / database_filename(game_id, index)
             try:
                 connection = create_database(self.path)
                 break
