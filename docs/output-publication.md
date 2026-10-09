@@ -31,7 +31,8 @@ without the database or tracking marker, and a subsequent publication skips thei
 An explicit `--output-video` with a positive numeric suffix is preserved; its
 version fixes the companion suffix. An unnumbered basename receives the next
 available version, and version zero is rejected. An existing destination causes
-an error instead of being overwritten. When that explicit video is outside the companion destination directory,
+an error instead of being overwritten. Legacy telemetry names and other spellings
+of the same numeric version also reserve that version. When that explicit video is outside the companion destination directory,
 its publication is a separate transaction; a later CSV failure retains the
 already completed video as well as the working artifacts.
 

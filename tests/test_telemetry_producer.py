@@ -373,6 +373,38 @@ def should_publish_exact_labeled_supplements_without_stale_outputs(tmp_path):
     assert not (game / "actions-1.csv").exists()
 
 
+@pytest.mark.parametrize(
+    "previous_database",
+    ["hm_telemetry-1.db", "hstream_telemetry-01.sqlite", "game_telemetry-001.db"],
+)
+def should_reject_explicit_video_version_occupied_by_database_alias(tmp_path, previous_database):
+    from hmlib.cli.hmtrack import _deploy_output_artifacts
+
+    work, game = tmp_path / "work", tmp_path / "game"
+    writer = TelemetryRecorder(work, "game", {}, {"tracks"})
+    capture(writer, context(), stages=("tracks",))
+    writer.close()
+    complete_recording(writer.path)
+    video = work / "output.mp4"
+    video.write_bytes(b"current video")
+    game.mkdir()
+    legacy = game / previous_database
+    legacy.write_bytes(b"previous recording")
+    with pytest.raises(FileExistsError, match="generation 1 already exists"):
+        _deploy_output_artifacts(
+            output_video_path=str(video),
+            output_video=str(game / "custom-1.mp4"),
+            results_folder=str(work),
+            target_deploy_dir=str(game),
+            game_id="game",
+            telemetry_path=writer.path,
+        )
+    assert legacy.read_bytes() == b"previous recording"
+    assert not (game / "game_telemetry-1.db").exists()
+    assert not (game / "custom-1.mp4").exists()
+    assert video.read_bytes() == b"current video"
+
+
 def should_capture_real_instance_metadata_and_mask(tmp_path):
     from mmdet.structures import DetDataSample, TrackDataSample
     from mmengine.structures import InstanceData

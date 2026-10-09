@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from hmlib.telemetry.database import database_generation
 from hmlib.utils.finalization import finalize_resources
 
 
@@ -171,6 +172,13 @@ def publish_artifacts(
             name: directory / (name if literal_names else artifact_name(name, suffix))
             for name in names
         }
+        if exact and any(
+            database_generation(path.name) is not None for path in candidates.values()
+        ):
+            # A renamed database must not claim a version occupied by an old
+            # producer, a different extension, or another spelling of the number.
+            if any(database_generation(path.name) == suffix for path in directory.iterdir()):
+                raise FileExistsError(f"Output generation {suffix} already exists in {directory}")
         while any(os.path.lexists(path) for path in candidates.values()):
             if exact:
                 raise FileExistsError(f"Output generation {suffix} already exists in {directory}")
