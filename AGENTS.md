@@ -66,6 +66,7 @@
 - Secrets: never commit credentials; prefer environment variables.
 - Large files: keep outside the repo (symlinks `datasets/`, `pretrained/`).
 - Reproducibility: run via Bazel for consistent tooling; avoid ad‑hoc local installs unless developing isolated modules.
+- Versioned recordings/publications start at `-1`; video and telemetry companions share one positive version. Telemetry uses `<game-id>_telemetry-N.db`, with legacy unnumbered names retained for reading. `hmlib/utils/output_publication.py` owns publication and `hmlib/telemetry/recorder.py` owns working database allocation. See `docs/output-publication.md` and `docs/telemetry-databases.md`.
 
 ## AspenNet Architecture
 - Graph runner built from YAML `aspen.trunks` mapping (`class`, `depends`, `params`, optional `enabled`); missing deps or cycles raise; disabled trunks become no-op stubs to preserve graph shape; graph is exported to `aspennet.dot` on init.

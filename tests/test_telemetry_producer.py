@@ -191,17 +191,30 @@ def should_preserve_prior_working_recordings_and_config_cycles(tmp_path):
         complete_recording(recorder.path)
         paths.append(recorder.path)
     assert paths[0] != paths[1]
+    assert [path.name for path in paths] == ["game_telemetry-1.db", "game_telemetry-2.db"]
     assert len(discover_runs(paths)) == 2
 
 
-def should_publish_only_current_database_and_keep_calibration_png(tmp_path):
+def should_advance_working_generations_beyond_existing_recordings(tmp_path):
+    for name in ["hm_telemetry-4.db", "hstream_telemetry-6.db", "game_telemetry-9.db"]:
+        (tmp_path / name).write_bytes(b"previous run")
+    recorder = TelemetryRecorder(tmp_path, "game", {}, {"tracks"})
+    capture(recorder, context(), stages=("tracks",))
+    recorder.close()
+    complete_recording(recorder.path)
+    assert recorder.path.name == "game_telemetry-10.db"
+    assert (tmp_path / "game_telemetry-9.db").read_bytes() == b"previous run"
+
+
+@pytest.mark.parametrize("previous_database", ["hstream_telemetry-5.db", "game_telemetry-5.db"])
+def should_publish_only_current_database_and_keep_calibration_png(tmp_path, previous_database):
     from hmlib.cli.hmtrack import _deploy_output_artifacts
 
     work = tmp_path / "work"
     game = tmp_path / "game"
     game.mkdir()
     (game / "rink_mask_0.png").write_bytes(b"calibration")
-    (game / "hstream_telemetry-5.db").write_bytes(b"old generation")
+    (game / previous_database).write_bytes(b"old generation")
     recorder = TelemetryRecorder(work, "game", {}, {"tracks"})
     capture(recorder, context(), stages=("tracks",))
     recorder.close()
@@ -218,7 +231,7 @@ def should_publish_only_current_database_and_keep_calibration_png(tmp_path):
         telemetry_path=recorder.path,
     )
     assert (game / "rink_mask_0.png").read_bytes() == b"calibration"
-    assert (game / "hm_telemetry-6.db").is_file()
+    assert (game / "game_telemetry-6.db").is_file()
     assert not list(game.glob("*.csv"))
     assert [p.name for p in game.glob("rink_mask_*.png")] == ["rink_mask_0.png"]
 
@@ -292,7 +305,7 @@ def should_integrate_with_pipeline_and_keep_failed_shutdown_incomplete(
     if fail_shutdown:
         with pytest.raises(Exception, match="late encoder"):
             run_mmtrack(None, cfg, Loader(), None, device=device, no_cuda_streams=True)
-        path = tmp_path / "hm_telemetry.db"
+        path = tmp_path / "test_telemetry-1.db"
     else:
         artifacts = run_mmtrack(None, cfg, Loader(), None, device=device, no_cuda_streams=True)
         path = artifacts.telemetry_path
@@ -358,6 +371,38 @@ def should_publish_exact_labeled_supplements_without_stale_outputs(tmp_path):
     assert (game / "variant_actions-1.csv").read_text() == "current actions"
     assert not (game / "pose-1.csv").exists()
     assert not (game / "actions-1.csv").exists()
+
+
+@pytest.mark.parametrize(
+    "previous_database",
+    ["hm_telemetry-1.db", "hstream_telemetry-01.sqlite", "game_telemetry-001.db"],
+)
+def should_reject_explicit_video_version_occupied_by_database_alias(tmp_path, previous_database):
+    from hmlib.cli.hmtrack import _deploy_output_artifacts
+
+    work, game = tmp_path / "work", tmp_path / "game"
+    writer = TelemetryRecorder(work, "game", {}, {"tracks"})
+    capture(writer, context(), stages=("tracks",))
+    writer.close()
+    complete_recording(writer.path)
+    video = work / "output.mp4"
+    video.write_bytes(b"current video")
+    game.mkdir()
+    legacy = game / previous_database
+    legacy.write_bytes(b"previous recording")
+    with pytest.raises(FileExistsError, match="generation 1 already exists"):
+        _deploy_output_artifacts(
+            output_video_path=str(video),
+            output_video=str(game / "custom-1.mp4"),
+            results_folder=str(work),
+            target_deploy_dir=str(game),
+            game_id="game",
+            telemetry_path=writer.path,
+        )
+    assert legacy.read_bytes() == b"previous recording"
+    assert not (game / "game_telemetry-1.db").exists()
+    assert not (game / "custom-1.mp4").exists()
+    assert video.read_bytes() == b"current video"
 
 
 def should_capture_real_instance_metadata_and_mask(tmp_path):

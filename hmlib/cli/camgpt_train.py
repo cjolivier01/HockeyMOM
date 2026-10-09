@@ -23,6 +23,7 @@ from hmlib.camera.camera_database import (
     split_database_games,
     usable_database_games,
 )
+from hmlib.telemetry.database import game_database_files
 from hmlib.camera.camera_gpt import (
     OPENDRIVE_UNIAD_MODEL_ID,
     OPENDRIVE_UNIAD_PLANNING_FILE,
@@ -1242,7 +1243,7 @@ def main(argv: Optional[List[str]] = None):
             if not game_dir.is_dir():
                 logger.warning("Skipping missing game dir: %s", game_dir)
                 continue
-            databases = sorted(game_dir.glob("hstream_telemetry*.db"))
+            databases = game_database_files(game_dir)
             if databases and not (
                 args.camera_csv_name or args.camera_fast_csv_name or args.pose_csv_name
             ):
@@ -1288,7 +1289,7 @@ def main(argv: Optional[List[str]] = None):
             if not gdir.is_dir():
                 logger.warning("Skipping %s (missing dir %s)", gid, gdir)
                 continue
-            databases = sorted(gdir.glob("hstream_telemetry*.db"))
+            databases = game_database_files(gdir)
             if databases and not (
                 args.camera_csv_name or args.camera_fast_csv_name or args.pose_csv_name
             ):

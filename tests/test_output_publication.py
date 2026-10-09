@@ -38,16 +38,23 @@ def should_publish_complete_independent_copies_with_tracking_last(tmp_path, monk
     original_link = os.link
 
     def link(source, target, **kwargs):
-        assert Path(source).read_bytes() == sources[Path(target).name].read_bytes()
-        if Path(target).name == "tracking.csv":
-            assert all((destination / name).exists() for name in sources if name != "tracking.csv")
+        assert (
+            Path(source).read_bytes()
+            == sources[Path(target).stem.removesuffix("-1") + Path(target).suffix].read_bytes()
+        )
+        if Path(target).name == "tracking-1.csv":
+            assert all(
+                (destination / publication.artifact_name(name, 1)).exists()
+                for name in sources
+                if name != "tracking.csv"
+            )
         links.append(Path(target).name)
         original_link(source, target, **kwargs)
 
     monkeypatch.setattr(publication.os, "link", link)
-    result = publication.publish_artifacts(sources, destination, exact=True)
-    assert result.suffix == 0
-    assert links[-1] == "tracking.csv"
+    result = publication.publish_artifacts(sources, destination, suffix=1, exact=True)
+    assert result.suffix == 1
+    assert links[-1] == "tracking-1.csv"
     for name, source in sources.items():
         assert result.files[name].read_bytes() == source.read_bytes()
         assert result.files[name].stat().st_ino != source.stat().st_ino
@@ -120,13 +127,13 @@ def should_rollback_partial_publication_and_retain_working_files(
         original_link = os.link
 
         def fail_link(source, target, **kwargs):
-            if Path(target).name == "tracking.csv":
+            if Path(target).name == "tracking-1.csv":
                 raise OSError(errno.ENOSPC, "link full")
             original_link(source, target, **kwargs)
 
         monkeypatch.setattr(publication.os, "link", fail_link)
     with pytest.raises(OSError):
-        publication.publish_artifacts(sources, destination, exact=True)
+        publication.publish_artifacts(sources, destination, suffix=1, exact=True)
     assert _visible(destination) == []
     assert all(path.exists() for path in sources.values())
     _assert_no_staging(destination)
@@ -149,11 +156,11 @@ def should_never_overwrite_an_exact_destination(tmp_path):
     sources = _sources(tmp_path / "work")
     destination = tmp_path / "game"
     destination.mkdir()
-    (destination / "camera.csv").write_bytes(b"existing")
+    (destination / "camera-1.csv").write_bytes(b"existing")
     with pytest.raises(FileExistsError):
-        publication.publish_artifacts(sources, destination, exact=True)
-    assert _visible(destination) == ["camera.csv"]
-    assert (destination / "camera.csv").read_bytes() == b"existing"
+        publication.publish_artifacts(sources, destination, suffix=1, exact=True)
+    assert _visible(destination) == ["camera-1.csv"]
+    assert (destination / "camera-1.csv").read_bytes() == b"existing"
 
 
 def should_publish_suffixed_tracking_after_companions(tmp_path, monkeypatch):
@@ -237,8 +244,8 @@ def should_preserve_replaced_files_during_failed_publication(tmp_path, monkeypat
     original_link = os.link
 
     def replace_companion(source, target, **kwargs):
-        if Path(target).name == "tracking.csv":
-            camera = destination / "camera.csv"
+        if Path(target).name == "tracking-1.csv":
+            camera = destination / "camera-1.csv"
             camera.unlink()
             camera.write_bytes(b"new owner")
             raise OSError("tracking link failed")
@@ -246,9 +253,9 @@ def should_preserve_replaced_files_during_failed_publication(tmp_path, monkeypat
 
     monkeypatch.setattr(publication.os, "link", replace_companion)
     with pytest.raises(OSError, match="tracking link failed"):
-        publication.publish_artifacts(sources, destination, exact=True)
-    assert _visible(destination) == ["camera.csv"]
-    assert (destination / "camera.csv").read_bytes() == b"new owner"
+        publication.publish_artifacts(sources, destination, suffix=1, exact=True)
+    assert _visible(destination) == ["camera-1.csv"]
+    assert (destination / "camera-1.csv").read_bytes() == b"new owner"
     assert "changed ownership" in caplog.text
     _assert_no_staging(destination)
 
@@ -332,7 +339,7 @@ def should_number_unnumbered_explicit_output_without_overwriting_calibration(
     assert (game / "rink_mask_0.png").read_bytes() == b"current calibration"
 
 
-@pytest.mark.parametrize("suffix", ["-0", "-007"])
+@pytest.mark.parametrize("suffix", ["-1", "-007"])
 def should_preserve_literal_explicit_video_suffix_for_all_companions(tmp_path, suffix):
     from hmlib.cli.hmtrack import _deploy_output_artifacts
 
@@ -356,3 +363,80 @@ def should_preserve_literal_explicit_video_suffix_for_all_companions(tmp_path, s
         assert (game / f"{Path(name).stem}{suffix}.csv").read_bytes() == source.read_bytes()
     assert (game / f"rink_mask_0{suffix}.png").read_bytes() == b"run mask"
     assert (game / "rink_mask_0.png").read_bytes() == b"calibration"
+
+
+@pytest.mark.parametrize("version", [0, -1])
+def should_reject_nonpositive_publication_versions(tmp_path, version):
+    sources = _sources(tmp_path / "work")
+    with pytest.raises(ValueError, match="start at one"):
+        publication.publish_artifacts(sources, tmp_path / "game", suffix=version)
+    assert not (tmp_path / "game").exists()
+
+
+def should_reject_unnumbered_or_zero_exact_artifacts(tmp_path):
+    sources = _sources(tmp_path / "work")
+    with pytest.raises(ValueError, match="positive version"):
+        publication.publish_artifacts(sources, tmp_path / "game", exact=True)
+    with pytest.raises(ValueError, match="positive version"):
+        publication.publish_artifacts(
+            {"tracking-0.csv": sources["tracking.csv"]}, tmp_path / "game", exact=True
+        )
+
+
+def should_reject_explicit_video_version_zero_before_publication(tmp_path):
+    from hmlib.cli.hmtrack import _deploy_output_artifacts
+
+    _sources(tmp_path / "work")
+    video = tmp_path / "work" / "output.mp4"
+    video.write_bytes(b"video")
+    with pytest.raises(ValueError, match="start at one"):
+        _deploy_output_artifacts(
+            output_video_path=str(video),
+            output_video=str(tmp_path / "game" / "custom-0.mp4"),
+            results_folder=str(video.parent),
+            target_deploy_dir=str(tmp_path / "game"),
+            game_id="game",
+        )
+    assert not (tmp_path / "game").exists()
+
+
+@pytest.mark.parametrize("in_game_directory", [False, True])
+def should_version_automatic_audio_outputs_from_one(tmp_path, monkeypatch, in_game_directory):
+    from hmlib import game_audio
+
+    directory = tmp_path / "game" if in_game_directory else tmp_path
+    directory.mkdir(exist_ok=True)
+    video = tmp_path / "tracking_output.mkv"
+    video.write_bytes(b"video")
+    monkeypatch.setattr(
+        game_audio, "get_game_dir", lambda _: str(directory) if in_game_directory else None
+    )
+
+    def copy_audio(**kwargs):
+        Path(kwargs["output_video"]).write_bytes(b"with audio")
+
+    monkeypatch.setattr(game_audio, "copy_audio", copy_audio)
+    first = game_audio.transfer_audio("game", "audio.mp4", str(video))
+    assert first == directory / "tracking_output-with-audio-1.mp4"
+    (directory / "tracking_output-with-audio-3.mp4").write_bytes(b"previous version")
+    next_output = game_audio.transfer_audio("game", "audio.mp4", str(video))
+    assert next_output == directory / "tracking_output-with-audio-4.mp4"
+    assert first.read_bytes() == b"with audio"
+    assert not (directory / "tracking_output-with-audio.mp4").exists()
+
+
+def should_version_explicit_audio_basename_and_reject_zero(tmp_path, monkeypatch):
+    from hmlib import game_audio
+
+    def copy_audio(**kwargs):
+        Path(kwargs["output_video"]).write_bytes(b"with audio")
+
+    monkeypatch.setattr(game_audio, "copy_audio", copy_audio)
+    published = game_audio.transfer_audio(
+        "game", "audio.mp4", "video.mkv", str(tmp_path / "custom.mp4")
+    )
+    assert published == tmp_path / "custom-1.mp4"
+    with pytest.raises(ValueError, match="start at one"):
+        game_audio.transfer_audio("game", "audio.mp4", "video.mkv", str(tmp_path / "custom-0.mp4"))
+    with pytest.raises(FileExistsError):
+        game_audio.transfer_audio("game", "audio.mp4", "video.mkv", str(published))
